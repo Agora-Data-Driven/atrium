@@ -77,6 +77,59 @@ assignments it carries:
 Because it is one JSON object behind the portal login (no database to stand up), the CRM extends by
 adding fields to the registry and UI to the portal — not by introducing new infrastructure.
 
+## Agora Atrium — the client workspace
+
+**Agora Atrium** is the co-branded client workspace built **into** `platform-dash` (the first big
+step on the CRM growth path). A client logs into the portal and opens their workspace to see the
+*strategy* behind their marketing, **approve / request changes** on paid and organic content, watch
+**results**, **message** the AGORA team, and control their own **email notifications**. It is
+**additive**: it reuses the existing session auth, bucket, and runtime SA — **no new
+infra/IAM/bucket/secret/service.** The product name lives in one constant, `WORKSPACE_NAME` in
+`dash/main.py`.
+
+- **State is per-client JSON in the SAME bucket — no database.** Each client's workspace lives in
+  one private object, **`workspace/<c>.json`**, in `agora-data-driven-platform-dash` (the registry
+  bucket). `dash/workspace.py` is the only code that reads/writes it, mirroring `store.py`'s
+  last-write-wins, load-modify-save pattern but one object **per client** (so clients never contend
+  on a shared object). It carries: `metrics`, `today`, `split`, `series`, `activity`, `campaigns[]`
+  (each with `strategy`/`ai_summary` and `content[]` reviewed by status `awaiting|approved|changes`
+  + a `client_note`), `calendar[]`, `conversations[]` (messages from `client`/`agora`), and per-user
+  `notify` prefs.
+- **Off-cloud testable.** `workspace.py` imports `google-cloud-storage` lazily and supports a local
+  filesystem backend via `WORKSPACE_LOCAL_DIR` (plus `WORKSPACE_BUCKET` / `WORKSPACE_PREFIX`
+  overrides), so the data layer and the whole Flask surface run on a laptop with no GCS/ADC. See
+  `dash/_workspace_localtest.py` (data layer) and `dash/_atrium_smoketest.py` (full route + template
+  test, stubs GCS).
+- **Routes (all behind the existing session auth).** Client-facing: `GET /w/<c>/` and
+  `GET /w/<c>/<tab>` (tabs: overview, dashboard, leadgen, organic, calendar, conversations,
+  settings), gated `authed()` + `can_open(<c>)`; plus ownership-checked JSON POSTs `/w/<c>/approve`,
+  `/request-changes`, `/save-note`, `/send-message`, `/save-notify`. Team-facing operator console:
+  `/admin/atrium` and `/admin/atrium/<c>` (+ `/campaign`, `/content`, `/conversation`, `/reply`,
+  `/metrics` POSTs), gated `is_superadmin()`. The portal landing shows an **Open workspace** link per
+  client beside **Open dashboard**.
+- **Notifications are optional & graceful** (`dash/notify.py`, mirroring `feedback_ai.py`). By
+  default a notification just **records an activity entry** in the client's workspace and logs to
+  stdout. Real email is sent only if **both** `ATRIUM_EMAIL_ENABLED=1` and an
+  `ATRIUM_EMAIL_API_KEY` (Secret-Manager-mounted) are set, with the provider SDK imported lazily — an
+  unconfigured deploy can never break, and **no provider key is committed**. The team inbox is
+  `ATRIUM_TEAM_EMAIL` (default `info@agoradatadriven.com`). Team→client emails respect each
+  recipient's Notification-settings toggles (master switch wins).
+- **The theme is scoped.** The Atrium surface is AGORA's green/violet **light** theme, every selector
+  scoped under `.atrium`, so it never bleeds into the dark portal/dashboard chrome. Inline JS is
+  esprima-4.x-safe and reads state from the DOM (no Jinja in any script block), so the pre-deploy JS
+  gate stays green.
+
+**Seed the Riverdance demo (once).** `dash/seed_workspace.py` writes `workspace/riverdance.json`
+(idempotent — refuses to clobber an existing object) and registers `riverdance` in the registry so
+its **Open workspace** card appears:
+
+```powershell
+.\.venv\Scripts\python.exe agora-platform\dash\seed_workspace.py
+```
+
+*(TODO: later derive the Dashboard metrics/series from the client's live `<c>.json` produced by the
+dashboard pipeline, once the metric-taxonomy mapping is agreed — see the `# CRM:`/TODO marker.)*
+
 ## Deploying
 
 Two scripts, both **run as yourself** from the repo root (never Cloud Build from a laptop — the

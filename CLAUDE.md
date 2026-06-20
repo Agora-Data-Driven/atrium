@@ -16,6 +16,8 @@ on Google Cloud Platform, fronted by a client portal that is growing into a full
 - **The portal/CRM front-door** (`agora-platform/`, served at `portal.agoradatadriven.com`) is a
   reverse proxy + single login over all dashboards, with a registry stored as one private JSON in
   GCS. It is designed to grow into a CRM (see the `# CRM:` markers in `agora-platform/dash/main.py`).
+  **Agora Atrium** — the co-branded client workspace — is built into this same `platform-dash`
+  service (see the Agora Atrium section below).
 - **Windsor.ai is the only data source.** Connector loaders in `ingest/windsor_data_pull/` land
   source data into the shared `raw_windsor` BigQuery dataset; per-client SQL views read from there.
 
@@ -47,7 +49,9 @@ data object `<c>.json` + freshness sidecar `_freshness.json` in the client's buc
   `dash/`, deploy scripts, README).
 - `ingest/windsor_data_pull/` — Windsor connector loaders (`ga4`, `google_ads`, `meta`, `tradedesk`,
   `reddit`, `hubspot`, `fields`) that write `raw_windsor.*`. Scheduled API pulls, not self-gating.
-- `agora-platform/` — the portal/CRM front-door (`platform-dash`).
+- `agora-platform/` — the portal/CRM front-door (`platform-dash`). Also hosts **Agora Atrium**
+  (`dash/workspace.py`, `seed_workspace.py`, `notify.py`, `atrium_view.py`, `templates/atrium.html`
+  + `admin_atrium.html`).
 - `status_dashboard/` — meta dashboard monitoring every client's freshness (no dataset/views).
 - `scripts/` — operator tooling: `setup.ps1` (one-time laptop setup), `start_day.ps1` (per-session
   preflight), `deploy_ingest_jobs.ps1` (the one script that touches production ingest),
@@ -60,6 +64,37 @@ Grep for the metric or label you want to change and edit in place. Theme colors 
 properties in `:root` (the `--ag-*` palette). Inline JS must stay **esprima-4.x-safe**: no optional
 chaining `?.` and no nullish coalescing `??` (the pre-deploy gate `scripts/_validate_dash_js.py`
 parses it with esprima, which predates those tokens). Use classic `&&`/`||` guards.
+
+## Agora Atrium (client workspace in the portal)
+
+Atrium is the co-branded client workspace built **into** `platform-dash` — **additive**, reusing the
+existing session auth, bucket, and runtime SA. **No new infra/IAM/bucket/secret/service.** Product
+name is one constant: `WORKSPACE_NAME` in `agora-platform/dash/main.py`.
+
+- **State = one private JSON per client (no database):** `workspace/<c>.json` in the **registry
+  bucket** `agora-data-driven-platform-dash`. `dash/workspace.py` is the only reader/writer
+  (last-write-wins, mirrors `store.py`); it imports `google-cloud-storage` lazily and supports a
+  local-fs backend via `WORKSPACE_LOCAL_DIR` (+ `WORKSPACE_BUCKET`/`WORKSPACE_PREFIX`) so it is
+  testable off-cloud. Shape: `metrics`, `today`, `split`, `series`, `activity`, `campaigns[]`
+  (`strategy`/`ai_summary` + `content[]` with status `awaiting|approved|changes` + `client_note`),
+  `calendar[]`, `conversations[]` (`client`/`agora` messages), per-user `notify` prefs.
+- **Routes (all behind existing session auth):** client `GET /w/<c>/` + `/w/<c>/<tab>` (overview,
+  dashboard, leadgen, organic, calendar, conversations, settings) gated `authed()`+`can_open(<c>)`;
+  POSTs `/w/<c>/{approve,request-changes,save-note,send-message,save-notify}`. Team console
+  `/admin/atrium[/<c>][/campaign|content|conversation|reply|metrics]` gated `is_superadmin()`. The
+  portal landing shows **Open workspace** beside **Open dashboard**.
+- **Notifications are optional & graceful** (`dash/notify.py`, mirrors `feedback_ai.py`): default
+  records an activity entry + logs to stdout; real email only when **both** `ATRIUM_EMAIL_ENABLED=1`
+  and `ATRIUM_EMAIL_API_KEY` (Secret-Manager) are set, SDK imported lazily. **No provider key
+  committed.** Team inbox `ATRIUM_TEAM_EMAIL` (default `info@agoradatadriven.com`).
+- **Theme/JS:** green/violet **light** theme scoped under `.atrium` (never bleeds into the dark
+  chrome); inline JS is esprima-4.x-safe and reads state from the DOM (no Jinja in any script block).
+- **Ships via the SAME deploy as the portal:** `agora-platform/dash/deploy_dash_platform.ps1` (build
+  as yourself → `gcloud run deploy platform-dash --no-invoker-iam-check`). Validate templates with
+  `scripts/_validate_dash_js.py` first. Seed the demo once:
+  `.\.venv\Scripts\python.exe agora-platform\dash\seed_workspace.py` (idempotent; writes
+  `workspace/riverdance.json`, refuses to clobber). Local tests: `dash/_workspace_localtest.py`
+  (data) and `dash/_atrium_smoketest.py` (full route+template, stubs GCS).
 
 ## The data contract (three stages, matched BY NAME)
 
