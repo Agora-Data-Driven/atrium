@@ -139,15 +139,93 @@ def month_grid(events, today):
         cells = []
         for d in week:
             iso = d.isoformat()
+            cell_events = by_date.get(iso, [])
+            is_past = d < today
+            is_today = d == today
+            has_ready = any(ev.get("status") in ("ready", "done") for ev in cell_events)
             cells.append({
                 "day": d.day,
                 "in_month": d.month == month,
-                "is_today": d == today,
+                "is_today": is_today,
+                "is_past": is_past,
                 "iso": iso,
-                "events": by_date.get(iso, []),
+                "events": cell_events,
+                # Green-forward: a day is 'done' once it's past (with events) or its work is ready;
+                # 'ahead' = a FUTURE day whose work is already ready/done (done in advance).
+                "done": bool(cell_events) and (is_past or has_ready),
+                "ahead": (not is_past) and (not is_today) and has_ready,
             })
         weeks.append(cells)
     return {"label": "%s %d" % (_MONTHS[month], year), "year": year, "month": month, "weeks": weeks}
+
+
+def _fmt_md(d):
+    """A short 'Jun 24' label for a date."""
+    return "%s %d" % (_MONTHS[d.month][:3], d.day)
+
+
+def milestones(events, today):
+    """Chronological timeline of calendar items, each tagged done / today / upcoming.
+
+    Mirrors the calendar's green-forward logic: an item is 'done' if its date has passed OR the team
+    marked it ready/done; a future done item is 'ahead' (finished in advance).
+    """
+    out = []
+    for e in sorted(events or [], key=lambda x: str(x.get("date", ""))):
+        try:
+            d = datetime.date.fromisoformat(str(e.get("date", "")))
+        except ValueError:
+            continue
+        status = e.get("status", "planned")
+        if d < today or status in ("ready", "done"):
+            state = "done"
+        elif d == today:
+            state = "today"
+        else:
+            state = "upcoming"
+        out.append({
+            "date_label": _fmt_md(d),
+            "label": e.get("label", ""),
+            "kind": e.get("kind", "milestone"),
+            "state": state,
+            "ahead": state == "done" and d > today,
+        })
+    return out
+
+
+def project_progress(ws, events, today):
+    """Project span + 'Day X of Y' progress for the calendar header, or None if undeterminable.
+
+    Uses ws['project'].start/end when present, else the earliest/latest calendar dates.
+    """
+    proj = ws.get("project") or {}
+    dates = []
+    for e in (events or []):
+        try:
+            dates.append(datetime.date.fromisoformat(str(e.get("date", ""))))
+        except ValueError:
+            pass
+
+    def _parse(v):
+        try:
+            return datetime.date.fromisoformat(str(v)) if v else None
+        except ValueError:
+            return None
+
+    start = _parse(proj.get("start")) or (min(dates) if dates else None)
+    end = _parse(proj.get("end")) or (max(dates) if dates else None)
+    if not start or not end or end < start:
+        return None
+    total = (end - start).days + 1
+    day = max(0, min((today - start).days + 1, total))
+    pct = max(0, min(int(round(day * 100.0 / total)) if total else 0, 100))
+    return {
+        "name": proj.get("name", ""),
+        "start_label": _fmt_md(start),
+        "end_label": _fmt_md(end),
+        "day": day, "total": total, "pct": pct,
+        "done": today >= end,
+    }
 
 
 # --- The full view context ----------------------------------------------------------------------
@@ -156,6 +234,7 @@ def build(ws, client, user, active_tab, now=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
     today = now.date()
     awaiting = awaiting_items(ws)
+    cal_events = ws.get("calendar", [])
     return {
         "client": client,
         "active_tab": active_tab,
@@ -166,5 +245,7 @@ def build(ws, client, user, active_tab, now=None):
         "awaiting_total": len(awaiting),
         "attention": awaiting,
         "campaigns_live": len(ws.get("campaigns", [])),
-        "calendar": month_grid(ws.get("calendar", []), today),
+        "calendar": month_grid(cal_events, today),
+        "milestones": milestones(cal_events, today),
+        "progress": project_progress(ws, cal_events, today),
     }
