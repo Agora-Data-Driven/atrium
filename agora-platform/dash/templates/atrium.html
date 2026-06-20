@@ -1,0 +1,918 @@
+{#
+  Agora Atrium -- the co-branded client workspace, served inside the portal (platform-dash).
+
+  Self-contained: no CDN, no external fonts/images. All data is rendered with Jinja in HTML; every
+  inline script block is pure ES5/ES2015 (no optional-chaining / nullish operators -- esprima-4.x
+  safe) and reads state from the DOM, never from Jinja, so the pre-deploy JS gate stays green. The
+  whole surface is scoped under `.atrium` (green/violet light theme) so it cannot bleed into the
+  dark portal/dashboards.
+
+  Context: workspace_name, view (atrium_view.build), ws (raw workspace dict), user, user_notify,
+  is_superadmin. Date strings are formatted with the `atrium_dt` Jinja filter (main.py).
+#}
+{% macro ic(name) -%}
+{%- if name == 'overview' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+{%- elif name == 'dashboard' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M3 20h18"/></svg>
+{%- elif name == 'leadgen' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+{%- elif name == 'organic' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20C6 20 4 16 4 11c5 0 9 1 11 5"/><path d="M20 4c0 8-4 12-9 13"/></svg>
+{%- elif name == 'calendar' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>
+{%- elif name == 'conversations' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.5 7.2L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
+{%- elif name == 'bell' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+{%- elif name == 'users' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M16 5.5a3 3 0 0 1 0 5.5M21 19a5 5 0 0 0-4-4.9"/></svg>
+{%- elif name == 'dollar' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="M16.5 6.5C16 5 14.5 4 12 4 9 4 7.5 5.5 7.5 7.5 7.5 12 16.5 10 16.5 15c0 2.2-2 3.5-4.5 3.5-2.8 0-4.2-1.2-5-3"/></svg>
+{%- elif name == 'home' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/></svg>
+{%- elif name == 'tag' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l9 9-7 7z"/><circle cx="7.5" cy="7.5" r="1.3"/></svg>
+{%- elif name == 'trending' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v5h-5"/></svg>
+{%- elif name == 'check' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+{%- elif name == 'message' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a7.5 7.5 0 0 1-10.8 6.7L4 19l1-5A7.5 7.5 0 1 1 21 11.5z"/></svg>
+{%- elif name == 'sparkle' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9l-4.7 1.8L12 15l-1.8-4.2L5.5 9l4.7-1.3z"/><path d="M19 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>
+{%- elif name == 'arrow' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+{%- elif name == 'logout' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h12"/></svg>
+{%- else -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/></svg>
+{%- endif -%}
+{%- endmacro %}
+{% set tab_titles = {'overview':'Overview','dashboard':'Dashboard','leadgen':'Lead Gen','organic':'Organic Content','calendar':'Content Calendar','conversations':'Client Conversations','settings':'Notification settings'} %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ ws.display_name }} &mdash; {{ workspace_name }}</title>
+  <style>
+    .atrium {
+      --ax-green:#41B54A; --ax-green-d:#2F7D33; --ax-green-bg:#E9F6EB;
+      --ax-violet:#6F61E8; --ax-violet-d:#5246B8; --ax-violet-bg:#F0EEFE;
+      --ax-ink:#16181D; --ax-sub:#5E6573; --ax-line:#E7E8EE; --ax-canvas:#F6F7F9; --ax-white:#fff;
+      --ax-ok:#41B54A; --ax-warn:#F2820C; --ax-bad:#E5413E;
+      --ax-radius:14px; --ax-pill:999px;
+      --ax-shadow:0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.06);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    .atrium {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ax-ink); background: var(--ax-canvas); min-height: 100vh; line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    .atrium a { color: inherit; text-decoration: none; }
+    .ax-ic { width: 20px; height: 20px; display: block; }
+
+    /* App shell */
+    .ax-app { display: grid; grid-template-columns: 256px 1fr; min-height: 100vh; }
+    .ax-side {
+      background: var(--ax-white); border-right: 1px solid var(--ax-line);
+      display: flex; flex-direction: column; gap: 14px; padding: 20px 16px; position: sticky; top: 0;
+      height: 100vh;
+    }
+    .ax-brand { display: flex; align-items: center; gap: 10px; padding: 4px 6px 14px; }
+    .ax-brand .ax-co { display: flex; align-items: center; gap: 9px; }
+    .ax-brand .ax-x { color: var(--ax-line); font-weight: 300; }
+    .ax-brand svg { display: block; }
+    .ax-badge {
+      margin-top: 2px; font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+      color: var(--ax-violet); background: var(--ax-violet-bg); padding: 2px 8px; border-radius: var(--ax-pill);
+    }
+    .ax-nav { display: flex; flex-direction: column; gap: 3px; }
+    .ax-nav a {
+      display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 11px;
+      color: var(--ax-sub); font-size: 14px; font-weight: 600; transition: background .12s, color .12s;
+    }
+    .ax-nav a:hover { background: var(--ax-canvas); color: var(--ax-ink); }
+    .ax-nav a.is-active { background: var(--ax-green); color: #fff; box-shadow: 0 6px 16px rgba(65,181,74,.32); }
+    .ax-nav a.is-active .ax-ic { color: #fff; }
+    .ax-nav .ax-count {
+      margin-left: auto; font-size: 11px; font-weight: 800; min-width: 20px; text-align: center;
+      background: var(--ax-warn); color: #fff; border-radius: var(--ax-pill); padding: 1px 6px;
+    }
+    .ax-nav a.is-active .ax-count { background: rgba(255,255,255,.28); }
+    .ax-side-card {
+      margin-top: auto; background: var(--ax-canvas); border: 1px solid var(--ax-line);
+      border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px;
+    }
+    .ax-side-card .ax-name { font-size: 13px; font-weight: 700; }
+    .ax-side-card .ax-sub { font-size: 11px; color: var(--ax-sub); }
+
+    /* Main column */
+    .ax-main { display: flex; flex-direction: column; min-width: 0; }
+    .ax-top {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 16px 28px; border-bottom: 1px solid var(--ax-line); background: rgba(255,255,255,.7);
+      position: sticky; top: 0; z-index: 20; backdrop-filter: blur(6px);
+    }
+    .ax-top h1 { font-size: 18px; margin: 0; font-weight: 800; letter-spacing: -.2px; }
+    .ax-top-right { display: flex; align-items: center; gap: 12px; }
+    .ax-clock { font-size: 13px; color: var(--ax-sub); font-variant-numeric: tabular-nums; min-width: 78px; text-align: right; }
+    .ax-iconbtn {
+      width: 38px; height: 38px; display: grid; place-items: center; border-radius: var(--ax-pill);
+      border: 1px solid var(--ax-line); background: var(--ax-white); color: var(--ax-sub); cursor: pointer; position: relative;
+    }
+    .ax-iconbtn:hover { color: var(--ax-ink); border-color: #d6d8e0; }
+    .ax-iconbtn .ax-bdot { position: absolute; top: 8px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--ax-warn); border: 2px solid var(--ax-white); }
+    .ax-avatar {
+      width: 38px; height: 38px; border-radius: var(--ax-pill); display: grid; place-items: center;
+      background: var(--ax-violet); color: #fff; font-size: 13px; font-weight: 800; cursor: pointer;
+    }
+    .ax-signout {
+      display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; border-radius: var(--ax-pill);
+      border: 1px solid var(--ax-line); background: var(--ax-white); color: var(--ax-sub); font-size: 13px; font-weight: 600;
+    }
+    .ax-signout:hover { color: var(--ax-bad); border-color: rgba(229,65,62,.35); }
+
+    .ax-body { padding: 26px 28px 60px; max-width: 1120px; width: 100%; }
+    .ax-pane { display: none; }
+    .ax-pane.is-active { display: block; animation: axfade .18s ease; }
+    @keyframes axfade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+    /* Typography helpers */
+    .ax-greet { font-size: 24px; font-weight: 800; letter-spacing: -.4px; margin: 0 0 4px; }
+    .ax-lede { color: var(--ax-sub); margin: 0 0 22px; }
+    .ax-h2 { font-size: 16px; font-weight: 800; margin: 0 0 14px; }
+    .ax-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ax-sub); }
+
+    /* Cards / panels */
+    .ax-card { background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: var(--ax-radius); box-shadow: var(--ax-shadow); }
+    .ax-panel { background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: var(--ax-radius); box-shadow: var(--ax-shadow); padding: 18px; }
+
+    /* KPI rows */
+    .ax-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 22px; }
+    .ax-kpi { padding: 16px; }
+    .ax-kpi .ax-kpi-top { display: flex; align-items: center; gap: 8px; color: var(--ax-sub); font-size: 12.5px; font-weight: 600; }
+    .ax-kpi .ax-kpi-ic { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--ax-green-bg); color: var(--ax-green-d); }
+    .ax-kpi .ax-kpi-ic .ax-ic { width: 17px; height: 17px; }
+    .ax-kpi .ax-val { font-size: 26px; font-weight: 800; margin: 10px 0 2px; letter-spacing: -.6px; }
+    .ax-trend { font-size: 12.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 3px; }
+    .ax-trend.up { color: var(--ax-green-d); }
+    .ax-trend.down { color: var(--ax-bad); }
+
+    /* Two-column area */
+    .ax-cols2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; align-items: start; }
+    @media (max-width: 880px) { .ax-cols2 { grid-template-columns: 1fr; } }
+
+    /* Lists (attention / activity) */
+    .ax-list { display: flex; flex-direction: column; }
+    .ax-row { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-top: 1px solid var(--ax-line); }
+    .ax-row:first-child { border-top: 0; }
+    .ax-row .ax-row-ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; flex: 0 0 auto; background: var(--ax-canvas); color: var(--ax-sub); }
+    .ax-row .ax-row-main { min-width: 0; }
+    .ax-row .ax-row-t { font-size: 14px; font-weight: 600; }
+    .ax-row .ax-row-s { font-size: 12px; color: var(--ax-sub); }
+    .ax-attn { cursor: pointer; border-radius: 10px; }
+    .ax-attn:hover { background: var(--ax-canvas); }
+    .ax-attn .ax-arrow { margin-left: auto; color: var(--ax-sub); }
+
+    /* Tags + status pills */
+    .ax-tag { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: var(--ax-pill); display: inline-flex; align-items: center; gap: 5px; }
+    .ax-tag.paid { background: var(--ax-violet-bg); color: var(--ax-violet-d); }
+    .ax-tag.organic { background: var(--ax-green-bg); color: var(--ax-green-d); }
+    .ax-tag.plain { background: var(--ax-canvas); color: var(--ax-sub); }
+    .ax-status { font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: var(--ax-pill); text-transform: capitalize; }
+    .ax-status.approved { background: var(--ax-green-bg); color: var(--ax-green-d); }
+    .ax-status.awaiting { background: #FEF1E2; color: var(--ax-warn); }
+    .ax-status.changes { background: #FDECEC; color: var(--ax-bad); }
+
+    /* Dashboard split bar + spark */
+    .ax-spark { width: 100%; height: 84px; display: block; }
+    .ax-split-bar { display: flex; height: 30px; border-radius: var(--ax-pill); overflow: hidden; margin: 8px 0 14px; }
+    .ax-split-bar > span { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 800; }
+    .ax-split-bar .paid { background: var(--ax-violet); }
+    .ax-split-bar .organic { background: var(--ax-green); }
+    .ax-split-legend { display: flex; gap: 18px; font-size: 13px; color: var(--ax-sub); }
+    .ax-split-legend b { color: var(--ax-ink); }
+    .ax-dot-i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 6px; vertical-align: middle; }
+
+    /* Campaign / strategy */
+    .ax-camphead { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+    .ax-camphead h2 { font-size: 20px; font-weight: 800; margin: 4px 0 0; letter-spacing: -.4px; }
+    .ax-select { font: inherit; font-size: 13px; font-weight: 600; color: var(--ax-ink); padding: 9px 12px; border: 1px solid var(--ax-line); border-radius: 10px; background: var(--ax-white); }
+    .ax-strategy { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; padding: 0; overflow: hidden; }
+    @media (max-width: 820px) { .ax-strategy { grid-template-columns: 1fr; } }
+    .ax-strat-col { padding: 18px; border-left: 1px solid var(--ax-line); }
+    .ax-strat-col:first-child { border-left: 0; }
+    .ax-strat-col h3 { font-size: 12px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; margin: 0 0 8px; }
+    .ax-strat-col.what h3 { color: var(--ax-ink); }
+    .ax-strat-col.why h3 { color: var(--ax-violet-d); }
+    .ax-strat-col.next h3 { color: var(--ax-green-d); }
+    .ax-strat-col p { margin: 0; font-size: 13.5px; color: #2b2f38; }
+
+    .ax-filter { display: flex; gap: 8px; margin: 20px 0 14px; flex-wrap: wrap; }
+    .ax-chip { font: inherit; font-size: 12.5px; font-weight: 700; padding: 7px 13px; border-radius: var(--ax-pill); border: 1px solid var(--ax-line); background: var(--ax-white); color: var(--ax-sub); cursor: pointer; }
+    .ax-chip.is-active { background: var(--ax-ink); color: #fff; border-color: var(--ax-ink); }
+
+    /* Content cards */
+    .ax-content { display: grid; grid-template-columns: 150px 1fr; gap: 16px; padding: 16px; margin-bottom: 14px; }
+    @media (max-width: 720px) { .ax-content { grid-template-columns: 1fr; } }
+    .ax-thumb { border-radius: 11px; min-height: 132px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; color: #fff; position: relative; overflow: hidden; }
+    .ax-thumb.paid { background: linear-gradient(140deg, #7d71ef, #5246B8); }
+    .ax-thumb.organic { background: linear-gradient(140deg, #5cc465, #2F7D33); }
+    .ax-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 11px; position: absolute; inset: 0; }
+    .ax-thumb .ax-thumb-k { font-size: 11px; font-weight: 700; opacity: .9; text-transform: uppercase; letter-spacing: .6px; }
+    .ax-thumb .ax-thumb-r { font-size: 17px; font-weight: 800; font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .ax-content-main { min-width: 0; }
+    .ax-tagrow { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-bottom: 8px; }
+    .ax-ref { font-size: 12px; color: var(--ax-sub); margin-bottom: 8px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .ax-caption { font-size: 14px; color: #23272f; margin: 0 0 12px; }
+    .ax-note { background: var(--ax-canvas); border: 1px solid var(--ax-line); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+    .ax-note .ax-note-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--ax-sub); margin-bottom: 3px; }
+    .ax-noteinput { width: 100%; min-height: 56px; resize: vertical; font: inherit; font-size: 13px; padding: 10px 12px; border: 1px solid var(--ax-line); border-radius: 10px; background: var(--ax-white); outline: none; }
+    .ax-noteinput:focus { border-color: var(--ax-violet); }
+    .ax-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+    .ax-btn { font: inherit; font-size: 13px; font-weight: 700; padding: 9px 16px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+    .ax-btn.approve { background: var(--ax-green); color: #fff; }
+    .ax-btn.approve:hover { background: var(--ax-green-d); }
+    .ax-btn.ghost { background: var(--ax-white); color: var(--ax-sub); border-color: var(--ax-line); }
+    .ax-btn.ghost:hover { color: var(--ax-bad); border-color: rgba(229,65,62,.4); }
+    .ax-btn.violet { background: var(--ax-violet); color: #fff; }
+    .ax-btn.violet:hover { background: var(--ax-violet-d); }
+    .ax-btn[disabled] { opacity: .55; cursor: default; }
+    .ax-savehint { font-size: 12px; color: var(--ax-green-d); font-weight: 600; }
+    .ax-confirm { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 9px 13px; background: var(--ax-green-bg); color: var(--ax-green-d); border-radius: 10px; font-size: 12.5px; font-weight: 700; }
+    .ax-confirm .ax-ic { width: 16px; height: 16px; }
+
+    /* AI summary */
+    .ax-ai { background: var(--ax-violet-bg); border: 1px solid #ddd7fb; border-radius: var(--ax-radius); padding: 16px 18px; display: flex; gap: 13px; margin-top: 6px; }
+    .ax-ai .ax-ai-ic { width: 34px; height: 34px; border-radius: 10px; background: var(--ax-violet); color: #fff; display: grid; place-items: center; flex: 0 0 auto; }
+    .ax-ai .ax-ai-label { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--ax-violet-d); margin-bottom: 3px; }
+    .ax-ai p { margin: 0; font-size: 13.5px; color: #2b2740; }
+
+    /* Calendar */
+    .ax-cal-legend { display: flex; gap: 16px; margin: 0 0 14px; font-size: 12.5px; color: var(--ax-sub); flex-wrap: wrap; }
+    .ax-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+    .ax-cal-dow { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--ax-sub); text-align: center; padding: 4px 0; }
+    .ax-cal-cell { min-height: 86px; border: 1px solid var(--ax-line); border-radius: 10px; padding: 7px 8px; background: var(--ax-white); }
+    .ax-cal-cell.out { background: var(--ax-canvas); color: #b7bcc7; }
+    .ax-cal-cell.today { border-color: var(--ax-green); box-shadow: 0 0 0 1px var(--ax-green) inset; }
+    .ax-cal-day { font-size: 12px; font-weight: 700; margin-bottom: 5px; }
+    .ax-cal-cell.today .ax-cal-day { color: var(--ax-green-d); }
+    .ax-cal-ev { font-size: 11px; line-height: 1.35; display: flex; align-items: flex-start; gap: 5px; margin-bottom: 3px; }
+    .ax-cal-ev .ax-evd { width: 7px; height: 7px; border-radius: 50%; margin-top: 4px; flex: 0 0 auto; }
+    .ax-evd.paid { background: var(--ax-violet); } .ax-evd.organic { background: var(--ax-green); }
+    .ax-evd.due { background: var(--ax-warn); } .ax-evd.milestone { background: #98a0b0; }
+
+    /* Conversations */
+    .ax-convo { display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: stretch; }
+    @media (max-width: 820px) { .ax-convo { grid-template-columns: 1fr; } }
+    .ax-threads { display: flex; flex-direction: column; gap: 8px; }
+    .ax-thread { text-align: left; font: inherit; cursor: pointer; background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: 12px; padding: 13px; display: block; width: 100%; }
+    .ax-thread:hover { border-color: #d4d6df; }
+    .ax-thread.is-active { border-color: var(--ax-green); box-shadow: 0 0 0 1px var(--ax-green) inset; }
+    .ax-thread .ax-th-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+    .ax-thread .ax-th-sub { font-size: 13.5px; font-weight: 700; }
+    .ax-thread .ax-th-prev { font-size: 12.5px; color: var(--ax-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ax-th-tag { font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: var(--ax-pill); text-transform: uppercase; letter-spacing: .4px; flex: 0 0 auto; }
+    .ax-th-tag.awaiting_reply { background: #FEF1E2; color: var(--ax-warn); }
+    .ax-th-tag.resolved { background: var(--ax-green-bg); color: var(--ax-green-d); }
+    .ax-chat { display: flex; flex-direction: column; min-height: 460px; }
+    .ax-chatpanel { display: none; flex-direction: column; flex: 1; }
+    .ax-chatpanel.is-active { display: flex; }
+    .ax-chat-head { padding: 14px 18px; border-bottom: 1px solid var(--ax-line); font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .ax-msgs { flex: 1; padding: 18px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; max-height: 440px; }
+    .ax-bubble { max-width: 76%; padding: 10px 13px; border-radius: 14px; font-size: 13.5px; }
+    .ax-bubble .ax-who { font-size: 11px; font-weight: 800; margin-bottom: 3px; opacity: .8; }
+    .ax-bubble .ax-when { font-size: 10.5px; opacity: .65; margin-top: 5px; }
+    .ax-bubble.client { align-self: flex-end; background: var(--ax-green); color: #fff; border-bottom-right-radius: 5px; }
+    .ax-bubble.agora { align-self: flex-start; background: var(--ax-white); border: 1px solid var(--ax-line); border-bottom-left-radius: 5px; }
+    .ax-composer { border-top: 1px solid var(--ax-line); padding: 12px; display: flex; gap: 10px; align-items: flex-end; }
+    .ax-composer textarea { flex: 1; resize: none; min-height: 44px; max-height: 140px; font: inherit; font-size: 14px; padding: 11px 13px; border: 1px solid var(--ax-line); border-radius: 12px; outline: none; }
+    .ax-composer textarea:focus { border-color: var(--ax-green); }
+
+    /* Settings */
+    .ax-set-wrap { max-width: 640px; }
+    .ax-set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 15px 0; border-top: 1px solid var(--ax-line); }
+    .ax-set-row:first-of-type { border-top: 0; }
+    .ax-set-row .ax-set-t { font-size: 14px; font-weight: 700; }
+    .ax-set-row .ax-set-d { font-size: 12.5px; color: var(--ax-sub); }
+    .ax-set-master { background: var(--ax-green-bg); border: 1px solid #cdeccf; border-radius: 12px; padding: 6px 16px; margin-bottom: 8px; }
+    .ax-switch { position: relative; width: 46px; height: 27px; flex: 0 0 auto; cursor: pointer; }
+    .ax-switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+    .ax-switch .ax-track { position: absolute; inset: 0; background: #cdd2db; border-radius: var(--ax-pill); transition: background .15s; }
+    .ax-switch .ax-knob { position: absolute; top: 3px; left: 3px; width: 21px; height: 21px; background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+    .ax-switch input:checked + .ax-track { background: var(--ax-green); }
+    .ax-switch input:checked + .ax-track + .ax-knob { transform: translateX(19px); }
+    .ax-seg { display: inline-flex; border: 1px solid var(--ax-line); border-radius: 10px; overflow: hidden; }
+    .ax-seg button { font: inherit; font-size: 13px; font-weight: 700; padding: 8px 16px; border: 0; background: var(--ax-white); color: var(--ax-sub); cursor: pointer; }
+    .ax-seg button.is-active { background: var(--ax-ink); color: #fff; }
+    .ax-reassure { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; padding: 13px 15px; background: var(--ax-canvas); border-radius: 12px; font-size: 13px; color: var(--ax-sub); }
+    .ax-disabled { opacity: .45; pointer-events: none; }
+
+    .ax-empty { color: var(--ax-sub); font-size: 14px; padding: 22px; text-align: center; background: var(--ax-canvas); border: 1px dashed var(--ax-line); border-radius: 12px; }
+    @media (max-width: 720px) { .ax-app { grid-template-columns: 1fr; } .ax-side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; } .ax-side-card, .ax-nav .ax-count { display: none; } .ax-nav { flex-direction: row; flex-wrap: wrap; } }
+  </style>
+</head>
+<body>
+<div class="atrium" data-base="/w/{{ view.client }}" data-tab="{{ view.active_tab }}">
+  <div class="ax-app">
+
+    <!-- Sidebar -->
+    <aside class="ax-side">
+      <div>
+        <div class="ax-brand">
+          <span class="ax-co">
+            {{ ws.brand.agora_logo|safe }}
+            <span class="ax-x">/</span>
+            {{ ws.brand.client_logo|safe }}
+          </span>
+        </div>
+        <span class="ax-badge">{{ workspace_name }}</span>
+      </div>
+
+      <nav class="ax-nav" id="ax-nav">
+        {% for key, label in [('overview','Overview'),('dashboard','Dashboard'),('leadgen','Lead Gen'),('organic','Organic Content'),('calendar','Content Calendar'),('conversations','Client Conversations')] %}
+        <a href="{{ '/w/' ~ view.client ~ '/' ~ key }}" data-tab="{{ key }}" class="{{ 'is-active' if view.active_tab == key else '' }}">
+          {{ ic(key) }}<span>{{ label }}</span>
+          {% if key in ('leadgen','organic') %}
+            {% set ac = ws.campaigns|selectattr('channel','equalto', 'paid' if key=='leadgen' else 'organic')|map(attribute='content')|sum(start=[])|selectattr('status','equalto','awaiting')|list|length %}
+            {% if ac > 0 %}<span class="ax-count">{{ ac }}</span>{% endif %}
+          {% endif %}
+        </a>
+        {% endfor %}
+      </nav>
+
+      <div class="ax-side-card">
+        {{ ws.brand.client_logo|safe }}
+        <div>
+          <div class="ax-name">{{ ws.display_name }}</div>
+          <div class="ax-sub">{{ ws.tagline|default('Client workspace', true) }}</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <div class="ax-main">
+      <header class="ax-top">
+        <h1 id="ax-title">{{ tab_titles[view.active_tab]|default('Overview', true) }}</h1>
+        <div class="ax-top-right">
+          <span class="ax-clock" id="ax-clock"></span>
+          <button class="ax-iconbtn" type="button" data-goto="settings" title="Notification settings">
+            {{ ic('bell') }}{% if view.awaiting_total > 0 %}<span class="ax-bdot"></span>{% endif %}
+          </button>
+          <button class="ax-avatar" type="button" data-goto="settings" title="{{ user }}">{{ view.initials }}</button>
+          <a class="ax-signout" href="/logout">{{ ic('logout') }}<span>Sign out</span></a>
+        </div>
+      </header>
+
+      <main class="ax-body">
+
+        <!-- ============ OVERVIEW ============ -->
+        <section class="ax-pane {{ 'is-active' if view.active_tab=='overview' else '' }}" data-pane="overview">
+          <h1 class="ax-greet">Good <span id="ax-greetword">morning</span>, {{ view.greeting_name }}.</h1>
+          <p class="ax-lede">Here's where your marketing stands today. Review what's waiting, then dive into the detail.</p>
+
+          <div class="ax-kpis">
+            <div class="ax-card ax-kpi">
+              <div class="ax-kpi-top"><span class="ax-kpi-ic" style="background:#FEF1E2;color:#F2820C">{{ ic('check') }}</span>Awaiting your approval</div>
+              <div class="ax-val">{{ view.awaiting_total }}</div>
+            </div>
+            <div class="ax-card ax-kpi">
+              <div class="ax-kpi-top"><span class="ax-kpi-ic" style="background:#F0EEFE;color:#5246B8">{{ ic('leadgen') }}</span>Campaigns live</div>
+              <div class="ax-val">{{ view.campaigns_live }}</div>
+            </div>
+            <div class="ax-card ax-kpi">
+              <div class="ax-kpi-top"><span class="ax-kpi-ic">{{ ic('users') }}</span>New leads today</div>
+              <div class="ax-val">{{ ws.today.leads }}</div>
+            </div>
+            <div class="ax-card ax-kpi">
+              <div class="ax-kpi-top"><span class="ax-kpi-ic">{{ ic('tag') }}</span>Cost per lead</div>
+              <div class="ax-val">{% for m in ws.metrics if m.label|lower == 'cost / lead' %}{{ m.value }}{% endfor %}</div>
+            </div>
+          </div>
+
+          <div class="ax-cols2">
+            <div class="ax-panel">
+              <h2 class="ax-h2">Needs your attention</h2>
+              {% if view.attention %}
+                <div class="ax-list">
+                  {% for a in view.attention %}
+                  <div class="ax-row ax-attn" data-goto="{{ a.tab }}">
+                    <span class="ax-row-ic" style="background:{{ '#F0EEFE' if a.channel=='paid' else '#E9F6EB' }};color:{{ '#5246B8' if a.channel=='paid' else '#2F7D33' }}">{{ ic('check') }}</span>
+                    <div class="ax-row-main">
+                      <div class="ax-row-t">{{ a.type_tag }} &middot; {{ a.ref }}</div>
+                      <div class="ax-row-s">
+                        <span class="ax-tag {{ a.channel }}">{{ 'Paid / Lead Gen' if a.channel=='paid' else 'Organic' }}</span>
+                        {{ a.campaign_name }} &middot; {{ a.platform }} &middot; Awaiting review
+                      </div>
+                    </div>
+                    <span class="ax-arrow">{{ ic('arrow') }}</span>
+                  </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="ax-empty">You're all caught up — nothing is waiting on you right now.</div>
+              {% endif %}
+            </div>
+
+            <div class="ax-panel">
+              <h2 class="ax-h2">Recent activity</h2>
+              {% if ws.activity %}
+                <div class="ax-list">
+                  {% for ev in ws.activity %}
+                  <div class="ax-row">
+                    <span class="ax-row-ic">{{ ic(ev.icon) }}</span>
+                    <div class="ax-row-main">
+                      <div class="ax-row-t" style="font-weight:600">{{ ev.text }}</div>
+                      <div class="ax-row-s">{{ ev.time_label }}</div>
+                    </div>
+                  </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="ax-empty">No activity yet.</div>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ DASHBOARD ============ -->
+        <section class="ax-pane {{ 'is-active' if view.active_tab=='dashboard' else '' }}" data-pane="dashboard">
+          <h1 class="ax-greet">Your numbers this month</h1>
+          <p class="ax-lede">One goal, two streams. Paid and organic both feed the same results.</p>
+
+          <div class="ax-kpis">
+            {% for m in ws.metrics %}
+            <div class="ax-card ax-kpi">
+              <div class="ax-kpi-top"><span class="ax-kpi-ic">{{ ic(m.icon) }}</span>{{ m.label }}</div>
+              <div class="ax-val">{{ m.value }}</div>
+              <span class="ax-trend {{ 'up' if m.trend_up else 'down' }}">{{ '▲' if m.trend.startswith('+') else '▼' }} {{ m.trend }}</span>
+            </div>
+            {% endfor %}
+          </div>
+
+          <div class="ax-cols2">
+            <div class="ax-panel">
+              <h2 class="ax-h2">New leads — last 14 days</h2>
+              <svg class="ax-spark" viewBox="0 0 {{ view.spark.w }} {{ view.spark.h }}" preserveAspectRatio="none" aria-hidden="true">
+                <defs><linearGradient id="axsparkfill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#41B54A" stop-opacity="0.22"/><stop offset="100%" stop-color="#41B54A" stop-opacity="0"/>
+                </linearGradient></defs>
+                <path d="{{ view.spark.area }}" fill="url(#axsparkfill)"/>
+                <polyline points="{{ view.spark.line }}" fill="none" stroke="#41B54A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="{{ view.spark.lastx }}" cy="{{ view.spark.lasty }}" r="3.6" fill="#2F7D33"/>
+              </svg>
+            </div>
+            <div class="ax-panel">
+              <h2 class="ax-h2">Where your leads came from</h2>
+              <div class="ax-split-bar">
+                <span class="paid" style="width:{{ view.split.paid_pct }}%">{{ view.split.paid }}</span>
+                <span class="organic" style="width:{{ view.split.organic_pct }}%">{{ view.split.organic }}</span>
+              </div>
+              <div class="ax-split-legend">
+                <span><span class="ax-dot-i" style="background:#6F61E8"></span>Paid <b>{{ view.split.paid }}</b></span>
+                <span><span class="ax-dot-i" style="background:#41B54A"></span>Organic <b>{{ view.split.organic }}</b></span>
+                <span style="margin-left:auto">Total <b>{{ view.split.total }}</b> leads</span>
+              </div>
+              <p class="ax-lede" style="margin:14px 0 0;font-size:13px">
+                {{ view.split.total }} leads = {{ view.split.paid }} paid + {{ view.split.organic }} organic. One goal, two contributing streams.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ LEAD GEN (paid) + ORGANIC (organic) ============ -->
+        {% for stream in [('leadgen','paid'),('organic','organic')] %}
+        {% set tab = stream[0] %} {% set chan = stream[1] %}
+        {% set camps = ws.campaigns|selectattr('channel','equalto',chan)|list %}
+        <section class="ax-pane {{ 'is-active' if view.active_tab==tab else '' }}" data-pane="{{ tab }}">
+          {% if camps %}
+          <div class="ax-camphead">
+            <div>
+              <span class="ax-eyebrow">{{ camps[0].eyebrow }}</span>
+              <h2 data-camptitle="{{ tab }}">{{ camps[0].name }}</h2>
+            </div>
+            {% if camps|length > 1 %}
+            <select class="ax-select" data-campfilter="{{ tab }}">
+              {% for c in camps %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+            {% endif %}
+          </div>
+
+          {% for c in camps %}
+          <div data-campblock="{{ tab }}" data-campid="{{ c.id }}" data-campname="{{ c.name }}" data-eyebrow="{{ c.eyebrow }}" {% if not loop.first %}style="display:none"{% endif %}>
+            <div class="ax-card ax-strategy">
+              <div class="ax-strat-col what"><h3>What we did</h3><p>{{ c.strategy.what }}</p></div>
+              <div class="ax-strat-col why"><h3>Why — the data</h3><p>{{ c.strategy.why }}</p></div>
+              <div class="ax-strat-col next"><h3>What's next</h3><p>{{ c.strategy.next }}</p></div>
+            </div>
+
+            <div class="ax-filter" data-contentfilter>
+              {% set all_n = c.content|length %}
+              {% set aw_n = c.content|selectattr('status','equalto','awaiting')|list|length %}
+              {% set ap_n = c.content|selectattr('status','equalto','approved')|list|length %}
+              {% set ch_n = c.content|selectattr('status','equalto','changes')|list|length %}
+              <button class="ax-chip is-active" type="button" data-filter="all">All {{ all_n }}</button>
+              <button class="ax-chip" type="button" data-filter="awaiting">Awaiting {{ aw_n }}</button>
+              <button class="ax-chip" type="button" data-filter="approved">Approved {{ ap_n }}</button>
+              <button class="ax-chip" type="button" data-filter="changes">Changes {{ ch_n }}</button>
+            </div>
+
+            {% for p in c.content %}
+            <div class="ax-card ax-content" data-content="{{ p.id }}" data-status="{{ p.status }}">
+              <div class="ax-thumb {{ chan }}">
+                {% if p.image %}<img src="{{ p.image }}" alt="{{ p.ref }}">{% endif %}
+                <span class="ax-thumb-k">{{ p.type_tag }}</span>
+                <span class="ax-thumb-r">{{ p.ref }}</span>
+              </div>
+              <div class="ax-content-main">
+                <div class="ax-tagrow">
+                  <span class="ax-tag plain">{{ p.type_tag }}</span>
+                  {% if p.sub_tag %}<span class="ax-tag plain">{{ p.sub_tag }}</span>{% endif %}
+                  <span class="ax-tag plain">{{ p.platform }}</span>
+                  <span class="ax-tag {{ chan }}">{{ 'Paid / Lead Gen' if chan=='paid' else 'Organic' }}</span>
+                  <span class="ax-status {{ p.status }}" data-statuspill>{{ 'Changes requested' if p.status=='changes' else p.status }}</span>
+                </div>
+                <div class="ax-ref">{{ p.ref }} &middot; {{ p.decided_at|atrium_dt if p.decided_at else 'Drafted for review' }}</div>
+                <p class="ax-caption">{{ p.caption }}</p>
+
+                <div data-noteslot>
+                  {% if p.status == 'awaiting' %}
+                    <textarea class="ax-noteinput" data-note placeholder="＋ Add a note for the AGORA team…">{{ p.client_note }}</textarea>
+                  {% elif p.client_note %}
+                    <div class="ax-note"><div class="ax-note-label">Your note</div>{{ p.client_note }}</div>
+                  {% endif %}
+                </div>
+
+                <div data-actionslot>
+                  {% if p.status == 'awaiting' %}
+                    <div class="ax-actions">
+                      <button class="ax-btn approve" type="button" data-approve>{{ ic('check') }} Approve</button>
+                      <button class="ax-btn ghost" type="button" data-changes>Request changes</button>
+                      <span class="ax-savehint" data-savehint hidden>Saved ✓</span>
+                    </div>
+                  {% elif p.status == 'approved' %}
+                    <div class="ax-confirm">{{ ic('check') }} You approved this — AGORA emailed{% if p.decided_at %} &middot; {{ p.decided_at|atrium_dt }}{% endif %}</div>
+                  {% else %}
+                    <div class="ax-confirm" style="background:#FDECEC;color:#E5413E">{{ ic('message') }} Changes requested — AGORA notified{% if p.decided_at %} &middot; {{ p.decided_at|atrium_dt }}{% endif %}</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+
+            {% if c.ai_summary %}
+            <div class="ax-ai">
+              <span class="ax-ai-ic">{{ ic('sparkle') }}</span>
+              <div><div class="ax-ai-label">AI summary</div><p>{{ c.ai_summary }}</p></div>
+            </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+          {% else %}
+          <div class="ax-empty">No {{ 'paid' if chan=='paid' else 'organic' }} campaigns yet.</div>
+          {% endif %}
+        </section>
+        {% endfor %}
+
+        <!-- ============ CALENDAR ============ -->
+        <section class="ax-pane {{ 'is-active' if view.active_tab=='calendar' else '' }}" data-pane="calendar">
+          <h1 class="ax-greet">{{ view.calendar.label }}</h1>
+          <p class="ax-lede">Everything planned and published this month.</p>
+          <div class="ax-cal-legend">
+            <span><span class="ax-dot-i" style="background:#6F61E8"></span>Paid</span>
+            <span><span class="ax-dot-i" style="background:#41B54A"></span>Organic</span>
+            <span><span class="ax-dot-i" style="background:#F2820C"></span>Due</span>
+            <span><span class="ax-dot-i" style="background:#98a0b0"></span>Milestone</span>
+          </div>
+          <div class="ax-panel">
+            <div class="ax-cal-grid">
+              {% for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}<div class="ax-cal-dow">{{ d }}</div>{% endfor %}
+              {% for week in view.calendar.weeks %}{% for cell in week %}
+              <div class="ax-cal-cell {{ '' if cell.in_month else 'out' }} {{ 'today' if cell.is_today else '' }}">
+                <div class="ax-cal-day">{{ cell.day }}</div>
+                {% for ev in cell.events %}
+                <div class="ax-cal-ev"><span class="ax-evd {{ ev.kind }}"></span><span>{{ ev.label }}</span></div>
+                {% endfor %}
+              </div>
+              {% endfor %}{% endfor %}
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ CONVERSATIONS ============ -->
+        <section class="ax-pane {{ 'is-active' if view.active_tab=='conversations' else '' }}" data-pane="conversations">
+          <h1 class="ax-greet">Client Conversations</h1>
+          <p class="ax-lede">Message the AGORA team directly. We'll reply here and (if you like) by email.</p>
+          {% if ws.conversations %}
+          <div class="ax-convo">
+            <div class="ax-threads" id="ax-threads">
+              {% for cv in ws.conversations %}
+              <button class="ax-thread {{ 'is-active' if loop.first else '' }}" type="button" data-thread="{{ cv.id }}">
+                <div class="ax-th-top">
+                  <span class="ax-th-sub">{{ cv.subject }}</span>
+                  <span class="ax-th-tag {{ cv.status }}">{{ 'Awaiting reply' if cv.status=='awaiting_reply' else 'Resolved' }}</span>
+                </div>
+                <div class="ax-th-prev">{% if cv.messages %}{{ cv.messages[-1].sender_name }}: {{ cv.messages[-1].body }}{% else %}No messages yet{% endif %}</div>
+              </button>
+              {% endfor %}
+            </div>
+
+            <div class="ax-card ax-chat">
+              {% for cv in ws.conversations %}
+              <div class="ax-chatpanel {{ 'is-active' if loop.first else '' }}" data-chatpanel="{{ cv.id }}">
+                <div class="ax-chat-head">
+                  <span>{{ cv.subject }}</span>
+                  <span class="ax-th-tag {{ cv.status }}" data-threadtag>{{ 'Awaiting reply' if cv.status=='awaiting_reply' else 'Resolved' }}</span>
+                </div>
+                <div class="ax-msgs" data-msgs>
+                  {% for m in cv.messages %}
+                  <div class="ax-bubble {{ m.sender }}">
+                    <div class="ax-who">{{ m.sender_name }}{% if m.sender=='agora' %} · AGORA{% endif %}</div>
+                    {{ m.body }}
+                    <div class="ax-when">{{ m.created_at|atrium_dt }}</div>
+                  </div>
+                  {% endfor %}
+                </div>
+                <div class="ax-composer">
+                  <textarea data-composer placeholder="Write a message…  (Enter to send, Shift+Enter for a new line)"></textarea>
+                  <button class="ax-btn approve" type="button" data-send="{{ cv.id }}">{{ ic('arrow') }} Send</button>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% else %}
+          <div class="ax-empty">No conversations yet.</div>
+          {% endif %}
+        </section>
+
+        <!-- ============ NOTIFICATION SETTINGS ============ -->
+        <section class="ax-pane {{ 'is-active' if view.active_tab=='settings' else '' }}" data-pane="settings">
+          <h1 class="ax-greet">Notification settings</h1>
+          <p class="ax-lede">Choose what AGORA emails you about. Everything still appears here in your workspace either way.</p>
+          <div class="ax-panel ax-set-wrap" id="ax-settings">
+            <div class="ax-set-master">
+              <div class="ax-set-row" style="border:0">
+                <div><div class="ax-set-t">Email me about my workspace</div><div class="ax-set-d">The master switch. Off means AGORA won't email you at all.</div></div>
+                <label class="ax-switch"><input type="checkbox" data-pref="master" {{ 'checked' if user_notify.master else '' }}><span class="ax-track"></span><span class="ax-knob"></span></label>
+              </div>
+            </div>
+            <div id="ax-granular" class="{{ '' if user_notify.master else 'ax-disabled' }}">
+              {% for pref, t, d in [
+                ('content','New content to review','When the team adds a piece for your approval.'),
+                ('replies','Replies in Client Conversations','When AGORA replies to one of your threads.'),
+                ('summary','Weekly performance summary','A short recap of your numbers each week.'),
+                ('status','Campaign status changes','When a campaign goes live, pauses, or wraps.'),
+                ('news','Product news from AGORA','Occasional updates about new features.')
+              ] %}
+              <div class="ax-set-row">
+                <div><div class="ax-set-t">{{ t }}</div><div class="ax-set-d">{{ d }}</div></div>
+                <label class="ax-switch"><input type="checkbox" data-pref="{{ pref }}" {{ 'checked' if user_notify[pref] else '' }}><span class="ax-track"></span><span class="ax-knob"></span></label>
+              </div>
+              {% endfor %}
+              <div class="ax-set-row">
+                <div><div class="ax-set-t">Frequency</div><div class="ax-set-d">Send emails instantly, or bundle them into one daily digest.</div></div>
+                <div class="ax-seg" data-freq>
+                  <button type="button" data-freqval="instant" class="{{ 'is-active' if user_notify.frequency=='instant' else '' }}">Instant</button>
+                  <button type="button" data-freqval="daily" class="{{ 'is-active' if user_notify.frequency=='daily' else '' }}">Daily digest</button>
+                </div>
+              </div>
+            </div>
+            <div class="ax-actions" style="margin-top:18px">
+              <button class="ax-btn violet" type="button" id="ax-savenotify">Save settings</button>
+              <span class="ax-savehint" id="ax-notifysaved" hidden>Saved ✓</span>
+            </div>
+            <div class="ax-reassure">{{ ic('check') }}<span>With emails off, everything still appears here in the workspace — you just won't get an email about it.</span></div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+</div>
+
+<script>
+// esprima-4.x-safe: classic ES5/ES2015 only -- no optional chaining (?.) or nullish (??).
+// All state is read from the DOM (data-* attributes); no Jinja appears in this script.
+(function () {
+  var root = document.querySelector(".atrium");
+  if (!root) { return; }
+  var base = root.getAttribute("data-base") || "";
+
+  function qsa(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
+
+  // ---- Tab switching -------------------------------------------------------
+  var titles = {
+    overview: "Overview", dashboard: "Dashboard", leadgen: "Lead Gen",
+    organic: "Organic Content", calendar: "Content Calendar",
+    conversations: "Client Conversations", settings: "Notification settings"
+  };
+  function showTab(tab, push) {
+    var pane = document.querySelector('[data-pane="' + tab + '"]');
+    if (!pane) { return; }
+    qsa(".ax-pane").forEach(function (p) { p.classList.remove("is-active"); });
+    pane.classList.add("is-active");
+    qsa("#ax-nav a").forEach(function (a) {
+      a.classList.toggle("is-active", a.getAttribute("data-tab") === tab);
+    });
+    var title = document.getElementById("ax-title");
+    if (title && titles[tab]) { title.textContent = titles[tab]; }
+    if (push && window.history && window.history.pushState) {
+      window.history.pushState({ tab: tab }, "", base + "/" + tab);
+    }
+    if (window.scrollTo) { window.scrollTo(0, 0); }
+  }
+  qsa("#ax-nav a").forEach(function (a) {
+    a.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      showTab(a.getAttribute("data-tab"), true);
+    });
+  });
+  qsa("[data-goto]").forEach(function (el) {
+    el.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      showTab(el.getAttribute("data-goto"), true);
+    });
+  });
+  window.addEventListener("popstate", function () {
+    var parts = window.location.pathname.split("/");
+    var tab = parts[parts.length - 1];
+    if (titles[tab]) { showTab(tab, false); } else { showTab("overview", false); }
+  });
+
+  // ---- Live clock + greeting ----------------------------------------------
+  var clock = document.getElementById("ax-clock");
+  function tick() {
+    if (!clock) { return; }
+    var now = new Date();
+    var h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+    var ap = h >= 12 ? "PM" : "AM";
+    var hh = h % 12; if (hh === 0) { hh = 12; }
+    function pad(n) { return n < 10 ? "0" + n : "" + n; }
+    clock.textContent = hh + ":" + pad(m) + ":" + pad(s) + " " + ap;
+  }
+  if (clock) { tick(); window.setInterval(tick, 1000); }
+  var gw = document.getElementById("ax-greetword");
+  if (gw) {
+    var hr = new Date().getHours();
+    gw.textContent = hr < 12 ? "morning" : (hr < 18 ? "afternoon" : "evening");
+  }
+
+  // ---- POST helper ---------------------------------------------------------
+  function post(path, fields) {
+    var body = new FormData();
+    var k;
+    for (k in fields) { if (fields.hasOwnProperty(k)) { body.append(k, fields[k]); } }
+    return fetch(base + path, { method: "POST", body: body, credentials: "same-origin" })
+      .then(function (resp) {
+        if (!resp || !resp.ok) { throw new Error("request failed"); }
+        return resp.json();
+      });
+  }
+
+  // ---- Content review: approve / request changes / save note ---------------
+  qsa('[data-content]').forEach(function (card) {
+    var id = card.getAttribute("data-content");
+    var noteEl = card.querySelector("[data-note]");
+    function noteVal() { return noteEl ? noteEl.value : ""; }
+
+    var approveBtn = card.querySelector("[data-approve]");
+    var changesBtn = card.querySelector("[data-changes]");
+    var hint = card.querySelector("[data-savehint]");
+
+    function decide(action, btn) {
+      if (btn) { btn.setAttribute("disabled", "disabled"); }
+      post("/" + action, { content_id: id, note: noteVal() })
+        .then(function () { window.location.reload(); })
+        .catch(function () {
+          if (btn) { btn.removeAttribute("disabled"); }
+          if (hint) { hint.textContent = "Could not save — try again."; hint.style.color = "#E5413E"; hint.hidden = false; }
+        });
+    }
+    if (approveBtn) { approveBtn.addEventListener("click", function () { decide("approve", approveBtn); }); }
+    if (changesBtn) { changesBtn.addEventListener("click", function () { decide("request-changes", changesBtn); }); }
+
+    // Save the note quietly on blur (so a note isn't lost if they navigate without deciding).
+    if (noteEl) {
+      noteEl.addEventListener("blur", function () {
+        if (noteEl.value === noteEl.getAttribute("data-saved")) { return; }
+        post("/save-note", { content_id: id, note: noteVal() })
+          .then(function () {
+            noteEl.setAttribute("data-saved", noteEl.value);
+            if (hint) { hint.hidden = false; window.setTimeout(function () { hint.hidden = true; }, 1500); }
+          })
+          .catch(function () {});
+      });
+    }
+  });
+
+  // ---- Content status filter chips ----------------------------------------
+  qsa("[data-contentfilter]").forEach(function (bar) {
+    var block = bar.parentNode;
+    qsa(".ax-chip", bar).forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        qsa(".ax-chip", bar).forEach(function (c) { c.classList.remove("is-active"); });
+        chip.classList.add("is-active");
+        var want = chip.getAttribute("data-filter");
+        qsa("[data-content]", block).forEach(function (card) {
+          var st = card.getAttribute("data-status");
+          card.style.display = (want === "all" || want === st) ? "" : "none";
+        });
+      });
+    });
+  });
+
+  // ---- Campaign dropdown (when a channel has >1 campaign) ------------------
+  qsa("[data-campfilter]").forEach(function (sel) {
+    var tab = sel.getAttribute("data-campfilter");
+    sel.addEventListener("change", function () {
+      var id = sel.value;
+      var chosen = null;
+      qsa('[data-campblock="' + tab + '"]').forEach(function (b) {
+        var match = b.getAttribute("data-campid") === id;
+        b.style.display = match ? "" : "none";
+        if (match) { chosen = b; }
+      });
+      if (chosen) {
+        var title = document.querySelector('[data-camptitle="' + tab + '"]');
+        if (title) { title.textContent = chosen.getAttribute("data-campname"); }
+      }
+    });
+  });
+
+  // ---- Conversations: thread switch + send --------------------------------
+  qsa("[data-thread]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var id = btn.getAttribute("data-thread");
+      qsa("[data-thread]").forEach(function (b) { b.classList.remove("is-active"); });
+      btn.classList.add("is-active");
+      qsa("[data-chatpanel]").forEach(function (p) {
+        p.classList.toggle("is-active", p.getAttribute("data-chatpanel") === id);
+      });
+    });
+  });
+  qsa("[data-send]").forEach(function (btn) {
+    var id = btn.getAttribute("data-send");
+    var panel = document.querySelector('[data-chatpanel="' + id + '"]');
+    if (!panel) { return; }
+    var box = panel.querySelector("[data-composer]");
+    var msgs = panel.querySelector("[data-msgs]");
+    var tag = panel.querySelector("[data-threadtag]");
+
+    function send() {
+      var text = box ? box.value.replace(/^\s+|\s+$/g, "") : "";
+      if (!text) { return; }
+      btn.setAttribute("disabled", "disabled");
+      post("/send-message", { conversation_id: id, body: text })
+        .then(function (data) {
+          var bubble = document.createElement("div");
+          bubble.className = "ax-bubble client";
+          var who = document.createElement("div"); who.className = "ax-who"; who.textContent = "You";
+          var when = document.createElement("div"); when.className = "ax-when"; when.textContent = "Just now";
+          bubble.appendChild(who);
+          bubble.appendChild(document.createTextNode(text));
+          bubble.appendChild(when);
+          if (msgs) { msgs.appendChild(bubble); msgs.scrollTop = msgs.scrollHeight; }
+          if (box) { box.value = ""; }
+          if (tag) { tag.textContent = "Awaiting reply"; tag.className = "ax-th-tag awaiting_reply"; }
+          btn.removeAttribute("disabled");
+        })
+        .catch(function () { btn.removeAttribute("disabled"); });
+    }
+    if (btn) { btn.addEventListener("click", send); }
+    if (box) {
+      box.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); send(); }
+      });
+    }
+  });
+
+  // ---- Notification settings ----------------------------------------------
+  var masterEl = document.querySelector('[data-pref="master"]');
+  var granular = document.getElementById("ax-granular");
+  if (masterEl && granular) {
+    masterEl.addEventListener("change", function () {
+      granular.classList.toggle("ax-disabled", !masterEl.checked);
+    });
+  }
+  var freqWrap = document.querySelector("[data-freq]");
+  var freqVal = freqWrap ? (freqWrap.querySelector(".is-active") ? freqWrap.querySelector(".is-active").getAttribute("data-freqval") : "instant") : "instant";
+  if (freqWrap) {
+    qsa("button", freqWrap).forEach(function (b) {
+      b.addEventListener("click", function () {
+        qsa("button", freqWrap).forEach(function (x) { x.classList.remove("is-active"); });
+        b.classList.add("is-active");
+        freqVal = b.getAttribute("data-freqval");
+      });
+    });
+  }
+  var saveBtn = document.getElementById("ax-savenotify");
+  var savedHint = document.getElementById("ax-notifysaved");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", function () {
+      var fields = { frequency: freqVal };
+      qsa("[data-pref]").forEach(function (el) {
+        fields[el.getAttribute("data-pref")] = el.checked ? "1" : "0";
+      });
+      saveBtn.setAttribute("disabled", "disabled");
+      post("/save-notify", fields)
+        .then(function () {
+          if (savedHint) { savedHint.textContent = "Saved ✓"; savedHint.style.color = "#2F7D33"; savedHint.hidden = false; }
+          saveBtn.removeAttribute("disabled");
+        })
+        .catch(function () {
+          if (savedHint) { savedHint.textContent = "Could not save — try again."; savedHint.style.color = "#E5413E"; savedHint.hidden = false; }
+          saveBtn.removeAttribute("disabled");
+        });
+    });
+  }
+})();
+</script>
+</body>
+</html>

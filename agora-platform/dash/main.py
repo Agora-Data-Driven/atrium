@@ -24,12 +24,14 @@ Org policy forbids public Cloud Run: deploy with --no-invoker-iam-check (never
 --allow-unauthenticated); this app does its OWN auth in-process.
 """
 
+import datetime
 import os
 
 import requests
 from flask import (
     Flask,
     Response,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -37,9 +39,15 @@ from flask import (
     url_for,
 )
 
+import atrium_view
+import notify
 import platform_sso
 import store
+import workspace
 import feedback as feedback_store
+
+# Product name for the Atrium client workspace (kept in one place so it is easy to change).
+WORKSPACE_NAME = "Agora Atrium"
 
 # --- Configuration from the environment --------------------------------------------------
 # SESSION_SECRET signs the Flask session cookie; mounted from Secret Manager at deploy time.
@@ -414,6 +422,313 @@ def feedback():
         return Response('{"error":"could_not_store"}', status=500, mimetype="application/json")
 
     return Response('{"ok":true}', mimetype="application/json")
+
+
+# --- Agora Atrium: the co-branded client workspace (the next step on the CRM growth path) -------
+# Atrium is additive: it reuses the SAME session auth (authed / can_open / is_superadmin) and the
+# SAME private bucket as the registry (per-client workspace/<c>.json via workspace.py). No new
+# service, bucket, SA, IAM, or domain. Client-facing routes live under /w/<c>/; team management
+# extends the operator console under /admin/atrium/.
+ATRIUM_TABS = {"overview", "dashboard", "leadgen", "organic", "calendar", "conversations", "settings"}
+
+
+@app.template_filter("atrium_dt")
+def _atrium_dt(iso):
+    """Format a stored ISO-8601 Z timestamp as 'Jun 18, 3:40 PM' (cross-platform, no %- codes)."""
+    if not iso:
+        return ""
+    try:
+        dt = datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return iso
+    hour12 = dt.hour % 12 or 12
+    ampm = "AM" if dt.hour < 12 else "PM"
+    return "%s %d, %d:%02d %s" % (dt.strftime("%b"), dt.day, hour12, dt.minute, ampm)
+
+
+def _atrium_json_gate(client):
+    """Shared gate for Atrium POST actions: returns a JSON error Response, or None when allowed."""
+    if not authed():
+        return Response('{"error":"unauthorized"}', status=401, mimetype="application/json")
+    if not can_open(client):
+        return Response('{"error":"forbidden"}', status=403, mimetype="application/json")
+    return None
+
+
+def _bool_field(name):
+    """Read a checkbox-style form field as a bool."""
+    return request.form.get(name, "0") in ("1", "true", "True", "on")
+
+
+def _client_sender_name(user):
+    """A human-ish name for a client message sender, derived from the login email."""
+    if user and "@" in user:
+        return user.split("@")[0].split(".")[0].title()
+    return "Client"
+
+
+@app.route("/w/<client>/", defaults={"tab": "overview"}, methods=["GET"])
+@app.route("/w/<client>/<tab>", methods=["GET"])
+def atrium(client, tab):
+    """Render the Atrium workspace shell for `client`, with `tab` active (client-facing)."""
+    if not authed():
+        return redirect(url_for("login", next=request.full_path))
+    if not can_open(client):
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    ws = workspace.load_workspace(client)
+    if ws is None:
+        return Response("No workspace exists for this client yet.", status=404, mimetype="text/plain")
+    if tab not in ATRIUM_TABS:
+        tab = "overview"
+    user = current_user()
+    view = atrium_view.build(ws, client, user, tab)
+    return render_template(
+        "atrium.html",
+        workspace_name=WORKSPACE_NAME,
+        ws=ws,
+        view=view,
+        user=user,
+        user_notify=workspace.get_notify(ws, user or ""),
+        is_superadmin=is_superadmin(),
+    )
+
+
+@app.route("/w/<client>/approve", methods=["POST"])
+@app.route("/w/<client>/request-changes", methods=["POST"])
+def atrium_decide(client):
+    """Approve or request changes on a content piece (client-facing); notifies the AGORA team."""
+    gate = _atrium_json_gate(client)
+    if gate:
+        return gate
+    decision = "approved" if request.path.endswith("/approve") else "changes"
+    content_id = request.form.get("content_id", "").strip()
+    note = request.form.get("note", None)
+    try:
+        item = workspace.decide_content(client, content_id, decision, note=note)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    notify.client_decided(client, item, decision, current_user())
+    return jsonify(ok=True, status=item.get("status"), decided_at=item.get("decided_at", ""))
+
+
+@app.route("/w/<client>/save-note", methods=["POST"])
+def atrium_save_note(client):
+    """Persist a client's recommendation note on a content piece (silent)."""
+    gate = _atrium_json_gate(client)
+    if gate:
+        return gate
+    content_id = request.form.get("content_id", "").strip()
+    try:
+        workspace.set_content_note(client, content_id, request.form.get("note", ""))
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    return jsonify(ok=True)
+
+
+@app.route("/w/<client>/send-message", methods=["POST"])
+def atrium_send_message(client):
+    """Append a client message to a conversation (client-facing); notifies the AGORA team."""
+    gate = _atrium_json_gate(client)
+    if gate:
+        return gate
+    conv_id = request.form.get("conversation_id", "").strip()
+    body = request.form.get("body", "").strip()
+    if not body:
+        return Response('{"error":"empty"}', status=400, mimetype="application/json")
+    try:
+        conv, message = workspace.add_message(
+            client, conv_id, "client", _client_sender_name(current_user()),
+            body, set_status="awaiting_reply",
+        )
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    notify.client_messaged(client, conv, current_user())
+    return jsonify(ok=True, message=message, status=conv.get("status"))
+
+
+@app.route("/w/<client>/save-notify", methods=["POST"])
+def atrium_save_notify(client):
+    """Save the logged-in user's notification preferences for this workspace (silent)."""
+    gate = _atrium_json_gate(client)
+    if gate:
+        return gate
+    user = current_user()
+    if not user:
+        return Response('{"error":"no_user"}', status=400, mimetype="application/json")
+    prefs = {k: _bool_field(k) for k in ("master", "content", "replies", "summary", "status", "news")}
+    freq = request.form.get("frequency", "instant")
+    if freq in ("instant", "daily"):
+        prefs["frequency"] = freq
+    try:
+        workspace.set_notify(client, user, prefs)
+    except KeyError:
+        return Response('{"error":"no_workspace"}', status=404, mimetype="application/json")
+    return jsonify(ok=True)
+
+
+# --- Atrium team management (super-admin operator console) --------------------------------------
+def _atrium_admin_redirect(client, msg):
+    """Redirect back to a client's Atrium management page with a flash message."""
+    return redirect(url_for("admin_atrium_client", client=client, msg=msg))
+
+
+@app.route("/admin/atrium", methods=["GET"])
+def admin_atrium():
+    """List the clients whose Atrium workspaces the operator can manage."""
+    if not authed():
+        return redirect(url_for("login", next="/admin/atrium"))
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    clients = []
+    for c in store.list_clients():
+        clients.append({"key": c.get("key"), "name": c.get("name"),
+                        "has_workspace": workspace.workspace_exists(c.get("key"))})
+    return render_template("admin_atrium.html", clients=clients, client=None,
+                           user=current_user(), workspace_name=WORKSPACE_NAME)
+
+
+@app.route("/admin/atrium/<client>", methods=["GET"])
+def admin_atrium_client(client):
+    """Manage one client's Atrium workspace: campaigns, content, conversations, metrics."""
+    if not authed():
+        return redirect(url_for("login", next=request.full_path))
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    ws = workspace.load_workspace(client)
+    return render_template("admin_atrium.html", clients=None, client=client, ws=ws,
+                           user=current_user(), workspace_name=WORKSPACE_NAME,
+                           msg=request.args.get("msg"))
+
+
+@app.route("/admin/atrium/<client>/campaign", methods=["POST"])
+def admin_atrium_campaign(client):
+    """Add a new campaign or edit an existing one's strategy + AI summary."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    campaign_id = request.form.get("campaign_id", "").strip()
+    strategy = {
+        "what": request.form.get("what", "").strip(),
+        "why": request.form.get("why", "").strip(),
+        "next": request.form.get("next", "").strip(),
+    }
+    ai_summary = request.form.get("ai_summary", "").strip()
+    if campaign_id:
+        try:
+            workspace.update_campaign(client, campaign_id, strategy=strategy, ai_summary=ai_summary)
+            return _atrium_admin_redirect(client, "Campaign updated.")
+        except KeyError:
+            return _atrium_admin_redirect(client, "Unknown campaign.")
+    channel = "paid" if request.form.get("channel") == "paid" else "organic"
+    name = request.form.get("name", "").strip()
+    if not name:
+        return _atrium_admin_redirect(client, "Campaign name is required.")
+    workspace.add_campaign(client, channel, name, request.form.get("eyebrow", "").strip(),
+                           strategy=strategy, ai_summary=ai_summary)
+    return _atrium_admin_redirect(client, "Campaign added.")
+
+
+@app.route("/admin/atrium/<client>/content", methods=["POST"])
+def admin_atrium_content(client):
+    """Add a content piece to a campaign (status -> awaiting) and notify the client per prefs."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    campaign_id = request.form.get("campaign_id", "").strip()
+    content = {
+        "ref": request.form.get("ref", "").strip(),
+        "type_tag": request.form.get("type_tag", "").strip(),
+        "sub_tag": request.form.get("sub_tag", "").strip(),
+        "platform": request.form.get("platform", "").strip(),
+        "caption": request.form.get("caption", "").strip(),
+        "thumb_kind": request.form.get("thumb_kind", "").strip(),
+    }
+    if content["ref"]:
+        content["id"] = content["ref"]
+    try:
+        item = workspace.add_content(client, campaign_id, content)
+    except KeyError:
+        return _atrium_admin_redirect(client, "Unknown campaign.")
+    ws = workspace.load_workspace(client)
+    notify.team_added_content(client, ws, item)
+    return _atrium_admin_redirect(client, "Content added and the client was notified.")
+
+
+@app.route("/admin/atrium/<client>/conversation", methods=["POST"])
+def admin_atrium_conversation(client):
+    """Start a new conversation thread, optionally with an opening AGORA message."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    subject = request.form.get("subject", "").strip()
+    if not subject:
+        return _atrium_admin_redirect(client, "Subject is required.")
+    conv = workspace.add_conversation(client, subject)
+    opening = request.form.get("body", "").strip()
+    if opening:
+        sender_name = request.form.get("sender_name", "").strip() or "Maya"
+        workspace.add_message(client, conv["id"], "agora", sender_name, opening)
+        ws = workspace.load_workspace(client)
+        notify.team_replied(client, ws, workspace._find_conversation(ws, conv["id"]), sender_name)
+    return _atrium_admin_redirect(client, "Conversation started.")
+
+
+@app.route("/admin/atrium/<client>/reply", methods=["POST"])
+def admin_atrium_reply(client):
+    """Reply to a conversation as the AGORA team; notifies the client per their prefs."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    conv_id = request.form.get("conversation_id", "").strip()
+    body = request.form.get("body", "").strip()
+    if not body:
+        return _atrium_admin_redirect(client, "Message is empty.")
+    sender_name = request.form.get("sender_name", "").strip() or "Maya"
+    new_status = "resolved" if _bool_field("resolve") else "awaiting_reply"
+    try:
+        conv, _msg = workspace.add_message(client, conv_id, "agora", sender_name, body,
+                                           set_status=new_status)
+    except KeyError:
+        return _atrium_admin_redirect(client, "Unknown conversation.")
+    ws = workspace.load_workspace(client)
+    notify.team_replied(client, ws, conv, sender_name)
+    return _atrium_admin_redirect(client, "Reply sent and the client was notified.")
+
+
+@app.route("/admin/atrium/<client>/metrics", methods=["POST"])
+def admin_atrium_metrics(client):
+    """Update the headline counts (today + split) and the six KPI metric values/trends."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    ws = workspace.load_workspace(client)
+    if ws is None:
+        return _atrium_admin_redirect(client, "No workspace to edit.")
+
+    def _int(name, fallback):
+        try:
+            return int(request.form.get(name, fallback))
+        except (TypeError, ValueError):
+            return fallback
+
+    today = {
+        "leads": _int("today_leads", ws.get("today", {}).get("leads", 0)),
+        "visitors": _int("today_visitors", ws.get("today", {}).get("visitors", 0)),
+        "bookings": _int("today_bookings", ws.get("today", {}).get("bookings", 0)),
+    }
+    split = {
+        "paid": _int("split_paid", ws.get("split", {}).get("paid", 0)),
+        "organic": _int("split_organic", ws.get("split", {}).get("organic", 0)),
+    }
+    workspace.set_overview_counts(client, today=today, split=split)
+
+    metrics = []
+    for i, m in enumerate(ws.get("metrics", [])):
+        metrics.append({
+            "icon": m.get("icon", "trending"),
+            "label": m.get("label", ""),
+            "value": request.form.get("metric_value_%d" % i, m.get("value", "")).strip(),
+            "trend": request.form.get("metric_trend_%d" % i, m.get("trend", "")).strip(),
+            "trend_up": _bool_field("metric_up_%d" % i),
+        })
+    if metrics:
+        workspace.set_metrics(client, metrics)
+    return _atrium_admin_redirect(client, "Metrics updated.")
 
 
 @app.route("/healthz", methods=["GET"])
