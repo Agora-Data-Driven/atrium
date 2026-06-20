@@ -80,6 +80,36 @@
     .divider { height: 1px; background: var(--ag-line); margin: 14px 0; border: 0; }
     fieldset { border: 1px solid var(--ag-line); border-radius: 10px; padding: 12px 14px; margin: 0 0 12px; }
     legend { font-size: 12px; color: var(--ag-muted); padding: 0 6px; font-weight: 700; }
+    /* Content calendar: read-only mirror of the client workspace calendar (prev / current / next). */
+    .cal-legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 0 0 14px; font-size: 12.5px; color: var(--ag-muted); }
+    .cal-legend .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: middle; }
+    .cal-stack { display: flex; flex-direction: column; gap: 14px; }
+    .cal-month { background: var(--ag-white); border: 1px solid var(--ag-line); border-radius: 14px; padding: 14px 16px 16px; box-shadow: var(--ag-shadow); }
+    .cal-month.is-current { border-color: #cdeccf; box-shadow: 0 0 0 1px var(--ag-green) inset, var(--ag-shadow); }
+    .cal-month.is-side { background: linear-gradient(180deg, #fff 0%, #FCFDFC 100%); }
+    .cal-mhead { display: flex; align-items: center; gap: 10px; margin: 0 2px 12px; }
+    .cal-mname { font-size: 15px; font-weight: 800; }
+    .cal-month.is-side .cal-mname { color: var(--ag-muted); }
+    .cal-now { font-size: 10px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; color: #fff;
+      background: linear-gradient(135deg, #57B852, #347A30); padding: 2px 9px; border-radius: 999px; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+    .cal-dow { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--ag-muted); text-align: center; padding: 4px 0; }
+    .cal-cell { min-height: 76px; border: 1px solid var(--ag-line); border-radius: 10px; padding: 7px 8px; background: var(--ag-white); }
+    .cal-month.is-side .cal-cell { min-height: 58px; }
+    .cal-cell.out { background: var(--ag-canvas); color: #b7bcc7; }
+    .cal-cell.today { background: var(--ag-green-bg); border-color: var(--ag-green); box-shadow: 0 0 0 1px var(--ag-green) inset; }
+    .cal-cell.past { background: var(--ag-canvas); color: #aeb4c0; }
+    .cal-cell.pastempty { background: linear-gradient(165deg, #F3FAF2 0%, #E9F6E8 100%); border-color: #DCEEDB; color: #8AAE87; }
+    .cal-cell.done { background: var(--ag-green-bg); border-color: #cdeccf; }
+    .cal-cell.ahead { background: var(--ag-green-bg); border-color: var(--ag-green); box-shadow: 0 0 0 1px var(--ag-green) inset; }
+    .cal-day { font-size: 12px; font-weight: 700; margin-bottom: 5px; }
+    .cal-cell.past .cal-day { color: #98a0b0; }
+    .cal-cell.pastempty .cal-day { color: var(--ag-green-d); opacity: .75; }
+    .cal-check { color: var(--ag-green-d); font-weight: 900; }
+    .cal-ev { font-size: 11px; line-height: 1.35; display: flex; align-items: flex-start; gap: 5px; margin-bottom: 3px; }
+    .cal-ev .evd { width: 7px; height: 7px; border-radius: 50%; margin-top: 4px; flex: 0 0 auto; }
+    .cal-ev .evd.paid { background: var(--ag-purple); } .cal-ev .evd.organic { background: var(--ag-green); }
+    .cal-ev .evd.milestone { background: #98a0b0; } .cal-ev .evd.due { background: #F2820C; }
   </style>
 </head>
 <body>
@@ -118,8 +148,8 @@
         to build from. The key is the short lowercase id used everywhere (e.g. <code>honeytribe</code>).
         Tip: drop their logo at <code>Creatives/clients/&lt;key&gt;.svg</code> first, or rebrand later.</p>
         <div class="row">
-          <div><label>Client key</label><input type="text" name="key" placeholder="honeytribe" required></div>
-          <div><label>Display name</label><input type="text" name="name" placeholder="Honey Tribe Resort"></div>
+          <div><label>Display name</label><input type="text" name="name" placeholder="Honey Tribe Resort" required></div>
+          <div><label>Client key (optional)</label><input type="text" name="key" placeholder="auto from name, e.g. honey-tribe-resort"></div>
         </div>
         <label>Portal password (optional &mdash; blank auto-generates a strong one)</label>
         <input type="text" name="password" placeholder="auto-generated if left blank">
@@ -167,6 +197,35 @@
           {% endfor %}
           <button class="btn" type="submit">Save metrics</button>
         </form>
+
+        <!-- Content calendar (read-only mirror of the client's; edit dates via the workspace itself) -->
+        {% if calendars %}
+        <h2 class="section">Content calendar</h2>
+        <div class="cal-legend">
+          <span><span class="dot" style="background:#98a0b0"></span>Milestone</span>
+          <span><span class="dot" style="background:#9484FB"></span>Paid</span>
+          <span><span class="dot" style="background:#4FAB4A"></span>Organic</span>
+          <span><span class="dot" style="background:#F2820C"></span>Due</span>
+          <span style="color:var(--ag-green-d);font-weight:700">&#10003; done / ahead</span>
+        </div>
+        <div class="cal-stack">
+          {% for cal in calendars %}
+          <div class="cal-month {{ 'is-current' if cal.is_current else 'is-side' }}">
+            <div class="cal-mhead"><span class="cal-mname">{{ cal.label }}</span>{% if cal.is_current %}<span class="cal-now">This month</span>{% endif %}</div>
+            <div class="cal-grid">
+              {% for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}<div class="cal-dow">{{ d }}</div>{% endfor %}
+              {% for week in cal.weeks %}{% for cell in week %}
+              {% set cep = cell.is_past and cell.in_month and not cell.events and not cell.done and not cell.ahead and not cell.is_today %}
+              <div class="cal-cell {{ 'out' if not cell.in_month else '' }} {{ 'past' if cell.is_past else '' }} {{ 'pastempty' if cep else '' }} {{ 'done' if cell.done else '' }} {{ 'ahead' if cell.ahead else '' }} {{ 'today' if cell.is_today else '' }}">
+                <div class="cal-day">{{ cell.day }}{% if cell.done %} <span class="cal-check">&#10003;</span>{% endif %}</div>
+                {% for ev in cell.events %}<div class="cal-ev"><span class="evd {{ ev.kind }}"></span><span>{{ ev.label }}</span></div>{% endfor %}
+              </div>
+              {% endfor %}{% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
 
         <!-- Campaigns + content -->
         <h2 class="section">Campaigns &amp; content</h2>

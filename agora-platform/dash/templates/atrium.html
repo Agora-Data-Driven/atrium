@@ -34,6 +34,7 @@
 {%- elif name == 'eye' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
 {%- elif name == 'image' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.7"/><path d="M21 16l-5-5L5 20"/></svg>
 {%- elif name == 'target' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.6"/></svg>
+{%- elif name == 'menu' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="3.5" y1="6" x2="20.5" y2="6"/><line x1="3.5" y1="12" x2="20.5" y2="12"/><line x1="3.5" y1="18" x2="20.5" y2="18"/></svg>
 {%- else -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/></svg>
 {%- endif -%}
 {%- endmacro %}
@@ -53,6 +54,11 @@
       --ax-ok:#4FAB4A; --ax-warn:#F2820C; --ax-bad:#E5413E;
       --ax-radius:14px; --ax-pill:999px;
       --ax-shadow:0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.06);
+      /* Premium accents: brand gradients + a deeper lift shadow for hover/feature surfaces. */
+      --ax-grad-green: linear-gradient(135deg, #57B852 0%, #347A30 100%);
+      --ax-grad-violet: linear-gradient(135deg, #9484FB 0%, #5C4BD0 100%);
+      --ax-grad-brand: linear-gradient(120deg, #4FAB4A 0%, #4FAB4A 42%, #7E6CF6 100%);
+      --ax-shadow-lg: 0 2px 6px rgba(16,24,40,.05), 0 18px 42px rgba(16,24,40,.12);
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; }
@@ -72,45 +78,59 @@
     /* App shell */
     .ax-app { display: grid; grid-template-columns: 256px 1fr; min-height: 100vh; }
     .ax-side {
-      background: var(--ax-white); border-right: 1px solid var(--ax-line);
-      display: flex; flex-direction: column; gap: 14px; padding: 20px 16px; position: sticky; top: 0;
+      background: linear-gradient(180deg, #FFFFFF 0%, #FCFCFE 100%);
+      border-right: 1px solid var(--ax-line);
+      display: flex; flex-direction: column; gap: 14px; padding: 22px 16px; position: sticky; top: 0;
       height: 100vh;
     }
-    .ax-brand { display: flex; align-items: center; gap: 10px; padding: 4px 6px 14px; }
+    .ax-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 9px; padding: 2px 6px 16px; position: relative; }
+    .ax-brand::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 1px; background: linear-gradient(90deg, var(--ax-line), transparent); }
     .ax-brand .ax-co { display: flex; align-items: center; gap: 9px; }
-    .ax-brand .ax-x { color: var(--ax-line); font-weight: 300; }
-    .ax-brand svg { display: block; }
+    .ax-brand .ax-co svg, .ax-brand .ax-co img { display: block; height: 26px; width: auto; max-width: 150px; }
     .ax-badge {
-      margin-top: 2px; font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
-      color: var(--ax-violet-d); background: var(--ax-violet-bg); padding: 2px 8px; border-radius: var(--ax-pill);
+      font-size: 10.5px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase;
+      color: #fff; background: var(--ax-grad-brand); padding: 3px 11px; border-radius: var(--ax-pill);
+      box-shadow: 0 4px 12px rgba(92,75,208,.28);
     }
+    /* Featured client logo (sidebar crest): drop the white PNG box into the card via multiply blend. */
+    .ax-clientlogo { display: block; }
+    .ax-clientlogo svg, .ax-clientlogo img { display: block; width: 100%; height: auto; mix-blend-mode: multiply; }
     .ax-nav { display: flex; flex-direction: column; gap: 3px; }
     .ax-nav a {
       display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 11px;
       color: var(--ax-sub); font-size: 14px; font-weight: 600; transition: background .12s, color .12s;
     }
     .ax-nav a:hover { background: var(--ax-canvas); color: var(--ax-ink); }
-    .ax-nav a.is-active { background: var(--ax-green); color: #fff; box-shadow: 0 6px 16px rgba(79,171,74,.34); }
+    .ax-nav a.is-active { background: var(--ax-grad-green); color: #fff; box-shadow: 0 8px 20px rgba(79,171,74,.36); }
     .ax-nav a.is-active .ax-ic { color: #fff; }
     .ax-nav .ax-count {
       margin-left: auto; font-size: 11px; font-weight: 800; min-width: 20px; text-align: center;
       background: var(--ax-warn); color: #fff; border-radius: var(--ax-pill); padding: 1px 6px;
     }
     .ax-nav a.is-active .ax-count { background: rgba(255,255,255,.28); }
+    /* Client crest: features the client's own logo, blended onto a soft branded card. */
     .ax-side-card {
-      margin-top: auto; background: var(--ax-canvas); border: 1px solid var(--ax-line);
-      border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px;
+      margin-top: auto; background: linear-gradient(165deg, #FFFFFF 0%, var(--ax-canvas) 100%);
+      border: 1px solid var(--ax-line); border-radius: var(--ax-radius);
+      padding: 16px 14px 14px; display: flex; flex-direction: column; align-items: center;
+      gap: 11px; text-align: center; box-shadow: var(--ax-shadow);
     }
-    .ax-side-card .ax-name { font-size: 13px; font-weight: 700; }
-    .ax-side-card .ax-sub { font-size: 11px; color: var(--ax-sub); }
+    .ax-side-card .ax-clientlogo { width: 132px; max-width: 100%; }
+    .ax-side-card .ax-crest-text { display: flex; flex-direction: column; gap: 2px; }
+    .ax-side-card .ax-name { font-size: 13.5px; font-weight: 800; letter-spacing: -.2px; }
+    .ax-side-card .ax-sub {
+      font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--ax-violet-d);
+    }
 
     /* Main column */
     .ax-main { display: flex; flex-direction: column; min-width: 0; }
     .ax-top {
       display: flex; align-items: center; justify-content: space-between; gap: 16px;
-      padding: 16px 28px; border-bottom: 1px solid var(--ax-line); background: rgba(255,255,255,.7);
-      position: sticky; top: 0; z-index: 20; backdrop-filter: blur(6px);
+      padding: 16px 28px; border-bottom: 1px solid var(--ax-line); background: rgba(255,255,255,.72);
+      position: sticky; top: 0; z-index: 20; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     }
+    /* Hairline brand gradient under the header for a premium finish. */
+    .ax-top::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--ax-grad-brand); opacity: .85; }
     .ax-top h1 { font-size: 18px; margin: 0; font-weight: 800; letter-spacing: -.2px; }
     .ax-top-right { display: flex; align-items: center; gap: 12px; }
     .ax-clock { font-size: 13px; color: var(--ax-sub); font-variant-numeric: tabular-nums; min-width: 78px; text-align: right; }
@@ -142,7 +162,8 @@
     .ax-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ax-sub); }
 
     /* Cards / panels */
-    .ax-card { background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: var(--ax-radius); box-shadow: var(--ax-shadow); }
+    .ax-card { background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: var(--ax-radius); box-shadow: var(--ax-shadow); transition: box-shadow .18s ease, transform .18s ease; }
+    .ax-card:hover { box-shadow: var(--ax-shadow-lg); transform: translateY(-2px); }
     .ax-panel { background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: var(--ax-radius); box-shadow: var(--ax-shadow); padding: 18px; }
 
     /* KPI rows */
@@ -282,10 +303,23 @@
     .ax-cal-cell.today { background: var(--ax-green-bg); border-color: var(--ax-green); box-shadow: 0 0 0 1px var(--ax-green) inset; }
     /* Green-forward: past = done & faded (with a check); future-ready = ahead of schedule */
     .ax-cal-cell.past { background: var(--ax-canvas); color: #aeb4c0; }
+    /* A past day with no scheduled content: a soft on-brand green wash (lighter than a 'done' day). */
+    .ax-cal-cell.pastempty { background: linear-gradient(165deg, #F3FAF2 0%, #E9F6E8 100%); border-color: #DCEEDB; color: #8AAE87; }
+    .ax-cal-cell.pastempty .ax-cal-day { color: var(--ax-green-d); opacity: .75; }
     .ax-cal-cell.done { background: var(--ax-green-bg); border-color: #cdeccf; }
     .ax-cal-cell.ahead { background: var(--ax-green-bg); border-color: var(--ax-green); box-shadow: 0 0 0 1px var(--ax-green) inset; }
     .ax-cal-cell.past .ax-cal-day { color: #98a0b0; }
     .ax-cal-check { color: var(--ax-green-d); font-weight: 900; }
+    /* Three-month stack: previous / current / next, current emphasised, neighbours compact. */
+    .ax-cal-stack { display: flex; flex-direction: column; gap: 14px; }
+    .ax-cal-month { padding: 14px 16px 16px; }
+    .ax-cal-month.is-current { border-color: #cdeccf; box-shadow: 0 0 0 1px var(--ax-green) inset, var(--ax-shadow); }
+    .ax-cal-month.is-side { background: linear-gradient(180deg, #FFFFFF 0%, #FCFDFC 100%); }
+    .ax-cal-month.is-side .ax-cal-cell { min-height: 60px; }
+    .ax-cal-month.is-side .ax-cal-mname { color: var(--ax-sub); }
+    .ax-cal-mhead { display: flex; align-items: center; gap: 10px; margin: 0 2px 12px; }
+    .ax-cal-mname { font-size: 15px; font-weight: 800; letter-spacing: -.2px; }
+    .ax-cal-now { font-size: 10px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; color: #fff; background: var(--ax-grad-green); padding: 2px 9px; border-radius: 999px; }
     /* Project progress header */
     .ax-progress { padding: 16px 20px; margin-bottom: 16px; }
     .ax-progress-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -367,7 +401,16 @@
     .ax-reassure { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; padding: 13px 15px; background: var(--ax-canvas); border-radius: 12px; font-size: 13px; color: var(--ax-sub); }
     .ax-disabled { opacity: .45; pointer-events: none; }
 
-    .ax-empty { color: var(--ax-sub); font-size: 14px; padding: 22px; text-align: center; background: var(--ax-canvas); border: 1px dashed var(--ax-line); border-radius: 12px; }
+    .ax-empty {
+      color: var(--ax-sub); font-size: 13.5px; padding: 30px 22px; text-align: center; border-radius: var(--ax-radius);
+      background: linear-gradient(180deg, #FCFCFE 0%, var(--ax-canvas) 100%);
+      border: 1px solid var(--ax-line); box-shadow: inset 0 1px 0 #fff;
+    }
+    .ax-empty::before {
+      content: ""; display: block; width: 34px; height: 34px; margin: 0 auto 12px; border-radius: 50%;
+      background: var(--ax-violet-bg); border: 1px solid #E1DBFB;
+      box-shadow: inset 0 0 0 9px #fff, 0 0 0 0 transparent;
+    }
 
     /* ---- Per-creative comment thread (client + team) ---- */
     .ax-comments { margin-top: 14px; border-top: 1px dashed var(--ax-line); padding-top: 12px; }
@@ -410,10 +453,13 @@
     /* Client Communications (email + meeting summaries) */
     .ax-comm { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
     @media (max-width: 880px) { .ax-comm { grid-template-columns: 1fr; } }
-    .ax-comm-col h2 { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 800; margin: 0 0 12px; }
+    .ax-comm-col h2 { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 800; margin: 0 0 14px; }
     .ax-comm-col h2 .ax-ic { width: 18px; height: 18px; }
+    .ax-comm-col h2 .ax-ic { padding: 7px; border-radius: 10px; box-sizing: content-box; }
     .ax-comm-col.email h2 { color: var(--ax-violet-d); }
+    .ax-comm-col.email h2 .ax-ic { background: var(--ax-violet-bg); }
     .ax-comm-col.meeting h2 { color: var(--ax-green-d); }
+    .ax-comm-col.meeting h2 .ax-ic { background: var(--ax-green-bg); }
     .ax-comm-item { padding: 15px 16px; margin-bottom: 12px; }
     .ax-comm-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
     .ax-comm-title { font-size: 14px; font-weight: 800; }
@@ -427,6 +473,10 @@
     .ax-addpanel { border: 1px dashed var(--ax-line); border-radius: var(--ax-radius); padding: 16px; margin-bottom: 14px; background: var(--ax-canvas); }
     .ax-addpanel h3 { font-size: 14px; font-weight: 800; margin: 0 0 12px; }
 
+    /* Collapsible sidebar -- the topbar button tucks the nav away (choice persists in localStorage). */
+    .ax-top-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .atrium.nav-collapsed .ax-app { grid-template-columns: 0 1fr; }
+    .atrium.nav-collapsed .ax-side { display: none; }
     @media (max-width: 720px) { .ax-app { grid-template-columns: 1fr; } .ax-side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; } .ax-side-card, .ax-nav .ax-count { display: none; } .ax-nav { flex-direction: row; flex-wrap: wrap; } .ax-editrow { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -440,11 +490,9 @@
         <div class="ax-brand">
           <span class="ax-co">
             {{ ws.brand.agora_logo|safe }}
-            <span class="ax-x">/</span>
-            {{ ws.brand.client_logo|safe }}
           </span>
+          <span class="ax-badge">{{ workspace_name }}</span>
         </div>
-        <span class="ax-badge">{{ workspace_name }}</span>
       </div>
 
       <nav class="ax-nav" id="ax-nav">
@@ -460,8 +508,8 @@
       </nav>
 
       <div class="ax-side-card">
-        {{ ws.brand.client_logo|safe }}
-        <div>
+        <span class="ax-clientlogo">{{ ws.brand.client_logo|safe }}</span>
+        <div class="ax-crest-text">
           <div class="ax-name">{{ ws.display_name }}</div>
           <div class="ax-sub">{{ ws.tagline|default('Client workspace', true) }}</div>
         </div>
@@ -471,7 +519,10 @@
     <!-- Main -->
     <div class="ax-main">
       <header class="ax-top">
-        <h1 id="ax-title">{{ tab_titles[view.active_tab]|default('Overview', true) }}</h1>
+        <div class="ax-top-left">
+          <button class="ax-iconbtn" type="button" id="ax-navtoggle" title="Show / hide the menu" aria-label="Show or hide the menu">{{ ic('menu') }}</button>
+          <h1 id="ax-title">{{ tab_titles[view.active_tab]|default('Overview', true) }}</h1>
+        </div>
         <div class="ax-top-right">
           <span class="ax-clock" id="ax-clock"></span>
           <button class="ax-iconbtn" type="button" data-goto="settings" title="Notification settings">
@@ -497,11 +548,19 @@
           <h1 class="ax-greet">Good <span id="ax-greetword">morning</span>, {{ view.greeting_name }}.</h1>
           <p class="ax-lede">Here's where your marketing stands today. Review what's waiting, then dive into the detail.</p>
 
-          {% if ws.headline and ws.headline.roas %}
+          {#- Overview headline = the SAME numbers the team manages on the admin side (ws.today /
+              ws.split / ws.metrics). Curated ws.headline / ws.wins still win when present, so a
+              hand-tuned production workspace never regresses. -#}
+          {% set roas_metric = (ws.metrics|selectattr('label','equalto','ROAS')|first) if ws.metrics else none %}
+          {% set hero_roas = ws.headline.roas if (ws.headline and ws.headline.roas) else none %}
+          {% if hero_roas or roas_metric %}
           <div class="ax-card ax-hero">
-            <div class="ax-hero-top">{{ ic('trending') }} {{ ws.headline.roas.label|default('Return on ad spend', true) }}</div>
-            <div class="ax-hero-val">{{ ws.headline.roas.value }}</div>
-            <div class="ax-hero-cap">{{ ws.headline.roas.caption }}{% if ws.headline.roas.trend %} &middot; <span class="ax-up">&uarr; {{ ws.headline.roas.trend }}</span>{% endif %}</div>
+            <div class="ax-hero-top">{{ ic('trending') }} {{ (hero_roas.label if hero_roas else 'Return on ad spend') }}</div>
+            <div class="ax-hero-val">{{ hero_roas.value if hero_roas else roas_metric.value }}</div>
+            <div class="ax-hero-cap">
+              {% if hero_roas %}{{ hero_roas.caption }}{% if hero_roas.trend %} &middot; <span class="ax-up">&uarr; {{ hero_roas.trend }}</span>{% endif %}
+              {% else %}Your paid campaigns returned {{ roas_metric.value }} for every $1 spent.{% if roas_metric.trend %} &middot; <span class="ax-up">&uarr; {{ roas_metric.trend }}</span>{% endif %}{% endif %}
+            </div>
           </div>
           {% endif %}
 
@@ -515,18 +574,38 @@
             </div>
             {% endfor %}
           </div>
+          {% elif ws.today %}
+          {#- Derived "today" snapshot — mirrors the admin console's Leads/Visitors/Bookings today. -#}
+          <div class="ax-stats">
+            <div class="ax-card ax-stat">
+              <div class="ax-stat-top"><span class="ax-stat-ic">{{ ic('users') }}</span>Leads today</div>
+              <div class="ax-val">{{ ws.today.leads }}</div>
+              <div class="ax-stat-note up">&uarr; New enquiries since midnight</div>
+            </div>
+            <div class="ax-card ax-stat">
+              <div class="ax-stat-top"><span class="ax-stat-ic">{{ ic('trending') }}</span>Visitors today</div>
+              <div class="ax-val">{{ ws.today.visitors }}</div>
+              <div class="ax-stat-note">Sessions across your funnel</div>
+            </div>
+            <div class="ax-card ax-stat">
+              <div class="ax-stat-top"><span class="ax-stat-ic">{{ ic('calendar') }}</span>Bookings today</div>
+              <div class="ax-val">{{ ws.today.bookings }}</div>
+              <div class="ax-stat-note up">&uarr; Confirmed reservations</div>
+            </div>
+          </div>
           {% endif %}
 
-          {% if ws.wins %}
+          {% set wins = ws.wins if ws.wins else ((ws.metrics|selectattr('trend_up')|list)[:3] if ws.metrics else []) %}
+          {% if wins %}
           <div class="ax-panel ax-wins">
             <h2 class="ax-h2">{{ ic('trophy') }} Wins for the week</h2>
             <div class="ax-list">
-              {% for w in ws.wins %}
+              {% for w in wins %}
               <div class="ax-row">
                 <span class="ax-row-ic ax-win-ic">{{ ic(w.icon|default('check', true)) }}</span>
                 <div class="ax-row-main">
-                  <div class="ax-row-t">{{ w.title }}</div>
-                  <div class="ax-row-s">{{ w.detail }}</div>
+                  <div class="ax-row-t">{{ w.title if w.title else (w.label ~ ' up ' ~ w.trend) }}</div>
+                  <div class="ax-row-s">{{ w.detail if w.detail else (w.label ~ ' is now ' ~ w.value ~ ', a ' ~ w.trend ~ ' move in your favour.') }}</div>
                 </div>
               </div>
               {% endfor %}
@@ -896,18 +975,28 @@
           </div>
 
           <div class="ax-callayout">
-            <div class="ax-panel">
-              <div class="ax-cal-grid">
-                {% for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}<div class="ax-cal-dow">{{ d }}</div>{% endfor %}
-                {% for week in view.calendar.weeks %}{% for cell in week %}
-                <div class="ax-cal-cell {{ 'out' if not cell.in_month else '' }} {{ 'past' if cell.is_past else '' }} {{ 'done' if cell.done else '' }} {{ 'ahead' if cell.ahead else '' }} {{ 'today' if cell.is_today else '' }}">
-                  <div class="ax-cal-day">{{ cell.day }}{% if cell.done %} <span class="ax-cal-check">✓</span>{% endif %}</div>
-                  {% for ev in cell.events %}
-                  <div class="ax-cal-ev"><span class="ax-evd {{ ev.kind }}"></span><span>{{ ev.label }}</span></div>
-                  {% endfor %}
+            <div class="ax-cal-stack">
+              {#- Previous / current / next month, anchored on today's month so it rolls forward. -#}
+              {% for cal in view.calendars %}
+              <div class="ax-panel ax-cal-month {{ 'is-current' if cal.is_current else 'is-side' }}">
+                <div class="ax-cal-mhead">
+                  <span class="ax-cal-mname">{{ cal.label }}</span>
+                  {% if cal.is_current %}<span class="ax-cal-now">This month</span>{% endif %}
                 </div>
-                {% endfor %}{% endfor %}
+                <div class="ax-cal-grid">
+                  {% for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}<div class="ax-cal-dow">{{ d }}</div>{% endfor %}
+                  {% for week in cal.weeks %}{% for cell in week %}
+                  {% set cell_emptypast = cell.is_past and cell.in_month and not cell.events and not cell.done and not cell.ahead and not cell.is_today %}
+                  <div class="ax-cal-cell {{ 'out' if not cell.in_month else '' }} {{ 'past' if cell.is_past else '' }} {{ 'pastempty' if cell_emptypast else '' }} {{ 'done' if cell.done else '' }} {{ 'ahead' if cell.ahead else '' }} {{ 'today' if cell.is_today else '' }}">
+                    <div class="ax-cal-day">{{ cell.day }}{% if cell.done %} <span class="ax-cal-check">✓</span>{% endif %}</div>
+                    {% for ev in cell.events %}
+                    <div class="ax-cal-ev"><span class="ax-evd {{ ev.kind }}"></span><span>{{ ev.label }}</span></div>
+                    {% endfor %}
+                  </div>
+                  {% endfor %}{% endfor %}
+                </div>
               </div>
+              {% endfor %}
             </div>
 
             <div class="ax-panel ax-miles">
@@ -1057,6 +1146,21 @@
   var adminName = root.getAttribute("data-adminname") || "AGORA";
 
   function qsa(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
+
+  // ---- Collapsible sidebar (tuck the nav to the side; remembers the choice) ------------------
+  var navToggle = document.getElementById("ax-navtoggle");
+  var navKey = "axNavCollapsed";
+  function setNav(collapsed) {
+    if (collapsed) { root.classList.add("nav-collapsed"); } else { root.classList.remove("nav-collapsed"); }
+  }
+  try { if (window.localStorage && window.localStorage.getItem(navKey) === "1") { setNav(true); } } catch (e) {}
+  if (navToggle) {
+    navToggle.addEventListener("click", function () {
+      var collapsed = !root.classList.contains("nav-collapsed");
+      setNav(collapsed);
+      try { if (window.localStorage) { window.localStorage.setItem(navKey, collapsed ? "1" : "0"); } } catch (e) {}
+    });
+  }
 
   function adminMsg(text, ok) {
     var el = document.getElementById("ax-admin-msg");

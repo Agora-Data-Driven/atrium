@@ -1025,6 +1025,17 @@ def _valid_client_key(k):
     return bool(k) and k[0] != "-" and all(ch in allowed for ch in k)
 
 
+def _slugify_key(name):
+    """Derive a client key from a display name: ascii lowercase, runs of other chars -> one hyphen."""
+    out = []
+    for ch in (name or "").lower():
+        if "a" <= ch <= "z" or "0" <= ch <= "9":
+            out.append(ch)
+        elif out and out[-1] != "-":
+            out.append("-")
+    return "".join(out).strip("-")
+
+
 @app.route("/admin/atrium/new", methods=["POST"])
 def admin_atrium_new():
     """Onboard a brand-new client: registry entry + portal password + a BLANK Atrium workspace.
@@ -1034,11 +1045,12 @@ def admin_atrium_new():
     """
     if not is_superadmin():
         return Response("Forbidden", status=403, mimetype="text/plain")
-    key = request.form.get("key", "").strip().lower()
     name = request.form.get("name", "").strip()
+    key = request.form.get("key", "").strip().lower() or _slugify_key(name)
     if not _valid_client_key(key):
         return redirect(url_for("admin_atrium",
-                                msg="Invalid client key '%s' -- use lowercase letters, numbers and hyphens." % key))
+                                msg="Please enter a display name (the key auto-generates from it, or set "
+                                    "one using lowercase letters, numbers and hyphens)."))
     if workspace.workspace_exists(key) or store.get_client(key) is not None:
         return _atrium_admin_redirect(key, "Client '%s' already exists -- opening it." % key)
     import onboard_client  # lazy: reuses brand_for() + starter_workspace()
@@ -1056,7 +1068,14 @@ def admin_atrium_client(client):
     if not is_superadmin():
         return Response("Forbidden", status=403, mimetype="text/plain")
     ws = workspace.load_workspace(client)
+    # The team console mirrors the client's content calendar: a prev/current/next month window,
+    # anchored on today's SGT business day (atrium_view owns both helpers, so it stays consistent).
+    calendars = None
+    if ws:
+        today = atrium_view.business_today()
+        calendars = atrium_view.calendar_months(ws.get("calendar", []), today)
     return render_template("admin_atrium.html", clients=None, client=client, ws=ws,
+                           calendars=calendars,
                            user=current_user(), workspace_name=WORKSPACE_NAME,
                            msg=request.args.get("msg"), **_brand_ctx())
 
