@@ -50,8 +50,8 @@ data object `<c>.json` + freshness sidecar `_freshness.json` in the client's buc
 - `ingest/windsor_data_pull/` — Windsor connector loaders (`ga4`, `google_ads`, `meta`, `tradedesk`,
   `reddit`, `hubspot`, `fields`) that write `raw_windsor.*`. Scheduled API pulls, not self-gating.
 - `agora-platform/` — the portal/CRM front-door (`platform-dash`). Also hosts **Agora Atrium**
-  (`dash/workspace.py`, `seed_workspace.py`, `notify.py`, `atrium_view.py`, `templates/atrium.html`
-  + `admin_atrium.html`). The brand kit lives in `Creatives/` (logo set, `brand.json`/`brand.md`);
+  (`dash/workspace.py`, `seed_workspace.py`, `notify.py`, `atrium_view.py`, `atrium_docs.py`,
+  `templates/atrium.html` + `admin_atrium.html`). The brand kit lives in `Creatives/` (logo set, `brand.json`/`brand.md`);
   `dash/brand.py` is the bundled runtime copy of the AGORA mark + official palette (the container
   can't read `Creatives/`), used by the portal/login chrome and as `seed_workspace.py`'s fallback.
 - `status_dashboard/` — meta dashboard monitoring every client's freshness (no dataset/views).
@@ -70,21 +70,45 @@ parses it with esprima, which predates those tokens). Use classic `&&`/`||` guar
 ## Agora Atrium (client workspace in the portal)
 
 Atrium is the co-branded client workspace built **into** `platform-dash` — **additive**, reusing the
-existing session auth, bucket, and runtime SA. **No new infra/IAM/bucket/secret/service.** Product
-name is one constant: `WORKSPACE_NAME` in `agora-platform/dash/main.py`.
+existing session auth, bucket, and runtime SA. **No new infra/IAM/bucket/secret/service** — with ONE
+opt-in exception, the Google-Doc → AI summary feature (see the strategy-doc bullet below), which stays
+dormant and infra-free unless an operator deliberately enables it. Product name is one constant:
+`WORKSPACE_NAME` in `agora-platform/dash/main.py`.
 
 - **State = one private JSON per client (no database):** `workspace/<c>.json` in the **registry
   bucket** `agora-data-driven-platform-dash`. `dash/workspace.py` is the only reader/writer
   (last-write-wins, mirrors `store.py`); it imports `google-cloud-storage` lazily and supports a
   local-fs backend via `WORKSPACE_LOCAL_DIR` (+ `WORKSPACE_BUCKET`/`WORKSPACE_PREFIX`) so it is
   testable off-cloud. Shape: `metrics`, `today`, `split`, `series`, `activity`, `campaigns[]`
-  (`strategy`/`ai_summary` + `content[]` with status `awaiting|approved|changes` + `client_note`),
+  (`strategy`/`ai_summary`/`strategy_doc` + `content[]` with status `awaiting|approved|changes`,
+  `client_note`, threaded `comments[]`, and optional uploaded-creative `image_object`/`image_mime`),
   `calendar[]`, `conversations[]` (`client`/`agora` messages), per-user `notify` prefs.
+- **Uploaded creatives = separate private objects (NOT inline in the JSON):** an admin-uploaded
+  creative is stored as its own object `workspace/creatives/<c>/<content_id>` in the **same registry
+  bucket** (keeps the rewrite-in-full workspace JSON small) and is served ONLY through the authed
+  proxy `GET /w/<c>/creative/<content_id>` (mirrors the `/data.json` posture — never made public).
+- **In-workspace admin editing = the team edits the REAL `/w/<c>/` in place.** When `is_superadmin()`
+  opens a workspace, the SAME client UI renders extra edit affordances (`{% if is_superadmin %}` +
+  `data-admin="1"`), posting JSON to `/w/<c>/admin/*`: `strategy`, `strategy-doc`, `generate-summary`,
+  `summary`, `campaign`, `delete-campaign`, `content`, `edit-content`, `delete-content`,
+  `content-comment`, `upload-creative`, `remove-creative`, `metrics`, `calendar`, `reply`. The older
+  dark `/admin/atrium/...` console stays as a fallback. **Clients** can now re-decide a creative's
+  status anytime (`/approve` ⇄ `/request-changes`) and post threaded `/w/<c>/comment`s.
 - **Routes (all behind existing session auth):** client `GET /w/<c>/` + `/w/<c>/<tab>` (overview,
   dashboard, leadgen, organic, calendar, conversations, settings) gated `authed()`+`can_open(<c>)`;
-  POSTs `/w/<c>/{approve,request-changes,save-note,send-message,save-notify}`. Team console
+  client POSTs `/w/<c>/{approve,request-changes,save-note,comment,send-message,save-notify}` +
+  creative GET above; admin POSTs `/w/<c>/admin/*` gated `is_superadmin()`. Team console
   `/admin/atrium[/<c>][/campaign|content|conversation|reply|metrics]` gated `is_superadmin()`. The
   portal landing shows **Open workspace** beside **Open dashboard**.
+- **Strategy doc → AI summary (optional, opt-in):** an admin attaches a Google Doc to a campaign and
+  clicks "Generate from doc". `dash/atrium_docs.py` reads it via the **Google Drive API** (lazy
+  `googleapiclient`, runtime-SA ADC, `drive.readonly`; gated `ATRIUM_DOCS_ENABLED=1`; the doc must be
+  shared with the runtime SA) and `feedback_ai.summarize_strategy` (Claude `claude-opus-4-8`, the
+  existing `FEEDBACK_AI_ENABLED`+`ANTHROPIC_API_KEY` gate) writes the summary; it stays hand-editable.
+  Every step degrades gracefully (no AI → doc excerpt; no doc → empty, the admin types it). ⚠️ This is
+  a **deliberate, opt-in deviation** from the "no new infra" rule below: enabling it needs the
+  Docs/Drive API on + `google-api-python-client` added to `requirements.txt` + the doc shared with the
+  runtime SA. **A default deploy stays infra-free** (`googleapiclient` is never imported unless enabled).
 - **Notifications are optional & graceful** (`dash/notify.py`, mirrors `feedback_ai.py`): default
   records an activity entry + logs to stdout; real email only when **both** `ATRIUM_EMAIL_ENABLED=1`
   and `ATRIUM_EMAIL_API_KEY` (Secret-Manager) are set, SDK imported lazily. **No provider key

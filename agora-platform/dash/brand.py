@@ -110,7 +110,7 @@ AGORA_ICON = (
     '</svg>'
 )
 
-# A green-on-light version of the icon, for use as a favicon (reads better small / on a tab).
+# Green line-art peak -- the FALLBACK favicon, used only when the real PNG below is absent.
 _FAVICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 38 40">'
     '<g fill="none" stroke="#4FAB4A" stroke-linecap="round" stroke-linejoin="round">'
@@ -120,7 +120,36 @@ _FAVICON_SVG = (
     '</g>'
     '</svg>'
 )
-FAVICON_DATA_URI = "data:image/svg+xml;base64," + base64.b64encode(_FAVICON_SVG.encode("utf-8")).decode("ascii")
+
+
+def _favicon_from_png(filename, w, h, viewbox):
+    """Crop the bundled logo PNG to its square MARK for a tab-sized favicon (data-URI SVG).
+
+    A favicon must be square, but the real artwork is the wide horizontal lockup -- so we embed the
+    PNG and use an SVG viewBox to show ONLY the left mark (measured at columns 5..113 of the 420x101
+    art; the AGORA wordmark begins at column 127). Returns None if the PNG is absent, so the caller
+    falls back to the line-art peak above.
+    """
+    path = os.path.join(os.path.dirname(__file__), "assets", filename)
+    try:
+        with open(path, "rb") as fh:
+            uri = "data:image/png;base64," + base64.b64encode(fh.read()).decode("ascii")
+    except OSError:
+        return None
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
+        'viewBox="%s" role="img" aria-label="Agora">'
+        '<image href="%s" xlink:href="%s" width="%d" height="%d"/></svg>'
+    ) % (viewbox, uri, uri, w, h)
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+# The browser-tab icon: the REAL Agora mark (left of assets/agora_logo.png, cropped square via the
+# viewBox), falling back to the green line-art peak when the PNG is absent.
+FAVICON_DATA_URI = (
+    _favicon_from_png("agora_logo.png", 420, 101, "0 -8 118 118")
+    or "data:image/svg+xml;base64," + base64.b64encode(_FAVICON_SVG.encode("utf-8")).decode("ascii")
+)
 
 
 def monogram(display_name):

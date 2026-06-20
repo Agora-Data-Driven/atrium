@@ -79,11 +79,53 @@ def run():
     _check("activity prepended",
            workspace.load_workspace(CLIENT)["activity"][0]["text"] == "You approved RVR-016.")
 
-    # 8. Everything survived a reload from disk.
+    # 8a. Threaded comments on a content piece (client + team).
+    item, comment = workspace.add_content_comment(CLIENT, "RVR-016", "client", "Sarah", "Can we brighten it?")
+    _check("comment appended", comment["body"] == "Can we brighten it?")
+    workspace.add_content_comment(CLIENT, "RVR-016", "agora", "Maya", "On it!")
+    _camp, rvr016c = workspace._find_content(workspace.load_workspace(CLIENT), "RVR-016")
+    _check("two comments persisted", len(rvr016c["comments"]) == 2 and rvr016c["comments"][-1]["sender"] == "agora")
+
+    # 8b. Strategy doc attach + campaign update with new fields.
+    workspace.set_strategy_doc(CLIENT, "c_paid_1", "https://docs.google.com/document/d/ABC123abc123abc123abc/edit")
+    _check("strategy_doc saved",
+           workspace._find_campaign(workspace.load_workspace(CLIENT), "c_paid_1")["strategy_doc"].endswith("/edit"))
+
+    # 8c. Creative image bytes round-trip + pointer set/clear.
+    obj = workspace.write_creative(CLIENT, "RVR-016", b"\x89PNG\r\n\x1a\nFAKE", content_type="image/png")
+    _check("creative object name under prefix", obj == "workspace/creatives/riverdance/RVR-016")
+    _check("creative bytes round-trip", workspace.read_creative_bytes(CLIENT, "RVR-016") == b"\x89PNG\r\n\x1a\nFAKE")
+    workspace.set_content_image(CLIENT, "RVR-016", obj, "image/png")
+    _camp, rvr016i = workspace._find_content(workspace.load_workspace(CLIENT), "RVR-016")
+    _check("image pointer set", rvr016i["image_object"] == obj and rvr016i["image_mime"] == "image/png")
+    workspace.clear_content_image(CLIENT, "RVR-016")
+    workspace.delete_creative(CLIENT, "RVR-016")
+    _camp, rvr016n = workspace._find_content(workspace.load_workspace(CLIENT), "RVR-016")
+    _check("image pointer cleared", "image_object" not in rvr016n)
+    _check("creative bytes deleted", workspace.read_creative_bytes(CLIENT, "RVR-016") is None)
+
+    # 8d. Delete content + delete campaign.
+    n_org = len(workspace._find_campaign(workspace.load_workspace(CLIENT), "c_org_1")["content"])
+    workspace.delete_content(CLIENT, "RVR-017")
+    _check("content removed",
+           len(workspace._find_campaign(workspace.load_workspace(CLIENT), "c_org_1")["content"]) == n_org - 1)
+    workspace.delete_campaign(CLIENT, "c_org_1")
+    _check("campaign removed",
+           workspace._find_campaign(workspace.load_workspace(CLIENT), "c_org_1") is None)
+
+    # 8e. Calendar add + delete.
+    before_cal = len(workspace.load_workspace(CLIENT).get("calendar", []))
+    workspace.add_calendar_event(CLIENT, "2026-07-04", "Independence Day promo", "milestone")
+    _check("calendar event added", len(workspace.load_workspace(CLIENT)["calendar"]) == before_cal + 1)
+    workspace.delete_calendar_event(CLIENT, before_cal)
+    _check("calendar event deleted", len(workspace.load_workspace(CLIENT)["calendar"]) == before_cal)
+
+    # 9. Everything survived a reload from disk.
     reloaded = workspace.load_workspace(CLIENT)
     _camp, rvr016 = workspace._find_content(reloaded, "RVR-016")
     _check("approval persisted across reload", rvr016["status"] == "approved")
     _check("notify persisted across reload", reloaded["notify"][USER]["status"] is True)
+    _check("comments persisted across reload", len(rvr016["comments"]) == 2)
 
     print("[localtest] PASS")
     return 0

@@ -99,6 +99,14 @@ def client_messaged(client, conversation, user=None):
     _send_email(team_address(), "New Atrium message: %s" % subject, body)
 
 
+def client_commented(client, item, body, user=None):
+    """A client posted a comment on a content piece. Notify the AGORA team."""
+    ref = item.get("ref") or item.get("id") or "a piece"
+    _record(client, "message", "You commented on %s." % ref)
+    _log("client comment on %s (by %s)" % (ref, user or "client"))
+    _send_email(team_address(), "New Atrium comment on %s" % ref, body or "")
+
+
 # --- team -> client (gated by each recipient's prefs) -------------------------------------------
 def _eligible_recipients(ws, kind):
     """Return (email, prefs) for users whose master switch AND `kind` toggle are on."""
@@ -118,6 +126,16 @@ def team_added_content(client, ws, item):
     for email, prefs in _eligible_recipients(ws, "content"):
         if prefs.get("frequency") == "instant":
             _send_email(email, "New content to review: %s" % ref, item.get("caption", ""))
+
+
+def team_commented(client, ws, item, body, sender_name="AGORA"):
+    """The team commented on a content piece. Record activity; email opted-in recipients (content)."""
+    ref = item.get("ref") or item.get("id") or "a piece"
+    _record(client, "message", '%s commented on %s.' % (sender_name, ref))
+    _log("team comment on %s for %s" % (ref, client))
+    for email, prefs in _eligible_recipients(ws, "content"):
+        if prefs.get("frequency") == "instant":
+            _send_email(email, "AGORA commented on %s" % ref, body or "")
 
 
 def team_replied(client, ws, conversation, sender_name="AGORA"):

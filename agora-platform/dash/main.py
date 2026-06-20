@@ -39,6 +39,7 @@ from flask import (
     url_for,
 )
 
+import atrium_docs
 import atrium_view
 import brand
 import notify
@@ -68,10 +69,14 @@ app.secret_key = SESSION_SECRET
 # Cookie hardening. SameSite=None + Secure is REQUIRED for the cross-subdomain portal flow
 # (portal.agoradatadriven.com -> <c>.agoradatadriven.com): a Lax/Strict cookie would be dropped
 # on the cross-site navigation. HttpOnly keeps the session out of JS.
+# In production these MUST stay on; locally they are relaxed (PORTAL_SECURE_COOKIES=0) because a
+# browser drops a Secure cookie over plain http://localhost, which would make login loop. The
+# default is the secure production posture, so a normal deploy is unaffected.
+_secure_cookies = os.environ.get("PORTAL_SECURE_COOKIES", "1") != "0"
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SECURE=True,
-    SESSION_COOKIE_SAMESITE="None",
+    SESSION_COOKIE_SECURE=_secure_cookies,
+    SESSION_COOKIE_SAMESITE="None" if _secure_cookies else "Lax",
 )
 # Cap request bodies. The largest legitimate POST is a voice feedback note; keep it bounded.
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MiB
@@ -135,6 +140,24 @@ def _brand_ctx():
     return {"agora_logo": brand.AGORA_LOGO_LIGHT, "favicon": brand.FAVICON_DATA_URI}
 
 
+def _post_login_destination(granted, next_url):
+    """Where to send a user immediately after a successful login.
+
+    A client who can open exactly ONE workspace lands straight on that workspace's overview -- the
+    company overview -- instead of the portal card list, so a single-client login feels like "their"
+    app. Super-admins ("*") and users with several clients keep the card list, and an explicit deep
+    link (any next_url other than the bare "/") always wins so /admin, a specific /w/<c>/ tab, or a
+    proxied dashboard link is never hijacked.
+    """
+    if next_url and next_url not in ("/", ""):
+        return next_url
+    if "*" not in granted and len(granted) == 1:
+        only = granted[0]
+        if workspace.workspace_exists(only):
+            return url_for("atrium", client=only, tab="overview")
+    return next_url or "/"
+
+
 # --- Routes: auth + landing --------------------------------------------------------------
 @app.route("/", methods=["GET"])
 def index():
@@ -170,7 +193,7 @@ def login():
     session["user"] = email
     session["clients"] = granted
 
-    resp = redirect(next_url or "/")
+    resp = redirect(_post_login_destination(granted, next_url))
     # Mint the shared SSO cookie so the dashboards trust this portal login additively. Only do this
     # when the signing key is configured; without it SSO is simply inert (the dashboards' own
     # password gate still works), so a missing key must never break portal login.
@@ -470,6 +493,15 @@ def _atrium_json_gate(client):
     return None
 
 
+def _atrium_admin_json_gate(client):
+    """Gate for in-workspace ADMIN edit actions: super-admin only. JSON error Response, or None."""
+    if not authed():
+        return Response('{"error":"unauthorized"}', status=401, mimetype="application/json")
+    if not is_superadmin():
+        return Response('{"error":"forbidden"}', status=403, mimetype="application/json")
+    return None
+
+
 def _bool_field(name):
     """Read a checkbox-style form field as a bool."""
     return request.form.get(name, "0") in ("1", "true", "True", "on")
@@ -480,6 +512,19 @@ def _client_sender_name(user):
     if user and "@" in user:
         return user.split("@")[0].split(".")[0].title()
     return "Client"
+
+
+def _admin_sender_name(user):
+    """The attribution shown on an admin's inline comments/replies (defaults to 'AGORA').
+
+    A shared mailbox like info@ is generic, so we fall back to the team name 'AGORA' rather than a
+    personal first name; a personal login (e.g. maya@...) gets their first name.
+    """
+    if user and "@" in user:
+        local = user.split("@")[0]
+        if local.lower() not in atrium_view._GENERIC_MAILBOXES:
+            return local.split(".")[0].split("_")[0].title()
+    return "AGORA"
 
 
 @app.route("/w/<client>/", defaults={"tab": "overview"}, methods=["GET"])
@@ -505,6 +550,7 @@ def atrium(client, tab):
         user=user,
         user_notify=workspace.get_notify(ws, user or ""),
         is_superadmin=is_superadmin(),
+        admin_name=_admin_sender_name(user),
         favicon=brand.FAVICON_DATA_URI,
     )
 
@@ -580,6 +626,375 @@ def atrium_save_notify(client):
     except KeyError:
         return Response('{"error":"no_workspace"}', status=404, mimetype="application/json")
     return jsonify(ok=True)
+
+
+@app.route("/w/<client>/comment", methods=["POST"])
+def atrium_comment(client):
+    """Append a client comment to a content piece (client-facing); notifies the AGORA team."""
+    gate = _atrium_json_gate(client)
+    if gate:
+        return gate
+    content_id = request.form.get("content_id", "").strip()
+    body = request.form.get("body", "").strip()
+    if not body:
+        return Response('{"error":"empty"}', status=400, mimetype="application/json")
+    try:
+        item, comment = workspace.add_content_comment(
+            client, content_id, "client", _client_sender_name(current_user()), body,
+        )
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    notify.client_commented(client, item, body, current_user())
+    return jsonify(ok=True, comment=comment)
+
+
+@app.route("/w/<client>/creative/<content_id>", methods=["GET"])
+def atrium_creative(client, content_id):
+    """Stream a content piece's uploaded creative (authed proxy; the bucket stays private).
+
+    Mirrors the /data.json posture: the object is never public -- it is served only to a session
+    that may open this client. Returns 404 when the piece has no uploaded creative.
+    """
+    if not authed():
+        return redirect(url_for("login", next=request.full_path))
+    if not can_open(client):
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    ws = workspace.load_workspace(client)
+    if ws is None:
+        return Response("Not found", status=404, mimetype="text/plain")
+    _camp, item = workspace._find_content(ws, content_id)
+    if item is None or not item.get("image_object"):
+        return Response("Not found", status=404, mimetype="text/plain")
+    data = workspace.read_creative_bytes(client, content_id)
+    if data is None:
+        return Response("Not found", status=404, mimetype="text/plain")
+    resp = Response(data, mimetype=item.get("image_mime") or "application/octet-stream")
+    resp.headers["Cache-Control"] = "private, max-age=60"
+    return resp
+
+
+# --- Atrium in-workspace admin editing (super-admin; same /w/<c> surface, JSON actions) ----------
+# These power the inline edit affordances rendered into atrium.html for super-admins, so the team
+# edits the REAL client workspace in place instead of the separate dark console below. Every action
+# reuses the same workspace.py mutators; all are gated super-admin via _atrium_admin_json_gate.
+ATRIUM_UPLOAD_MAX_BYTES = 8 * 1024 * 1024  # reject creatives larger than 8 MB
+_ATRIUM_IMAGE_EXT = {
+    "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif",
+    "image/webp": "webp", "image/svg+xml": "svg",
+}
+
+
+def _strategy_from_form():
+    """Read the three strategy columns from the request form into a dict."""
+    return {
+        "what": request.form.get("what", "").strip(),
+        "why": request.form.get("why", "").strip(),
+        "next": request.form.get("next", "").strip(),
+    }
+
+
+@app.route("/w/<client>/admin/strategy", methods=["POST"])
+def atrium_admin_strategy(client):
+    """Edit a campaign's name / eyebrow / strategy columns in place."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    campaign_id = request.form.get("campaign_id", "").strip()
+    fields = {"strategy": _strategy_from_form()}
+    if request.form.get("name") is not None:
+        fields["name"] = request.form.get("name", "").strip()
+    if request.form.get("eyebrow") is not None:
+        fields["eyebrow"] = request.form.get("eyebrow", "").strip()
+    try:
+        camp = workspace.update_campaign(client, campaign_id, **fields)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    return jsonify(ok=True, strategy=camp.get("strategy"), name=camp.get("name"),
+                   eyebrow=camp.get("eyebrow"))
+
+
+@app.route("/w/<client>/admin/strategy-doc", methods=["POST"])
+def atrium_admin_strategy_doc(client):
+    """Attach or clear the Google Doc URL backing a campaign's AI summary."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    try:
+        camp = workspace.set_strategy_doc(client, request.form.get("campaign_id", "").strip(),
+                                          request.form.get("doc_url", "").strip())
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    return jsonify(ok=True, strategy_doc=camp.get("strategy_doc", ""))
+
+
+@app.route("/w/<client>/admin/generate-summary", methods=["POST"])
+def atrium_admin_generate_summary(client):
+    """Read the campaign's attached Google Doc and (re)write its AI summary. Always degrades."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    campaign_id = request.form.get("campaign_id", "").strip()
+    ws = workspace.load_workspace(client)
+    camp = workspace._find_campaign(ws, campaign_id) if ws else None
+    if camp is None:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    doc_url = (request.form.get("doc_url", "").strip() or camp.get("strategy_doc", ""))
+    if request.form.get("doc_url") is not None:
+        workspace.set_strategy_doc(client, campaign_id, doc_url)
+    summary, source = atrium_docs.generate_summary(doc_url)
+    if source == "none":
+        return jsonify(ok=False, source=source,
+                       message="Could not read the doc. Check the link is shared with AGORA and "
+                               "that doc reading is enabled.")
+    workspace.update_campaign(client, campaign_id, ai_summary=summary)
+    return jsonify(ok=True, ai_summary=summary, source=source)
+
+
+@app.route("/w/<client>/admin/summary", methods=["POST"])
+def atrium_admin_summary(client):
+    """Hand-edit a campaign's AI summary text."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    try:
+        camp = workspace.update_campaign(client, request.form.get("campaign_id", "").strip(),
+                                         ai_summary=request.form.get("ai_summary", "").strip())
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    return jsonify(ok=True, ai_summary=camp.get("ai_summary", ""))
+
+
+@app.route("/w/<client>/admin/campaign", methods=["POST"])
+def atrium_admin_add_campaign(client):
+    """Add a campaign to this workspace in place."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    name = request.form.get("name", "").strip()
+    if not name:
+        return Response('{"error":"name_required"}', status=400, mimetype="application/json")
+    channel = "paid" if request.form.get("channel") == "paid" else "organic"
+    camp = workspace.add_campaign(client, channel, name, request.form.get("eyebrow", "").strip(),
+                                  strategy=_strategy_from_form(),
+                                  ai_summary=request.form.get("ai_summary", "").strip())
+    return jsonify(ok=True, id=camp.get("id"))
+
+
+@app.route("/w/<client>/admin/delete-campaign", methods=["POST"])
+def atrium_admin_delete_campaign(client):
+    """Delete a campaign (and clean up its content's uploaded creatives)."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    campaign_id = request.form.get("campaign_id", "").strip()
+    try:
+        removed = workspace.delete_campaign(client, campaign_id)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    for item in removed.get("content", []):
+        if item.get("image_object"):
+            workspace.delete_creative(client, item.get("id"))
+    return jsonify(ok=True)
+
+
+@app.route("/w/<client>/admin/content", methods=["POST"])
+def atrium_admin_add_content(client):
+    """Add a content piece to a campaign in place (status -> awaiting) and notify the client."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    campaign_id = request.form.get("campaign_id", "").strip()
+    content = {
+        "ref": request.form.get("ref", "").strip(),
+        "type_tag": request.form.get("type_tag", "").strip(),
+        "sub_tag": request.form.get("sub_tag", "").strip(),
+        "platform": request.form.get("platform", "").strip(),
+        "caption": request.form.get("caption", "").strip(),
+    }
+    if content["ref"]:
+        content["id"] = content["ref"]
+    try:
+        item = workspace.add_content(client, campaign_id, content)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    notify.team_added_content(client, workspace.load_workspace(client), item)
+    return jsonify(ok=True, id=item.get("id"))
+
+
+@app.route("/w/<client>/admin/edit-content", methods=["POST"])
+def atrium_admin_edit_content(client):
+    """Patch a content piece's editable fields (ref/type/sub/platform/caption) in place."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    content_id = request.form.get("content_id", "").strip()
+    fields = {}
+    for key in ("ref", "type_tag", "sub_tag", "platform", "caption"):
+        if request.form.get(key) is not None:
+            fields[key] = request.form.get(key, "").strip()
+    try:
+        item = workspace.update_content(client, content_id, fields)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    return jsonify(ok=True, content=item)
+
+
+@app.route("/w/<client>/admin/delete-content", methods=["POST"])
+def atrium_admin_delete_content(client):
+    """Delete a content piece in place (and its uploaded creative object, if any)."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    content_id = request.form.get("content_id", "").strip()
+    try:
+        removed = workspace.delete_content(client, content_id)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    if removed.get("image_object"):
+        workspace.delete_creative(client, content_id)
+    return jsonify(ok=True)
+
+
+@app.route("/w/<client>/admin/content-comment", methods=["POST"])
+def atrium_admin_content_comment(client):
+    """Post a team comment on a content piece (notifies opted-in client recipients)."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    content_id = request.form.get("content_id", "").strip()
+    body = request.form.get("body", "").strip()
+    if not body:
+        return Response('{"error":"empty"}', status=400, mimetype="application/json")
+    sender_name = request.form.get("sender_name", "").strip() or "AGORA"
+    try:
+        item, comment = workspace.add_content_comment(client, content_id, "agora", sender_name, body)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    notify.team_commented(client, workspace.load_workspace(client), item, body, sender_name)
+    return jsonify(ok=True, comment=comment)
+
+
+@app.route("/w/<client>/admin/upload-creative", methods=["POST"])
+def atrium_admin_upload_creative(client):
+    """Upload an image creative for a content piece (stored as a private object; ≤ 8 MB)."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    content_id = request.form.get("content_id", "").strip()
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return Response('{"error":"no_file"}', status=400, mimetype="application/json")
+    mime = (upload.mimetype or "").lower()
+    if mime not in _ATRIUM_IMAGE_EXT:
+        return Response('{"error":"unsupported_type"}', status=400, mimetype="application/json")
+    data = upload.read(ATRIUM_UPLOAD_MAX_BYTES + 1)
+    if len(data) > ATRIUM_UPLOAD_MAX_BYTES:
+        return Response('{"error":"too_large"}', status=413, mimetype="application/json")
+    ws = workspace.load_workspace(client)
+    _camp, item = workspace._find_content(ws, content_id) if ws else (None, None)
+    if item is None:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    object_name = workspace.write_creative(client, content_id, data, content_type=mime)
+    workspace.set_content_image(client, content_id, object_name, mime)
+    return jsonify(ok=True, url=url_for("atrium_creative", client=client, content_id=content_id))
+
+
+@app.route("/w/<client>/admin/remove-creative", methods=["POST"])
+def atrium_admin_remove_creative(client):
+    """Remove a content piece's uploaded creative (object + workspace pointer)."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    content_id = request.form.get("content_id", "").strip()
+    try:
+        workspace.clear_content_image(client, content_id)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    workspace.delete_creative(client, content_id)
+    return jsonify(ok=True)
+
+
+@app.route("/w/<client>/admin/metrics", methods=["POST"])
+def atrium_admin_metrics(client):
+    """Edit headline counts (today + split) and the KPI metric values/trends in place."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    ws = workspace.load_workspace(client)
+    if ws is None:
+        return Response('{"error":"no_workspace"}', status=404, mimetype="application/json")
+
+    def _int(name, fallback):
+        try:
+            return int(request.form.get(name, fallback))
+        except (TypeError, ValueError):
+            return fallback
+
+    today = {
+        "leads": _int("today_leads", ws.get("today", {}).get("leads", 0)),
+        "visitors": _int("today_visitors", ws.get("today", {}).get("visitors", 0)),
+        "bookings": _int("today_bookings", ws.get("today", {}).get("bookings", 0)),
+    }
+    split = {
+        "paid": _int("split_paid", ws.get("split", {}).get("paid", 0)),
+        "organic": _int("split_organic", ws.get("split", {}).get("organic", 0)),
+    }
+    workspace.set_overview_counts(client, today=today, split=split)
+
+    metrics = []
+    for i, m in enumerate(ws.get("metrics", [])):
+        metrics.append({
+            "icon": m.get("icon", "trending"),
+            "label": m.get("label", ""),
+            "value": request.form.get("metric_value_%d" % i, m.get("value", "")).strip(),
+            "trend": request.form.get("metric_trend_%d" % i, m.get("trend", "")).strip(),
+            "trend_up": _bool_field("metric_up_%d" % i),
+        })
+    if metrics:
+        workspace.set_metrics(client, metrics)
+    return jsonify(ok=True)
+
+
+@app.route("/w/<client>/admin/calendar", methods=["POST"])
+def atrium_admin_calendar(client):
+    """Add or delete a calendar event in place. `op` is 'add' or 'delete'."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    if request.form.get("op") == "delete":
+        try:
+            index = int(request.form.get("index", "-1"))
+        except (TypeError, ValueError):
+            index = -1
+        workspace.delete_calendar_event(client, index)
+        return jsonify(ok=True)
+    date = request.form.get("date", "").strip()
+    if not date:
+        return Response('{"error":"date_required"}', status=400, mimetype="application/json")
+    kind = request.form.get("kind", "milestone").strip() or "milestone"
+    event = workspace.add_calendar_event(client, date, request.form.get("label", "").strip(), kind)
+    return jsonify(ok=True, event=event)
+
+
+@app.route("/w/<client>/admin/reply", methods=["POST"])
+def atrium_admin_reply_inline(client):
+    """Reply to a conversation as the AGORA team from inside the workspace; notifies the client."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    conv_id = request.form.get("conversation_id", "").strip()
+    body = request.form.get("body", "").strip()
+    if not body:
+        return Response('{"error":"empty"}', status=400, mimetype="application/json")
+    sender_name = request.form.get("sender_name", "").strip() or "AGORA"
+    new_status = "resolved" if _bool_field("resolve") else "awaiting_reply"
+    try:
+        conv, message = workspace.add_message(client, conv_id, "agora", sender_name, body,
+                                              set_status=new_status)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    notify.team_replied(client, workspace.load_workspace(client), conv, sender_name)
+    return jsonify(ok=True, message=message, status=conv.get("status"))
 
 
 # --- Atrium team management (super-admin operator console) --------------------------------------

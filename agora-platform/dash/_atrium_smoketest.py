@@ -9,6 +9,7 @@ Run with a Flask-capable interpreter:
     python _atrium_smoketest.py        # prints PASS / FAIL, exits 0 / 1
 """
 
+import io
 import os
 import shutil
 import sys
@@ -80,11 +81,25 @@ def run():
     _camp, item = workspace._find_content(workspace.load_workspace(CLIENT), "RVR-016")
     _check("approval persisted", item["status"] == "approved" and item["client_note"] == "Ship it.")
     _check("confirmation bar on reload",
-           "You approved this" in c.get("/w/%s/leadgen" % CLIENT).get_data(as_text=True))
+           "Approved" in c.get("/w/%s/leadgen" % CLIENT).get_data(as_text=True))
+
+    # Re-decide: an already-approved piece can be flipped to changes (status anytime).
+    r = c.post("/w/%s/request-changes" % CLIENT, data={"content_id": "RVR-016"})
+    _check("re-decide flips approved -> changes",
+           r.status_code == 200 and r.get_json().get("status") == "changes")
+    r = c.post("/w/%s/approve" % CLIENT, data={"content_id": "RVR-016", "note": "Ship it."})
+    _check("re-decide flips back to approved", r.get_json().get("status") == "approved")
 
     # Request changes on the organic awaiting piece.
     r = c.post("/w/%s/request-changes" % CLIENT, data={"content_id": "RVR-017"})
     _check("request-changes ok", r.status_code == 200 and r.get_json().get("status") == "changes")
+
+    # Client posts a threaded comment on a content piece.
+    r = c.post("/w/%s/comment" % CLIENT, data={"content_id": "RVR-017", "body": "Add a guest quote?"})
+    _check("client comment ok", r.status_code == 200 and r.get_json().get("ok") is True)
+    _camp, c017 = workspace._find_content(workspace.load_workspace(CLIENT), "RVR-017")
+    _check("client comment persisted (sender client)",
+           c017["comments"][-1]["body"] == "Add a guest quote?" and c017["comments"][-1]["sender"] == "client")
 
     # Save a note silently.
     _check("save-note ok",
@@ -152,10 +167,124 @@ def run():
     _check("split updated", ws2["split"]["paid"] == 90)
     _check("metric 0 value updated", ws2["metrics"][0]["value"] == "200")
 
+    # ---- In-workspace admin editing (/w/<c>/admin/*), all JSON, super-admin only ----
+    # Admin notice bar renders for a super-admin in the real workspace.
+    body = c.get("/w/%s/leadgen" % CLIENT).get_data(as_text=True)
+    _check("admin edit bar renders for super-admin",
+           'class="ax-adminbadge"' in body and 'data-admin="1"' in body)
+
+    # Edit strategy in place.
+    r = c.post("/w/%s/admin/strategy" % CLIENT,
+               data={"campaign_id": "c_paid_1", "name": "Summer Lead-Gen Push v2",
+                     "eyebrow": "PAID · LEAD GEN", "what": "W2", "why": "Y2", "next": "N2"})
+    _check("inline strategy ok", r.status_code == 200 and r.get_json().get("ok") is True)
+    camp = workspace._find_campaign(workspace.load_workspace(CLIENT), "c_paid_1")
+    _check("strategy persisted", camp["strategy"]["what"] == "W2" and camp["name"] == "Summer Lead-Gen Push v2")
+
+    # Save a strategy doc link, then generate a summary (AI OFF -> graceful, never 500).
+    r = c.post("/w/%s/admin/strategy-doc" % CLIENT,
+               data={"campaign_id": "c_paid_1",
+                     "doc_url": "https://docs.google.com/document/d/ABC123abc123abc123abc/edit"})
+    _check("strategy-doc saved", r.status_code == 200 and r.get_json().get("strategy_doc", "").endswith("/edit"))
+    r = c.post("/w/%s/admin/generate-summary" % CLIENT, data={"campaign_id": "c_paid_1"})
+    _check("generate-summary degrades gracefully (no 500)", r.status_code == 200)
+    _check("generate-summary reports unreadable doc when docs disabled",
+           r.get_json().get("ok") is False and r.get_json().get("source") == "none")
+
+    # Hand-edit the AI summary.
+    r = c.post("/w/%s/admin/summary" % CLIENT,
+               data={"campaign_id": "c_paid_1", "ai_summary": "Hand-written summary."})
+    _check("manual summary saved",
+           r.status_code == 200 and r.get_json().get("ai_summary") == "Hand-written summary.")
+
+    # Add content in place, then edit + comment as the team + delete it.
+    r = c.post("/w/%s/admin/content" % CLIENT,
+               data={"campaign_id": "c_paid_1", "ref": "RVR-099", "type_tag": "Reel",
+                     "platform": "Instagram", "caption": "A reel for review."})
+    _check("inline add-content ok", r.status_code == 200 and r.get_json().get("id") == "RVR-099")
+    r = c.post("/w/%s/admin/edit-content" % CLIENT,
+               data={"content_id": "RVR-099", "caption": "An edited reel caption."})
+    _check("inline edit-content ok", r.status_code == 200)
+    _camp, v099 = workspace._find_content(workspace.load_workspace(CLIENT), "RVR-099")
+    _check("content edit persisted", v099["caption"] == "An edited reel caption.")
+    r = c.post("/w/%s/admin/content-comment" % CLIENT,
+               data={"content_id": "RVR-099", "body": "Team note.", "sender_name": "Maya"})
+    _check("team comment ok", r.status_code == 200)
+    _camp, v099b = workspace._find_content(workspace.load_workspace(CLIENT), "RVR-099")
+    _check("team comment persisted (sender agora)", v099b["comments"][-1]["sender"] == "agora")
+
+    # Upload a creative, fetch it back through the authed proxy, then remove it.
+    png = b"\x89PNG\r\n\x1a\n" + b"riverdance-creative-bytes"
+    r = c.post("/w/%s/admin/upload-creative" % CLIENT,
+               data={"content_id": "RVR-099", "file": (io.BytesIO(png), "ad.png", "image/png")},
+               content_type="multipart/form-data")
+    _check("upload-creative ok", r.status_code == 200 and r.get_json().get("ok") is True)
+    served = c.get("/w/%s/creative/RVR-099" % CLIENT)
+    _check("creative served via authed proxy",
+           served.status_code == 200 and served.get_data() == png and served.mimetype == "image/png")
+    r = c.post("/w/%s/admin/remove-creative" % CLIENT, data={"content_id": "RVR-099"})
+    _check("remove-creative ok", r.status_code == 200)
+    _check("creative 404 after removal", c.get("/w/%s/creative/RVR-099" % CLIENT).status_code == 404)
+
+    # Reject a non-image upload and an oversize upload.
+    r = c.post("/w/%s/admin/upload-creative" % CLIENT,
+               data={"content_id": "RVR-099", "file": (io.BytesIO(b"x"), "a.txt", "text/plain")},
+               content_type="multipart/form-data")
+    _check("non-image upload rejected", r.status_code == 400)
+
+    # Delete the content piece in place.
+    r = c.post("/w/%s/admin/delete-content" % CLIENT, data={"content_id": "RVR-099"})
+    _check("inline delete-content ok", r.status_code == 200)
+    _camp, gone = workspace._find_content(workspace.load_workspace(CLIENT), "RVR-099")
+    _check("content deleted", gone is None)
+
+    # Add a campaign in place, then delete it.
+    n_before = len(workspace.load_workspace(CLIENT)["campaigns"])
+    r = c.post("/w/%s/admin/campaign" % CLIENT,
+               data={"channel": "organic", "name": "Inline Organic", "eyebrow": "ORG"})
+    _check("inline add-campaign ok", r.status_code == 200)
+    new_cid = r.get_json().get("id")
+    _check("campaign added", len(workspace.load_workspace(CLIENT)["campaigns"]) == n_before + 1)
+    r = c.post("/w/%s/admin/delete-campaign" % CLIENT, data={"campaign_id": new_cid})
+    _check("inline delete-campaign ok",
+           r.status_code == 200 and len(workspace.load_workspace(CLIENT)["campaigns"]) == n_before)
+
+    # Inline metrics + calendar edits.
+    r = c.post("/w/%s/admin/metrics" % CLIENT,
+               data={"today_leads": "33", "split_paid": "44", "metric_value_0": "999"})
+    _check("inline metrics ok", r.status_code == 200 and workspace.load_workspace(CLIENT)["today"]["leads"] == 33)
+    r = c.post("/w/%s/admin/calendar" % CLIENT,
+               data={"op": "add", "date": "2026-07-04", "label": "July promo", "kind": "milestone"})
+    _check("inline calendar add ok", r.status_code == 200)
+    cal_n = len(workspace.load_workspace(CLIENT)["calendar"])
+    r = c.post("/w/%s/admin/calendar" % CLIENT, data={"op": "delete", "index": str(cal_n - 1)})
+    _check("inline calendar delete ok",
+           r.status_code == 200 and len(workspace.load_workspace(CLIENT)["calendar"]) == cal_n - 1)
+
+    # Inline reply to a conversation as AGORA.
+    r = c.post("/w/%s/admin/reply" % CLIENT,
+               data={"conversation_id": "cv_1", "body": "Inline team reply.", "resolve": "1"})
+    _check("inline reply ok + resolved",
+           r.status_code == 200 and r.get_json().get("status") == "resolved")
+
+    # A non-super-admin grantee can open the workspace but is FORBIDDEN on every admin route.
+    with c.session_transaction() as s:
+        s.update({"ok": True, "user": "owner@riverdanceresort.com", "clients": [CLIENT]})
+    _check("grantee can open workspace", c.get("/w/%s/" % CLIENT).status_code == 200)
+    _check("grantee cannot see admin bar", 'data-admin="1"' not in c.get("/w/%s/" % CLIENT).get_data(as_text=True))
+    for path in ("strategy", "campaign", "content", "delete-content", "metrics", "calendar",
+                 "generate-summary", "upload-creative", "reply"):
+        _check("admin route /%s forbidden for grantee" % path,
+               c.post("/w/%s/admin/%s" % (CLIENT, path), data={}).status_code == 403)
+    # But a grantee CAN comment + re-decide (client powers).
+    _check("grantee can comment",
+           c.post("/w/%s/comment" % CLIENT, data={"content_id": "RVR-014", "body": "hi"}).status_code == 200)
+
     # A user who cannot open the client is forbidden.
     with c.session_transaction() as s:
         s.update({"ok": True, "user": "x@y.com", "clients": ["someoneelse"]})
     _check("non-grantee forbidden", c.get("/w/%s/" % CLIENT).status_code == 403)
+    _check("non-grantee creative forbidden", c.get("/w/%s/creative/RVR-014" % CLIENT).status_code == 403)
 
     print("[smoketest] PASS")
     return 0

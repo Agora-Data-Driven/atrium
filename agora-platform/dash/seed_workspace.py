@@ -119,6 +119,7 @@ def riverdance_workspace():
                 "ai_summary": "This campaign is working. The $80 angle is your strongest hook and "
                               "Meta is your cheapest lead source, so we're concentrating spend on "
                               "what converts and adding retargeting to recapture warm visitors.",
+                "strategy_doc": "",
                 "content": [
                     {
                         "id": "RVR-014", "ref": "RVR-014", "type_tag": "Static Post",
@@ -130,6 +131,14 @@ def riverdance_workspace():
                         "client_note": "Love this one — the river shot is exactly the feel we "
                                        "want. Approved!",
                         "decided_at": "2026-06-18T15:40:00Z",
+                        "comments": [
+                            {"sender": "client", "sender_name": "Sarah",
+                             "body": "Could we try a sunrise version of this for July?",
+                             "created_at": "2026-06-18T16:02:00Z"},
+                            {"sender": "agora", "sender_name": "Maya",
+                             "body": "Love that — we'll mock up a sunrise cut this week.",
+                             "created_at": "2026-06-18T16:20:00Z"},
+                        ],
                     },
                     {
                         "id": "RVR-016", "ref": "RVR-016", "type_tag": "Static Post",
@@ -138,6 +147,7 @@ def riverdance_workspace():
                                    "fast. Reserve your spot before the season fills up.",
                         "file_name": "6.png", "thumb_kind": "river",
                         "status": "awaiting", "client_note": "", "decided_at": "",
+                        "comments": [],
                     },
                 ],
             },
@@ -159,6 +169,7 @@ def riverdance_workspace():
                 "ai_summary": "Your organic engine is punching above its weight — nearly half "
                               "your email list is opening, and local search demand is climbing. "
                               "We're doubling down on the content that already converts for free.",
+                "strategy_doc": "",
                 "content": [
                     {
                         "id": "RVR-015", "ref": "RVR-015", "type_tag": "Email",

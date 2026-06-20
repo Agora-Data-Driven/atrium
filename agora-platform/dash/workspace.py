@@ -101,8 +101,12 @@ def _read_object(name):
     return blob.download_as_bytes()
 
 
-def _write_object(name, data):
-    """Write `data` (bytes) to object `name`, creating parent dirs for the local backend."""
+def _write_object(name, data, content_type="application/json"):
+    """Write `data` (bytes) to object `name`, creating parent dirs for the local backend.
+
+    `content_type` defaults to JSON (the workspace objects); pass an image mime when storing an
+    uploaded creative so the GCS blob carries the right Content-Type.
+    """
     local = _local_dir()
     if local:
         path = os.path.join(local, name)
@@ -113,7 +117,20 @@ def _write_object(name, data):
             fh.write(data)
         return
     blob = _gcs_client().bucket(_bucket_name()).blob(name)
-    blob.upload_from_string(data, content_type="application/json")
+    blob.upload_from_string(data, content_type=content_type)
+
+
+def _delete_object(name):
+    """Delete object `name` if it exists (no error if it is already gone)."""
+    local = _local_dir()
+    if local:
+        path = os.path.join(local, name)
+        if os.path.isfile(path):
+            os.remove(path)
+        return
+    blob = _gcs_client().bucket(_bucket_name()).blob(name)
+    if blob.exists():
+        blob.delete()
 
 
 # --- Workspace I/O ------------------------------------------------------------------------------
@@ -135,6 +152,33 @@ def save_workspace(client, ws):
 def workspace_exists(client):
     """True iff a workspace object already exists for `client` (used by the seed clobber-guard)."""
     return _read_object(_object_name(client)) is not None
+
+
+# --- Uploaded creatives (binary objects in the SAME private bucket) -----------------------------
+# A creative the team uploads for a content piece is stored as its OWN object alongside the
+# workspace JSON (so a multi-KB image never bloats workspace/<c>.json, which is rewritten in full on
+# every edit). The object stays private; it is only ever served through the authed proxy route in
+# main.py (mirroring the /data.json posture -- buckets are never made public).
+def creative_object_name(client, content_id):
+    """Object name for a content piece's uploaded creative, e.g. 'workspace/creatives/riverdance/RVR-016'."""
+    return "%screatives/%s/%s" % (_prefix(), client, content_id)
+
+
+def write_creative(client, content_id, data, content_type="application/octet-stream"):
+    """Store the uploaded creative bytes for a content piece. Returns the object name."""
+    name = creative_object_name(client, content_id)
+    _write_object(name, data, content_type=content_type)
+    return name
+
+
+def read_creative_bytes(client, content_id):
+    """Return the raw bytes of a content piece's uploaded creative, or None if there is none."""
+    return _read_object(creative_object_name(client, content_id))
+
+
+def delete_creative(client, content_id):
+    """Delete a content piece's uploaded creative object (no error if absent)."""
+    _delete_object(creative_object_name(client, content_id))
 
 
 def _mutate(client, fn):
@@ -351,8 +395,9 @@ def add_campaign(client, channel, name, eyebrow="", strategy=None, ai_summary=""
     return _mutate(client, fn)
 
 
-def update_campaign(client, campaign_id, name=None, eyebrow=None, strategy=None, ai_summary=None):
-    """Edit a campaign's name / eyebrow / strategy / AI summary (team-facing). Returns it."""
+def update_campaign(client, campaign_id, name=None, eyebrow=None, strategy=None, ai_summary=None,
+                    channel=None, strategy_doc=None):
+    """Edit a campaign's name / eyebrow / strategy / AI summary / channel / strategy doc. Returns it."""
     def fn(ws):
         camp = _find_campaign(ws, campaign_id)
         if camp is None:
@@ -365,7 +410,33 @@ def update_campaign(client, campaign_id, name=None, eyebrow=None, strategy=None,
             camp["strategy"] = strategy
         if ai_summary is not None:
             camp["ai_summary"] = ai_summary
+        if channel is not None:
+            camp["channel"] = channel
+        if strategy_doc is not None:
+            camp["strategy_doc"] = strategy_doc
         return camp
+    return _mutate(client, fn)
+
+
+def set_strategy_doc(client, campaign_id, doc_url):
+    """Attach (or clear) the Google Doc URL backing a campaign's AI summary. Returns the campaign."""
+    def fn(ws):
+        camp = _find_campaign(ws, campaign_id)
+        if camp is None:
+            raise KeyError("no campaign '%s'" % campaign_id)
+        camp["strategy_doc"] = doc_url or ""
+        return camp
+    return _mutate(client, fn)
+
+
+def delete_campaign(client, campaign_id):
+    """Remove a campaign (and its content) from the workspace. Returns the removed campaign or None."""
+    def fn(ws):
+        camps = ws.get("campaigns", [])
+        for i, camp in enumerate(camps):
+            if camp.get("id") == campaign_id:
+                return camps.pop(i)
+        raise KeyError("no campaign '%s'" % campaign_id)
     return _mutate(client, fn)
 
 
@@ -385,6 +456,7 @@ def add_content(client, campaign_id, content):
         item["status"] = "awaiting"
         item.setdefault("client_note", "")
         item.setdefault("decided_at", "")
+        item.setdefault("comments", [])
         camp.setdefault("content", []).append(item)
         return item
     return _mutate(client, fn)
@@ -401,10 +473,119 @@ def update_content(client, content_id, fields):
     return _mutate(client, fn)
 
 
+def delete_content(client, content_id):
+    """Remove a content piece from whatever campaign holds it. Returns the removed piece.
+
+    Note: the caller is responsible for deleting any uploaded creative object via delete_creative().
+    """
+    def fn(ws):
+        for camp in ws.get("campaigns", []):
+            items = camp.get("content", [])
+            for i, item in enumerate(items):
+                if item.get("id") == content_id:
+                    return items.pop(i)
+        raise KeyError("no content '%s'" % content_id)
+    return _mutate(client, fn)
+
+
+def add_content_comment(client, content_id, sender, sender_name, body, created_at=None):
+    """Append a threaded comment to a content piece. Returns (content, comment).
+
+    `sender` is "client" or "agora". Comments are an ongoing discussion on a creative, separate from
+    the one-shot `client_note` and the approve/changes decision.
+    """
+    def fn(ws):
+        _camp, item = _find_content(ws, content_id)
+        if item is None:
+            raise KeyError("no content '%s'" % content_id)
+        comment = {
+            "sender": sender,
+            "sender_name": sender_name or "",
+            "body": body or "",
+            "created_at": created_at or now_iso(),
+        }
+        item.setdefault("comments", []).append(comment)
+        return item, comment
+    return _mutate(client, fn)
+
+
+def set_content_image(client, content_id, object_name, mime):
+    """Record that a content piece now has an uploaded creative (object name + mime). Returns it."""
+    def fn(ws):
+        _camp, item = _find_content(ws, content_id)
+        if item is None:
+            raise KeyError("no content '%s'" % content_id)
+        item["image_object"] = object_name
+        item["image_mime"] = mime or "application/octet-stream"
+        return item
+    return _mutate(client, fn)
+
+
+def clear_content_image(client, content_id):
+    """Forget a content piece's uploaded creative (does NOT delete the object). Returns the piece."""
+    def fn(ws):
+        _camp, item = _find_content(ws, content_id)
+        if item is None:
+            raise KeyError("no content '%s'" % content_id)
+        item.pop("image_object", None)
+        item.pop("image_mime", None)
+        return item
+    return _mutate(client, fn)
+
+
 def add_calendar_event(client, date, label, kind):
     """Append a calendar event ('paid'|'organic'|'due'|'milestone'). Returns it."""
     def fn(ws):
         event = {"date": date, "label": label or "", "kind": kind or "milestone"}
         ws.setdefault("calendar", []).append(event)
         return event
+    return _mutate(client, fn)
+
+
+def delete_calendar_event(client, index):
+    """Remove the calendar event at `index` (as ordered in the stored list). Returns it, or None."""
+    def fn(ws):
+        events = ws.get("calendar", [])
+        if 0 <= index < len(events):
+            return events.pop(index)
+        return None
+    return _mutate(client, fn)
+
+
+# --- Client Communications: email + meeting summaries (team-written, client-read) ---------------
+def add_email_summary(client, subject, summary, date=None, email_id=None):
+    """Add an email summary (newest first) to the Client Communications tab. Returns it."""
+    def fn(ws):
+        item = {
+            "id": email_id or _new_id("em"),
+            "subject": subject or "(no subject)",
+            "date": date or now_iso(),
+            "summary": summary or "",
+        }
+        ws.setdefault("email_summaries", []).insert(0, item)
+        return item
+    return _mutate(client, fn)
+
+
+def add_meeting_summary(client, title, summary, attendees="", date=None, meeting_id=None):
+    """Add a meeting summary / notes (newest first) to the Client Communications tab. Returns it."""
+    def fn(ws):
+        item = {
+            "id": meeting_id or _new_id("mt"),
+            "title": title or "(untitled meeting)",
+            "date": date or now_iso(),
+            "attendees": attendees or "",
+            "summary": summary or "",
+        }
+        ws.setdefault("meeting_summaries", []).insert(0, item)
+        return item
+    return _mutate(client, fn)
+
+
+def delete_communication(client, kind, item_id):
+    """Delete an email ('email') or meeting ('meeting') summary by id. Returns the remaining list."""
+    key = "email_summaries" if kind == "email" else "meeting_summaries"
+    def fn(ws):
+        ws[key] = [it for it in ws.get(key, []) if it.get("id") != item_id]
+        return ws[key]
     return _mutate(client, fn)

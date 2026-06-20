@@ -28,10 +28,12 @@
 {%- elif name == 'sparkle' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9l-4.7 1.8L12 15l-1.8-4.2L5.5 9l4.7-1.3z"/><path d="M19 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>
 {%- elif name == 'arrow' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
 {%- elif name == 'logout' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h12"/></svg>
+{%- elif name == 'mail' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>
+{%- elif name == 'doc' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5h8L19 7v14.5H6z"/><path d="M14 2.5V7h4"/><path d="M9 13h6M9 17h5"/></svg>
 {%- else -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/></svg>
 {%- endif -%}
 {%- endmacro %}
-{% set tab_titles = {'overview':'Overview','dashboard':'Dashboard','leadgen':'Lead Gen','organic':'Organic Content','calendar':'Content Calendar','conversations':'Client Conversations','settings':'Notification settings'} %}
+{% set tab_titles = {'overview':'Overview','dashboard':'Dashboard','leadgen':'Lead Gen','organic':'Organic Content','calendar':'Content Calendar','conversations':'Client Communications','settings':'Notification settings'} %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -296,11 +298,70 @@
     .ax-disabled { opacity: .45; pointer-events: none; }
 
     .ax-empty { color: var(--ax-sub); font-size: 14px; padding: 22px; text-align: center; background: var(--ax-canvas); border: 1px dashed var(--ax-line); border-radius: 12px; }
-    @media (max-width: 720px) { .ax-app { grid-template-columns: 1fr; } .ax-side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; } .ax-side-card, .ax-nav .ax-count { display: none; } .ax-nav { flex-direction: row; flex-wrap: wrap; } }
+
+    /* ---- Per-creative comment thread (client + team) ---- */
+    .ax-comments { margin-top: 14px; border-top: 1px dashed var(--ax-line); padding-top: 12px; }
+    .ax-comments .ax-com-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--ax-sub); margin-bottom: 8px; }
+    .ax-com-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+    .ax-com { display: flex; flex-direction: column; max-width: 86%; padding: 8px 11px; border-radius: 11px; font-size: 13px; }
+    .ax-com.client { align-self: flex-end; background: var(--ax-green-bg); }
+    .ax-com.agora { align-self: flex-start; background: var(--ax-violet-bg); }
+    .ax-com .ax-com-who { font-size: 10.5px; font-weight: 800; opacity: .75; margin-bottom: 2px; }
+    .ax-com .ax-com-when { font-size: 10px; opacity: .6; margin-top: 4px; }
+    .ax-com-form { display: flex; gap: 8px; align-items: flex-end; }
+    .ax-com-form textarea { flex: 1; resize: vertical; min-height: 40px; font: inherit; font-size: 13px; padding: 8px 11px; border: 1px solid var(--ax-line); border-radius: 10px; outline: none; }
+    .ax-com-form textarea:focus { border-color: var(--ax-violet); }
+
+    /* ---- Super-admin inline editing ---- */
+    .ax-adminbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 16px; padding: 10px 14px; background: #1c2440; color: #eaf0ff; border-radius: 12px; font-size: 13px; }
+    .ax-adminbar .ax-adminbadge { font-size: 10.5px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; background: var(--ax-violet); color: #fff; padding: 2px 9px; border-radius: var(--ax-pill); }
+    .ax-adminbar .ax-adminmsg { margin-left: auto; font-size: 12.5px; color: #b9c2e6; }
+    .ax-btn.admin { background: #2b3766; color: #eaf0ff; border-color: #394680; }
+    .ax-btn.admin:hover { background: #36447e; }
+    .ax-btn.danger { background: var(--ax-white); color: var(--ax-bad); border-color: rgba(229,65,62,.4); }
+    .ax-btn.danger:hover { background: #FDECEC; }
+    .ax-btn.small { padding: 6px 11px; font-size: 12px; }
+    .ax-admin-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--ax-line); }
+    .ax-editbox { width: 100%; font: inherit; font-size: 13.5px; padding: 9px 11px; border: 1px solid var(--ax-violet); border-radius: 9px; background: #fbfbff; outline: none; margin-bottom: 8px; }
+    textarea.ax-editbox { min-height: 60px; resize: vertical; }
+    .ax-editrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .ax-edit-hidden { display: none; }
+    .ax-strat-doc { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0 0; padding: 12px; background: var(--ax-canvas); border: 1px solid var(--ax-line); border-radius: 12px; }
+    .ax-strat-doc .ax-strat-doc-in { flex: 1; min-width: 220px; font: inherit; font-size: 13px; padding: 8px 11px; border: 1px solid var(--ax-line); border-radius: 9px; outline: none; }
+    .ax-strat-doc .ax-strat-doc-in:focus { border-color: var(--ax-violet); }
+    .ax-strat-doc .ax-doc-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--ax-violet-d); width: 100%; }
+
+    /* Strategy breakdown link (client-facing, on top of the strategy) */
+    .ax-breakdown { display: inline-flex; align-items: center; gap: 9px; margin: 0 0 14px; padding: 11px 15px; border-radius: 12px; background: var(--ax-violet-bg); border: 1px solid #E1DBFB; color: var(--ax-violet-d); font-size: 13.5px; font-weight: 700; }
+    .ax-breakdown:hover { background: #E9E5FE; }
+    .ax-breakdown .ax-ic { width: 17px; height: 17px; }
+    .ax-breakdown .ax-bd-arrow { margin-left: 2px; }
+
+    /* Client Communications (email + meeting summaries) */
+    .ax-comm { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+    @media (max-width: 880px) { .ax-comm { grid-template-columns: 1fr; } }
+    .ax-comm-col h2 { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 800; margin: 0 0 12px; }
+    .ax-comm-col h2 .ax-ic { width: 18px; height: 18px; }
+    .ax-comm-col.email h2 { color: var(--ax-violet-d); }
+    .ax-comm-col.meeting h2 { color: var(--ax-green-d); }
+    .ax-comm-item { padding: 15px 16px; margin-bottom: 12px; }
+    .ax-comm-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+    .ax-comm-title { font-size: 14px; font-weight: 800; }
+    .ax-comm-date { font-size: 11.5px; color: var(--ax-sub); white-space: nowrap; flex: 0 0 auto; }
+    .ax-comm-meta { font-size: 12px; color: var(--ax-sub); display: flex; align-items: center; gap: 5px; margin-bottom: 7px; }
+    .ax-comm-meta .ax-ic { width: 14px; height: 14px; }
+    .ax-comm-body { font-size: 13.5px; color: #2b2f38; margin: 0; white-space: pre-wrap; }
+    .ax-thumb-upload { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 2; display: flex; gap: 6px; justify-content: center; }
+    .ax-thumb-upload .ax-btn { background: rgba(0,0,0,.45); color: #fff; border-color: rgba(255,255,255,.4); }
+    .ax-thumb-upload .ax-btn:hover { background: rgba(0,0,0,.62); }
+    .ax-addpanel { border: 1px dashed var(--ax-line); border-radius: var(--ax-radius); padding: 16px; margin-bottom: 14px; background: var(--ax-canvas); }
+    .ax-addpanel h3 { font-size: 14px; font-weight: 800; margin: 0 0 12px; }
+
+    @media (max-width: 720px) { .ax-app { grid-template-columns: 1fr; } .ax-side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; } .ax-side-card, .ax-nav .ax-count { display: none; } .ax-nav { flex-direction: row; flex-wrap: wrap; } .ax-editrow { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-<div class="atrium" data-base="/w/{{ view.client }}" data-tab="{{ view.active_tab }}">
+<div class="atrium" data-base="/w/{{ view.client }}" data-tab="{{ view.active_tab }}"{% if is_superadmin %} data-admin="1" data-adminname="{{ admin_name }}"{% endif %}>
   <div class="ax-app">
 
     <!-- Sidebar -->
@@ -317,7 +378,7 @@
       </div>
 
       <nav class="ax-nav" id="ax-nav">
-        {% for key, label in [('overview','Overview'),('dashboard','Dashboard'),('leadgen','Lead Gen'),('organic','Organic Content'),('calendar','Content Calendar'),('conversations','Client Conversations')] %}
+        {% for key, label in [('overview','Overview'),('dashboard','Dashboard'),('leadgen','Lead Gen'),('organic','Organic Content'),('calendar','Content Calendar'),('conversations','Client Communications')] %}
         <a href="{{ '/w/' ~ view.client ~ '/' ~ key }}" data-tab="{{ key }}" class="{{ 'is-active' if view.active_tab == key else '' }}">
           {{ ic(key) }}<span>{{ label }}</span>
           {% if key in ('leadgen','organic') %}
@@ -352,6 +413,14 @@
       </header>
 
       <main class="ax-body">
+
+        {% if is_superadmin %}
+        <div class="ax-adminbar">
+          <span class="ax-adminbadge">Admin edit</span>
+          <span>You're viewing {{ ws.display_name }}'s workspace as AGORA — edits here change what the client sees.</span>
+          <span class="ax-adminmsg" id="ax-admin-msg"></span>
+        </div>
+        {% endif %}
 
         <!-- ============ OVERVIEW ============ -->
         <section class="ax-pane {{ 'is-active' if view.active_tab=='overview' else '' }}" data-pane="overview">
@@ -465,6 +534,29 @@
               </p>
             </div>
           </div>
+
+          {% if is_superadmin %}
+          <div class="ax-addpanel" data-metricsform style="margin-top:18px">
+            <h3>Edit headline numbers &amp; KPIs</h3>
+            <div class="ax-editrow" style="grid-template-columns:1fr 1fr 1fr">
+              <input class="ax-editbox" data-mf="today_leads" value="{{ ws.today.leads }}" placeholder="Leads today">
+              <input class="ax-editbox" data-mf="today_visitors" value="{{ ws.today.visitors }}" placeholder="Visitors today">
+              <input class="ax-editbox" data-mf="today_bookings" value="{{ ws.today.bookings }}" placeholder="Bookings today">
+            </div>
+            <div class="ax-editrow">
+              <input class="ax-editbox" data-mf="split_paid" value="{{ ws.split.paid }}" placeholder="Leads from paid">
+              <input class="ax-editbox" data-mf="split_organic" value="{{ ws.split.organic }}" placeholder="Leads from organic">
+            </div>
+            {% for m in ws.metrics %}
+            <div class="ax-editrow" style="grid-template-columns:2fr 1fr 1fr;align-items:center">
+              <input class="ax-editbox" data-mf="metric_value_{{ loop.index0 }}" value="{{ m.value }}" placeholder="{{ m.label }} value">
+              <input class="ax-editbox" data-mf="metric_trend_{{ loop.index0 }}" value="{{ m.trend }}" placeholder="Trend (e.g. +12%)">
+              <label class="ax-set-d" style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><input type="checkbox" data-mf-check="metric_up_{{ loop.index0 }}" {{ 'checked' if m.trend_up else '' }}> {{ m.label }} ↑ good</label>
+            </div>
+            {% endfor %}
+            <button class="ax-btn violet small" type="button" data-metricssave>Save numbers</button>
+          </div>
+          {% endif %}
         </section>
 
         <!-- ============ LEAD GEN (paid) + ORGANIC (organic) ============ -->
@@ -487,11 +579,42 @@
 
           {% for c in camps %}
           <div data-campblock="{{ tab }}" data-campid="{{ c.id }}" data-campname="{{ c.name }}" data-eyebrow="{{ c.eyebrow }}" {% if not loop.first %}style="display:none"{% endif %}>
+            {% if c.strategy_doc %}
+            <a class="ax-breakdown" href="{{ c.strategy_doc }}" target="_blank" rel="noopener noreferrer">
+              {{ ic('doc') }}<span>View the full breakdown</span><span class="ax-bd-arrow">{{ ic('arrow') }}</span>
+            </a>
+            {% endif %}
             <div class="ax-card ax-strategy">
-              <div class="ax-strat-col what"><h3>What we did</h3><p>{{ c.strategy.what }}</p></div>
-              <div class="ax-strat-col why"><h3>Why — the data</h3><p>{{ c.strategy.why }}</p></div>
-              <div class="ax-strat-col next"><h3>What's next</h3><p>{{ c.strategy.next }}</p></div>
+              <div class="ax-strat-col what"><h3>What happened</h3><p data-strat="what">{{ c.strategy.what }}</p></div>
+              <div class="ax-strat-col why"><h3>Why it happened</h3><p data-strat="why">{{ c.strategy.why }}</p></div>
+              <div class="ax-strat-col next"><h3>What to do next</h3><p data-strat="next">{{ c.strategy.next }}</p></div>
             </div>
+
+            {% if is_superadmin %}
+            <div class="ax-admin-tools">
+              <button class="ax-btn admin small" type="button" data-stratedit="{{ c.id }}">Edit strategy</button>
+              <button class="ax-btn danger small" type="button" data-campdelete="{{ c.id }}" data-campname="{{ c.name }}">Delete campaign</button>
+            </div>
+            <div class="ax-edit-hidden" data-stratform="{{ c.id }}" style="margin-top:10px">
+              <div class="ax-editrow">
+                <input class="ax-editbox" data-sf="name" value="{{ c.name }}" placeholder="Campaign name">
+                <input class="ax-editbox" data-sf="eyebrow" value="{{ c.eyebrow }}" placeholder="Eyebrow">
+              </div>
+              <textarea class="ax-editbox" data-sf="what" placeholder="What we did">{{ c.strategy.what }}</textarea>
+              <textarea class="ax-editbox" data-sf="why" placeholder="Why — the data">{{ c.strategy.why }}</textarea>
+              <textarea class="ax-editbox" data-sf="next" placeholder="What's next">{{ c.strategy.next }}</textarea>
+              <div class="ax-actions">
+                <button class="ax-btn violet small" type="button" data-stratsave="{{ c.id }}">Save strategy</button>
+                <button class="ax-btn ghost small" type="button" data-stratcancel="{{ c.id }}">Cancel</button>
+              </div>
+            </div>
+            <div class="ax-strat-doc">
+              <span class="ax-doc-label">Strategy doc → AI summary</span>
+              <input class="ax-strat-doc-in" data-docurl="{{ c.id }}" value="{{ c.strategy_doc|default('', true) }}" placeholder="Paste a Google Doc link…">
+              <button class="ax-btn admin small" type="button" data-docsave="{{ c.id }}">Save link</button>
+              <button class="ax-btn violet small" type="button" data-docgen="{{ c.id }}">{{ ic('sparkle') }} Generate summary</button>
+            </div>
+            {% endif %}
 
             <div class="ax-filter" data-contentfilter>
               {% set all_n = c.content|length %}
@@ -507,9 +630,16 @@
             {% for p in c.content %}
             <div class="ax-card ax-content" data-content="{{ p.id }}" data-status="{{ p.status }}">
               <div class="ax-thumb {{ chan }}">
-                {% if p.image %}<img src="{{ p.image }}" alt="{{ p.ref }}">{% endif %}
+                {% if p.image_object %}<img src="/w/{{ view.client }}/creative/{{ p.id }}" alt="{{ p.ref }}">{% elif p.image %}<img src="{{ p.image }}" alt="{{ p.ref }}">{% endif %}
                 <span class="ax-thumb-k">{{ p.type_tag }}</span>
                 <span class="ax-thumb-r">{{ p.ref }}</span>
+                {% if is_superadmin %}
+                <div class="ax-thumb-upload">
+                  <button class="ax-btn small" type="button" data-uploadbtn="{{ p.id }}">{{ 'Replace' if p.image_object else 'Upload' }}</button>
+                  {% if p.image_object %}<button class="ax-btn small" type="button" data-removecreative="{{ p.id }}">Remove</button>{% endif %}
+                  <input type="file" accept="image/*" data-uploadinput="{{ p.id }}" style="display:none">
+                </div>
+                {% endif %}
               </div>
               <div class="ax-content-main">
                 <div class="ax-tagrow">
@@ -523,40 +653,112 @@
                 <p class="ax-caption">{{ p.caption }}</p>
 
                 <div data-noteslot>
-                  {% if p.status == 'awaiting' %}
-                    <textarea class="ax-noteinput" data-note placeholder="＋ Add a note for the AGORA team…">{{ p.client_note }}</textarea>
-                  {% elif p.client_note %}
-                    <div class="ax-note"><div class="ax-note-label">Your note</div>{{ p.client_note }}</div>
-                  {% endif %}
+                  <textarea class="ax-noteinput" data-note data-saved="{{ p.client_note }}" placeholder="＋ Add a note for the AGORA team…">{{ p.client_note }}</textarea>
                 </div>
 
                 <div data-actionslot>
-                  {% if p.status == 'awaiting' %}
-                    <div class="ax-actions">
-                      <button class="ax-btn approve" type="button" data-approve>{{ ic('check') }} Approve</button>
-                      <button class="ax-btn ghost" type="button" data-changes>Request changes</button>
-                      <span class="ax-savehint" data-savehint hidden>Saved ✓</span>
-                    </div>
-                  {% elif p.status == 'approved' %}
-                    <div class="ax-confirm">{{ ic('check') }} You approved this — AGORA emailed{% if p.decided_at %} &middot; {{ p.decided_at|atrium_dt }}{% endif %}</div>
-                  {% else %}
-                    <div class="ax-confirm" style="background:#FDECEC;color:#E5413E">{{ ic('message') }} Changes requested — AGORA notified{% if p.decided_at %} &middot; {{ p.decided_at|atrium_dt }}{% endif %}</div>
+                  <div class="ax-actions">
+                    <button class="ax-btn approve" type="button" data-approve>{{ ic('check') }} Approve</button>
+                    <button class="ax-btn ghost" type="button" data-changes>Request changes</button>
+                    <span class="ax-savehint" data-savehint hidden>Saved ✓</span>
+                  </div>
+                  {% if p.status == 'approved' %}
+                  <div class="ax-confirm">{{ ic('check') }} Approved{% if p.decided_at %} &middot; {{ p.decided_at|atrium_dt }}{% endif %} &middot; you can change this anytime</div>
+                  {% elif p.status == 'changes' %}
+                  <div class="ax-confirm" style="background:#FDECEC;color:#E5413E">{{ ic('message') }} Changes requested{% if p.decided_at %} &middot; {{ p.decided_at|atrium_dt }}{% endif %} &middot; you can change this anytime</div>
                   {% endif %}
                 </div>
+
+                <div class="ax-comments" data-comments="{{ p.id }}">
+                  <div class="ax-com-label">Comments</div>
+                  <div class="ax-com-list" data-comlist>
+                    {% for cm in p.comments|default([], true) %}
+                    <div class="ax-com {{ cm.sender }}">
+                      <div class="ax-com-who">{{ cm.sender_name }}{% if cm.sender=='agora' %} · AGORA{% endif %}</div>
+                      {{ cm.body }}
+                      <div class="ax-com-when">{{ cm.created_at|atrium_dt }}</div>
+                    </div>
+                    {% endfor %}
+                  </div>
+                  <div class="ax-com-form">
+                    <textarea data-cominput placeholder="Add a comment…  (Enter to send)"></textarea>
+                    <button class="ax-btn violet small" type="button" data-comsend="{{ p.id }}">Comment</button>
+                  </div>
+                </div>
+
+                {% if is_superadmin %}
+                <div class="ax-admin-tools" data-contenttools="{{ p.id }}">
+                  <button class="ax-btn admin small" type="button" data-contentedit="{{ p.id }}">Edit details</button>
+                  <button class="ax-btn danger small" type="button" data-contentdelete="{{ p.id }}">Delete</button>
+                </div>
+                <div class="ax-edit-hidden" data-contentform="{{ p.id }}" style="margin-top:10px">
+                  <div class="ax-editrow">
+                    <input class="ax-editbox" data-cf="ref" value="{{ p.ref }}" placeholder="Reference">
+                    <input class="ax-editbox" data-cf="type_tag" value="{{ p.type_tag }}" placeholder="Type">
+                  </div>
+                  <div class="ax-editrow">
+                    <input class="ax-editbox" data-cf="sub_tag" value="{{ p.sub_tag }}" placeholder="Sub-tag">
+                    <input class="ax-editbox" data-cf="platform" value="{{ p.platform }}" placeholder="Platform">
+                  </div>
+                  <textarea class="ax-editbox" data-cf="caption" placeholder="Caption">{{ p.caption }}</textarea>
+                  <div class="ax-actions">
+                    <button class="ax-btn violet small" type="button" data-contentsave="{{ p.id }}">Save details</button>
+                    <button class="ax-btn ghost small" type="button" data-contentcancel="{{ p.id }}">Cancel</button>
+                  </div>
+                </div>
+                {% endif %}
               </div>
             </div>
             {% endfor %}
 
-            {% if c.ai_summary %}
-            <div class="ax-ai">
+            <div class="ax-ai" data-aiwrap="{{ c.id }}"{% if not c.ai_summary and not is_superadmin %} style="display:none"{% endif %}>
               <span class="ax-ai-ic">{{ ic('sparkle') }}</span>
-              <div><div class="ax-ai-label">AI summary</div><p>{{ c.ai_summary }}</p></div>
+              <div style="flex:1">
+                <div class="ax-ai-label">AI summary</div>
+                <p data-aitext="{{ c.id }}">{{ c.ai_summary }}</p>
+                {% if is_superadmin %}
+                <textarea class="ax-editbox ax-edit-hidden" data-aiedit="{{ c.id }}" placeholder="AI summary (client-facing)">{{ c.ai_summary }}</textarea>
+                <div class="ax-actions" style="margin-top:4px">
+                  <button class="ax-btn admin small" type="button" data-aiedittoggle="{{ c.id }}">Edit summary</button>
+                  <button class="ax-btn violet small ax-edit-hidden" type="button" data-aisave="{{ c.id }}">Save summary</button>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+
+            {% if is_superadmin %}
+            <div class="ax-addpanel" data-addcontent="{{ c.id }}">
+              <h3>Add content to {{ c.name }}</h3>
+              <div class="ax-editrow">
+                <input class="ax-editbox" data-nc="ref" placeholder="Reference (e.g. RVR-018)">
+                <input class="ax-editbox" data-nc="type_tag" placeholder="Type (e.g. Static Post)">
+              </div>
+              <div class="ax-editrow">
+                <input class="ax-editbox" data-nc="sub_tag" placeholder="Sub-tag (e.g. Lead Gen)">
+                <input class="ax-editbox" data-nc="platform" placeholder="Platform (e.g. Instagram · Facebook)">
+              </div>
+              <textarea class="ax-editbox" data-nc="caption" placeholder="Caption the client will review…"></textarea>
+              <button class="ax-btn green small" type="button" data-addcontentbtn="{{ c.id }}">{{ ic('check') }} Add content &amp; notify client</button>
             </div>
             {% endif %}
           </div>
           {% endfor %}
           {% else %}
           <div class="ax-empty">No {{ 'paid' if chan=='paid' else 'organic' }} campaigns yet.</div>
+          {% endif %}
+
+          {% if is_superadmin %}
+          <div class="ax-addpanel" data-addcampaign="{{ chan }}">
+            <h3>Add a {{ 'paid / lead-gen' if chan=='paid' else 'organic' }} campaign</h3>
+            <div class="ax-editrow">
+              <input class="ax-editbox" data-ac="name" placeholder="Campaign name">
+              <input class="ax-editbox" data-ac="eyebrow" placeholder="Eyebrow (e.g. PAID ADS · RETARGETING)">
+            </div>
+            <textarea class="ax-editbox" data-ac="what" placeholder="What we did"></textarea>
+            <textarea class="ax-editbox" data-ac="why" placeholder="Why — the data"></textarea>
+            <textarea class="ax-editbox" data-ac="next" placeholder="What's next"></textarea>
+            <button class="ax-btn violet small" type="button" data-addcampaignbtn="{{ chan }}">Add campaign</button>
+          </div>
           {% endif %}
         </section>
         {% endfor %}
@@ -584,53 +786,75 @@
               {% endfor %}{% endfor %}
             </div>
           </div>
-        </section>
 
-        <!-- ============ CONVERSATIONS ============ -->
-        <section class="ax-pane {{ 'is-active' if view.active_tab=='conversations' else '' }}" data-pane="conversations">
-          <h1 class="ax-greet">Client Conversations</h1>
-          <p class="ax-lede">Message the AGORA team directly. We'll reply here and (if you like) by email.</p>
-          {% if ws.conversations %}
-          <div class="ax-convo">
-            <div class="ax-threads" id="ax-threads">
-              {% for cv in ws.conversations %}
-              <button class="ax-thread {{ 'is-active' if loop.first else '' }}" type="button" data-thread="{{ cv.id }}">
-                <div class="ax-th-top">
-                  <span class="ax-th-sub">{{ cv.subject }}</span>
-                  <span class="ax-th-tag {{ cv.status }}">{{ 'Awaiting reply' if cv.status=='awaiting_reply' else 'Resolved' }}</span>
-                </div>
-                <div class="ax-th-prev">{% if cv.messages %}{{ cv.messages[-1].sender_name }}: {{ cv.messages[-1].body }}{% else %}No messages yet{% endif %}</div>
-              </button>
-              {% endfor %}
+          {% if is_superadmin %}
+          <div class="ax-addpanel" data-calform style="margin-top:18px">
+            <h3>Add a calendar event</h3>
+            <div class="ax-editrow" style="grid-template-columns:1fr 2fr 1fr">
+              <input class="ax-editbox" type="date" data-cev="date">
+              <input class="ax-editbox" data-cev="label" placeholder="Label (e.g. Reel goes live)">
+              <select class="ax-editbox" data-cev="kind">
+                <option value="paid">Paid</option>
+                <option value="organic">Organic</option>
+                <option value="due">Due</option>
+                <option value="milestone">Milestone</option>
+              </select>
             </div>
-
-            <div class="ax-card ax-chat">
-              {% for cv in ws.conversations %}
-              <div class="ax-chatpanel {{ 'is-active' if loop.first else '' }}" data-chatpanel="{{ cv.id }}">
-                <div class="ax-chat-head">
-                  <span>{{ cv.subject }}</span>
-                  <span class="ax-th-tag {{ cv.status }}" data-threadtag>{{ 'Awaiting reply' if cv.status=='awaiting_reply' else 'Resolved' }}</span>
-                </div>
-                <div class="ax-msgs" data-msgs>
-                  {% for m in cv.messages %}
-                  <div class="ax-bubble {{ m.sender }}">
-                    <div class="ax-who">{{ m.sender_name }}{% if m.sender=='agora' %} · AGORA{% endif %}</div>
-                    {{ m.body }}
-                    <div class="ax-when">{{ m.created_at|atrium_dt }}</div>
-                  </div>
-                  {% endfor %}
-                </div>
-                <div class="ax-composer">
-                  <textarea data-composer placeholder="Write a message…  (Enter to send, Shift+Enter for a new line)"></textarea>
-                  <button class="ax-btn approve" type="button" data-send="{{ cv.id }}">{{ ic('arrow') }} Send</button>
-                </div>
+            <button class="ax-btn violet small" type="button" data-caladd>Add event</button>
+            {% if ws.calendar %}
+            <div style="margin-top:14px">
+              <div class="ax-com-label">Existing events</div>
+              {% for ev in ws.calendar %}
+              <div class="ax-set-row" style="padding:8px 0">
+                <div class="ax-set-d"><span class="ax-evd {{ ev.kind }}" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>{{ ev.date }} — {{ ev.label }} <span class="ax-tag plain">{{ ev.kind }}</span></div>
+                <button class="ax-btn danger small" type="button" data-caldel="{{ loop.index0 }}">Delete</button>
               </div>
               {% endfor %}
             </div>
+            {% endif %}
           </div>
-          {% else %}
-          <div class="ax-empty">No conversations yet.</div>
           {% endif %}
+        </section>
+
+        <!-- ============ CLIENT COMMUNICATIONS (email + meeting summaries) ============ -->
+        <section class="ax-pane {{ 'is-active' if view.active_tab=='conversations' else '' }}" data-pane="conversations">
+          <h1 class="ax-greet">Client Communications</h1>
+          <p class="ax-lede">A running record of our meetings and email updates — so nothing gets lost.</p>
+          <div class="ax-comm">
+            <div class="ax-comm-col email">
+              <h2>{{ ic('mail') }} Email Summary</h2>
+              {% if ws.email_summaries %}
+                {% for e in ws.email_summaries %}
+                <div class="ax-card ax-comm-item">
+                  <div class="ax-comm-top">
+                    <span class="ax-comm-title">{{ e.subject }}</span>
+                    <span class="ax-comm-date">{{ e.date|atrium_dt }}</span>
+                  </div>
+                  <p class="ax-comm-body">{{ e.summary }}</p>
+                </div>
+                {% endfor %}
+              {% else %}
+                <div class="ax-empty">No email summaries yet.</div>
+              {% endif %}
+            </div>
+            <div class="ax-comm-col meeting">
+              <h2>{{ ic('calendar') }} Meeting Summary</h2>
+              {% if ws.meeting_summaries %}
+                {% for mtg in ws.meeting_summaries %}
+                <div class="ax-card ax-comm-item">
+                  <div class="ax-comm-top">
+                    <span class="ax-comm-title">{{ mtg.title }}</span>
+                    <span class="ax-comm-date">{{ mtg.date|atrium_dt }}</span>
+                  </div>
+                  {% if mtg.attendees %}<div class="ax-comm-meta">{{ ic('users') }} {{ mtg.attendees }}</div>{% endif %}
+                  <p class="ax-comm-body">{{ mtg.summary }}</p>
+                </div>
+                {% endfor %}
+              {% else %}
+                <div class="ax-empty">No meeting summaries yet.</div>
+              {% endif %}
+            </div>
+          </div>
         </section>
 
         <!-- ============ NOTIFICATION SETTINGS ============ -->
@@ -647,7 +871,7 @@
             <div id="ax-granular" class="{{ '' if user_notify.master else 'ax-disabled' }}">
               {% for pref, t, d in [
                 ('content','New content to review','When the team adds a piece for your approval.'),
-                ('replies','Replies in Client Conversations','When AGORA replies to one of your threads.'),
+                ('replies','New email or meeting summary','When AGORA posts a meeting note or email summary.'),
                 ('summary','Weekly performance summary','A short recap of your numbers each week.'),
                 ('status','Campaign status changes','When a campaign goes live, pauses, or wraps.'),
                 ('news','Product news from AGORA','Occasional updates about new features.')
@@ -685,14 +909,21 @@
   var root = document.querySelector(".atrium");
   if (!root) { return; }
   var base = root.getAttribute("data-base") || "";
+  var isAdmin = root.getAttribute("data-admin") === "1";
+  var adminName = root.getAttribute("data-adminname") || "AGORA";
 
   function qsa(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
+
+  function adminMsg(text, ok) {
+    var el = document.getElementById("ax-admin-msg");
+    if (el) { el.textContent = text; el.style.color = ok === false ? "#ff8da3" : "#9be8a6"; }
+  }
 
   // ---- Tab switching -------------------------------------------------------
   var titles = {
     overview: "Overview", dashboard: "Dashboard", leadgen: "Lead Gen",
     organic: "Organic Content", calendar: "Content Calendar",
-    conversations: "Client Conversations", settings: "Notification settings"
+    conversations: "Client Communications", settings: "Notification settings"
   };
   function showTab(tab, push) {
     var pane = document.querySelector('[data-pane="' + tab + '"]');
@@ -745,15 +976,38 @@
     gw.textContent = hr < 12 ? "morning" : (hr < 18 ? "afternoon" : "evening");
   }
 
-  // ---- POST helper ---------------------------------------------------------
-  function post(path, fields) {
-    var body = new FormData();
-    var k;
-    for (k in fields) { if (fields.hasOwnProperty(k)) { body.append(k, fields[k]); } }
+  // ---- POST helpers --------------------------------------------------------
+  function postData(path, body) {
     return fetch(base + path, { method: "POST", body: body, credentials: "same-origin" })
       .then(function (resp) {
         if (!resp || !resp.ok) { throw new Error("request failed"); }
         return resp.json();
+      });
+  }
+  function post(path, fields) {
+    var body = new FormData();
+    var k;
+    for (k in fields) { if (fields.hasOwnProperty(k)) { body.append(k, fields[k]); } }
+    return postData(path, body);
+  }
+  // Admin edit actions reload the page on success so the workspace reflects the change (matching the
+  // approve/request-changes flow). A JSON {ok:false} (e.g. a doc that could not be read) surfaces its
+  // message inline instead of reloading.
+  function adminAction(path, fields, btn) {
+    if (btn) { btn.setAttribute("disabled", "disabled"); }
+    return post(path, fields)
+      .then(function (data) {
+        if (data && data.ok === false) {
+          adminMsg(data.message || "Could not complete that.", false);
+          if (btn) { btn.removeAttribute("disabled"); }
+          return data;
+        }
+        window.location.reload();
+        return data;
+      })
+      .catch(function () {
+        adminMsg("Could not save — please try again.", false);
+        if (btn) { btn.removeAttribute("disabled"); }
       });
   }
 
@@ -845,23 +1099,37 @@
     var box = panel.querySelector("[data-composer]");
     var msgs = panel.querySelector("[data-msgs]");
     var tag = panel.querySelector("[data-threadtag]");
+    var resolveEl = panel.querySelector("[data-resolve]");
 
     function send() {
       var text = box ? box.value.replace(/^\s+|\s+$/g, "") : "";
       if (!text) { return; }
       btn.setAttribute("disabled", "disabled");
-      post("/send-message", { conversation_id: id, body: text })
+      // The same composer is used by clients (send a message) and by AGORA admins (reply as the
+      // team, optionally resolving the thread). The endpoint + bubble side differ by role.
+      var path = isAdmin ? "/admin/reply" : "/send-message";
+      var fields = isAdmin
+        ? { conversation_id: id, body: text, sender_name: adminName,
+            resolve: (resolveEl && resolveEl.checked) ? "1" : "0" }
+        : { conversation_id: id, body: text };
+      post(path, fields)
         .then(function (data) {
           var bubble = document.createElement("div");
-          bubble.className = "ax-bubble client";
-          var who = document.createElement("div"); who.className = "ax-who"; who.textContent = "You";
+          bubble.className = isAdmin ? "ax-bubble agora" : "ax-bubble client";
+          var who = document.createElement("div"); who.className = "ax-who";
+          who.textContent = isAdmin ? (adminName + " · AGORA") : "You";
           var when = document.createElement("div"); when.className = "ax-when"; when.textContent = "Just now";
           bubble.appendChild(who);
           bubble.appendChild(document.createTextNode(text));
           bubble.appendChild(when);
           if (msgs) { msgs.appendChild(bubble); msgs.scrollTop = msgs.scrollHeight; }
           if (box) { box.value = ""; }
-          if (tag) { tag.textContent = "Awaiting reply"; tag.className = "ax-th-tag awaiting_reply"; }
+          var newStatus = (data && data.status) ? data.status : (isAdmin ? "awaiting_reply" : "awaiting_reply");
+          if (tag) {
+            tag.textContent = newStatus === "resolved" ? "Resolved" : "Awaiting reply";
+            tag.className = "ax-th-tag " + newStatus;
+          }
+          if (resolveEl) { resolveEl.checked = false; }
           btn.removeAttribute("disabled");
         })
         .catch(function () { btn.removeAttribute("disabled"); });
@@ -869,6 +1137,44 @@
     if (btn) { btn.addEventListener("click", send); }
     if (box) {
       box.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); send(); }
+      });
+    }
+  });
+
+  // ---- Per-creative comment thread (client posts; admin posts as AGORA) ----
+  qsa("[data-comments]").forEach(function (wrap) {
+    var id = wrap.getAttribute("data-comments");
+    var list = wrap.querySelector("[data-comlist]");
+    var input = wrap.querySelector("[data-cominput]");
+    var btn = wrap.querySelector("[data-comsend]");
+    function send() {
+      var text = input ? input.value.replace(/^\s+|\s+$/g, "") : "";
+      if (!text) { return; }
+      var path = isAdmin ? "/admin/content-comment" : "/comment";
+      var fields = isAdmin
+        ? { content_id: id, body: text, sender_name: adminName }
+        : { content_id: id, body: text };
+      if (btn) { btn.setAttribute("disabled", "disabled"); }
+      post(path, fields)
+        .then(function () {
+          var el = document.createElement("div");
+          el.className = isAdmin ? "ax-com agora" : "ax-com client";
+          var who = document.createElement("div"); who.className = "ax-com-who";
+          who.textContent = isAdmin ? (adminName + " · AGORA") : "You";
+          var when = document.createElement("div"); when.className = "ax-com-when"; when.textContent = "Just now";
+          el.appendChild(who);
+          el.appendChild(document.createTextNode(text));
+          el.appendChild(when);
+          if (list) { list.appendChild(el); }
+          if (input) { input.value = ""; }
+          if (btn) { btn.removeAttribute("disabled"); }
+        })
+        .catch(function () { if (btn) { btn.removeAttribute("disabled"); } });
+    }
+    if (btn) { btn.addEventListener("click", send); }
+    if (input) {
+      input.addEventListener("keydown", function (ev) {
         if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); send(); }
       });
     }
@@ -911,6 +1217,179 @@
           if (savedHint) { savedHint.textContent = "Could not save — try again."; savedHint.style.color = "#E5413E"; savedHint.hidden = false; }
           saveBtn.removeAttribute("disabled");
         });
+    });
+  }
+
+  // ======================================================================
+  // Super-admin inline editing (only wired when the workspace is opened by AGORA).
+  // Every control reads its values from data-* inputs and posts to /w/<c>/admin/*; on success
+  // adminAction() reloads so the rendered workspace reflects exactly what the client will see.
+  // ======================================================================
+  if (isAdmin) {
+    function fieldsFrom(scope, attr, into) {
+      var out = into || {};
+      qsa("[" + attr + "]", scope).forEach(function (el) { out[el.getAttribute(attr)] = el.value; });
+      return out;
+    }
+    function toggleHidden(el) { if (el) { el.classList.toggle("ax-edit-hidden"); } }
+
+    // --- Strategy: edit / save / cancel ---
+    qsa("[data-stratedit]").forEach(function (btn) {
+      var form = document.querySelector('[data-stratform="' + btn.getAttribute("data-stratedit") + '"]');
+      btn.addEventListener("click", function () { toggleHidden(form); });
+    });
+    qsa("[data-stratcancel]").forEach(function (btn) {
+      var form = document.querySelector('[data-stratform="' + btn.getAttribute("data-stratcancel") + '"]');
+      btn.addEventListener("click", function () { if (form) { form.classList.add("ax-edit-hidden"); } });
+    });
+    qsa("[data-stratsave]").forEach(function (btn) {
+      var id = btn.getAttribute("data-stratsave");
+      var form = document.querySelector('[data-stratform="' + id + '"]');
+      btn.addEventListener("click", function () {
+        adminAction("/admin/strategy", fieldsFrom(form, "data-sf", { campaign_id: id }), btn);
+      });
+    });
+
+    // --- Delete campaign ---
+    qsa("[data-campdelete]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var name = btn.getAttribute("data-campname") || "this campaign";
+        if (!window.confirm("Delete " + name + " and all its content? This cannot be undone.")) { return; }
+        adminAction("/admin/delete-campaign", { campaign_id: btn.getAttribute("data-campdelete") }, btn);
+      });
+    });
+
+    // --- Strategy doc + generate AI summary ---
+    qsa("[data-docsave]").forEach(function (btn) {
+      var id = btn.getAttribute("data-docsave");
+      var input = document.querySelector('[data-docurl="' + id + '"]');
+      btn.addEventListener("click", function () {
+        adminAction("/admin/strategy-doc", { campaign_id: id, doc_url: input ? input.value : "" }, btn);
+      });
+    });
+    qsa("[data-docgen]").forEach(function (btn) {
+      var id = btn.getAttribute("data-docgen");
+      var input = document.querySelector('[data-docurl="' + id + '"]');
+      btn.addEventListener("click", function () {
+        adminMsg("Reading the doc and writing a summary…", true);
+        adminAction("/admin/generate-summary", { campaign_id: id, doc_url: input ? input.value : "" }, btn);
+      });
+    });
+
+    // --- AI summary: hand-edit ---
+    qsa("[data-aiedittoggle]").forEach(function (btn) {
+      var id = btn.getAttribute("data-aiedittoggle");
+      var box = document.querySelector('[data-aiedit="' + id + '"]');
+      var save = document.querySelector('[data-aisave="' + id + '"]');
+      btn.addEventListener("click", function () { toggleHidden(box); toggleHidden(save); });
+    });
+    qsa("[data-aisave]").forEach(function (btn) {
+      var id = btn.getAttribute("data-aisave");
+      var box = document.querySelector('[data-aiedit="' + id + '"]');
+      btn.addEventListener("click", function () {
+        adminAction("/admin/summary", { campaign_id: id, ai_summary: box ? box.value : "" }, btn);
+      });
+    });
+
+    // --- Content: edit / save / cancel / delete ---
+    qsa("[data-contentedit]").forEach(function (btn) {
+      var form = document.querySelector('[data-contentform="' + btn.getAttribute("data-contentedit") + '"]');
+      btn.addEventListener("click", function () { toggleHidden(form); });
+    });
+    qsa("[data-contentcancel]").forEach(function (btn) {
+      var form = document.querySelector('[data-contentform="' + btn.getAttribute("data-contentcancel") + '"]');
+      btn.addEventListener("click", function () { if (form) { form.classList.add("ax-edit-hidden"); } });
+    });
+    qsa("[data-contentsave]").forEach(function (btn) {
+      var id = btn.getAttribute("data-contentsave");
+      var form = document.querySelector('[data-contentform="' + id + '"]');
+      btn.addEventListener("click", function () {
+        adminAction("/admin/edit-content", fieldsFrom(form, "data-cf", { content_id: id }), btn);
+      });
+    });
+    qsa("[data-contentdelete]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (!window.confirm("Delete this content piece? This cannot be undone.")) { return; }
+        adminAction("/admin/delete-content", { content_id: btn.getAttribute("data-contentdelete") }, btn);
+      });
+    });
+
+    // --- Upload / remove creative ---
+    qsa("[data-uploadbtn]").forEach(function (btn) {
+      var id = btn.getAttribute("data-uploadbtn");
+      var input = document.querySelector('[data-uploadinput="' + id + '"]');
+      if (!input) { return; }
+      btn.addEventListener("click", function () { input.click(); });
+      input.addEventListener("change", function () {
+        if (!input.files || !input.files.length) { return; }
+        var body = new FormData();
+        body.append("content_id", id);
+        body.append("file", input.files[0]);
+        adminMsg("Uploading creative…", true);
+        btn.setAttribute("disabled", "disabled");
+        postData("/admin/upload-creative", body)
+          .then(function () { window.location.reload(); })
+          .catch(function () {
+            adminMsg("Upload failed — use an image under 8 MB.", false);
+            btn.removeAttribute("disabled");
+          });
+      });
+    });
+    qsa("[data-removecreative]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        adminAction("/admin/remove-creative", { content_id: btn.getAttribute("data-removecreative") }, btn);
+      });
+    });
+
+    // --- Add content ---
+    qsa("[data-addcontentbtn]").forEach(function (btn) {
+      var id = btn.getAttribute("data-addcontentbtn");
+      var panel = document.querySelector('[data-addcontent="' + id + '"]');
+      btn.addEventListener("click", function () {
+        var fields = fieldsFrom(panel, "data-nc", { campaign_id: id });
+        if (!fields.ref && !fields.type_tag && !fields.caption) {
+          adminMsg("Add at least a reference, type, or caption.", false); return;
+        }
+        adminAction("/admin/content", fields, btn);
+      });
+    });
+
+    // --- Add campaign ---
+    qsa("[data-addcampaignbtn]").forEach(function (btn) {
+      var chan = btn.getAttribute("data-addcampaignbtn");
+      var panel = document.querySelector('[data-addcampaign="' + chan + '"]');
+      btn.addEventListener("click", function () {
+        var fields = fieldsFrom(panel, "data-ac", { channel: chan });
+        if (!fields.name) { adminMsg("Campaign name is required.", false); return; }
+        adminAction("/admin/campaign", fields, btn);
+      });
+    });
+
+    // --- Metrics ---
+    qsa("[data-metricssave]").forEach(function (btn) {
+      var panel = document.querySelector("[data-metricsform]");
+      btn.addEventListener("click", function () {
+        var fields = fieldsFrom(panel, "data-mf", {});
+        qsa("[data-mf-check]", panel).forEach(function (el) {
+          fields[el.getAttribute("data-mf-check")] = el.checked ? "1" : "0";
+        });
+        adminAction("/admin/metrics", fields, btn);
+      });
+    });
+
+    // --- Calendar add / delete ---
+    qsa("[data-caladd]").forEach(function (btn) {
+      var panel = document.querySelector("[data-calform]");
+      btn.addEventListener("click", function () {
+        var fields = fieldsFrom(panel, "data-cev", { op: "add" });
+        if (!fields.date) { adminMsg("Pick a date for the event.", false); return; }
+        adminAction("/admin/calendar", fields, btn);
+      });
+    });
+    qsa("[data-caldel]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        adminAction("/admin/calendar", { op: "delete", index: btn.getAttribute("data-caldel") }, btn);
+      });
     });
   }
 })();
