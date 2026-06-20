@@ -600,9 +600,9 @@
                 <input class="ax-editbox" data-sf="name" value="{{ c.name }}" placeholder="Campaign name">
                 <input class="ax-editbox" data-sf="eyebrow" value="{{ c.eyebrow }}" placeholder="Eyebrow">
               </div>
-              <textarea class="ax-editbox" data-sf="what" placeholder="What we did">{{ c.strategy.what }}</textarea>
-              <textarea class="ax-editbox" data-sf="why" placeholder="Why — the data">{{ c.strategy.why }}</textarea>
-              <textarea class="ax-editbox" data-sf="next" placeholder="What's next">{{ c.strategy.next }}</textarea>
+              <textarea class="ax-editbox" data-sf="what" placeholder="What happened">{{ c.strategy.what }}</textarea>
+              <textarea class="ax-editbox" data-sf="why" placeholder="Why it happened">{{ c.strategy.why }}</textarea>
+              <textarea class="ax-editbox" data-sf="next" placeholder="What to do next">{{ c.strategy.next }}</textarea>
               <div class="ax-actions">
                 <button class="ax-btn violet small" type="button" data-stratsave="{{ c.id }}">Save strategy</button>
                 <button class="ax-btn ghost small" type="button" data-stratcancel="{{ c.id }}">Cancel</button>
@@ -754,9 +754,9 @@
               <input class="ax-editbox" data-ac="name" placeholder="Campaign name">
               <input class="ax-editbox" data-ac="eyebrow" placeholder="Eyebrow (e.g. PAID ADS · RETARGETING)">
             </div>
-            <textarea class="ax-editbox" data-ac="what" placeholder="What we did"></textarea>
-            <textarea class="ax-editbox" data-ac="why" placeholder="Why — the data"></textarea>
-            <textarea class="ax-editbox" data-ac="next" placeholder="What's next"></textarea>
+            <textarea class="ax-editbox" data-ac="what" placeholder="What happened"></textarea>
+            <textarea class="ax-editbox" data-ac="why" placeholder="Why it happened"></textarea>
+            <textarea class="ax-editbox" data-ac="next" placeholder="What to do next"></textarea>
             <button class="ax-btn violet small" type="button" data-addcampaignbtn="{{ chan }}">Add campaign</button>
           </div>
           {% endif %}
