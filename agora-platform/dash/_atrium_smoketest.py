@@ -121,6 +121,37 @@ def run():
     conv = workspace._find_conversation(workspace.load_workspace(CLIENT), "cv_1")
     _check("reply persisted + resolved", conv["messages"][-1]["body"] == "On it!" and conv["status"] == "resolved")
 
+    # Admin: add a campaign, edit its strategy, start a conversation, edit metrics.
+    before_n = len(workspace.load_workspace(CLIENT)["campaigns"])
+    r = c.post("/admin/atrium/%s/campaign" % CLIENT,
+               data={"channel": "paid", "name": "Autumn Retargeting", "eyebrow": "PAID · RETARGETING",
+                     "what": "w", "why": "y", "next": "n", "ai_summary": "s"})
+    _check("admin add-campaign redirects", r.status_code == 302)
+    camps = workspace.load_workspace(CLIENT)["campaigns"]
+    _check("campaign added", len(camps) == before_n + 1)
+    new_id = camps[-1]["id"]
+    r = c.post("/admin/atrium/%s/campaign" % CLIENT,
+               data={"campaign_id": new_id, "what": "updated what", "why": "uy", "next": "un", "ai_summary": "us"})
+    _check("admin update-campaign redirects", r.status_code == 302)
+    _check("campaign strategy updated",
+           workspace._find_campaign(workspace.load_workspace(CLIENT), new_id)["strategy"]["what"] == "updated what")
+
+    conv_before = len(workspace.load_workspace(CLIENT)["conversations"])
+    r = c.post("/admin/atrium/%s/conversation" % CLIENT,
+               data={"subject": "July creative", "sender_name": "Maya", "body": "Kicking off July."})
+    _check("admin start-conversation redirects", r.status_code == 302)
+    _check("conversation added", len(workspace.load_workspace(CLIENT)["conversations"]) == conv_before + 1)
+
+    r = c.post("/admin/atrium/%s/metrics" % CLIENT,
+               data={"today_leads": "12", "today_visitors": "400", "today_bookings": "5",
+                     "split_paid": "90", "split_organic": "70",
+                     "metric_value_0": "200", "metric_trend_0": "+30%", "metric_up_0": "1"})
+    _check("admin metrics redirects", r.status_code == 302)
+    ws2 = workspace.load_workspace(CLIENT)
+    _check("today updated", ws2["today"]["leads"] == 12)
+    _check("split updated", ws2["split"]["paid"] == 90)
+    _check("metric 0 value updated", ws2["metrics"][0]["value"] == "200")
+
     # A user who cannot open the client is forbidden.
     with c.session_transaction() as s:
         s.update({"ok": True, "user": "x@y.com", "clients": ["someoneelse"]})
