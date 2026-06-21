@@ -670,7 +670,12 @@ def atrium_save_notify(client):
 
 @app.route("/w/<client>/comment", methods=["POST"])
 def atrium_comment(client):
-    """Append a client comment to a content piece (client-facing); notifies the AGORA team."""
+    """Append a client comment to a content piece (client-facing); notifies the AGORA team.
+
+    A comment is either a plain note (kind="comment") or a "Request changes" comment (kind="changes"),
+    which ALSO flips the piece's status to 'changes' — the request-changes decision now lives in the
+    comment thread (rendered as a flagged light-red bubble) instead of a separate action button.
+    """
     gate = _atrium_json_gate(client)
     if gate:
         return gate
@@ -678,14 +683,34 @@ def atrium_comment(client):
     body = request.form.get("body", "").strip()
     if not body:
         return Response('{"error":"empty"}', status=400, mimetype="application/json")
+    kind = "changes" if request.form.get("kind", "").strip() == "changes" else "comment"
     try:
         item, comment = workspace.add_content_comment(
             client, content_id, "client", _client_sender_name(current_user()), body,
+            kind=kind, set_status=("changes" if kind == "changes" else None),
         )
     except KeyError:
         return Response('{"error":"not_found"}', status=404, mimetype="application/json")
-    notify.client_commented(client, item, body, current_user())
-    return jsonify(ok=True, comment=comment)
+    if kind == "changes":
+        notify.client_decided(client, item, "changes", current_user())
+    else:
+        notify.client_commented(client, item, body, current_user())
+    return jsonify(ok=True, comment=comment, status=item.get("status"))
+
+
+@app.route("/w/<client>/resolve-comment", methods=["POST"])
+def atrium_resolve_comment(client):
+    """Mark a "Request changes" comment resolved (client or team); may return the piece to 'awaiting'."""
+    gate = _atrium_json_gate(client)
+    if gate:
+        return gate
+    content_id = request.form.get("content_id", "").strip()
+    comment_id = request.form.get("comment_id", "").strip()
+    try:
+        _item, _comment, status = workspace.resolve_content_comment(client, content_id, comment_id)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    return jsonify(ok=True, status=status)
 
 
 @app.route("/w/<client>/creative/<content_id>", methods=["GET"])
@@ -808,7 +833,12 @@ def atrium_admin_strategy_doc(client):
 
 @app.route("/w/<client>/admin/generate-summary", methods=["POST"])
 def atrium_admin_generate_summary(client):
-    """Read the campaign's attached Google Doc and (re)write its AI summary. Always degrades."""
+    """Read the campaign's attached Google Doc and (re)write its What/Why/Next strategy. Always degrades.
+
+    This regenerates the three strategy sections from the doc for an EXISTING campaign -- the same
+    thing the Add-campaign modal does at creation -- so an admin can refresh them after editing the
+    doc (or after enabling AI). Degrades: an unreadable doc returns ok:false with share guidance.
+    """
     gate = _atrium_admin_json_gate(client)
     if gate:
         return gate
@@ -820,13 +850,13 @@ def atrium_admin_generate_summary(client):
     doc_url = (request.form.get("doc_url", "").strip() or camp.get("strategy_doc", ""))
     if request.form.get("doc_url") is not None:
         workspace.set_strategy_doc(client, campaign_id, doc_url)
-    summary, source = atrium_docs.generate_summary(doc_url)
-    if source == "none":
+    strategy, source = atrium_docs.generate_strategy(doc_url)
+    if not strategy:
         return jsonify(ok=False, source=source,
-                       message="Could not read the doc. Check the link is shared with AGORA and "
-                               "that doc reading is enabled.")
-    workspace.update_campaign(client, campaign_id, ai_summary=summary)
-    return jsonify(ok=True, ai_summary=summary, source=source)
+                       message="Couldn't read that Google Doc. Open it → Share → General access → "
+                               "“Anyone with the link” (Viewer), then try again.")
+    workspace.update_campaign(client, campaign_id, strategy=strategy)
+    return jsonify(ok=True, strategy=strategy, source=source)
 
 
 @app.route("/w/<client>/admin/summary", methods=["POST"])
@@ -845,7 +875,14 @@ def atrium_admin_summary(client):
 
 @app.route("/w/<client>/admin/campaign", methods=["POST"])
 def atrium_admin_add_campaign(client):
-    """Add a campaign to this workspace in place."""
+    """Add a campaign in place. With just a name + a Google Doc link, AI writes the strategy.
+
+    If a doc link is supplied (and the strategy fields weren't typed by hand) we best-effort read
+    the doc and let AI write the campaign's "What happened / Why it happened / What to do next"
+    sections, so the campaign lands fully formed from the doc alone. The doc link is ALWAYS saved
+    regardless of whether AI is wired, so the client still gets the "View the full breakdown" link
+    on a default (no-Docs/no-AI) deploy -- the admin then fills the sections via "Edit strategy".
+    """
     gate = _atrium_admin_json_gate(client)
     if gate:
         return gate
@@ -853,10 +890,23 @@ def atrium_admin_add_campaign(client):
     if not name:
         return Response('{"error":"name_required"}', status=400, mimetype="application/json")
     channel = "paid" if request.form.get("channel") == "paid" else "organic"
+    doc_url = request.form.get("strategy_doc", "").strip()
+    strategy = _strategy_from_form()       # empty from the quick modal; kept for any hand-typed flow
+    source = "manual" if any(strategy.values()) else "none"
+    if doc_url and not any(strategy.values()):
+        generated, source = atrium_docs.generate_strategy(doc_url)
+        if generated:
+            strategy = generated
+        else:
+            # A doc was supplied but couldn't be read -- tell the admin how to fix it rather than
+            # silently creating an empty campaign. They can share the doc and retry, or drop the link.
+            return jsonify(ok=False, source=source,
+                           message="Couldn't read that Google Doc. Open it → Share → General access "
+                                   "→ “Anyone with the link” (Viewer), then try again. Or "
+                                   "remove the link to add the campaign and write the strategy by hand.")
     camp = workspace.add_campaign(client, channel, name, request.form.get("eyebrow", "").strip(),
-                                  strategy=_strategy_from_form(),
-                                  ai_summary=request.form.get("ai_summary", "").strip())
-    return jsonify(ok=True, id=camp.get("id"))
+                                  strategy=strategy, strategy_doc=doc_url)
+    return jsonify(ok=True, id=camp.get("id"), source=source)
 
 
 @app.route("/w/<client>/admin/delete-campaign", methods=["POST"])
@@ -945,8 +995,11 @@ def atrium_admin_content_comment(client):
     if not body:
         return Response('{"error":"empty"}', status=400, mimetype="application/json")
     sender_name = request.form.get("sender_name", "").strip() or "AGORA"
+    kind = "changes" if request.form.get("kind", "").strip() == "changes" else "comment"
     try:
-        item, comment = workspace.add_content_comment(client, content_id, "agora", sender_name, body)
+        item, comment = workspace.add_content_comment(
+            client, content_id, "agora", sender_name, body, kind=kind,
+        )
     except KeyError:
         return Response('{"error":"not_found"}', status=404, mimetype="application/json")
     notify.team_commented(client, workspace.load_workspace(client), item, body, sender_name)

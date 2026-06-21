@@ -98,6 +98,67 @@ def summarize_strategy(doc_text):
         return None
 
 
+def _parse_sections_json(raw):
+    """Best-effort parse of a model reply into a dict. Tolerates ```json fences and surrounding prose."""
+    import json
+    import re
+    if not raw:
+        return None
+    text = raw.strip()
+    if text.startswith("```"):                      # strip a ```json ... ``` fence if the model added one
+        text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text).strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    m = re.search(r"\{.*\}", text, re.DOTALL)        # last resort: grab the first {...} block
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except Exception:
+            return None
+    return None
+
+
+def summarize_strategy_sections(doc_text):
+    """Turn a strategy doc into a campaign's three client-facing sections. Returns a dict, or None.
+
+    The dict has keys "what", "why", "next" -- short, warm, plain-English paragraphs that populate a
+    campaign's "What happened / Why it happened / What to do next" strategy card. Used by Agora
+    Atrium's "generate strategy from doc" action (atrium_docs.generate_strategy). No-op (returns
+    None) unless enrichment is enabled, configured, and the SDK is installed -- the caller then falls
+    back to a plain excerpt of the doc.
+    """
+    client = _client()
+    if client is None or not (doc_text or "").strip():
+        return None
+    try:
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=700,
+            system=(
+                "You write the AGORA marketing team's client-facing campaign strategy from an "
+                "internal strategy document. Produce exactly three short, warm, plain-English "
+                "paragraphs (2-3 sentences each, no jargon, no headings, no markdown):\n"
+                "  what -- what we did / are doing in this campaign,\n"
+                "  why  -- why we did it and how it helps the client,\n"
+                "  next -- what we will do next.\n"
+                "Respond with ONLY a JSON object of the form "
+                '{\"what\": \"...\", \"why\": \"...\", \"next\": \"...\"} -- no preamble, no code fences.'
+            ),
+            messages=[{"role": "user", "content": doc_text[:12000]}],
+        )
+        parts = [block.text for block in response.content if getattr(block, "type", "") == "text"]
+        data = _parse_sections_json("".join(parts).strip())
+        if not isinstance(data, dict):
+            return None
+        out = {k: str(data.get(k, "") or "").strip() for k in ("what", "why", "next")}
+        return out if any(out.values()) else None
+    except Exception:
+        return None
+
+
 def transcribe_voice(audio_bytes, content_type="audio/webm"):
     """Transcribe a voice feedback note to text. Returns the transcript string, or None.
 

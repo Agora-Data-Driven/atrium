@@ -39,6 +39,8 @@ sys.modules["google.cloud.storage"] = _gs
 _TMP = tempfile.mkdtemp(prefix="atrium_smoke_")
 os.environ["WORKSPACE_LOCAL_DIR"] = _TMP
 os.environ["SESSION_SECRET"] = "test-secret"
+# Keep the test hermetic: never make the keyless public-doc fetch reach out to docs.google.com.
+os.environ["ATRIUM_DOCS_NO_PUBLIC_FETCH"] = "1"
 
 import seed_workspace   # noqa: E402
 import workspace        # noqa: E402
