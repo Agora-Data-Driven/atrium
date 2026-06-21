@@ -130,6 +130,16 @@ if (-not (Test-Path $venvPy)) {
 } else {
     Write-Host "[OK] .venv already exists" -ForegroundColor Green
 }
+# A pre-existing .venv can be missing pip entirely (e.g. created with --without-pip,
+# or with a base Python whose ensurepip was unavailable at creation time). `python.exe`
+# exists, so the Test-Path check above skips recreation -- but `-m pip` then dies with
+# "No module named pip". Bootstrap pip via ensurepip first if it is absent, so the venv
+# self-heals instead of failing setup.
+if (-not (Test-Probe { & $venvPy -m pip --version })) {
+    Write-Host "[..] pip missing in .venv -- bootstrapping via ensurepip" -ForegroundColor Yellow
+    & $venvPy -m ensurepip --upgrade
+    Must "ensurepip bootstrap"
+}
 Write-Host "[..] Upgrading pip in .venv" -ForegroundColor Cyan
 & $venvPy -m pip install --upgrade pip
 Must "pip upgrade"
