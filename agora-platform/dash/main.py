@@ -196,6 +196,23 @@ def index():
     )
 
 
+@app.route("/dashboard/<client>")
+def client_dashboard(client):
+    """Standalone full-screen Looker Studio dashboard for ONE client, reachable from the portal
+    'Open dashboard' button -- it shows their live report without entering the full Atrium workspace.
+    Gated to whoever may open the client (super-admin opens any; a client opens only their own). The
+    URL + height come from the workspace settings (atrium_view.dashboard)."""
+    if not authed():
+        return redirect(url_for("login", next="/dashboard/%s" % client))
+    if not can_open(client):
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    ws = workspace.load_workspace(client) or {}
+    name = ws.get("display_name") or (store.get_client(client) or {}).get("name") or client
+    return render_template("dashboard_view.html", client=client, name=name,
+                           dash=atrium_view.dashboard(ws, client),
+                           user=current_user(), **_brand_ctx())
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     next_url = request.values.get("next", "/")

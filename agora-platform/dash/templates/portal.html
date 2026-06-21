@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agora Data Driven &mdash; Portal</title>
+  <title>Agora Data Driven &middot; Portal</title>
   {% if favicon %}<link rel="icon" href="{{ favicon }}">{% endif %}
   <style>
     /* Agora Data Driven brand: light, clean -- white space + bold black type + green CTA + purple
@@ -18,7 +18,8 @@
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: "Inter", "Inter var", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      text-rendering: optimizeLegibility;
       color: var(--ag-ink);
       background:
         radial-gradient(900px 480px at 8% -12%, rgba(79,171,74,0.10), transparent 60%),
@@ -180,7 +181,7 @@
             <p class="key">{{ c.key }}</p>
             <div class="go-row">
               <a class="go workspace" href="/w/{{ c.key }}/">Open workspace &rarr;</a>
-              <a class="go dashboard" href="/d/{{ c.key }}/">Open dashboard</a>
+              <a class="go dashboard" href="/dashboard/{{ c.key }}">Open dashboard</a>
             </div>
           </div>
         {% endfor %}

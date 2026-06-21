@@ -448,19 +448,19 @@ def goal_gauge(ws, today):
     client_name = ws.get("display_name") or "your business"
     if current >= breakthrough:
         status = {"level": "breakthrough", "icon": "trophy",
-                  "text": "Breakthrough — exceptional month for %s" % client_name}
+                  "text": "Breakthrough. Exceptional month for %s" % client_name}
     elif current >= exceed:
         status = {"level": "exceeding", "icon": "trending",
-                  "text": "Exceeding expectations — on track for a breakthrough month"}
+                  "text": "Exceeding expectations. On track for a breakthrough month"}
     elif current >= target:
         status = {"level": "ontrack", "icon": "check",
-                  "text": "Target hit — now pushing to exceed with %s %s" % (fmt_goal_value(exceed, fmt), label)}
+                  "text": "Target hit. Now pushing to exceed with %s %s" % (fmt_goal_value(exceed, fmt), label)}
     elif current >= pace_value:
         status = {"level": "ontrack", "icon": "check",
-                  "text": "On pace — on track for ~%s %s by month end" % (fmt_goal_value(projected, fmt), label)}
+                  "text": "On pace, on track for ~%s %s by month end" % (fmt_goal_value(projected, fmt), label)}
     else:
         status = {"level": "behind", "icon": "trending",
-                  "text": "Behind pace — pushing toward your %s %s target" % (fmt_goal_value(target, fmt), label)}
+                  "text": "Behind pace. Pushing toward your %s %s target" % (fmt_goal_value(target, fmt), label)}
 
     tp, sp = pct(target), pct(exceed)
     return {
@@ -518,7 +518,7 @@ def wins(ws):
         })
     if not out:
         out = [{"icon": "trending", "steady": True, "detail": "",
-                "title": "Holding steady — your campaigns are maintaining performance."}]
+                "title": "Holding steady. Your campaigns are maintaining performance."}]
     return out
 
 
@@ -579,6 +579,8 @@ _DASHBOARD_DEFAULTS = {
     "rhe":        {"url": "https://datastudio.google.com/embed/reporting/e9edb3ba-486c-4ddc-b33d-410258422aa4/page/1yCWF", "height": 500},
     "honeytribe": {"url": "https://datastudio.google.com/embed/reporting/ff946d72-068c-4482-97c8-a6e9170af646/page/p_1okvtle2vd", "height": 500},
     "meloyelo":   {"url": "https://datastudio.google.com/embed/reporting/815f5d0b-2b3b-47da-8faf-0dc6cea77488/page/p_rm3oxf9l3d", "height": 2200},
+    "asllogistics": {"url": "https://datastudio.google.com/embed/reporting/ebd7f2e1-4f65-4424-957b-086b4bc186cd/page/p_ixk645553d", "height": 400},
+    "contractshop": {"url": "https://datastudio.google.com/embed/reporting/474672d4-3a89-46a9-a398-a11f990d2736/page/p_5ebejadlxd", "height": 500},
 }
 
 

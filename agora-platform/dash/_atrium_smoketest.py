@@ -38,6 +38,7 @@ sys.modules["google.cloud.storage"] = _gs
 # 2. Point the workspace store at a temp dir and sign the session.
 _TMP = tempfile.mkdtemp(prefix="atrium_smoke_")
 os.environ["WORKSPACE_LOCAL_DIR"] = _TMP
+os.environ["REGISTRY_LOCAL_DIR"] = _TMP   # admin_atrium console reads the registry (reveal_password)
 os.environ["SESSION_SECRET"] = "test-secret"
 
 import seed_workspace   # noqa: E402

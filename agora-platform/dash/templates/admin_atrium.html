@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ workspace_name }} &mdash; Team management</title>
+  <title>{{ workspace_name }} &middot; Team management</title>
   {% if favicon %}<link rel="icon" href="{{ favicon }}">{% endif %}
   <style>
     /* Operator console: the Agora light brand (mirrors portal.html / Creatives/brand.json). */
@@ -139,7 +139,7 @@
         {% endfor %}
       </div>
       {% else %}
-      <div class="panel">No clients yet — create your first one below.</div>
+      <div class="panel">No clients yet. Create your first one below.</div>
       {% endif %}
 
       <h2 class="section">Add a new client</h2>
@@ -151,7 +151,7 @@
           <div><label>Display name</label><input type="text" name="name" placeholder="Honey Tribe Resort" required></div>
           <div><label>Client key (optional)</label><input type="text" name="key" placeholder="auto from name, e.g. honey-tribe-resort"></div>
         </div>
-        <label>Portal password (optional &mdash; blank auto-generates a strong one)</label>
+        <label>Portal password (optional, blank auto-generates a strong one)</label>
         <input type="text" name="password" placeholder="auto-generated if left blank">
         <button class="btn violet" type="submit">Create client &amp; blank workspace</button>
       </form>
@@ -164,7 +164,7 @@
         &nbsp;·&nbsp; <a href="/w/{{ client }}/" target="_blank">Open workspace ↗</a>
       </h2>
 
-      <!-- Client login (portal password) — folded in from the old Super admin console -->
+      <!-- Client login (portal password): folded in from the old Super admin console -->
       <h2 class="section">Client login</h2>
       <form class="panel" method="post" action="/admin/atrium/{{ client }}/password">
         <p class="meta">The client logs in with <strong>any email</strong> + this password (the email is only a label).</p>
@@ -248,7 +248,7 @@
           <form method="post" action="/admin/atrium/{{ client }}/campaign">
             <input type="hidden" name="campaign_id" value="{{ c.id }}">
             <label>What we did</label><textarea name="what">{{ c.strategy.what }}</textarea>
-            <label>Why — the data</label><textarea name="why">{{ c.strategy.why }}</textarea>
+            <label>Why (the data)</label><textarea name="why">{{ c.strategy.why }}</textarea>
             <label>What's next</label><textarea name="next">{{ c.strategy.next }}</textarea>
             <label>AI summary</label><textarea name="ai_summary">{{ c.ai_summary }}</textarea>
             <button class="btn" type="submit">Save strategy &amp; summary</button>
@@ -281,7 +281,7 @@
             </div>
             <label>Eyebrow</label><input type="text" name="eyebrow" placeholder="PAID ADS · RETARGETING">
             <label>What we did</label><textarea name="what"></textarea>
-            <label>Why — the data</label><textarea name="why"></textarea>
+            <label>Why (the data)</label><textarea name="why"></textarea>
             <label>What's next</label><textarea name="next"></textarea>
             <label>AI summary</label><textarea name="ai_summary"></textarea>
             <button class="btn violet" type="submit">Add campaign</button>
