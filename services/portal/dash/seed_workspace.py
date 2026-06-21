@@ -119,8 +119,8 @@ def riverdance_workspace():
                     "what": "Launched Meta and Google campaigns on the $80/night summer offer, with "
                             "three creative angles all pointing at a dedicated riverside landing page.",
                     "why": "The $80 offer drove a 2.3x higher click-through rate than our generic "
-                           "rate messaging, and Meta Advantage+ delivered the lowest cost per lead "
-                           "— so we shifted 60% of the budget there.",
+                           "rate messaging, and Meta Advantage+ delivered the lowest cost per lead, "
+                           "so we shifted 60% of the budget there.",
                     "next": "Scale the winning Meta angle, add a retargeting layer for "
                             "landing-page visitors who didn't convert, and test Google "
                             "Performance Max.",
@@ -137,7 +137,7 @@ def riverdance_workspace():
                                    "the river, just minutes from Vail. Book your summer escape →",
                         "file_name": "5.png", "thumb_kind": "mountains",
                         "status": "approved",
-                        "client_note": "Love this one — the river shot is exactly the feel we "
+                        "client_note": "Love this one. The river shot is exactly the feel we "
                                        "want. Approved!",
                         "decided_at": "2026-06-18T15:40:00Z",
                         "comments": [
@@ -145,14 +145,14 @@ def riverdance_workspace():
                              "body": "Could we try a sunrise version of this for July?",
                              "created_at": "2026-06-18T16:02:00Z"},
                             {"sender": "agora", "sender_name": "Maya",
-                             "body": "Love that — we'll mock up a sunrise cut this week.",
+                             "body": "Love that, we'll mock up a sunrise cut this week.",
                              "created_at": "2026-06-18T16:20:00Z"},
                         ],
                     },
                     {
                         "id": "RVR-016", "ref": "RVR-016", "type_tag": "Static Post",
                         "sub_tag": "Lead Gen", "platform": "Instagram · Facebook",
-                        "caption": "Last call for summer — $80/night riverside sites are going "
+                        "caption": "Last call for summer, $80/night riverside sites are going "
                                    "fast. Reserve your spot before the season fills up.",
                         "file_name": "6.png", "thumb_kind": "river",
                         "status": "awaiting", "client_note": "", "decided_at": "",
@@ -169,13 +169,13 @@ def riverdance_workspace():
                     "what": "Built a June nurture email sequence, published two SEO posts targeting "
                             "\"RV resort near Vail\", and scheduled four organic social posts.",
                     "why": "Email opens hit 47% and drove 21 bookings at no media cost, and "
-                           "\"near Vail\" searches are up 30% — organic is quietly your most "
+                           "\"near Vail\" searches are up 30%. Organic is quietly your most "
                            "efficient channel.",
                     "next": "Publish two more SEO pages for high-intent local terms, repurpose the "
                             "top-performing email into a landing page, and start a monthly "
                             "newsletter.",
                 },
-                "ai_summary": "Your organic engine is punching above its weight — nearly half "
+                "ai_summary": "Your organic engine is punching above its weight. Nearly half "
                               "your email list is opening, and local search demand is climbing. "
                               "We're doubling down on the content that already converts for free.",
                 "strategy_doc": "",
@@ -183,12 +183,12 @@ def riverdance_workspace():
                     {
                         "id": "RVR-015", "ref": "RVR-015", "type_tag": "Email",
                         "sub_tag": "Nurture", "platform": "Email",
-                        "caption": "Subject: Your riverside site is waiting \U0001f3de️ — "
+                        "caption": "Subject: Your riverside site is waiting \U0001f3de️, "
                                    "why June is the best month to visit, plus a guest's favourite "
                                    "morning trail.",
                         "file_name": "email-1.png", "thumb_kind": "email",
                         "status": "approved",
-                        "client_note": "Perfect tone. The trail tip is a lovely touch — "
+                        "client_note": "Perfect tone. The trail tip is a lovely touch, "
                                        "approved.",
                         "decided_at": "2026-06-19T09:12:00Z",
                     },
@@ -196,7 +196,7 @@ def riverdance_workspace():
                         "id": "RVR-017", "ref": "RVR-017", "type_tag": "Blog",
                         "sub_tag": "SEO", "platform": "Website",
                         "caption": "The 7 Best RV Resorts Near Vail (and Why Riverdance Tops the "
-                                   "List) — a 1,200-word guide targeting \"RV resort near "
+                                   "List), a 1,200-word guide targeting \"RV resort near "
                                    "Vail\" with a booking call to action.",
                         "file_name": "blog-1.png", "thumb_kind": "blog",
                         "status": "awaiting", "client_note": "", "decided_at": "",
@@ -225,12 +225,12 @@ def riverdance_workspace():
                 "status": "awaiting_reply",
                 "messages": [
                     {"sender": "client", "sender_name": "Sarah",
-                     "body": "Hi team — could we get a Spanish-language version of the "
+                     "body": "Hi team, could we get a Spanish-language version of the "
                              "$80/night riverside post? A lot of our summer guests come from "
                              "Denver's Spanish-speaking communities.",
                      "created_at": "2026-06-19T17:55:00Z"},
                     {"sender": "agora", "sender_name": "Maya",
-                     "body": "Great idea, Sarah — we can absolutely localise it. I'll have a "
+                     "body": "Great idea, Sarah. We can absolutely localise it. I'll have a "
                              "Spanish adaptation of RVR-016 drafted for your review by Thursday. "
                              "Want us to mirror it on both Meta and Google?",
                      "created_at": "2026-06-19T18:40:00Z"},
@@ -242,7 +242,7 @@ def riverdance_workspace():
                 "status": "resolved",
                 "messages": [
                     {"sender": "client", "sender_name": "Sarah",
-                     "body": "Thanks for the May numbers — can we do a quick walkthrough of "
+                     "body": "Thanks for the May numbers. Can we do a quick walkthrough of "
                              "the June dashboard next week?",
                      "created_at": "2026-06-15T16:10:00Z"},
                     {"sender": "agora", "sender_name": "Priya",
@@ -257,16 +257,16 @@ def riverdance_workspace():
                 "status": "resolved",
                 "messages": [
                     {"sender": "agora", "sender_name": "Maya",
-                     "body": "The new riverside photos from last week's shoot are in — we'll "
+                     "body": "The new riverside photos from last week's shoot are in. We'll "
                              "use the best three for the July creative. Anything specific you'd "
                              "like us to feature?",
                      "created_at": "2026-06-12T14:05:00Z"},
                     {"sender": "client", "sender_name": "Sarah",
-                     "body": "Love them! Please make sure the fire-pit evening shot makes the cut "
-                             "— guests always ask about that.",
+                     "body": "Love them! Please make sure the fire-pit evening shot makes the cut, "
+                             "guests always ask about that.",
                      "created_at": "2026-06-12T15:20:00Z"},
                     {"sender": "agora", "sender_name": "Maya",
-                     "body": "Done — it's our hero image for July.",
+                     "body": "Done. It's our hero image for July.",
                      "created_at": "2026-06-12T15:31:00Z"},
                 ],
             },

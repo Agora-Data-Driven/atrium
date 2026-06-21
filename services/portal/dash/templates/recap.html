@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Title is refined client-side once the recap #fragment is decoded. -->
-  <title>Marketing recap &mdash; {{ workspace_name }}</title>
+  <title>Marketing recap &middot; {{ workspace_name }}</title>
   {% if favicon %}<link rel="icon" href="{{ favicon }}">{% endif %}
   <style>
     :root {
@@ -87,7 +87,7 @@
 
     <div class="empty" id="empty">
       <h1>This recap link looks incomplete.</h1>
-      <p>Ask whoever shared it to send the full link again &mdash; the summary travels inside the link itself.</p>
+      <p>Ask whoever shared it to send the full link again. The summary travels inside the link itself.</p>
     </div>
   </div>
 
@@ -122,7 +122,7 @@
     setText("r-client", client);
     setText("r-foot-client", client);
     setText("r-month", data.month || "");
-    document.title = client + " — Marketing recap";
+    document.title = client + " · Marketing recap";
 
     var headline = data.headline || [];
     var hl = document.getElementById("r-headline");

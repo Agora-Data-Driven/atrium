@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ name }} &middot; Dashboard</title>
+  {% if favicon %}<link rel="icon" href="{{ favicon }}">{% endif %}
+  <style>
+    /* Shares the portal/Atrium brand: greens, purples, card styling, type. */
+    :root {
+      --ag-green:#4FAB4A; --ag-green-d:#347A30; --ag-green-bg:#EAF6E9;
+      --ag-purple:#9484FB; --ag-purple-d:#5C4BD0;
+      --ag-ink:#1A1B1E; --ag-charcoal:#353535; --ag-muted:#6B7280; --ag-line:#E7E8EE;
+      --ag-canvas:#F6F7F9; --ag-white:#fff; --ag-danger:#E5413E;
+      --ag-shadow:0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.06);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Inter", "Inter var", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+      color: var(--ag-ink);
+      background:
+        radial-gradient(900px 480px at 8% -12%, rgba(79,171,74,0.10), transparent 60%),
+        radial-gradient(820px 480px at 104% 6%, rgba(148,132,251,0.10), transparent 56%),
+        var(--ag-canvas);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; }
+    header.topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 15px 28px; border-bottom: 1px solid var(--ag-line);
+      background: rgba(255,255,255,0.72); backdrop-filter: blur(8px);
+      position: sticky; top: 0; z-index: 20;
+    }
+    .brand svg { display: block; height: 32px; width: auto; }
+    .nav { display: flex; align-items: center; gap: 10px; }
+    .pill {
+      display: inline-block; padding: 8px 14px; border-radius: 999px;
+      border: 1px solid var(--ag-line); color: var(--ag-charcoal); text-decoration: none;
+      font-size: 13px; font-weight: 600; background: var(--ag-white);
+      transition: border-color .12s, color .12s;
+    }
+    .pill:hover { border-color: var(--ag-green); color: var(--ag-ink); }
+    .pill.logout { color: var(--ag-danger); }
+    .pill.logout:hover { border-color: rgba(229,65,62,0.4); }
+
+    main { max-width: 1200px; margin: 0 auto; padding: 28px; }
+    .dash-head { display: flex; align-items: center; gap: 14px; margin: 4px 0 20px; }
+    .dash-head .back { white-space: nowrap; }
+    .dash-head h1 { font-size: 24px; font-weight: 800; letter-spacing: -.5px; margin: 0; }
+
+    /* Same frame as the in-workspace Dashboard tab: green-to-blue gradient border, rounded, soft
+       green glow, padding so the iframe clips to the corners. */
+    .ax-dash-frame {
+      border: 2px solid transparent; border-radius: 14px; padding: 5px;
+      background: linear-gradient(var(--ag-white), var(--ag-white)) padding-box,
+                  linear-gradient(135deg, #22C55E, #3B82F6) border-box;
+      box-shadow: 0 10px 34px rgba(34,197,94,.16), 0 2px 10px rgba(34,197,94,.10);
+      overflow: hidden;
+    }
+    .ax-dash-frame iframe { display: block; width: 100%; border: 0; border-radius: 9px; overflow: hidden; background: var(--ag-white); }
+
+    .empty {
+      background: var(--ag-white); border: 1px dashed var(--ag-line); border-radius: 16px;
+      padding: 32px; color: var(--ag-muted); text-align: center; box-shadow: var(--ag-shadow);
+    }
+    .empty a { color: var(--ag-green-d); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">{{ agora_logo|safe }}</div>
+    <nav class="nav">
+      <a class="pill" href="/">&larr; Back</a>
+      <a class="pill logout" href="/logout">Log out</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="dash-head">
+      <a class="pill back" href="/">&larr; Back</a>
+      <h1>{{ name }} &middot; Dashboard</h1>
+    </div>
+
+    {% if dash.url %}
+    <div class="ax-dash-frame">
+      <iframe src="{{ dash.url }}" width="100%" height="{{ dash.height }}" frameborder="0" style="border:0" allowfullscreen
+              sandbox="allow-storage-access-by-user-activation allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
+    </div>
+    {% else %}
+    <div class="empty">No dashboard configured. <a href="/w/{{ client }}/dashboard">Open the workspace to add one.</a></div>
+    {% endif %}
+  </main>
+</body>
+</html>

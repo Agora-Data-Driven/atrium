@@ -44,13 +44,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ ws.display_name }} &mdash; {{ workspace_name }}</title>
+  <title>{{ ws.display_name }} &middot; {{ workspace_name }}</title>
   {% if favicon %}<link rel="icon" href="{{ favicon }}">{% endif %}
   <style>
     .atrium {
       --ax-green:#4FAB4A; --ax-green-d:#347A30; --ax-green-bg:#EAF6E9;
       --ax-violet:#9484FB; --ax-violet-d:#5C4BD0; --ax-violet-bg:#F1EFFE;
-      --ax-ink:#1A1B1E; --ax-sub:#5E6573; --ax-line:#E7E8EE; --ax-canvas:#F6F7F9; --ax-white:#fff;
+      --ax-ink:#0E0F12; --ax-charcoal:#353535; --ax-sub:#6B7280; --ax-line:#E9EAEE; --ax-canvas:#F6F7F9; --ax-white:#fff;
       --ax-ok:#4FAB4A; --ax-warn:#F2820C; --ax-bad:#E5413E;
       --ax-radius:14px; --ax-pill:999px;
       --ax-shadow:0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.06);
@@ -63,8 +63,9 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; }
     .atrium {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      color: var(--ax-ink); min-height: 100vh; line-height: 1.5;
+      font-family: "Inter", "Inter var", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;
+      color: var(--ax-charcoal); min-height: 100vh; line-height: 1.55;
       background:
         radial-gradient(820px 460px at 6% -8%, rgba(79,171,74,0.07), transparent 60%),
         radial-gradient(760px 520px at 100% -2%, rgba(148,132,251,0.08), transparent 58%),
@@ -169,10 +170,12 @@
     @keyframes axfade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
     /* Typography helpers */
-    .ax-greet { font-size: 24px; font-weight: 800; letter-spacing: -.4px; margin: 0 0 4px; }
-    .ax-lede { color: var(--ax-sub); margin: 0 0 22px; }
-    .ax-h2 { font-size: 16px; font-weight: 800; margin: 0 0 14px; }
-    .ax-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ax-sub); }
+    .ax-greet { font-size: 27px; font-weight: 800; letter-spacing: -.7px; margin: 0 0 5px; color: var(--ax-ink); }
+    .ax-lede { color: var(--ax-sub); margin: 0 0 24px; font-size: 14.5px; }
+    .ax-h2 { font-size: 16px; font-weight: 800; letter-spacing: -.2px; margin: 0 0 14px; color: var(--ax-ink); }
+    .ax-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: var(--ax-green-d); }
+    /* Brand: bold headline numbers in graphite black ("bold black type"). */
+    .ax-hero-val, .ax-val, .ax-goal-cur, .ax-deliv-num { color: var(--ax-ink); }
 
     /* Cards / panels */
     .ax-card { background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: var(--ax-radius); box-shadow: var(--ax-shadow); transition: box-shadow .18s ease, transform .18s ease; }
@@ -242,7 +245,7 @@
     .ax-goal-status.breakthrough { color: #166534; background: #BBF7D0; }
     .ax-wins { margin-bottom: 22px; }
     .ax-row-ic.ax-win-ic { background: var(--ax-green-bg); color: var(--ax-green-d); }
-    /* Overview: two equal cards (Total reach | Deliverables) — same surface as the stat row. */
+    /* Overview: two equal cards (Total reach | Deliverables): same surface as the stat row. */
     .ax-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 22px; }
     @media (max-width: 720px) { .ax-duo { grid-template-columns: 1fr; } }
     .ax-duo .ax-stat { padding: 16px; }
@@ -696,7 +699,7 @@
         {% if is_superadmin %}
         <div class="ax-adminbar">
           <span class="ax-adminbadge">Admin edit</span>
-          <span>You're viewing {{ ws.display_name }}'s workspace as AGORA — edits here change what the client sees.</span>
+          <span>You're viewing {{ ws.display_name }}'s workspace as AGORA. Edits here change what the client sees.</span>
           <span class="ax-adminmsg" id="ax-admin-msg"></span>
         </div>
         {% endif %}
@@ -725,7 +728,7 @@
           <div class="ax-fresh"><span class="ax-fresh-dot"></span>Synced from {{ view.freshness.sources }} &middot; updated {{ view.freshness.label }}</div>
           {% endif %}
 
-          {# Daily snapshot cards removed — Overview now leads with the goal gauge + reach/deliverables. #}
+          {# Daily snapshot cards removed; Overview now leads with the goal gauge + reach/deliverables. #}
 
           {% if view.goal or is_superadmin %}
           <div class="ax-card ax-goal">
@@ -756,12 +759,12 @@
             </div>
             <div class="ax-goal-status {{ g.status.level }}">{{ ic(g.status.icon) }} {{ g.status.text }}</div>
             {% else %}
-            <div class="ax-empty" style="margin-top:6px">No monthly goal set yet — configure the tiers below and the client will see them here.</div>
+            <div class="ax-empty" style="margin-top:6px">No monthly goal set yet. Configure the tiers below and the client will see them here.</div>
             {% endif %}
             {% if is_superadmin %}
             {% set goal = ws.goal or {} %}
             <div class="ax-admin-tools" data-goalform>
-              <span class="ax-doc-label" style="width:100%">Monthly goal — tiers &amp; settings</span>
+              <span class="ax-doc-label" style="width:100%">Monthly goal tiers &amp; settings</span>
               <div class="ax-editrow" style="grid-template-columns:2fr 1fr">
                 <input class="ax-editbox" data-gf="goal_label" value="{{ goal.label|default('leads', true) }}" placeholder="Label / unit (leads, bookings, revenue…)">
                 <select class="ax-editbox" data-gf="goal_format">
@@ -777,7 +780,7 @@
               <div class="ax-editrow" style="grid-template-columns:1fr 1fr">
                 <input class="ax-editbox" data-gf="goal_current" value="{{ goal.current|default('', true) }}" placeholder="Current (if not linked)">
                 <select class="ax-editbox" data-gf="goal_source_metric">
-                  <option value="">— Current: use field at left —</option>
+                  <option value="">Current: use the field at left</option>
                   {% for m in ws.metrics %}<option value="{{ m.label }}" {{ 'selected' if goal and goal.source_metric == m.label else '' }}>Pull from “{{ m.label }}” ({{ m.value }})</option>{% endfor %}
                 </select>
               </div>
@@ -797,12 +800,11 @@
               <div class="ax-stat-note {{ 'up' if view.reach.up else '' }}">{{ '&#9650;' if view.reach.up else '&#9660;' }} {{ view.reach.trend_abs }}% this month</div>
               {% else %}<div class="ax-stat-note">Audience reached this month</div>{% endif %}
               {% else %}
-              <div class="ax-val">&mdash;</div>
-              <div class="ax-stat-note">{% if is_superadmin %}Set total reach below{% else %}Reach coming soon{% endif %}</div>
+              <div class="ax-stat-note" style="margin-top:10px">{% if is_superadmin %}Set total reach below{% else %}Reach coming soon{% endif %}</div>
               {% endif %}
               {% if is_superadmin %}
               <div class="ax-admin-tools" data-reachform>
-                <span class="ax-doc-label" style="width:100%">Total reach — this vs last month</span>
+                <span class="ax-doc-label" style="width:100%">Total reach (this vs last month)</span>
                 <div class="ax-editrow" style="grid-template-columns:1fr 1fr">
                   <input class="ax-editbox" data-rf="reach_current"  value="{{ ws.reach.current|default('', true)  if ws.reach else '' }}" placeholder="This month (e.g. 38400)">
                   <input class="ax-editbox" data-rf="reach_previous" value="{{ ws.reach.previous|default('', true) if ws.reach else '' }}" placeholder="Last month (e.g. 31500)">
@@ -821,8 +823,7 @@
               <div class="ax-deliv-bar"><div class="ax-deliv-fill" style="width:{{ d.pct }}%"></div></div>
               {% if d.early %}<div class="ax-stat-note up">{{ ic('check') }} {{ d.early }} delivered early</div>{% endif %}
               {% else %}
-              <div class="ax-val">&mdash;</div>
-              <div class="ax-stat-note">No calendar items yet</div>
+              <div class="ax-stat-note" style="margin-top:10px">No calendar items yet</div>
               {% endif %}
             </div>
           </div>
@@ -864,7 +865,7 @@
                   {% endfor %}
                 </div>
               {% else %}
-                <div class="ax-empty">You're all caught up — nothing is waiting on you right now.</div>
+                <div class="ax-empty">You're all caught up. Nothing is waiting on you right now.</div>
               {% endif %}
             </div>
 
@@ -892,7 +893,7 @@
         <!-- ============ DASHBOARD ============ -->
         <section class="ax-pane {{ 'is-active' if view.active_tab=='dashboard' else '' }}" data-pane="dashboard">
           <h1 class="ax-greet">Dashboard</h1>
-          <p class="ax-lede">Your live campaign data — updated automatically.</p>
+          <p class="ax-lede">Your live campaign data, updated automatically.</p>
 
           {% set dash_url = view.dashboard.url %}
           {% set dash_height = view.dashboard.height %}
@@ -939,7 +940,7 @@
               <select class="ax-select" data-campfilter="{{ tab }}" aria-label="Switch to view a specific campaign">
                 {% for c in camps %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
               </select>
-              <span class="ax-campswitch-hint">You have {{ camps|length }} campaigns &mdash; switch to view another.</span>
+              <span class="ax-campswitch-hint">You have {{ camps|length }} campaigns. Switch to view another.</span>
             </div>
             {% endif %}
           </div>
@@ -1058,7 +1059,7 @@
                   <div class="ax-car-track" data-cartrack>
                     {% for s in _shots %}
                     <div class="ax-car-slide">
-                      {% if s.mime.startswith('video/') %}<video src="{{ s.url }}" class="ax-shot-media" controls preload="metadata"></video>{% else %}<img class="ax-shot-media" data-shot data-shot-src="{{ s.url }}" src="{{ s.url }}" alt="{{ p.ref }} — picture {{ loop.index }}">{% endif %}
+                      {% if s.mime.startswith('video/') %}<video src="{{ s.url }}" class="ax-shot-media" controls preload="metadata"></video>{% else %}<img class="ax-shot-media" data-shot data-shot-src="{{ s.url }}" src="{{ s.url }}" alt="{{ p.ref }} picture {{ loop.index }}">{% endif %}
                       {% if is_superadmin and s.id %}<button class="ax-shot-x" type="button" data-removeimg="{{ p.id }}" data-imgid="{{ s.id }}" title="Remove this picture">&times;</button>{% endif %}
                     </div>
                     {% endfor %}
@@ -1076,7 +1077,7 @@
                 <div class="ax-shots{{ ' multi' if _shots|length > 1 else '' }}">
                   {% for s in _shots %}
                   <div class="ax-shot">
-                    {% if s.mime.startswith('video/') %}<video src="{{ s.url }}" class="ax-shot-media" controls preload="metadata"></video>{% else %}<img class="ax-shot-media" data-shot data-shot-src="{{ s.url }}" src="{{ s.url }}" alt="{{ p.ref }} — picture {{ loop.index }}">{% endif %}
+                    {% if s.mime.startswith('video/') %}<video src="{{ s.url }}" class="ax-shot-media" controls preload="metadata"></video>{% else %}<img class="ax-shot-media" data-shot data-shot-src="{{ s.url }}" src="{{ s.url }}" alt="{{ p.ref }} picture {{ loop.index }}">{% endif %}
                     {% if is_superadmin and s.id %}<button class="ax-shot-x" type="button" data-removeimg="{{ p.id }}" data-imgid="{{ s.id }}" title="Remove this picture">&times;</button>{% endif %}
                   </div>
                   {% endfor %}
@@ -1257,7 +1258,7 @@
         <!-- ============ CALENDAR ============ -->
         <section class="ax-pane {{ 'is-active' if view.active_tab=='calendar' else '' }}" data-pane="calendar">
           <h1 class="ax-greet">{{ ws.project.name if (ws.project and ws.project.name) else view.calendar.label }}</h1>
-          <p class="ax-lede">Tracking the work from kickoff to delivered — paid and organic publish dates included.</p>
+          <p class="ax-lede">Tracking the work from kickoff to delivered. Paid and organic publish dates included.</p>
 
           {% if view.progress %}
           <div class="ax-card ax-progress">
@@ -1349,7 +1350,7 @@
               <div class="ax-com-label">Existing events</div>
               {% for ev in ws.calendar %}
               <div class="ax-set-row" style="padding:8px 0">
-                <div class="ax-set-d"><span class="ax-evd {{ ev.kind }}" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>{{ ev.date }} — {{ ev.label }} <span class="ax-tag plain">{{ ev.kind }}</span>{% if ev.status == 'done' %} <span class="ax-tag organic">✓ Done</span>{% endif %}</div>
+                <div class="ax-set-d"><span class="ax-evd {{ ev.kind }}" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>{{ ev.date }} &middot; {{ ev.label }} <span class="ax-tag plain">{{ ev.kind }}</span>{% if ev.status == 'done' %} <span class="ax-tag organic">✓ Done</span>{% endif %}</div>
                 <div style="display:flex;gap:8px;flex-shrink:0">
                   <button class="ax-btn ghost small" type="button" data-caldone="{{ loop.index0 }}" data-calstatus="{{ 'done' if ev.status == 'done' else '' }}">{{ 'Mark as not done' if ev.status == 'done' else 'Mark as done' }}</button>
                   <button class="ax-btn danger small" type="button" data-caldel="{{ loop.index0 }}">Delete</button>
@@ -1365,7 +1366,7 @@
         <!-- ============ CLIENT COMMUNICATIONS (email + meeting summaries) ============ -->
         <section class="ax-pane {{ 'is-active' if view.active_tab=='conversations' else '' }}" data-pane="conversations">
           <h1 class="ax-greet">Client Communications</h1>
-          <p class="ax-lede">A running record of our meetings and email updates — so nothing gets lost.</p>
+          <p class="ax-lede">A running record of our meetings and email updates, so nothing gets lost.</p>
           <div class="ax-comm">
             <div class="ax-comm-col email">
               <h2>{{ ic('mail') }} Email Summary</h2>
@@ -1439,7 +1440,7 @@
               <button class="ax-btn violet" type="button" id="ax-savenotify">Save settings</button>
               <span class="ax-savehint" id="ax-notifysaved" hidden>Saved ✓</span>
             </div>
-            <div class="ax-reassure">{{ ic('check') }}<span>With emails off, everything still appears here in the workspace — you just won't get an email about it.</span></div>
+            <div class="ax-reassure">{{ ic('check') }}<span>With emails off, everything still appears here in the workspace. You just won't get an email about it.</span></div>
           </div>
         </section>
 
@@ -1618,7 +1619,7 @@
         return data;
       })
       .catch(function () {
-        adminMsg("Could not save — please try again.", false);
+        adminMsg("Could not save. Please try again.", false);
         if (btn) { btn.removeAttribute("disabled"); }
       });
   }
@@ -1639,7 +1640,7 @@
         .then(function () { window.location.reload(); })
         .catch(function () {
           if (btn) { btn.removeAttribute("disabled"); }
-          if (hint) { hint.textContent = "Could not save — try again."; hint.style.color = "#E5413E"; hint.hidden = false; }
+          if (hint) { hint.textContent = "Could not save. Try again."; hint.style.color = "#E5413E"; hint.hidden = false; }
         });
     }
     if (approveBtn) { approveBtn.addEventListener("click", function () { decide("approve", approveBtn); }); }
@@ -1944,7 +1945,7 @@
           saveBtn.removeAttribute("disabled");
         })
         .catch(function () {
-          if (savedHint) { savedHint.textContent = "Could not save — try again."; savedHint.style.color = "#E5413E"; savedHint.hidden = false; }
+          if (savedHint) { savedHint.textContent = "Could not save. Try again."; savedHint.style.color = "#E5413E"; savedHint.hidden = false; }
           saveBtn.removeAttribute("disabled");
         });
     });
@@ -2058,7 +2059,7 @@
         btn.setAttribute("disabled", "disabled");
 
         function done() { window.location.reload(); }
-        function fail(msg) { adminMsg(msg || "Upload failed — try again.", false); btn.removeAttribute("disabled"); }
+        function fail(msg) { adminMsg(msg || "Upload failed. Try again.", false); btn.removeAttribute("disabled"); }
 
         // Small files upload through the app. Large files (videos) upload STRAIGHT to GCS via a
         // signed URL, bypassing Cloud Run's ~32 MB request cap.
@@ -2068,7 +2069,7 @@
           body.append("file", file);
           adminMsg("Uploading creative…", true);
           postData("/admin/upload-creative", body).then(done).catch(function () {
-            fail("Upload failed — use an image (≤8 MB) or a smaller video.");
+            fail("Upload failed. Use an image (≤8 MB) or a smaller video.");
           });
           return;
         }
@@ -2078,7 +2079,7 @@
         meta.append("content_id", id);
         meta.append("content_type", ctype);
         postData("/admin/creative-upload-url", meta).then(function (d) {
-          if (!d || !d.ok || !d.url) { fail("Large uploads aren't available — try a smaller file."); return; }
+          if (!d || !d.ok || !d.url) { fail("Large uploads aren't available. Try a smaller file."); return; }
           var xhr = new XMLHttpRequest();
           xhr.open("PUT", d.url, true);
           xhr.setRequestHeader("Content-Type", ctype);
@@ -2094,15 +2095,15 @@
               c2.append("content_id", id);
               c2.append("content_type", ctype);
               postData("/admin/creative-confirm", c2).then(done).catch(function () {
-                fail("Uploaded, but could not be recorded — refresh and retry.");
+                fail("Uploaded, but could not be recorded. Refresh and retry.");
               });
             } else {
-              fail("Direct upload failed (" + xhr.status + ") — try again.");
+              fail("Direct upload failed (" + xhr.status + "). Try again.");
             }
           };
-          xhr.onerror = function () { fail("Direct upload failed — check your connection and retry."); };
+          xhr.onerror = function () { fail("Direct upload failed. Check your connection and retry."); };
           xhr.send(file);
-        }).catch(function () { fail("Could not start the large upload — try again."); });
+        }).catch(function () { fail("Could not start the large upload. Try again."); });
       });
     });
     qsa("[data-removecreative]").forEach(function (btn) {
@@ -2136,17 +2137,18 @@
         // Create the content first, then attach the chosen pictures to its new id before reloading.
         post("/admin/content", fields)
           .then(function (data) {
-            if (data && data.ok === false) { throw new Error("create failed"); }
-            var newId = (data && data.id) ? data.id : "";
+            var newId = data ? data.id : null;
             if (!hasPics || !newId) { window.location.reload(); return; }
-            var fd = new FormData();
-            fd.append("content_id", newId);
-            var i;
-            for (i = 0; i < picInput.files.length; i++) { fd.append("files", picInput.files[i]); }
-            return postData("/admin/add-images", fd).then(function () { window.location.reload(); });
+            uploadImages(newId, picInput.files)
+              .then(function () { window.location.reload(); })
+              .catch(function () {
+                // The content piece WAS created; only the picture(s) failed. Show it, with a note.
+                adminMsg("Content added, but the picture(s) failed. Open the new card to add them.", false);
+                window.setTimeout(function () { window.location.reload(); }, 2000);
+              });
           })
           .catch(function () {
-            adminMsg("Could not add the content — please try again.", false);
+            adminMsg("Could not add content. Please try again.", false);
             btn.removeAttribute("disabled");
           });
       });
@@ -2294,7 +2296,7 @@
       btn.setAttribute("disabled", "disabled");
       uploadImages(id, input.files)
         .then(function () { window.location.reload(); })
-        .catch(function () { btn.removeAttribute("disabled"); adminMsg("Upload failed — please try again.", false); });
+        .catch(function () { btn.removeAttribute("disabled"); adminMsg("Upload failed. Please try again.", false); });
     });
   });
 
