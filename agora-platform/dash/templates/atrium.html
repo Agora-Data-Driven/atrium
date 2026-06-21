@@ -336,6 +336,34 @@
     .ax-lightbox-nav.prev { left: 24px; } .ax-lightbox-nav.next { right: 24px; }
     .ax-lightbox-close { position: absolute; top: 20px; right: 24px; width: 42px; height: 42px; border-radius: 50%; border: 0; background: rgba(255,255,255,.14); color: #fff; font-size: 24px; cursor: pointer; }
     .ax-lightbox-count { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); color: #fff; font-size: 13px; font-family: ui-monospace, Menlo, Consolas, monospace; background: rgba(255,255,255,.12); padding: 5px 13px; border-radius: 999px; }
+    /* Organic content: collapsible dropdown card (brand-kit themed) */
+    .ax-content.ax-collapse { display: block; padding: 0; overflow: hidden; }
+    .ax-cardhead { display: grid; grid-template-columns: 96px 1fr auto; gap: 14px; align-items: center; width: 100%; text-align: left; background: none; border: 0; cursor: pointer; padding: 14px 16px; font: inherit; color: inherit; }
+    .ax-cardhead:hover { background: var(--ax-canvas); }
+    .ax-ch-thumb { height: 64px; border-radius: 10px; background-size: cover; background-position: center; display: grid; place-items: center; overflow: hidden; color: #fff; }
+    .ax-ch-thumb.organic { background-color: #347A30; background-image: linear-gradient(140deg, #5FBE57, #347A30); }
+    .ax-ch-k { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; }
+    .ax-ch-main { min-width: 0; }
+    .ax-ch-meta { display: block; font-size: 12px; font-weight: 700; font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--ax-violet-d); margin-bottom: 4px; }
+    .ax-ch-cap { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13.5px; color: #3a4050; line-height: 1.4; }
+    .ax-ch-right { display: flex; align-items: center; gap: 10px; }
+    .ax-chev { color: #aab0bd; font-size: 13px; transition: transform .2s ease; }
+    .ax-collapse.is-open .ax-chev { transform: rotate(180deg); }
+    .ax-collapse .ax-detail { display: none; }
+    .ax-collapse.is-open .ax-detail { display: grid; grid-template-columns: 280px 1fr; gap: 16px; padding: 16px; border-top: 1px solid var(--ax-line); }
+    @media (max-width: 720px) { .ax-collapse.is-open .ax-detail { grid-template-columns: 1fr; } }
+    /* Organic content: picture carousel (one at a time) */
+    .ax-carousel { position: relative; width: 100%; border-radius: 10px; overflow: hidden; background: #11131a; }
+    .ax-car-track { display: flex; transition: transform .3s ease; }
+    .ax-car-slide { min-width: 100%; width: 100%; position: relative; }
+    .ax-car-slide .ax-shot-media { width: 100%; height: 240px; object-fit: cover; display: block; cursor: zoom-in; }
+    .ax-car-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border-radius: 50%; border: 0; background: rgba(17,19,26,.55); color: #fff; font-size: 20px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+    .ax-car-nav:hover { background: rgba(17,19,26,.85); }
+    .ax-car-nav.prev { left: 8px; } .ax-car-nav.next { right: 8px; }
+    .ax-car-count { position: absolute; bottom: 8px; right: 10px; background: rgba(17,19,26,.6); color: #fff; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+    .ax-car-dots { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 5px; }
+    .ax-car-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.45); cursor: pointer; }
+    .ax-car-dot.active { background: #fff; }
     .ax-content-main { min-width: 0; }
     .ax-tagrow { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-bottom: 8px; }
     .ax-ref { font-size: 12px; color: var(--ax-sub); margin-bottom: 8px; font-family: ui-monospace, Menlo, Consolas, monospace; }
@@ -937,13 +965,49 @@
             </div>
 
             {% for p in c.content %}
-            <div class="ax-card ax-content" data-content="{{ p.id }}" data-status="{{ p.status }}">
-              {% set _shots = [] %}
-              {% if p.images %}{% for im in p.images %}{% set _ = _shots.append({'url': '/w/' ~ view.client ~ '/creative/' ~ p.id ~ '/' ~ im.id, 'mime': im.mime|default('', true), 'id': im.id}) %}{% endfor %}
-              {% elif p.image_object %}{% set _ = _shots.append({'url': '/w/' ~ view.client ~ '/creative/' ~ p.id, 'mime': p.image_mime|default('', true), 'id': ''}) %}
-              {% elif p.image %}{% set _ = _shots.append({'url': p.image, 'mime': '', 'id': ''}) %}{% endif %}
+            {% set _shots = [] %}
+            {% if p.images %}{% for im in p.images %}{% set _ = _shots.append({'url': '/w/' ~ view.client ~ '/creative/' ~ p.id ~ '/' ~ im.id, 'mime': im.mime|default('', true), 'id': im.id}) %}{% endfor %}
+            {% elif p.image_object %}{% set _ = _shots.append({'url': '/w/' ~ view.client ~ '/creative/' ~ p.id, 'mime': p.image_mime|default('', true), 'id': ''}) %}
+            {% elif p.image %}{% set _ = _shots.append({'url': p.image, 'mime': '', 'id': ''}) %}{% endif %}
+            {% set is_org = chan == 'organic' %}
+            <div class="ax-card ax-content{% if is_org %} ax-collapse{% endif %}" data-content="{{ p.id }}" data-status="{{ p.status }}">
+              {% if is_org %}
+              <button class="ax-cardhead" type="button" data-cardtoggle aria-expanded="false">
+                <span class="ax-ch-thumb {{ chan }}"{% if _shots and not _shots[0].mime.startswith('video/') %} style="background-image:url('{{ _shots[0].url }}')"{% endif %}>
+                  {% if not (_shots and not _shots[0].mime.startswith('video/')) %}<span class="ax-ch-k">{{ p.type_tag or 'Post' }}</span>{% endif %}
+                </span>
+                <span class="ax-ch-main">
+                  <span class="ax-ch-meta">{{ p.ref }} &middot; {{ p.decided_at|atrium_dt if p.decided_at else 'Drafted for review' }}</span>
+                  <span class="ax-ch-cap">{{ p.caption }}</span>
+                </span>
+                <span class="ax-ch-right">
+                  <span class="ax-status {{ p.status }}">{{ 'Changes requested' if p.status=='changes' else p.status }}</span>
+                  <span class="ax-chev" aria-hidden="true">&#9662;</span>
+                </span>
+              </button>
+              <div class="ax-detail">
+              {% endif %}
               <div class="ax-thumb {{ chan }}{{ ' has-shots' if _shots else '' }}" data-shots>
-                {% if _shots %}
+                {% if _shots and is_org %}
+                <div class="ax-carousel" data-carousel>
+                  <div class="ax-car-track" data-cartrack>
+                    {% for s in _shots %}
+                    <div class="ax-car-slide">
+                      {% if s.mime.startswith('video/') %}<video src="{{ s.url }}" class="ax-shot-media" controls preload="metadata"></video>{% else %}<img class="ax-shot-media" data-shot data-shot-src="{{ s.url }}" src="{{ s.url }}" alt="{{ p.ref }} — picture {{ loop.index }}">{% endif %}
+                      {% if is_superadmin and s.id %}<button class="ax-shot-x" type="button" data-removeimg="{{ p.id }}" data-imgid="{{ s.id }}" title="Remove this picture">&times;</button>{% endif %}
+                    </div>
+                    {% endfor %}
+                  </div>
+                  {% if _shots|length > 1 %}
+                  <button class="ax-car-nav prev" type="button" data-carprev aria-label="Previous picture">&lsaquo;</button>
+                  <button class="ax-car-nav next" type="button" data-carnext aria-label="Next picture">&rsaquo;</button>
+                  <div class="ax-car-count" data-carcount>1 / {{ _shots|length }}</div>
+                  <div class="ax-car-dots" data-cardots>
+                    {% for s in _shots %}<span class="ax-car-dot{% if loop.first %} active{% endif %}" data-cardot="{{ loop.index0 }}"></span>{% endfor %}
+                  </div>
+                  {% endif %}
+                </div>
+                {% elif _shots %}
                 <div class="ax-shots{{ ' multi' if _shots|length > 1 else '' }}">
                   {% for s in _shots %}
                   <div class="ax-shot">
@@ -1036,6 +1100,7 @@
                 </div>
                 {% endif %}
               </div>
+              {% if is_org %}</div>{% endif %}
             </div>
             {% endfor %}
 
@@ -1496,6 +1561,38 @@
           .catch(function () {});
       });
     }
+  });
+
+  // ---- Organic content: collapsible dropdown cards ------------------------
+  qsa("[data-cardtoggle]").forEach(function (head) {
+    head.addEventListener("click", function () {
+      var card = head.closest(".ax-collapse");
+      if (!card) { return; }
+      var open = card.classList.toggle("is-open");
+      head.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  });
+
+  // ---- Organic content: picture carousel (prev/next + dots) ---------------
+  qsa("[data-carousel]").forEach(function (car) {
+    var track = car.querySelector("[data-cartrack]");
+    var slides = qsa(".ax-car-slide", car);
+    var n = slides.length;
+    if (!track || n <= 1) { return; }
+    var count = car.querySelector("[data-carcount]");
+    var dots = qsa("[data-cardot]", car);
+    var cur = 0;
+    function render() {
+      track.style.transform = "translateX(-" + (cur * 100) + "%)";
+      if (count) { count.textContent = (cur + 1) + " / " + n; }
+      dots.forEach(function (d, i) { d.classList.toggle("active", i === cur); });
+    }
+    var prev = car.querySelector("[data-carprev]");
+    var next = car.querySelector("[data-carnext]");
+    if (prev) { prev.addEventListener("click", function () { cur = (cur - 1 + n) % n; render(); }); }
+    if (next) { next.addEventListener("click", function () { cur = (cur + 1) % n; render(); }); }
+    dots.forEach(function (d, i) { d.addEventListener("click", function () { cur = i; render(); }); });
+    render();
   });
 
   // ---- Content status filter chips ----------------------------------------
