@@ -210,9 +210,18 @@ with `--no-invoker-iam-check` and do their own password/SSO auth in-process.
 Multiple developers (each with their own Claude Code) work in parallel. To keep merges clean, follow
 **`docs/dev-workflow.md`**: each machine pushes to its own branch with `tools/push-branch.ps1`, opens a
 PR (CI runs the gates in `.github/workflows/ci.yml` — esprima JS gate, `py_compile`, the off-cloud
-Atrium tests), and only green PRs merge to `main`. `tools/merge-branches.ps1` automates the safe path
-(fetch → integration branch → run CI tests → stop for a human on any conflict; never auto-deletes a
-branch until its work is verified-merged). Branch protection on `main` makes the CI check required.
+Atrium tests), and only green PRs merge to `main`.
+
+**The release SOP is agent-driven:** a developer drops `tools/merge-branches.ps1` into Claude Code and
+asks it to merge + deploy. The script runs the whole pipeline to live — fetch → `integration/merge`
+off `origin/main` → run the CI tests → **land on `main`** → **auto-detect which services changed and
+deploy each** (the path → deploy-script mapping lives in the script's `Resolve-DeployPlan`) → prune the
+merged branches. It STOPS only where judgment is needed — a real merge conflict or a red test — and
+hands off to the agent (see the AGENT RUNBOOK header in the script); the agent resolves it and re-runs.
+`-DryRun` previews the land+deploy plan without changing anything; `-NoPush`/`-NoDeploy` recover the
+review-first behavior; `-DeleteMerged` is the standalone prune. **Note:** enabling GitHub branch
+protection on `main` (PR-required, per `docs/dev-workflow.md` step 5) would block this direct-to-main
+land — keep protection off, or run with `-NoPush` and merge via PR, if you turn it on.
 
 ## Freshness contract (binding)
 
