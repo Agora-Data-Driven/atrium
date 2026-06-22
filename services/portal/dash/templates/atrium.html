@@ -2885,22 +2885,24 @@
       btn.setAttribute("disabled", "disabled");
       function done() { window.location.reload(); }
       function fail(msg) { adminMsg(msg || "Upload failed. Try again.", false); btn.removeAttribute("disabled"); input.value = ""; }
-      // Small files upload through the app; large ones (up to ~1 GB) go STRAIGHT to GCS via a signed
-      // URL, bypassing Cloud Run's ~32 MB request cap. Stored as the piece's creative (renders inline).
-      if (file.size <= DIRECT_MAX) {
+      // The in-app upload path: used for small files, AND as the fallback when no signed URL is
+      // available (e.g. local dev, which has no GCS to sign for — the in-app route accepts large
+      // files off-cloud). Stored as the piece's creative (renders inline).
+      function inApp() {
         var body = new FormData();
         body.append("content_id", id);
         body.append("file", file);
         adminMsg("Uploading video…", true);
         postData("/admin/upload-creative", body).then(done).catch(function () { fail("Upload failed. Try a smaller file or paste a link."); });
-        return;
       }
+      // Large files go STRAIGHT to GCS via a signed URL, bypassing Cloud Run's ~32 MB request cap.
+      if (file.size <= DIRECT_MAX) { inApp(); return; }
       adminMsg("Preparing large upload…", true);
       var meta = new FormData();
       meta.append("content_id", id);
       meta.append("content_type", ctype);
       postData("/admin/creative-upload-url", meta).then(function (d) {
-        if (!d || !d.ok || !d.url) { fail("Large uploads aren't enabled yet — paste a link instead, or an operator can run enable_atrium_uploads.ps1."); return; }
+        if (!d || !d.ok || !d.url) { inApp(); return; }   // no signing (local dev) -> in-app upload
         var xhr = new XMLHttpRequest();
         xhr.open("PUT", d.url, true);
         xhr.setRequestHeader("Content-Type", ctype);
@@ -2918,7 +2920,7 @@
         };
         xhr.onerror = function () { fail("Direct upload failed. Check your connection and retry."); };
         xhr.send(file);
-      }).catch(function () { fail("Could not start the large upload. Try again."); });
+      }).catch(function () { inApp(); });
     });
   });
 

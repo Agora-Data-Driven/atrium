@@ -231,6 +231,15 @@ def run():
     _camp, litem = workspace._find_content(workspace.load_workspace(CLIENT), "RVR-099")
     _check("video-link clear ok", r.status_code == 200 and litem.get("video_url") == "")
 
+    # Local backend: an in-app .mp4 upload OVER the 30 MB cloud cap is accepted (no Cloud Run cap
+    # off-cloud), so the same Upload-.mp4 button works locally for big files via the in-app fallback.
+    big = b"\x00" * (32 * 1024 * 1024)   # 32 MB > the 30 MB in-app cloud cap
+    r = c.post("/w/%s/admin/upload-creative" % CLIENT,
+               data={"content_id": "RVR-099", "file": (io.BytesIO(big), "big.mp4", "video/mp4")},
+               content_type="multipart/form-data")
+    _check("local backend accepts a >30 MB in-app .mp4", r.status_code == 200 and r.get_json().get("ok") is True)
+    c.post("/w/%s/admin/remove-creative" % CLIENT, data={"content_id": "RVR-099"})
+
     # Reject a non-media upload (neither image nor video).
     r = c.post("/w/%s/admin/upload-creative" % CLIENT,
                data={"content_id": "RVR-099", "file": (io.BytesIO(b"x"), "a.txt", "text/plain")},
