@@ -276,6 +276,50 @@ def login():
     return resp
 
 
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    """Self-service client sign-up -> creates a PENDING account an admin then approves.
+
+    A visitor enters their company name, email, and a password; we record a `pending` client account
+    in the registry (no client/workspace is created yet). They cannot log in until an admin approves
+    the request from the team console (which creates the client + a blank workspace and activates the
+    account). This keeps sign-up self-service for clients while the admin stays in control of access.
+    """
+    if request.method == "GET":
+        return render_template("signup.html", error=None, sent=False, **_brand_ctx())
+
+    company = request.form.get("company", "").strip()
+    email = request.form.get("email", "").strip()
+    password = request.form.get("password", "")
+    # Friendly, specific validation (the design guidance: clear messages, email not username, no
+    # confirm field -- the form offers a show-password toggle instead).
+    domain = email.split("@")[-1] if "@" in email else ""
+    if not company:
+        error = "Please enter your company name."
+    elif "@" not in email or "." not in domain:
+        error = "Please enter a valid email address."
+    elif len(password) < 6:
+        error = "Please choose a password of at least 6 characters."
+    elif store.get_account(email) is not None:
+        error = "An account or pending request already exists for that email."
+    else:
+        error = None
+    if error:
+        return render_template("signup.html", error=error, sent=False,
+                               company=company, email=email, **_brand_ctx()), 400
+
+    store.add_account(email, password, name=company, role="client", clients=[],
+                      status="pending", requested_name=company)
+    # Let the team know a request is waiting (graceful: notify falls back to a stdout log if email
+    # isn't configured, and never raises in a way that would fail the sign-up).
+    try:
+        notify.signup_requested(company, email)
+    except Exception:
+        pass
+    return render_template("signup.html", error=None, sent=True,
+                           company=company, email=email, **_brand_ctx())
+
+
 @app.route("/logout", methods=["GET"])
 def logout():
     session.clear()
@@ -1503,7 +1547,8 @@ def admin_atrium():
         logo = (ws.get("brand", {}).get("client_logo") if ws else None) or brand.monogram(name or key)
         clients.append({"key": key, "name": name,
                         "has_workspace": ws is not None, "logo": logo})
-    return render_template("admin_atrium.html", clients=clients,
+    pending = [a for a in store.list_accounts() if a.get("status") == "pending"]
+    return render_template("admin_atrium.html", clients=clients, pending=pending,
                            user=current_user(), workspace_name=WORKSPACE_NAME,
                            msg=request.args.get("msg"), **_brand_ctx())
 
@@ -1549,6 +1594,54 @@ def admin_atrium_new():
     import onboard_client  # lazy: reuses brand_for() + starter_workspace()
     onboard_client.onboard(key, name or None)
     return redirect(url_for("atrium", client=key))
+
+
+def _unique_client_key(base):
+    """Derive a client key from `base` (a company name) that no existing client/workspace uses.
+
+    Slugifies, then appends -2, -3, ... until free, so approving two sign-ups with the same company
+    name never collides on a key (or silently re-points at an existing client)."""
+    root = _slugify_key(base) or "client"
+    key = root
+    n = 2
+    while store.get_client(key) is not None or workspace.workspace_exists(key):
+        key = "%s-%d" % (root, n)
+        n += 1
+    return key
+
+
+@app.route("/admin/accounts/approve", methods=["POST"])
+def admin_account_approve():
+    """Approve a pending sign-up: create the client + a blank workspace, then activate the account.
+
+    After this the client can log in with the email + password they chose at sign-up (verify_portal_login
+    matches the now-`active` account and returns its single client key)."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    email = request.form.get("email", "").strip()
+    account = store.get_account(email)
+    if account is None or account.get("status") != "pending":
+        return _atrium_redirect_list("No pending request found for that email.")
+    company = account.get("requested_name") or account.get("name") or email.split("@")[0]
+    key = _unique_client_key(company)
+    import onboard_client  # lazy: reuses brand_for() + starter_workspace()
+    onboard_client.onboard(key, company)            # creates the client + a blank Atrium workspace
+    store.set_account_clients(email, [key])
+    store.set_account_status(email, "active")
+    return _atrium_redirect_list("Approved %s -- created client '%s' and activated their login." %
+                                 (email, key))
+
+
+@app.route("/admin/accounts/reject", methods=["POST"])
+def admin_account_reject():
+    """Reject (delete) a pending sign-up request. No client is created."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    email = request.form.get("email", "").strip()
+    removed = store.remove_account(email)
+    if not removed:
+        return _atrium_redirect_list("No request to reject for that email.")
+    return _atrium_redirect_list("Rejected and removed the access request for %s." % email)
 
 
 @app.route("/admin/atrium/<client>/logo", methods=["POST"])
