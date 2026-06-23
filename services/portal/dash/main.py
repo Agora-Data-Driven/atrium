@@ -579,6 +579,18 @@ def _atrium_dt(iso):
     return "%s %d, %d:%02d %s" % (dt.strftime("%b"), dt.day, hour12, dt.minute, ampm)
 
 
+@app.template_filter("atrium_date")
+def _atrium_date(iso):
+    """Format a stored ISO-8601 date/timestamp as a date only: 'Jun 7, 2026' (no time)."""
+    if not iso:
+        return ""
+    try:
+        dt = datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return iso
+    return "%s %d, %d" % (dt.strftime("%b"), dt.day, dt.year)
+
+
 def _atrium_json_gate(client):
     """Shared gate for Atrium POST actions: returns a JSON error Response, or None when allowed."""
     if not authed():
@@ -1390,13 +1402,16 @@ def atrium_admin_communication(client):
         workspace.delete_communication(client, kind, request.form.get("item_id", "").strip())
         return jsonify(ok=True)
     if op == "add":
+        date = (request.form.get("date", "") or "").strip() or None
         if kind == "email":
             item = workspace.add_email_summary(client, request.form.get("subject", "").strip(),
-                                               request.form.get("summary", "").strip())
+                                               request.form.get("summary", "").strip(),
+                                               date=date)
         else:
             item = workspace.add_meeting_summary(client, request.form.get("title", "").strip(),
                                                  request.form.get("summary", "").strip(),
-                                                 request.form.get("attendees", "").strip())
+                                                 request.form.get("attendees", "").strip(),
+                                                 date=date)
         return jsonify(ok=True, id=item.get("id"))
     if op == "edit":
         fields = {}
