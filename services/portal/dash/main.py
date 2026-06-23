@@ -610,6 +610,18 @@ def _atrium_dt(iso):
     return "%s %d, %d:%02d %s" % (dt.strftime("%b"), dt.day, hour12, dt.minute, ampm)
 
 
+@app.template_filter("atrium_date")
+def _atrium_date(iso):
+    """Format a stored ISO-8601 date/timestamp as a date only: 'Jun 7, 2026' (no time)."""
+    if not iso:
+        return ""
+    try:
+        dt = datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return iso
+    return "%s %d, %d" % (dt.strftime("%b"), dt.day, dt.year)
+
+
 def _atrium_json_gate(client):
     """Shared gate for Atrium POST actions: returns a JSON error Response, or None when allowed."""
     if not authed():
@@ -867,6 +879,7 @@ def atrium_creative(client, content_id):
 ATRIUM_UPLOAD_MAX_BYTES = 8 * 1024 * 1024    # images: reject larger than 8 MB
 ATRIUM_VIDEO_MAX_BYTES = 30 * 1024 * 1024    # videos: kept under Cloud Run's ~32 MiB request cap
 ATRIUM_VIDEO_MAX_BYTES_LOCAL = 1024 * 1024 * 1024  # local dev (no Cloud Run cap): in-app accepts up to 1 GB
+ATRIUM_FILE_MAX_BYTES = 30 * 1024 * 1024     # any other attachment (pdf, doc, zip…): under Cloud Run's ~32 MiB cap
 # A client LOGO is inlined into the workspace JSON (brand.client_logo), which is rewritten in full on
 # every edit -- so keep it tiny. Seeded logos sit around ~70 KB; 512 KB is a generous ceiling.
 LOGO_MAX_BYTES = 512 * 1024
@@ -1256,8 +1269,13 @@ def atrium_creative_image(client, content_id, image_id):
     data = workspace.read_content_image_bytes(client, content_id, image_id)
     if data is None:
         return Response("Not found", status=404, mimetype="text/plain")
-    resp = Response(data, mimetype=img.get("mime") or "application/octet-stream")
+    mime = img.get("mime") or "application/octet-stream"
+    resp = Response(data, mimetype=mime)
     resp.headers["Cache-Control"] = "private, max-age=300"
+    # Non-media files (pdf, doc, zip…) download with their original name instead of rendering inline.
+    if not (mime.startswith("image/") or mime.startswith("video/")):
+        safe = (img.get("name") or ("file-" + image_id)).replace('"', "").replace("\r", "").replace("\n", "")
+        resp.headers["Content-Disposition"] = 'attachment; filename="%s"' % safe
     return resp
 
 
@@ -1280,16 +1298,22 @@ def atrium_admin_add_images(client):
         if not upload or not upload.filename:
             continue
         mime = (upload.mimetype or "").lower()
-        if mime not in _ATRIUM_MEDIA_EXT:
-            continue
-        max_bytes = ATRIUM_VIDEO_MAX_BYTES if mime in _ATRIUM_VIDEO_EXT else ATRIUM_UPLOAD_MAX_BYTES
+        # Any file type is accepted: images/video render inline, everything else as a download chip.
+        # Size cap depends on kind (images are inlined small; videos/other files share the request cap).
+        if mime in _ATRIUM_IMAGE_EXT:
+            max_bytes = ATRIUM_UPLOAD_MAX_BYTES
+        elif mime in _ATRIUM_VIDEO_EXT:
+            max_bytes = ATRIUM_VIDEO_MAX_BYTES
+        else:
+            max_bytes = ATRIUM_FILE_MAX_BYTES
         data = upload.read(max_bytes + 1)
         if len(data) > max_bytes:
             continue
+        name = os.path.basename(upload.filename or "")
         image_id = workspace._new_id("img")
-        workspace.add_content_image(client, content_id, image_id, data, mime)
+        workspace.add_content_image(client, content_id, image_id, data, mime, name=name)
         added.append({
-            "id": image_id, "mime": mime,
+            "id": image_id, "mime": mime, "name": name,
             "url": url_for("atrium_creative_image", client=client, content_id=content_id, image_id=image_id),
         })
     if not added:
@@ -1407,13 +1431,16 @@ def atrium_admin_communication(client):
         workspace.delete_communication(client, kind, request.form.get("item_id", "").strip())
         return jsonify(ok=True)
     if op == "add":
+        date = (request.form.get("date", "") or "").strip() or None
         if kind == "email":
             item = workspace.add_email_summary(client, request.form.get("subject", "").strip(),
-                                               request.form.get("summary", "").strip())
+                                               request.form.get("summary", "").strip(),
+                                               date=date)
         else:
             item = workspace.add_meeting_summary(client, request.form.get("title", "").strip(),
                                                  request.form.get("summary", "").strip(),
-                                                 request.form.get("attendees", "").strip())
+                                                 request.form.get("attendees", "").strip(),
+                                                 date=date)
         return jsonify(ok=True, id=item.get("id"))
     if op == "edit":
         fields = {}
