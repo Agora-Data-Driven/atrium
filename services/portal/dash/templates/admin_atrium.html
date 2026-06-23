@@ -13,6 +13,7 @@
       --ag-ink:#1A1B1E; --ag-charcoal:#353535; --ag-muted:#6B7280; --ag-line:#E7E8EE;
       --ag-canvas:#F6F7F9; --ag-white:#fff; --ag-danger:#E5413E;
       --ag-shadow:0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.06);
+      --side-w: 260px;
     }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -22,62 +23,82 @@
         radial-gradient(760px 460px at 104% 4%, rgba(148,132,251,0.09), transparent 56%),
         var(--ag-canvas);
       min-height: 100vh; -webkit-font-smoothing: antialiased; }
-    header.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px;
-      padding: 14px 28px; border-bottom: 1px solid var(--ag-line); background: rgba(255,255,255,0.72);
-      backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 20; }
-    .brand { display: flex; align-items: center; gap: 12px; }
-    .brand svg { display: block; height: 30px; width: auto; }
-    /* Brand badge: the same green→purple gradient lockup used in the client workspace (.ax-badge). */
-    .brand .brand-sub { font-size: 11px; font-weight: 800; color: #fff;
+    a { color: var(--ag-purple-d); }
+
+    /* ---- Layout: fixed left side panel + scrolling content ---- */
+    .layout { display: flex; min-height: 100vh; }
+    .side { width: var(--side-w); flex: 0 0 var(--side-w); background: var(--ag-white);
+      border-right: 1px solid var(--ag-line); display: flex; flex-direction: column;
+      position: sticky; top: 0; height: 100vh; }
+    .side .side-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+      padding: 22px 20px 16px; border-bottom: 1px solid var(--ag-line); }
+    .side .side-brand svg { display: block; height: 28px; width: auto; }
+    .brand-sub { font-size: 11px; font-weight: 800; color: #fff;
       background: linear-gradient(120deg, #4FAB4A 0%, #4FAB4A 42%, #7E6CF6 100%);
-      padding: 3px 11px; border-radius: 999px;
-      text-transform: uppercase; letter-spacing: .8px; box-shadow: 0 4px 12px rgba(92,75,208,.28); }
-    .nav { display: flex; align-items: center; gap: 10px; }
-    .who { color: var(--ag-muted); font-size: 13px; }
+      padding: 3px 11px; border-radius: 999px; text-transform: uppercase; letter-spacing: .8px;
+      box-shadow: 0 4px 12px rgba(92,75,208,.28); }
+    .side-nav { padding: 14px 12px; display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; overflow-y: auto; }
+    .nav-item { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; cursor: pointer;
+      border: 0; background: transparent; color: var(--ag-charcoal); font: inherit; font-size: 14px; font-weight: 600;
+      padding: 11px 12px; border-radius: 11px; transition: background .12s, color .12s; }
+    .nav-item:hover { background: var(--ag-canvas); color: var(--ag-ink); }
+    .nav-item.is-active { background: var(--ag-green-bg); color: var(--ag-green-d); }
+    .nav-item .ic { width: 18px; height: 18px; flex: 0 0 auto; }
+    .nav-item .count { margin-left: auto; font-size: 11px; font-weight: 800; color: #fff;
+      background: var(--ag-purple-d); border-radius: 999px; padding: 1px 8px; min-width: 20px; text-align: center; }
+    .side-foot { border-top: 1px solid var(--ag-line); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+    .side-foot .who { font-size: 12px; color: var(--ag-muted); word-break: break-word; }
+    .side-foot .who b { color: var(--ag-ink); font-weight: 700; }
     .pill { display: inline-block; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--ag-line);
       color: var(--ag-charcoal); text-decoration: none; font-size: 13px; font-weight: 600; background: var(--ag-white);
-      transition: border-color .12s, color .12s; }
-    .pill:hover { border-color: var(--ag-green); color: var(--ag-ink); }
+      text-align: center; transition: border-color .12s, color .12s; }
     .pill.logout { color: var(--ag-danger); }
     .pill.logout:hover { border-color: rgba(229,65,62,0.4); }
-    main { max-width: 1000px; margin: 0 auto; padding: 28px; }
-    a { color: var(--ag-purple-d); }
-    /* Welcome banner: makes it unmistakable this page IS the team admin portal. */
+
+    .content { flex: 1 1 auto; min-width: 0; padding: 28px 32px 60px; max-width: 1100px; }
+    .pane { display: none; }
+    .pane.is-active { display: block; animation: fade .16s ease; }
+    @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    h1.page { font-size: 22px; font-weight: 900; letter-spacing: -0.3px; margin: 0 0 4px; }
+    p.lead { color: var(--ag-muted); font-size: 14px; margin: 0 0 20px; max-width: 680px; line-height: 1.5; }
+
+    .flash { background: var(--ag-green-bg); border: 1px solid #CDE9CC; color: var(--ag-green-d);
+      border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; font-size: 13.5px; font-weight: 600;
+      word-break: break-word; }
     .welcome { background: linear-gradient(120deg, #fff 0%, #F6FBF5 58%, #F3F1FE 100%);
-      border: 1px solid var(--ag-line); border-radius: 18px; padding: 26px 28px; margin: 6px 0 8px;
-      box-shadow: var(--ag-shadow); }
+      border: 1px solid var(--ag-line); border-radius: 18px; padding: 24px 26px; margin: 0 0 22px; box-shadow: var(--ag-shadow); }
     .welcome h1 { margin: 0 0 8px; font-size: 24px; font-weight: 900; letter-spacing: -0.3px; }
     .welcome p { margin: 0; color: var(--ag-muted); font-size: 14px; max-width: 640px; line-height: 1.5; }
     h2.section { font-size: 12px; color: var(--ag-muted); text-transform: uppercase; letter-spacing: 0.9px;
-      font-weight: 700; margin: 28px 0 14px; }
+      font-weight: 700; margin: 26px 0 12px; }
     .panel { background: var(--ag-white); border: 1px solid var(--ag-line); border-radius: 14px; padding: 18px;
       margin-bottom: 16px; box-shadow: var(--ag-shadow); }
     .panel h3 { margin: 0 0 12px; font-size: 15px; font-weight: 800; }
     .panel .meta { color: var(--ag-muted); font-size: 12px; margin: 0 0 12px; }
-    .flash { background: var(--ag-green-bg); border: 1px solid #CDE9CC; color: var(--ag-green-d);
-      border-radius: 10px; padding: 10px 14px; margin-bottom: 18px; font-size: 13px; font-weight: 600; }
+    .empty { color: var(--ag-muted); font-size: 13.5px; padding: 6px 2px; }
+
     label { display: block; font-size: 11px; color: var(--ag-muted); margin: 10px 0 4px;
       text-transform: uppercase; letter-spacing: .5px; font-weight: 700; }
-    input[type=text], textarea, select { width: 100%; padding: 10px 12px; background: var(--ag-white);
-      color: var(--ag-ink); border: 1px solid var(--ag-line); border-radius: 10px; font: inherit; font-size: 13px;
-      outline: none; transition: border-color .12s, box-shadow .12s; }
-    input[type=text]:focus, textarea:focus, select:focus { border-color: var(--ag-green); box-shadow: 0 0 0 3px rgba(79,171,74,.14); }
-    textarea { min-height: 64px; resize: vertical; }
+    input[type=text], input[type=email], input[type=password], textarea, select {
+      width: 100%; padding: 10px 12px; background: var(--ag-white); color: var(--ag-ink);
+      border: 1px solid var(--ag-line); border-radius: 10px; font: inherit; font-size: 13px; outline: none;
+      transition: border-color .12s, box-shadow .12s; }
+    input:focus, textarea:focus, select:focus { border-color: var(--ag-green); box-shadow: 0 0 0 3px rgba(79,171,74,.14); }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
     .btn { margin-top: 12px; padding: 10px 16px; border: 0; border-radius: 10px; font-size: 13px; font-weight: 700;
       cursor: pointer; background: var(--ag-green); color: #fff; box-shadow: 0 6px 14px rgba(79,171,74,.22); }
-    .btn.green { background: var(--ag-green); color: #fff; }
     .btn.violet { background: var(--ag-purple-d); color: #fff; box-shadow: 0 6px 14px rgba(92,75,208,.22); }
+    .btn.small { margin-top: 0; padding: 8px 13px; }
     .btn:hover { filter: brightness(1.05); }
-    .chk { display: inline-flex; align-items: center; gap: 7px; color: var(--ag-charcoal); font-size: 13px; margin-top: 10px; }
-    .chk input { width: auto; }
-    .tag { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
-    .tag.paid { background: var(--ag-purple-bg); color: var(--ag-purple-d); }
-    .tag.organic { background: var(--ag-green-bg); color: var(--ag-green-d); }
+    .btn-ghost { margin: 0; padding: 8px 13px; border: 1px solid var(--ag-line); border-radius: 10px;
+      background: var(--ag-white); color: var(--ag-charcoal); font-size: 13px; font-weight: 700; cursor: pointer; }
+    .btn-ghost:hover { border-color: var(--ag-purple); color: var(--ag-purple-d); }
+    .btn-ghost-danger { margin: 0; padding: 8px 13px; border: 1px solid var(--ag-line); border-radius: 10px;
+      background: var(--ag-white); color: var(--ag-danger); font-size: 13px; font-weight: 700; cursor: pointer; }
+    .btn-ghost-danger:hover { border-color: rgba(229,65,62,0.4); background: rgba(229,65,62,0.06); }
+
+    /* Client workspace cards (unchanged markers: .card .name + href="/w/<key>/"). */
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-    /* A client card: a clickable body on the LEFT (name + status) and a logo column on the RIGHT
-       (the logo itself + an "Upload logo" affordance). A faint delete control sits top-right. */
     .card { position: relative; display: flex; align-items: center; gap: 14px; background: var(--ag-white);
       border: 1px solid var(--ag-line); border-radius: 14px; padding: 18px; box-shadow: var(--ag-shadow);
       transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
@@ -85,7 +106,6 @@
     .card .card-main { flex: 1 1 auto; min-width: 0; text-decoration: none; color: var(--ag-ink); padding-right: 18px; }
     .card .name { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .card .st { font-size: 12px; color: var(--ag-muted); margin-top: 6px; }
-    /* Logo column on the right. */
     .card .card-side { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 8px; width: 76px; }
     .card .card-logo { width: 76px; height: 56px; display: flex; align-items: center; justify-content: center;
       border: 1px solid var(--ag-line); border-radius: 10px; background: var(--ag-canvas); overflow: hidden; padding: 6px; }
@@ -95,178 +115,361 @@
       border: 1px solid var(--ag-line); border-radius: 999px; padding: 4px 10px; background: var(--ag-white);
       transition: border-color .12s, background .12s; }
     .card .mini-btn:hover { border-color: var(--ag-purple); background: var(--ag-purple-bg); }
-    /* Delete control: a quiet "x" in the top-right corner that reddens on hover (confirmed in JS). */
     .card .card-del { position: absolute; top: 8px; right: 10px; margin: 0; }
     .card .del-x { border: 0; background: transparent; cursor: pointer; color: #c2c7d0; font-size: 18px;
       line-height: 1; padding: 4px 6px; border-radius: 8px; transition: color .12s, background .12s; }
     .card .del-x:hover { color: var(--ag-danger); background: rgba(229,65,62,0.08); }
-    /* Access requests: one row per pending sign-up (details on the left, Approve/Reject on the right). */
-    .reqs .req { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid var(--ag-line); }
-    .reqs .req:first-of-type { border-top: 0; }
-    .reqs .req-main { flex: 1 1 auto; min-width: 0; }
-    .reqs .req-name { font-weight: 800; font-size: 14px; }
-    .reqs .req-sub { font-size: 12px; color: var(--ag-muted); margin-top: 3px; word-break: break-word; }
-    .reqs .req-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
-    .reqs .req-actions form { margin: 0; }
-    .btn.small { margin-top: 0; padding: 8px 14px; }
-    .btn-ghost-danger { margin: 0; padding: 8px 14px; border: 1px solid var(--ag-line); border-radius: 10px;
-      background: var(--ag-white); color: var(--ag-danger); font-size: 13px; font-weight: 700; cursor: pointer; }
-    .btn-ghost-danger:hover { border-color: rgba(229,65,62,0.4); background: rgba(229,65,62,0.06); }
-    .msglist { font-size: 12px; color: var(--ag-charcoal); border-left: 2px solid var(--ag-line); padding-left: 12px; margin: 0 0 12px; }
-    .divider { height: 1px; background: var(--ag-line); margin: 14px 0; border: 0; }
-    fieldset { border: 1px solid var(--ag-line); border-radius: 10px; padding: 12px 14px; margin: 0 0 12px; }
-    legend { font-size: 12px; color: var(--ag-muted); padding: 0 6px; font-weight: 700; }
-    /* Content calendar: read-only mirror of the client workspace calendar (prev / current / next). */
-    .cal-legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 0 0 14px; font-size: 12.5px; color: var(--ag-muted); }
-    .cal-legend .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: middle; }
-    .cal-stack { display: flex; flex-direction: column; gap: 14px; }
-    .cal-month { background: var(--ag-white); border: 1px solid var(--ag-line); border-radius: 14px; padding: 14px 16px 16px; box-shadow: var(--ag-shadow); }
-    .cal-month.is-current { border-color: #cdeccf; box-shadow: 0 0 0 1px var(--ag-green) inset, var(--ag-shadow); }
-    .cal-month.is-side { background: linear-gradient(180deg, #fff 0%, #FCFDFC 100%); }
-    .cal-mhead { display: flex; align-items: center; gap: 10px; margin: 0 2px 12px; }
-    .cal-mname { font-size: 15px; font-weight: 800; }
-    .cal-month.is-side .cal-mname { color: var(--ag-muted); }
-    .cal-now { font-size: 10px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; color: #fff;
-      background: linear-gradient(135deg, #57B852, #347A30); padding: 2px 9px; border-radius: 999px; }
-    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
-    .cal-dow { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--ag-muted); text-align: center; padding: 4px 0; }
-    .cal-cell { min-height: 76px; border: 1px solid var(--ag-line); border-radius: 10px; padding: 7px 8px; background: var(--ag-white); }
-    .cal-month.is-side .cal-cell { min-height: 58px; }
-    .cal-cell.out { background: var(--ag-canvas); color: #b7bcc7; }
-    .cal-cell.today { background: var(--ag-green-bg); border-color: var(--ag-green); box-shadow: 0 0 0 1px var(--ag-green) inset; }
-    .cal-cell.past { background: var(--ag-canvas); color: #aeb4c0; }
-    .cal-cell.pastempty { background: linear-gradient(165deg, #F3FAF2 0%, #E9F6E8 100%); border-color: #DCEEDB; color: #8AAE87; }
-    .cal-cell.done { background: var(--ag-green-bg); border-color: #cdeccf; }
-    .cal-cell.ahead { background: var(--ag-green-bg); border-color: var(--ag-green); box-shadow: 0 0 0 1px var(--ag-green) inset; }
-    .cal-day { font-size: 12px; font-weight: 700; margin-bottom: 5px; }
-    .cal-cell.past .cal-day { color: #98a0b0; }
-    .cal-cell.pastempty .cal-day { color: var(--ag-green-d); opacity: .75; }
-    .cal-check { color: var(--ag-green-d); font-weight: 900; }
-    .cal-ev { font-size: 11px; line-height: 1.35; display: flex; align-items: flex-start; gap: 5px; margin-bottom: 3px; }
-    .cal-ev .evd { width: 7px; height: 7px; border-radius: 50%; margin-top: 4px; flex: 0 0 auto; }
-    .cal-ev .evd.paid { background: var(--ag-purple); } .cal-ev .evd.organic { background: var(--ag-green); }
-    .cal-ev .evd.milestone { background: #98a0b0; } .cal-ev .evd.due { background: #F2820C; }
+
+    /* Access requests + account rows. */
+    .req, .acct { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid var(--ag-line); }
+    .req:first-of-type, .acct:first-of-type { border-top: 0; }
+    .req-main, .acct-main { flex: 1 1 auto; min-width: 0; }
+    .req-name, .acct-name { font-weight: 800; font-size: 14px; }
+    .req-sub, .acct-sub { font-size: 12px; color: var(--ag-muted); margin-top: 3px; word-break: break-word; }
+    .req-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+    .req-actions form, .acct-actions form { margin: 0; }
+    .badge { font-size: 10px; font-weight: 800; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: .5px; }
+    .badge.role-superadmin { background: var(--ag-purple-bg); color: var(--ag-purple-d); }
+    .badge.role-admin { background: #EAF0FE; color: #3355BB; }
+    .badge.role-client { background: var(--ag-green-bg); color: var(--ag-green-d); }
+    /* Account management: an actions row under each account (set password / reset / delete). */
+    .acct { flex-wrap: wrap; }
+    .acct-actions { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+    .acct-pw { display: flex; gap: 8px; align-items: center; }
+    .acct-pw input { width: 200px; }
+    .share { display: inline-flex; align-items: center; gap: 8px; background: var(--ag-canvas); border: 1px dashed var(--ag-line);
+      border-radius: 10px; padding: 10px 12px; font-size: 13px; color: var(--ag-charcoal); }
+    .share code { font-weight: 700; color: var(--ag-ink); }
+    @media (max-width: 720px) {
+      .side { position: static; height: auto; width: 100%; flex-basis: auto; }
+      .layout { flex-direction: column; }
+      .side-nav { flex-direction: row; flex-wrap: wrap; }
+    }
   </style>
 </head>
-<body>
-  <header class="topbar">
-    <div class="brand">{{ agora_logo|safe }}<span class="brand-sub">{{ workspace_name }} &middot; Team</span></div>
-    <nav class="nav">
-      {% if user %}<span class="who">{{ user }}</span>{% endif %}
-      <a class="pill logout" href="/logout">Log out</a>
-    </nav>
-  </header>
-
-  <main>
-    {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
-
-    <!-- Welcome banner: makes it unmistakable this page IS the team admin portal. -->
-    <section class="welcome">
-      <h1>Welcome to the Admin Portal</h1>
-      <p>Your home base for every Agora client. Click a client to open their workspace and edit it
-         in place, or add a new one below &mdash; we'll create the login and a blank workspace and drop
-         you straight into it.</p>
-    </section>
-
-    <!-- Pending self-service sign-ups: approve to create the client + activate their login. -->
-    {% if pending %}
-    <h2 class="section">Access requests ({{ pending|length }})</h2>
-    <div class="panel reqs">
-      <p class="meta">Someone requested an Agora Atrium account. <strong>Approve</strong> to create
-        their client + a blank workspace and switch their login on, or <strong>Reject</strong> to
-        remove the request.</p>
-      {% for a in pending %}
-      <div class="req">
-        <div class="req-main">
-          <div class="req-name">{{ a.requested_name|default(a.name, true)|default(a.email, true) }}</div>
-          <div class="req-sub">{{ a.email }}{% if a.created_at %} &middot; requested {{ a.created_at[:10] }}{% endif %}</div>
-        </div>
-        <div class="req-actions">
-          <form method="post" action="/admin/accounts/approve">
-            <input type="hidden" name="email" value="{{ a.email }}">
-            <button type="submit" class="btn green small">Approve</button>
-          </form>
-          <form method="post" action="/admin/accounts/reject"
-                data-reject-request data-req-email="{{ a.email }}">
-            <button type="submit" class="btn-ghost-danger small">Reject</button>
-          </form>
-        </div>
+<body data-initial-section="{{ initial_section|default('clients', true) }}">
+  <div class="layout">
+    <!-- ===================== LEFT SIDE PANEL ===================== -->
+    <aside class="side">
+      <div class="side-brand">{{ agora_logo|safe }}<span class="brand-sub">{{ workspace_name }} &middot; Team</span></div>
+      <nav class="side-nav" id="side-nav">
+        <button type="button" class="nav-item" data-section="clients">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          <span>Clients</span>
+        </button>
+        <button type="button" class="nav-item" data-section="requests">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <span>Access requests</span>
+          {% if pending %}<span class="count">{{ pending|length }}</span>{% endif %}
+        </button>
+        <button type="button" class="nav-item" data-section="accounts">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Accounts</span>
+        </button>
+        <button type="button" class="nav-item" data-section="create">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Create account</span>
+        </button>
+        <button type="button" class="nav-item" data-section="profile">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span>Profile</span>
+        </button>
+      </nav>
+      <div class="side-foot">
+        {% if user %}<div class="who">Signed in as<br><b>{{ user }}</b></div>{% endif %}
+        <a class="pill logout" href="/logout">Log out</a>
       </div>
-      {% endfor %}
-    </div>
-    {% endif %}
+    </aside>
 
-    <!-- Pick a client to open their workspace. A card links straight to /w/<key>/. -->
-    <h2 class="section">Client workspaces</h2>
-    {% if clients %}
-    <div class="grid">
-      {% for c in clients %}
-      <div class="card">
-        <a class="card-main" href="/w/{{ c.key }}/">
-          <div class="name">{{ c.name|default(c.key, true) }}</div>
-          <div class="st">{{ 'Open workspace →' if c.has_workspace else 'No workspace yet' }}</div>
-        </a>
-        <div class="card-side">
-          <div class="card-logo">{{ c.logo|safe }}</div>
-          <form class="logo-up" method="post" action="/admin/atrium/{{ c.key }}/logo" enctype="multipart/form-data">
-            <label class="mini-btn">Logo
-              <input type="file" name="logo" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
-                     data-logo-input hidden>
-            </label>
-          </form>
+    <!-- ===================== CONTENT ===================== -->
+    <main class="content">
+      {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
+      <!-- ---------- CLIENTS ---------- -->
+      <section class="pane" data-pane="clients">
+        <div class="welcome">
+          <h1>Welcome to the Admin Portal</h1>
+          <p>Your home base for every Agora client. Click a client to open their workspace and edit it
+             in place, or add a new one below &mdash; we'll create the login and a blank workspace and drop
+             you straight into it.</p>
         </div>
-        <form class="card-del" method="post" action="/admin/atrium/{{ c.key }}/delete"
-              data-delete-client data-client-name="{{ c.name|default(c.key, true) }}">
-          <button type="submit" class="del-x" title="Delete client" aria-label="Delete client">&times;</button>
+
+        <h2 class="section">Client workspaces</h2>
+        {% if clients %}
+        <div class="grid">
+          {% for c in clients %}
+          <div class="card">
+            <a class="card-main" href="/w/{{ c.key }}/">
+              <div class="name">{{ c.name|default(c.key, true) }}</div>
+              <div class="st">{{ 'Open workspace →' if c.has_workspace else 'No workspace yet' }}</div>
+            </a>
+            <div class="card-side">
+              <div class="card-logo">{{ c.logo|safe }}</div>
+              <form class="logo-up" method="post" action="/admin/atrium/{{ c.key }}/logo" enctype="multipart/form-data">
+                <label class="mini-btn">Logo
+                  <input type="file" name="logo" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                         data-logo-input hidden>
+                </label>
+              </form>
+            </div>
+            <form class="card-del" method="post" action="/admin/atrium/{{ c.key }}/delete"
+                  data-delete-client data-client-name="{{ c.name|default(c.key, true) }}">
+              <button type="submit" class="del-x" title="Delete client" aria-label="Delete client">&times;</button>
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="panel">No clients yet. Create your first one from <b>Create account</b>.</div>
+        {% endif %}
+
+        <h2 class="section">Add a new client</h2>
+        <form class="panel" method="post" action="/admin/atrium/new">
+          <p class="meta">Just enter a name. We create the client, a portal login (auto-generated
+          password), and a <strong>blank Atrium workspace</strong>, then drop you straight into it.</p>
+          <label>Display name</label>
+          <input type="text" name="name" placeholder="Honey Tribe Resort" required>
+          <button class="btn violet" type="submit">Create client</button>
         </form>
-      </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="panel">No clients yet. Create your first one below.</div>
-    {% endif %}
+      </section>
 
-    <h2 class="section">Add a new client</h2>
-    <form class="panel" method="post" action="/admin/atrium/new">
-      <p class="meta">Just enter a name. We create the client, a portal login (auto-generated
-      password), and a <strong>blank Atrium workspace</strong>, then drop you straight into it to
-      build out.</p>
-      <label>Display name</label>
-      <input type="text" name="name" placeholder="Honey Tribe Resort" required>
-      <button class="btn violet" type="submit">Create client</button>
-    </form>
-  </main>
+      <!-- ---------- ACCESS REQUESTS ---------- -->
+      <section class="pane" data-pane="requests">
+        <h1 class="page">Access requests</h1>
+        <p class="lead">When a client uses <b>Request access</b> on the sign-up page, it lands here.
+          Approve to create their client + a blank workspace and switch their login on, or reject to
+          remove it.</p>
+        <div class="panel">
+          <p class="meta">Share this link so a client can request their own account:</p>
+          <div class="share">Sign-up link: <code>/signup</code> <a href="/signup" target="_blank" class="btn-ghost small">Open</a></div>
+        </div>
+        {% if pending %}
+        <div class="panel">
+          {% for a in pending %}
+          <div class="req">
+            <div class="req-main">
+              <div class="req-name">{{ a.requested_name|default(a.name, true)|default(a.email, true) }}</div>
+              <div class="req-sub">{{ a.email }}{% if a.created_at %} &middot; requested {{ a.created_at[:10] }}{% endif %}</div>
+            </div>
+            <div class="req-actions">
+              <form method="post" action="/admin/accounts/approve">
+                <input type="hidden" name="email" value="{{ a.email }}">
+                <button type="submit" class="btn small">Approve</button>
+              </form>
+              <form method="post" action="/admin/accounts/reject" data-reject-request data-req-email="{{ a.email }}">
+                <button type="submit" class="btn-ghost-danger small">Reject</button>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="panel"><div class="empty">No pending requests right now.</div></div>
+        {% endif %}
+      </section>
+
+      <!-- ---------- ACCOUNTS ---------- -->
+      <section class="pane" data-pane="accounts">
+        <h1 class="page">Accounts</h1>
+        <p class="lead">Every login to the portal. Change or reset a client's password from here, or
+          remove an account. {% if is_root_admin %}As the super admin you can also manage admin accounts.{% endif %}</p>
+
+        <h2 class="section">Client accounts</h2>
+        <div class="panel">
+          {% if client_accounts %}
+            {% for a in client_accounts %}
+            <div class="acct">
+              <div class="acct-main">
+                <div class="acct-name">{{ a.name }} <span class="badge role-client">Client</span></div>
+                <div class="acct-sub">{{ a.email }} &middot; {{ a.client_label }}</div>
+              </div>
+              <div class="acct-actions">
+                <form class="acct-pw" method="post" action="/admin/accounts/set-password">
+                  <input type="hidden" name="email" value="{{ a.email }}">
+                  <input type="text" name="password" placeholder="New password (min 6)" autocomplete="off">
+                  <button type="submit" class="btn small">Change</button>
+                </form>
+                <form method="post" action="/admin/accounts/reset-password" data-reset data-acct="{{ a.email }}">
+                  <input type="hidden" name="email" value="{{ a.email }}">
+                  <button type="submit" class="btn-ghost small">Reset &amp; reveal</button>
+                </form>
+                <form method="post" action="/admin/accounts/delete" data-delete-account data-acct="{{ a.email }}">
+                  <input type="hidden" name="email" value="{{ a.email }}">
+                  <button type="submit" class="btn-ghost-danger small">Delete</button>
+                </form>
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="empty">No client accounts yet. Create one from <b>Create account</b> or approve a request.</div>
+          {% endif %}
+        </div>
+
+        <h2 class="section">Admin accounts</h2>
+        <div class="panel">
+          {% if admin_accounts %}
+            {% for a in admin_accounts %}
+            <div class="acct">
+              <div class="acct-main">
+                <div class="acct-name">{{ a.name }}
+                  {% if a.role == 'superadmin' %}<span class="badge role-superadmin">Super admin</span>
+                  {% else %}<span class="badge role-admin">Admin</span>{% endif %}
+                </div>
+                <div class="acct-sub">{{ a.email }} &middot; All clients</div>
+              </div>
+              {% if is_root_admin and a.role != 'superadmin' and a.email != super_admin_email %}
+              <div class="acct-actions">
+                <form class="acct-pw" method="post" action="/admin/accounts/set-password">
+                  <input type="hidden" name="email" value="{{ a.email }}">
+                  <input type="text" name="password" placeholder="New password (min 6)" autocomplete="off">
+                  <button type="submit" class="btn small">Change</button>
+                </form>
+                <form method="post" action="/admin/accounts/reset-password" data-reset data-acct="{{ a.email }}">
+                  <input type="hidden" name="email" value="{{ a.email }}">
+                  <button type="submit" class="btn-ghost small">Reset &amp; reveal</button>
+                </form>
+                <form method="post" action="/admin/accounts/delete" data-delete-account data-acct="{{ a.email }}">
+                  <input type="hidden" name="email" value="{{ a.email }}">
+                  <button type="submit" class="btn-ghost-danger small">Delete</button>
+                </form>
+              </div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="empty">No admin accounts.</div>
+          {% endif %}
+        </div>
+      </section>
+
+      <!-- ---------- CREATE ACCOUNT ---------- -->
+      <section class="pane" data-pane="create">
+        <h1 class="page">Create account</h1>
+        <p class="lead">Create a login directly &mdash; no request/approval step. New clients get a blank
+          workspace immediately.</p>
+
+        <h2 class="section">New client account</h2>
+        <form class="panel" method="post" action="/admin/accounts/create-client">
+          <p class="meta">Creates the client, a blank workspace, and an active login. Leave the password
+            blank to auto-generate one (it'll be shown after).</p>
+          <div class="row">
+            <div><label>Company name</label><input type="text" name="company" placeholder="Blue Mountain Co" required></div>
+            <div><label>Client email</label><input type="email" name="email" placeholder="owner@company.com" required></div>
+          </div>
+          <label>Password (optional)</label>
+          <input type="text" name="password" placeholder="Leave blank to auto-generate" autocomplete="off">
+          <button class="btn" type="submit">Create client account</button>
+        </form>
+
+        {% if is_root_admin %}
+        <h2 class="section">New admin account</h2>
+        <form class="panel" method="post" action="/admin/accounts/create-admin">
+          <p class="meta">Admins see and manage every client. Only you (the super admin) can create them.</p>
+          <div class="row">
+            <div><label>Name</label><input type="text" name="name" placeholder="Team member"></div>
+            <div><label>Admin email</label><input type="email" name="email" placeholder="teammate@agoradatadriven.com" required></div>
+          </div>
+          <label>Password (optional)</label>
+          <input type="text" name="password" placeholder="Leave blank to auto-generate" autocomplete="off">
+          <button class="btn violet" type="submit">Create admin account</button>
+        </form>
+        {% else %}
+        <h2 class="section">New admin account</h2>
+        <div class="panel"><div class="empty">Only the super admin can create admin accounts.</div></div>
+        {% endif %}
+      </section>
+
+      <!-- ---------- PROFILE ---------- -->
+      <section class="pane" data-pane="profile">
+        <h1 class="page">Profile</h1>
+        <p class="lead">Your operator account.</p>
+        <div class="panel">
+          <div class="acct-name" style="font-size:16px">{{ profile.name }}
+            {% if profile.role == 'superadmin' %}<span class="badge role-superadmin">Super admin</span>
+            {% else %}<span class="badge role-admin">Admin</span>{% endif %}
+          </div>
+          <div class="acct-sub" style="margin-top:6px">{{ profile.email }}</div>
+          {% if profile.role == 'superadmin' %}
+          <p class="meta" style="margin-top:14px">You're the super admin &mdash; you can create and manage
+            admin accounts, and your account can't be deleted from the Accounts list.</p>
+          {% endif %}
+        </div>
+
+        <h2 class="section">Change your password</h2>
+        <form class="panel" method="post" action="/admin/profile/password">
+          {% if profile.has_account %}
+          <label>New password (min 6 characters)</label>
+          <input type="text" name="password" placeholder="New password" autocomplete="off" required>
+          <button class="btn" type="submit">Update password</button>
+          {% else %}
+          <div class="empty">This session is signed in via an environment secret, so there's no stored
+            password to change here.</div>
+          {% endif %}
+        </form>
+      </section>
+    </main>
+  </div>
+
   <script>
-    // Wire the client-card controls (list mode). Kept DOM-driven + esprima-4.x-safe (no ?./??), and
-    // free of any Jinja so the pre-deploy JS gate can parse it: state comes from data- attributes.
+    // Console behaviour. DOM-driven + esprima-4.x-safe (no ?. / ??), no Jinja inside this script.
     (function () {
-      // "Upload logo": picking a file auto-submits its form, so the logo posts with one click.
-      var inputs = document.querySelectorAll("input[data-logo-input]");
-      for (var i = 0; i < inputs.length; i++) {
-        inputs[i].addEventListener("change", function () {
+      var qsa = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+
+      // ---- Left-panel section switching: a nav button shows its matching pane. ----
+      function showSection(name) {
+        var matched = false;
+        qsa(".pane").forEach(function (p) {
+          var on = p.getAttribute("data-pane") === name;
+          p.classList.toggle("is-active", on);
+          if (on) { matched = true; }
+        });
+        qsa(".nav-item").forEach(function (b) {
+          b.classList.toggle("is-active", b.getAttribute("data-section") === name);
+        });
+        return matched;
+      }
+      qsa(".nav-item").forEach(function (b) {
+        b.addEventListener("click", function () { showSection(b.getAttribute("data-section")); });
+      });
+      // Open the section the server asked for (after a redirect), else default to Clients.
+      var want = document.body.getAttribute("data-initial-section") || "clients";
+      if (!showSection(want)) { showSection("clients"); }
+
+      // ---- "Upload logo": picking a file auto-submits its form. ----
+      qsa("input[data-logo-input]").forEach(function (inp) {
+        inp.addEventListener("change", function () {
           if (this.files && this.files.length && this.form) { this.form.submit(); }
         });
-      }
-      // Delete: confirm with the client's name (read from a data attribute) before the POST fires.
-      var dels = document.querySelectorAll("form[data-delete-client]");
-      for (var j = 0; j < dels.length; j++) {
-        dels[j].addEventListener("submit", function (e) {
+      });
+
+      // ---- Confirm dialogs before destructive / sensitive POSTs. ----
+      qsa("form[data-delete-client]").forEach(function (f) {
+        f.addEventListener("submit", function (e) {
           var name = this.getAttribute("data-client-name") || "this client";
-          var ok = window.confirm("Delete " + name + "?\n\nThis removes the client login and their "
-            + "entire workspace. This cannot be undone.");
-          if (!ok) { e.preventDefault(); }
+          if (!window.confirm("Delete " + name + "?\n\nThis removes the client login and their entire "
+            + "workspace. This cannot be undone.")) { e.preventDefault(); }
         });
-      }
-      // Reject an access request: confirm with the requester's email before the POST fires.
-      var rejects = document.querySelectorAll("form[data-reject-request]");
-      for (var k = 0; k < rejects.length; k++) {
-        rejects[k].addEventListener("submit", function (e) {
+      });
+      qsa("form[data-reject-request]").forEach(function (f) {
+        f.addEventListener("submit", function (e) {
           var email = this.getAttribute("data-req-email") || "this request";
-          var ok = window.confirm("Reject the access request from " + email + "?\n\n"
-            + "This removes the request. They can sign up again later.");
-          if (!ok) { e.preventDefault(); }
+          if (!window.confirm("Reject the access request from " + email + "?")) { e.preventDefault(); }
         });
-      }
+      });
+      qsa("form[data-delete-account]").forEach(function (f) {
+        f.addEventListener("submit", function (e) {
+          var email = this.getAttribute("data-acct") || "this account";
+          if (!window.confirm("Delete the account for " + email + "?\n\nThey will no longer be able to "
+            + "log in. The client's workspace is NOT deleted.")) { e.preventDefault(); }
+        });
+      });
+      qsa("form[data-reset]").forEach(function (f) {
+        f.addEventListener("submit", function (e) {
+          var email = this.getAttribute("data-acct") || "this account";
+          if (!window.confirm("Reset the password for " + email + "?\n\nA new password is generated and "
+            + "shown to you so you can pass it on.")) { e.preventDefault(); }
+        });
+      });
     })();
   </script>
 </body>

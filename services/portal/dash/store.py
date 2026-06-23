@@ -265,7 +265,7 @@ def add_account(email, password, name=None, role="client", clients=None,
     account = {
         "email": norm,
         "name": name or norm.split("@")[0],
-        "role": "admin" if role == "admin" else "client",
+        "role": role if role in ("superadmin", "admin", "client") else "client",
         "status": status if status in ("active", "pending") else "pending",
         "clients": list(clients) if clients else [],
         "pw_salt": salt_hex,
@@ -331,18 +331,24 @@ def remove_account(email, registry=None):
     return True
 
 
-def ensure_admin_account(email, password, name=None, registry=None):
-    """Create an ACTIVE admin account (clients ["*"]) if one doesn't already exist for `email`.
+def ensure_admin_account(email, password, name=None, role="admin", registry=None):
+    """Create an ACTIVE admin (or superadmin) account (clients ["*"]) if none exists for `email`.
 
     Idempotent: returns the existing account untouched if present (so re-seeding never clobbers a
-    password that was later changed). Used to seed the dev@localhost admin for local preview.
+    password that was later changed). Used to seed the operator accounts for local preview.
     """
     reg = registry if registry is not None else load_registry()
     existing = get_account(email, reg)
     if existing is not None:
         return existing
-    return add_account(email, password, name=name, role="admin", clients=["*"],
+    role = "superadmin" if role == "superadmin" else "admin"
+    return add_account(email, password, name=name, role=role, clients=["*"],
                        status="active", registry=reg)
+
+
+def ensure_super_admin_account(email, password, name=None, registry=None):
+    """Seed THE super admin (role 'superadmin', clients ["*"]). Idempotent (see ensure_admin_account)."""
+    return ensure_admin_account(email, password, name=name, role="superadmin", registry=registry)
 
 
 # --- Login verification (resolve ORDER: super-admin -> accounts -> registry hash -> bootstrap) ---
