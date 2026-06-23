@@ -332,7 +332,12 @@
     .ax-select:hover { background: var(--ax-violet-bg); }
     /* Campaign switcher (so the client knows the dropdown views specific campaigns) */
     .ax-campswitch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .ax-campswitch-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--ax-violet-d); display: inline-flex; align-items: center; gap: 5px; }
+    /* The label sits INSIDE the dropdown box: the wrapper carries the border/shadow, the select goes borderless. */
+    .ax-campbox { display: inline-flex; align-items: center; gap: 8px; padding-left: 12px; border: 1px solid var(--ax-violet); border-radius: 10px; background: var(--ax-white); box-shadow: 0 1px 2px rgba(92,75,208,.12); }
+    .ax-campbox:hover { background: var(--ax-violet-bg); }
+    .ax-campbox .ax-select { border: none; border-radius: 0; background: transparent; box-shadow: none; padding-left: 0; }
+    .ax-campbox .ax-select:hover { background: transparent; }
+    .ax-campswitch-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--ax-violet-d); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
     .ax-campswitch-label .ax-ic { width: 15px; height: 15px; }
     .ax-campswitch-hint { font-size: 12px; color: var(--ax-sub); width: 100%; text-align: right; }
     .ax-strategy { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; padding: 0; overflow: hidden; }
@@ -700,6 +705,8 @@
     .ax-admin-tools .ax-btn.danger { background: linear-gradient(135deg, var(--ax-bad) 0%, #C9302D 100%); color: #fff; border-color: transparent; }  /* Delete -> brand red (destructive) */
     .ax-admin-tools .ax-btn.danger:hover { background: linear-gradient(135deg, #C9302D 0%, #A8211F 100%); }
     /* Campaign-card controls (Lead Gen + Organic): neutral slate / navy / red-outline, per request. */
+    /* Match the Add/Delete-campaign buttons' size (the `.small` look) so the tool rows read consistently. */
+    .ax-camp-tools .ax-btn { font-size: 12px; font-weight: 700; padding: 6px 11px; }
     .ax-camp-tools .ax-btn.green { background: linear-gradient(135deg, #3F4654 0%, #2D3340 100%); }                  /* Add content -> slate */
     .ax-camp-tools .ax-btn.green:hover { background: linear-gradient(135deg, #2D3340 0%, #1E222B 100%); }
     /* Content-card Edit details / Delete share the campaign-tools look (navy / red-outline) -- one source of truth. */
@@ -1145,10 +1152,12 @@
             </div>
             {% if camps|length > 1 %}
             <div class="ax-campswitch">
-              <span class="ax-campswitch-label">{{ ic('arrow') }} Viewing campaign</span>
-              <select class="ax-select" data-campfilter="{{ tab }}" aria-label="Switch to view a specific campaign">
-                {% for c in camps %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
-              </select>
+              <div class="ax-campbox">
+                <span class="ax-campswitch-label">{{ ic('arrow') }} Viewing campaign</span>
+                <select class="ax-select" data-campfilter="{{ tab }}" aria-label="Switch to view a specific campaign">
+                  {% for c in camps %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                </select>
+              </div>
               <span class="ax-campswitch-hint">You have {{ camps|length }} campaigns. Switch to view another.</span>
             </div>
             {% endif %}
@@ -1213,8 +1222,8 @@
 
             {% for p in c.content %}
             {% set _shots = [] %}
-            {% if p.images %}{% for im in p.images %}{% set _ = _shots.append({'url': '/w/' ~ view.client ~ '/creative/' ~ p.id ~ '/' ~ im.id, 'mime': im.mime|default('', true), 'id': im.id, 'name': im.name|default('', true)}) %}{% endfor %}
-            {% elif p.image_object %}{% set _ = _shots.append({'url': '/w/' ~ view.client ~ '/creative/' ~ p.id, 'mime': p.image_mime|default('', true), 'id': '', 'name': ''}) %}
+            {% if p.images %}{% for im in p.images %}{% set _ = _shots.append({'url': '/w/' ~ view.client ~ '/creative/' ~ (p.id|urlencode) ~ '/' ~ (im.id|urlencode), 'mime': im.mime|default('', true), 'id': im.id, 'name': im.name|default('', true)}) %}{% endfor %}
+            {% elif p.image_object %}{% set _ = _shots.append({'url': '/w/' ~ view.client ~ '/creative/' ~ (p.id|urlencode), 'mime': p.image_mime|default('', true), 'id': '', 'name': ''}) %}
             {% elif p.image %}{% set _ = _shots.append({'url': p.image, 'mime': '', 'id': '', 'name': ''}) %}{% endif %}
             {% set is_org = chan == 'organic' %}
             {% set collapsible = True %}
@@ -1782,6 +1791,11 @@
   var adminName = root.getAttribute("data-adminname") || "AGORA";
 
   function qsa(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
+  // Escape a value for safe use INSIDE a double-quoted attribute selector, e.g. '[data-x="' + aq(v) + '"]'.
+  // Content ids can be free-text titles containing " & ? spaces $ etc.; without this a value like
+  // '"Ready to book?' would produce an invalid selector and querySelector would THROW, aborting this
+  // whole script (so no buttons wire up). Escaping backslash + double-quote makes any value selector-safe.
+  function aq(v) { return String(v === null || v === undefined ? "" : v).replace(/[\\"]/g, "\\$&"); }
 
   // ---- Collapsible sidebar (tuck the nav to the side; remembers the choice) ------------------
   var navToggle = document.getElementById("ax-navtoggle");
@@ -1829,7 +1843,7 @@
   }
 
   function showTab(tab, push) {
-    var pane = document.querySelector('[data-pane="' + tab + '"]');
+    var pane = document.querySelector('[data-pane="' + aq(tab) + '"]');
     if (!pane) { return; }
     qsa(".ax-pane").forEach(function (p) { p.classList.remove("is-active"); });
     pane.classList.add("is-active");
@@ -2078,16 +2092,16 @@
     sel.addEventListener("change", function () {
       var id = sel.value;
       var chosen = null;
-      qsa('[data-campblock="' + tab + '"]').forEach(function (b) {
+      qsa('[data-campblock="' + aq(tab) + '"]').forEach(function (b) {
         var match = b.getAttribute("data-campid") === id;
         b.style.display = match ? "" : "none";
         if (match) { chosen = b; }
       });
-      qsa('[data-campdel="' + tab + '"]').forEach(function (b) {
+      qsa('[data-campdel="' + aq(tab) + '"]').forEach(function (b) {
         b.style.display = (b.getAttribute("data-campid") === id) ? "" : "none";
       });
       if (chosen) {
-        var title = document.querySelector('[data-camptitle="' + tab + '"]');
+        var title = document.querySelector('[data-camptitle="' + aq(tab) + '"]');
         if (title) { title.textContent = chosen.getAttribute("data-campname"); }
       }
     });
@@ -2100,18 +2114,18 @@
     var m = (window.location.hash || "").match(/^#camp-(.+)$/);
     if (!m) { return; }
     var id = m[1];
-    var block = document.querySelector('[data-campblock][data-campid="' + id + '"]');
+    var block = document.querySelector('[data-campblock][data-campid="' + aq(id) + '"]');
     if (!block) { return; }
     var tab = block.getAttribute("data-campblock");
-    qsa('[data-campblock="' + tab + '"]').forEach(function (b) {
+    qsa('[data-campblock="' + aq(tab) + '"]').forEach(function (b) {
       b.style.display = (b.getAttribute("data-campid") === id) ? "" : "none";
     });
-    qsa('[data-campdel="' + tab + '"]').forEach(function (b) {
+    qsa('[data-campdel="' + aq(tab) + '"]').forEach(function (b) {
       b.style.display = (b.getAttribute("data-campid") === id) ? "" : "none";
     });
-    var title = document.querySelector('[data-camptitle="' + tab + '"]');
+    var title = document.querySelector('[data-camptitle="' + aq(tab) + '"]');
     if (title) { title.textContent = block.getAttribute("data-campname"); }
-    var sel = document.querySelector('[data-campfilter="' + tab + '"]');
+    var sel = document.querySelector('[data-campfilter="' + aq(tab) + '"]');
     if (sel) { sel.value = id; }
   })();
 
@@ -2128,7 +2142,7 @@
   });
   qsa("[data-send]").forEach(function (btn) {
     var id = btn.getAttribute("data-send");
-    var panel = document.querySelector('[data-chatpanel="' + id + '"]');
+    var panel = document.querySelector('[data-chatpanel="' + aq(id) + '"]');
     if (!panel) { return; }
     var box = panel.querySelector("[data-composer]");
     var msgs = panel.querySelector("[data-msgs]");
@@ -2527,16 +2541,16 @@
 
     // --- Strategy: edit / save / cancel ---
     qsa("[data-stratedit]").forEach(function (btn) {
-      var form = document.querySelector('[data-stratform="' + btn.getAttribute("data-stratedit") + '"]');
+      var form = document.querySelector('[data-stratform="' + aq(btn.getAttribute("data-stratedit")) + '"]');
       btn.addEventListener("click", function () { toggleHidden(form); });
     });
     qsa("[data-stratcancel]").forEach(function (btn) {
-      var form = document.querySelector('[data-stratform="' + btn.getAttribute("data-stratcancel") + '"]');
+      var form = document.querySelector('[data-stratform="' + aq(btn.getAttribute("data-stratcancel")) + '"]');
       btn.addEventListener("click", function () { if (form) { form.classList.add("ax-edit-hidden"); } });
     });
     qsa("[data-stratsave]").forEach(function (btn) {
       var id = btn.getAttribute("data-stratsave");
-      var form = document.querySelector('[data-stratform="' + id + '"]');
+      var form = document.querySelector('[data-stratform="' + aq(id) + '"]');
       btn.addEventListener("click", function () {
         adminAction("/admin/strategy", fieldsFrom(form, "data-sf", { campaign_id: id }), btn);
       });
@@ -2554,14 +2568,14 @@
     // --- Strategy doc + generate AI summary ---
     qsa("[data-docsave]").forEach(function (btn) {
       var id = btn.getAttribute("data-docsave");
-      var input = document.querySelector('[data-docurl="' + id + '"]');
+      var input = document.querySelector('[data-docurl="' + aq(id) + '"]');
       btn.addEventListener("click", function () {
         adminAction("/admin/strategy-doc", { campaign_id: id, doc_url: input ? input.value : "" }, btn);
       });
     });
     qsa("[data-docgen]").forEach(function (btn) {
       var id = btn.getAttribute("data-docgen");
-      var input = document.querySelector('[data-docurl="' + id + '"]');
+      var input = document.querySelector('[data-docurl="' + aq(id) + '"]');
       btn.addEventListener("click", function () {
         adminMsg("Reading the doc and writing the strategy…", true);
         adminAction("/admin/generate-summary", { campaign_id: id, doc_url: input ? input.value : "" }, btn);
@@ -2571,13 +2585,13 @@
     // --- AI summary: hand-edit ---
     qsa("[data-aiedittoggle]").forEach(function (btn) {
       var id = btn.getAttribute("data-aiedittoggle");
-      var box = document.querySelector('[data-aiedit="' + id + '"]');
-      var save = document.querySelector('[data-aisave="' + id + '"]');
+      var box = document.querySelector('[data-aiedit="' + aq(id) + '"]');
+      var save = document.querySelector('[data-aisave="' + aq(id) + '"]');
       btn.addEventListener("click", function () { toggleHidden(box); toggleHidden(save); });
     });
     qsa("[data-aisave]").forEach(function (btn) {
       var id = btn.getAttribute("data-aisave");
-      var box = document.querySelector('[data-aiedit="' + id + '"]');
+      var box = document.querySelector('[data-aiedit="' + aq(id) + '"]');
       btn.addEventListener("click", function () {
         adminAction("/admin/summary", { campaign_id: id, ai_summary: box ? box.value : "" }, btn);
       });
@@ -2585,16 +2599,16 @@
 
     // --- Content: edit / save / cancel / delete ---
     qsa("[data-contentedit]").forEach(function (btn) {
-      var form = document.querySelector('[data-contentform="' + btn.getAttribute("data-contentedit") + '"]');
+      var form = document.querySelector('[data-contentform="' + aq(btn.getAttribute("data-contentedit")) + '"]');
       btn.addEventListener("click", function () { toggleHidden(form); });
     });
     qsa("[data-contentcancel]").forEach(function (btn) {
-      var form = document.querySelector('[data-contentform="' + btn.getAttribute("data-contentcancel") + '"]');
+      var form = document.querySelector('[data-contentform="' + aq(btn.getAttribute("data-contentcancel")) + '"]');
       btn.addEventListener("click", function () { if (form) { form.classList.add("ax-edit-hidden"); } });
     });
     qsa("[data-contentsave]").forEach(function (btn) {
       var id = btn.getAttribute("data-contentsave");
-      var form = document.querySelector('[data-contentform="' + id + '"]');
+      var form = document.querySelector('[data-contentform="' + aq(id) + '"]');
       btn.addEventListener("click", function () {
         adminAction("/admin/edit-content", fieldsFrom(form, "data-cf", { content_id: id }), btn);
       });
@@ -2609,7 +2623,7 @@
     // --- Upload / remove creative ---
     qsa("[data-uploadbtn]").forEach(function (btn) {
       var id = btn.getAttribute("data-uploadbtn");
-      var input = document.querySelector('[data-uploadinput="' + id + '"]');
+      var input = document.querySelector('[data-uploadinput="' + aq(id) + '"]');
       if (!input) { return; }
       btn.addEventListener("click", function () { input.click(); });
       input.addEventListener("change", function () {
@@ -2676,10 +2690,10 @@
     // --- Add content (with optional pictures attached at creation) ---
     qsa("[data-addcontentbtn]").forEach(function (btn) {
       var id = btn.getAttribute("data-addcontentbtn");
-      var panel = document.querySelector('[data-addcontent="' + id + '"]');
-      var picInput = document.querySelector('[data-newcontentinput="' + id + '"]');
-      var picBtn = document.querySelector('[data-newcontentpick="' + id + '"]');
-      var picCount = document.querySelector('[data-newcontentcount="' + id + '"]');
+      var panel = document.querySelector('[data-addcontent="' + aq(id) + '"]');
+      var picInput = document.querySelector('[data-newcontentinput="' + aq(id) + '"]');
+      var picBtn = document.querySelector('[data-newcontentpick="' + aq(id) + '"]');
+      var picCount = document.querySelector('[data-newcontentcount="' + aq(id) + '"]');
       // One picker accepts ANY file type; the "files" upload stores images, videos, and other files
       // alike (images/videos render inline, everything else as a download chip). The status line
       // reports how many files are staged for the new piece.
@@ -2726,7 +2740,7 @@
     // --- Add campaign ---
     qsa("[data-addcampaignbtn]").forEach(function (btn) {
       var chan = btn.getAttribute("data-addcampaignbtn");
-      var panel = document.querySelector('[data-addcampaign="' + chan + '"]');
+      var panel = document.querySelector('[data-addcampaign="' + aq(chan) + '"]');
       var tab = (chan === "paid") ? "leadgen" : "organic";
       btn.addEventListener("click", function () {
         var fields = fieldsFrom(panel, "data-ac", { channel: chan });
@@ -2783,17 +2797,17 @@
 
     // --- Client Communications: add / edit / delete email & meeting summaries (super-admin) ---
     qsa("[data-commedit]").forEach(function (btn) {
-      var form = document.querySelector('[data-commform="' + btn.getAttribute("data-commedit") + '"]');
+      var form = document.querySelector('[data-commform="' + aq(btn.getAttribute("data-commedit")) + '"]');
       btn.addEventListener("click", function () { if (form) { form.classList.toggle("ax-edit-hidden"); } });
     });
     qsa("[data-commcancel]").forEach(function (btn) {
-      var form = document.querySelector('[data-commform="' + btn.getAttribute("data-commcancel") + '"]');
+      var form = document.querySelector('[data-commform="' + aq(btn.getAttribute("data-commcancel")) + '"]');
       btn.addEventListener("click", function () { if (form) { form.classList.add("ax-edit-hidden"); } });
     });
     qsa("[data-commsave]").forEach(function (btn) {
       var id = btn.getAttribute("data-commsave");
       var kind = btn.getAttribute("data-commkind");
-      var form = document.querySelector('[data-commform="' + id + '"]');
+      var form = document.querySelector('[data-commform="' + aq(id) + '"]');
       btn.addEventListener("click", function () {
         adminAction("/admin/communication", fieldsFrom(form, "data-cm", { op: "edit", kind: kind, item_id: id }), btn);
       });
@@ -3054,7 +3068,7 @@
   // stored as the piece's streaming creative, so videos still attach at <=1 GB.
   qsa("[data-addimages]").forEach(function (btn) {
     var id = btn.getAttribute("data-addimages");
-    var input = document.querySelector('[data-addinput="' + id + '"]');
+    var input = document.querySelector('[data-addinput="' + aq(id) + '"]');
     if (!input) { return; }
     var DIRECT_MAX = 30 * 1024 * 1024;        // <=30 MB through the app; larger -> direct to GCS
     var MAX_BYTES = 1024 * 1024 * 1024;       // hard ceiling: 1 GB
@@ -3132,7 +3146,7 @@
   // Admin: add-content / add-campaign popups (open on a button; close on x, backdrop, or Esc).
   qsa("[data-modalopen]").forEach(function (btn) {
     btn.addEventListener("click", function () {
-      var m = document.querySelector('[data-modal="' + btn.getAttribute("data-modalopen") + '"]');
+      var m = document.querySelector('[data-modal="' + aq(btn.getAttribute("data-modalopen")) + '"]');
       if (m) { m.hidden = false; }
     });
   });
