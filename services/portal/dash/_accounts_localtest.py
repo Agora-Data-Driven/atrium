@@ -57,6 +57,18 @@ def main():
     check("active client still denied on wrong password",
           store.verify_portal_login("owner@riverdance.test", "river-pw-WRONG") == [])
 
+    # --- Roles: superadmin + admin both resolve to "*"; role is recorded -----------------------
+    store.ensure_super_admin_account("info@agoradatadriven.com", "super-pw", name="Owner")
+    check("super admin login resolves to '*'",
+          store.verify_portal_login("info@agoradatadriven.com", "super-pw") == ["*"])
+    check("super admin account has role 'superadmin'",
+          (store.get_account("info@agoradatadriven.com") or {}).get("role") == "superadmin")
+    made = store.add_account("teammate@agoradatadriven.com", "admin-pw", name="Teammate",
+                             role="admin", clients=["*"], status="active")
+    check("admin account created with role 'admin'", made is not None and made.get("role") == "admin")
+    check("admin login resolves to '*'",
+          store.verify_portal_login("teammate@agoradatadriven.com", "admin-pw") == ["*"])
+
     # --- A legacy per-client password (email-agnostic) still works alongside accounts ----------
     store.add_client("legacyco", "Legacy Co")
     store.set_client_password("legacyco", "legacy-pw")

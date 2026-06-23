@@ -35,9 +35,12 @@ OTHER_CLIENTS = [
 ]
 
 
-# A real ADMIN account (email + password) for the login-mode preview. This is the same identity the
-# no-password preview auto-signs you in as (dev@localhost), now backed by an actual account so you can
-# sign in AS the admin on the real login page (run_local.ps1 -WithLogin). clients ["*"] = sees all.
+# Operator accounts (email + password) for the login-mode preview.
+#  * info@agoradatadriven.com is THE super admin (can create/manage admin accounts). It's also the
+#    identity the no-password preview auto-signs you in as, so Profile + admin management line up.
+#  * dev@localhost is a regular admin, seeded so the Accounts list shows both tiers to play with.
+SUPER_ADMIN_EMAIL = "info@agoradatadriven.com"
+SUPER_ADMIN_PW = "agora-super"
 ADMIN_EMAIL = "dev@localhost"
 ADMIN_PW = "dev-admin"
 
@@ -45,7 +48,8 @@ ADMIN_PW = "dev-admin"
 def main():
     creds = []
 
-    # Seed the admin account (idempotent: never clobbers a password you later change).
+    # Seed the operator accounts (idempotent: never clobbers a password you later change).
+    store.ensure_super_admin_account(SUPER_ADMIN_EMAIL, SUPER_ADMIN_PW, name="Agora Data Driven")
     store.ensure_admin_account(ADMIN_EMAIL, ADMIN_PW, name="Dev Admin")
 
     # Riverdance: rich demo workspace (refuses to clobber) + registry entry + a known password.
@@ -61,8 +65,10 @@ def main():
         creds.append((key, pw))
 
     print("\n  Local portal seeded. Log in at http://localhost:8080/login")
-    print("  ADMIN account (real email + password, sees every client):")
-    print("    %-22s  password: %s" % (ADMIN_EMAIL, ADMIN_PW))
+    print("  SUPER ADMIN (manages admins; this is 'you'):")
+    print("    %-24s  password: %s" % (SUPER_ADMIN_EMAIL, SUPER_ADMIN_PW))
+    print("  ADMIN (sees every client):")
+    print("    %-24s  password: %s" % (ADMIN_EMAIL, ADMIN_PW))
     print("\n  CLIENT logins -- use ANY email (e.g. owner@example.com) + one of these passwords:\n")
     for key, pw in creds:
         only = " <- single-client: lands straight on the overview" if key == DEMO_KEY else ""

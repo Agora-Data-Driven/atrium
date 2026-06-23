@@ -26,6 +26,7 @@ Org policy forbids public Cloud Run: deploy with --no-invoker-iam-check (never
 
 import datetime
 import os
+import secrets
 
 import requests
 from flask import (
@@ -151,6 +152,37 @@ def is_superadmin():
     return real_superadmin()
 
 
+# THE super admin: the one account allowed to create/manage OTHER admin accounts. Everyone with "*"
+# is an "admin" (full client access); only the super admin (info@, or an account whose role is
+# "superadmin") sits above them. Env-overridable so a different deploy can nominate its own owner.
+SUPER_ADMIN_EMAIL = os.environ.get("SUPER_ADMIN_EMAIL", "info@agoradatadriven.com").strip().lower()
+
+
+def current_account():
+    """The registry account dict for the logged-in user, or None (env/bootstrap logins have none)."""
+    user = current_user()
+    return store.get_account(user) if user else None
+
+
+def is_root_admin():
+    """True iff this session is THE super admin -- may manage admin accounts.
+
+    That is the configured SUPER_ADMIN_EMAIL (info@) or any account whose role is "superadmin". Must
+    also hold full admin access ("*"), so a half-configured account can never escalate.
+    """
+    if not is_superadmin():
+        return False
+    if (current_user() or "").strip().lower() == SUPER_ADMIN_EMAIL:
+        return True
+    acct = current_account()
+    return bool(acct and acct.get("role") == "superadmin")
+
+
+def _gen_password():
+    """A readable, strong portal password (mirrors onboard_client._generate_password)."""
+    return secrets.token_urlsafe(9)
+
+
 @app.before_request
 def _dev_auto_login():
     """In local preview mode (DEV_NOAUTH), establish a super-admin session for every request.
@@ -162,7 +194,9 @@ def _dev_auto_login():
     """
     if AUTO_LOGIN and not session.get("ok"):
         session["ok"] = True
-        session["user"] = "dev@localhost"
+        # Sign in as THE super admin so the no-password preview matches the seeded operator identity
+        # (its Profile + admin-account management all resolve to info@agoradatadriven.com).
+        session["user"] = SUPER_ADMIN_EMAIL
         session["clients"] = ["*"]
 
 
@@ -1551,21 +1585,42 @@ def atrium_admin_reply_inline(client):
 # The console is the LANDING PAGE only: a card grid to open / add / delete clients. There is no
 # per-client management page anymore -- the team edits each workspace IN PLACE via /w/<c>/admin/*
 # (see the in-workspace admin editing section above), and a card opens that workspace directly.
-def _atrium_redirect_list(msg):
-    """Redirect back to the Workspaces LIST (the card grid) with a flash message."""
-    return redirect(url_for("admin_atrium", msg=msg))
+def _atrium_redirect_list(msg, section=None):
+    """Redirect back to the console with a flash message, optionally reopening a given section pane."""
+    return redirect(url_for("admin_atrium", msg=msg, section=section))
+
+
+def _account_view(account, name_by_key):
+    """Shape one account for the console table: resolve its client keys to a readable label."""
+    keys = account.get("clients") or []
+    if "*" in keys:
+        label = "All clients"
+    elif keys:
+        label = ", ".join(name_by_key.get(k, k) for k in keys)
+    else:
+        label = "—"
+    return {
+        "email": account.get("email"),
+        "name": account.get("name") or account.get("email"),
+        "role": account.get("role") or "client",
+        "status": account.get("status") or "active",
+        "client_label": label,
+        "created_at": account.get("created_at", ""),
+    }
 
 
 @app.route("/admin/atrium", methods=["GET"])
 def admin_atrium():
-    """List the clients whose Atrium workspaces the operator can manage."""
+    """The operator console: clients, access requests, accounts, account creation, and the profile."""
     if not authed():
         return redirect(url_for("login", next="/admin/atrium"))
     if not is_superadmin():
         return Response("Forbidden", status=403, mimetype="text/plain")
     clients = []
+    name_by_key = {}
     for c in store.list_clients():
         key, name = c.get("key"), c.get("name")
+        name_by_key[key] = name or key
         if key == "template":
             continue  # the worked-example pattern, not a real client -- never list it in the console
         ws = workspace.load_workspace(key)
@@ -1574,10 +1629,27 @@ def admin_atrium():
         logo = (ws.get("brand", {}).get("client_logo") if ws else None) or brand.monogram(name or key)
         clients.append({"key": key, "name": name,
                         "has_workspace": ws is not None, "logo": logo})
-    pending = [a for a in store.list_accounts() if a.get("status") == "pending"]
-    return render_template("admin_atrium.html", clients=clients, pending=pending,
-                           user=current_user(), workspace_name=WORKSPACE_NAME,
-                           msg=request.args.get("msg"), **_brand_ctx())
+
+    all_accounts = store.list_accounts()
+    pending = [a for a in all_accounts if a.get("status") == "pending"]
+    active = [_account_view(a, name_by_key) for a in all_accounts if a.get("status") == "active"]
+    client_accounts = [a for a in active if a["role"] == "client"]
+    admin_accounts = [a for a in active if a["role"] in ("admin", "superadmin")]
+
+    me = current_account()
+    profile = {
+        "email": current_user(),
+        "name": (me or {}).get("name") or current_user(),
+        "role": (me or {}).get("role") or ("superadmin" if is_root_admin() else "admin"),
+        "has_account": me is not None,
+    }
+    return render_template(
+        "admin_atrium.html", clients=clients, pending=pending,
+        client_accounts=client_accounts, admin_accounts=admin_accounts,
+        profile=profile, is_root_admin=is_root_admin(), super_admin_email=SUPER_ADMIN_EMAIL,
+        initial_section=(request.args.get("section") or "clients"),
+        user=current_user(), workspace_name=WORKSPACE_NAME,
+        msg=request.args.get("msg"), **_brand_ctx())
 
 
 def _valid_client_key(k):
@@ -1648,7 +1720,7 @@ def admin_account_approve():
     email = request.form.get("email", "").strip()
     account = store.get_account(email)
     if account is None or account.get("status") != "pending":
-        return _atrium_redirect_list("No pending request found for that email.")
+        return _atrium_redirect_list("No pending request found for that email.", section="requests")
     company = account.get("requested_name") or account.get("name") or email.split("@")[0]
     key = _unique_client_key(company)
     import onboard_client  # lazy: reuses brand_for() + starter_workspace()
@@ -1656,7 +1728,7 @@ def admin_account_approve():
     store.set_account_clients(email, [key])
     store.set_account_status(email, "active")
     return _atrium_redirect_list("Approved %s -- created client '%s' and activated their login." %
-                                 (email, key))
+                                 (email, key), section="requests")
 
 
 @app.route("/admin/accounts/reject", methods=["POST"])
@@ -1667,8 +1739,153 @@ def admin_account_reject():
     email = request.form.get("email", "").strip()
     removed = store.remove_account(email)
     if not removed:
-        return _atrium_redirect_list("No request to reject for that email.")
-    return _atrium_redirect_list("Rejected and removed the access request for %s." % email)
+        return _atrium_redirect_list("No request to reject for that email.", section="requests")
+    return _atrium_redirect_list("Rejected and removed the access request for %s." % email,
+                                 section="requests")
+
+
+@app.route("/admin/accounts/create-client", methods=["POST"])
+def admin_account_create_client():
+    """Admin creates an ACTIVE client account directly (no request/approval step).
+
+    Creates the client + a blank workspace and an active client account, so the client can log in
+    immediately with the email + password set here. If no password is given, a strong one is
+    generated and surfaced so the operator can read it back to the client."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    company = request.form.get("company", "").strip()
+    email = request.form.get("email", "").strip()
+    password = request.form.get("password", "") or _gen_password()
+    domain = email.split("@")[-1] if "@" in email else ""
+    if not company:
+        return _atrium_redirect_list("Please enter a company name.", section="create")
+    if "@" not in email or "." not in domain:
+        return _atrium_redirect_list("Please enter a valid email address.", section="create")
+    if store.get_account(email) is not None:
+        return _atrium_redirect_list("An account already exists for %s." % email, section="create")
+    key = _unique_client_key(company)
+    import onboard_client  # lazy
+    onboard_client.onboard(key, company)            # client + blank workspace
+    store.add_account(email, password, name=company, role="client", clients=[key],
+                      status="active", requested_name=company)
+    return _atrium_redirect_list(
+        "Created client '%s'. Login -> %s / %s" % (key, email, password), section="accounts")
+
+
+@app.route("/admin/accounts/create-admin", methods=["POST"])
+def admin_account_create_admin():
+    """THE super admin creates another ADMIN account (full client access, role 'admin')."""
+    if not is_root_admin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    name = request.form.get("name", "").strip()
+    email = request.form.get("email", "").strip()
+    password = request.form.get("password", "") or _gen_password()
+    domain = email.split("@")[-1] if "@" in email else ""
+    if "@" not in email or "." not in domain:
+        return _atrium_redirect_list("Please enter a valid email address.", section="create")
+    if store.get_account(email) is not None:
+        return _atrium_redirect_list("An account already exists for %s." % email, section="create")
+    store.add_account(email, password, name=name or email.split("@")[0], role="admin",
+                      clients=["*"], status="active")
+    return _atrium_redirect_list(
+        "Created admin '%s'. Login -> %s / %s" % (name or email, email, password), section="accounts")
+
+
+@app.route("/admin/accounts/set-password", methods=["POST"])
+def admin_account_set_password():
+    """Change an account's password to one the operator types (helpdesk: 'change password')."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    email = request.form.get("email", "").strip()
+    password = request.form.get("password", "")
+    if len(password) < 6:
+        return _atrium_redirect_list("New password must be at least 6 characters.", section="accounts")
+    if not _can_manage_account(email) or not _can_manage_admin_target(email):
+        return _atrium_redirect_list("You can't change that account's password.", section="accounts")
+    try:
+        store.set_account_password(email, password)
+    except KeyError:
+        return _atrium_redirect_list("No account found for %s." % email, section="accounts")
+    return _atrium_redirect_list("Password changed for %s." % email, section="accounts")
+
+
+@app.route("/admin/accounts/reset-password", methods=["POST"])
+def admin_account_reset_password():
+    """Reset an account's password to a freshly generated one and reveal it (helpdesk: 'reset')."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    email = request.form.get("email", "").strip()
+    if not _can_manage_account(email) or not _can_manage_admin_target(email):
+        return _atrium_redirect_list("You can't reset that account's password.", section="accounts")
+    new_pw = _gen_password()
+    try:
+        store.set_account_password(email, new_pw)
+    except KeyError:
+        return _atrium_redirect_list("No account found for %s." % email, section="accounts")
+    return _atrium_redirect_list("Reset password for %s -> %s" % (email, new_pw), section="accounts")
+
+
+@app.route("/admin/accounts/delete", methods=["POST"])
+def admin_account_delete():
+    """Delete an account. The super admin can't be deleted, and you can't delete yourself."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    email = request.form.get("email", "").strip()
+    if not _can_manage_account(email, allow_self=False):
+        return _atrium_redirect_list("That account can't be deleted here.", section="accounts")
+    # Deleting an admin account is a super-admin-only power.
+    target = store.get_account(email)
+    if target and target.get("role") in ("admin", "superadmin") and not is_root_admin():
+        return _atrium_redirect_list("Only the super admin can remove admin accounts.", section="accounts")
+    removed = store.remove_account(email)
+    if not removed:
+        return _atrium_redirect_list("No account found for %s." % email, section="accounts")
+    return _atrium_redirect_list("Deleted the account for %s." % email, section="accounts")
+
+
+@app.route("/admin/profile/password", methods=["POST"])
+def admin_profile_password():
+    """The logged-in operator changes their OWN password (Profile pane)."""
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    password = request.form.get("password", "")
+    if len(password) < 6:
+        return _atrium_redirect_list("New password must be at least 6 characters.", section="profile")
+    me = current_user()
+    if store.get_account(me) is None:
+        return _atrium_redirect_list(
+            "Your session isn't backed by a stored account (env login), so there's no password to "
+            "change here.", section="profile")
+    store.set_account_password(me, password)
+    return _atrium_redirect_list("Your password was updated.", section="profile")
+
+
+def _can_manage_admin_target(email):
+    """True unless the target is an ADMIN account and the caller isn't the super admin.
+
+    Clients are manageable by any admin; admin accounts are managed only by THE super admin."""
+    target = store.get_account(email)
+    if target and target.get("role") in ("admin", "superadmin"):
+        return is_root_admin()
+    return True
+
+
+def _can_manage_account(email, allow_self=True):
+    """Guard for account mutations: the target must exist, must not be THE super admin, and (unless
+    allow_self) must not be the logged-in user. Protects info@ from being locked out or removed."""
+    email_norm = (email or "").strip().lower()
+    if not email_norm:
+        return False
+    if email_norm == SUPER_ADMIN_EMAIL:
+        return False  # the super admin is managed only from their own Profile pane
+    target = store.get_account(email_norm)
+    if target is None:
+        return False
+    if target.get("role") == "superadmin":
+        return False
+    if not allow_self and email_norm == (current_user() or "").strip().lower():
+        return False
+    return True
 
 
 @app.route("/admin/atrium/<client>/logo", methods=["POST"])

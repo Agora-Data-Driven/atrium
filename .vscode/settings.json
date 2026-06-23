@@ -1,3 +1,12 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe"
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+
+  // The HTML files in this repo are Jinja templates: they embed `{{ ... }}` inside
+  // style="" attributes and `{% ... %}` inside <style>/<script> blocks. VS Code's
+  // built-in CSS/JS validators don't understand Jinja, so they report hundreds of
+  // false-positive "identifier expected" / "} expected" errors. The real JS gate is
+  // tools/_validate_dash_js.py (esprima), so turn off the embedded validators here.
+  "html.validate.styles": false,
+  "html.validate.scripts": false,
+  "css.validate": false
 }

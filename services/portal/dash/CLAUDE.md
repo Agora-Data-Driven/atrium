@@ -16,6 +16,14 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
 - **Sign-up + approval:** `GET/POST /signup` (Agora-branded `signup.html`) creates a **pending**
   client account; an admin approves it from `/admin/atrium` (`POST /admin/accounts/{approve,reject}`),
   which creates the client + blank workspace and activates the login. No public self-service access.
+- **Operator console (`/admin/atrium`, `admin_atrium.html`)** = a left **side panel** with panes:
+  Clients (cards + add) · Access requests · Accounts · Create account · Profile. Account management
+  routes (`/admin/accounts/{create-client,create-admin,set-password,reset-password,delete}` +
+  `/admin/profile/password`) are gated `is_superadmin()`; **admin-account** creation/management is
+  gated `is_root_admin()`. **Roles:** `client` < `admin` (clients `["*"]`) < `superadmin`. THE super
+  admin is `SUPER_ADMIN_EMAIL` (default `info@agoradatadriven.com`, env-overridable) or any account
+  with role `superadmin`; only they create/manage admin accounts and they can't be deleted from the
+  list. The no-password preview (`DEV_NOAUTH`) auto-signs in as `SUPER_ADMIN_EMAIL`.
 - **`templates/*.html`** — big self-contained pages. Inline JS must be **esprima-4.x-safe** (no `?.`
   / `??`; classic `&&`/`||`). No Jinja inside `<script>` — JS reads state from the DOM.
 - **`atrium_docs.py` / `feedback_ai.py`** — the opt-in Google-Doc → AI strategy feature (gated, degrades).
