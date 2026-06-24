@@ -75,13 +75,34 @@ def _record(client, icon, text):
 
 
 # --- client -> team -----------------------------------------------------------------------------
+def _changes_notify_on(client, user):
+    """True if `user` still wants change-request notifications (master + changes both on).
+
+    Best-effort: defaults to True if there is no user, no workspace, or the lookup fails, so a
+    missing pref never silently drops the notification. Lets the actor switch change-request
+    notifications off from Notification settings (the `changes` toggle)."""
+    if not user:
+        return True
+    try:
+        prefs = workspace.get_notify(workspace.load_workspace(client) or {}, user)
+        return bool(prefs.get("master") and prefs.get("changes"))
+    except Exception:
+        return True
+
+
 def client_decided(client, item, decision, user=None):
-    """A client approved or requested changes on a content piece. Notify the AGORA team."""
+    """A client approved or requested changes on a content piece. Notify the AGORA team.
+
+    'Approve' always notifies. A 'request changes' notification honours the actor's `changes`
+    toggle in Notification settings, so it can be switched off without touching anything else."""
     ref = item.get("ref") or item.get("id") or "a piece"
     if decision == "approved":
         text, icon = "You approved %s." % ref, "check"
         subject = "%s approved %s" % (client, ref)
     else:
+        if not _changes_notify_on(client, user):
+            _log("change request on %s suppressed by %s's notify prefs" % (ref, user or "client"))
+            return
         text, icon = "You requested changes on %s." % ref, "message"
         subject = "%s requested changes on %s" % (client, ref)
     _record(client, icon, text)

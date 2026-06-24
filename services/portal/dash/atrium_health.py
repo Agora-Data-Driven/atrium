@@ -212,7 +212,7 @@ def check_website(url, timeout=10, fetcher=None):
         result["issues"].append({"level": "error", "text": "No HTTP status was returned."})
     elif status >= 500:
         result["issues"].append(
-            {"level": "error", "text": "Server error — the site returned HTTP %s." % status}
+            {"level": "error", "text": "Server error - the site returned HTTP %s." % status}
         )
     elif status >= 400:
         result["issues"].append(
@@ -243,6 +243,6 @@ def check_website(url, timeout=10, fetcher=None):
             )
         if not result["issues"]:
             result["issues"].append(
-                {"level": "ok", "text": "Site is online and tags were detected — no problems found."}
+                {"level": "ok", "text": "Site is online and tags were detected - no problems found."}
             )
     return result

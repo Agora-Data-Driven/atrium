@@ -874,7 +874,8 @@ def atrium_save_notify(client):
     user = current_user()
     if not user:
         return Response('{"error":"no_user"}', status=400, mimetype="application/json")
-    prefs = {k: _bool_field(k) for k in ("master", "content", "replies", "summary", "status", "news")}
+    prefs = {k: _bool_field(k) for k in
+             ("master", "content", "changes", "replies", "summary", "status", "news")}
     freq = request.form.get("frequency", "instant")
     if freq in ("instant", "daily"):
         prefs["frequency"] = freq
@@ -1863,7 +1864,7 @@ def _account_view(account, name_by_key):
     elif keys:
         label = ", ".join(name_by_key.get(k, k) for k in keys)
     else:
-        label = "—"
+        label = "-"
     return {
         "email": account.get("email"),
         "name": account.get("name") or account.get("email"),

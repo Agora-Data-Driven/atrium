@@ -681,12 +681,18 @@ _INTEL_SECTIONS = [
 
 
 def intel_sections(ws):
-    """The Market Intelligence sections decorated with their entries (in stored order). Pure."""
+    """The Market Intelligence sections decorated with their entries, newest date first. Pure.
+
+    Entries sort by their `date` field descending (latest on top, oldest at the bottom); dateless
+    entries fall to the bottom. The sort is stable, so entries sharing a date keep their stored
+    (newest-added-first) order."""
     intel = ws.get("intel") or {}
     out = []
     for sec in _INTEL_SECTIONS:
         meta = dict(sec)
-        meta["entries"] = list(intel.get(sec["key"], []) or [])
+        entries = list(intel.get(sec["key"], []) or [])
+        entries.sort(key=lambda e: (e.get("date") or ""), reverse=True)
+        meta["entries"] = entries
         out.append(meta)
     return out
 
