@@ -487,10 +487,11 @@ def add_conversation(client, subject, status="awaiting_reply", conversation_id=N
 
 # --- Notification preferences (per logged-in user, keyed by email) ------------------------------
 def default_notify():
-    """Default notification prefs: on for master/content/replies/summary, off for status/news."""
+    """Default notification prefs: on for master/content/changes/replies/summary, off for status/news."""
     return {
         "master": True,
         "content": True,
+        "changes": True,
         "replies": True,
         "summary": True,
         "status": False,
@@ -725,6 +726,16 @@ def add_content(client, campaign_id, content):
             raise KeyError("no campaign '%s'" % campaign_id)
         item = dict(content or {})
         item.setdefault("id", _new_id("cnt"))
+        # The id drives EVERY per-piece DOM hook, route, and JS selector. The add route derives it
+        # from the human title (ref), so two pieces sharing a title would collide -- and a duplicate
+        # id makes the second piece impossible to open/edit (the modal/card selector always resolves
+        # to the FIRST match). Guarantee uniqueness across ALL campaigns, suffixing on a clash.
+        existing = {it.get("id") for c in ws.get("campaigns", []) for it in c.get("content", [])}
+        if item["id"] in existing:
+            base, n = item["id"], 2
+            while ("%s-%d" % (base, n)) in existing:
+                n += 1
+            item["id"] = "%s-%d" % (base, n)
         item.setdefault("ref", item["id"])
         item["status"] = "awaiting"
         item.setdefault("client_note", "")

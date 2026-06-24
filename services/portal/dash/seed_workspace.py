@@ -289,7 +289,7 @@ def riverdance_workspace():
                 {"id": "intel_br_3", "heading": "Competitor Watch",
                  "title": "Travellers keep shifting to experience-based vacations",
                  "body": "National parks, camping, and adventure tourism remain strong demand "
-                         "drivers — a tailwind for Colorado RV rentals.",
+                         "drivers - a tailwind for Colorado RV rentals.",
                  "source": "Research and Markets", "link": "", "date": "2026-06-23"},
             ],
             "media_buying": [
