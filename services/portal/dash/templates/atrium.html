@@ -76,6 +76,36 @@
 {%- else -%}<a class="ax-shot-media ax-shot-file" href="{{ s.url }}?dl=1" target="_blank" rel="noopener noreferrer" download title="Download {{ s.name or 'file' }}">{{ ic('file') }}<span class="ax-shot-file-name">{{ s.name or 'Download file' }}</span></a>
 {%- endif -%}
 {%- endmacro %}
+{#- Brand glyph for a marketing platform (inline, self-contained, brand-coloured). An unknown name
+   (e.g. a hand-typed "Email") gets a neutral violet dot so a custom platform still shows an icon. -#}
+{% macro plat_ic(name) -%}
+{%- set n = (name or '')|lower -%}
+{%- if 'facebook' in n -%}<svg class="ax-plat-ic" viewBox="0 0 24 24" fill="#1877F2" aria-hidden="true"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+{%- elif 'instagram' in n -%}<svg class="ax-plat-ic" viewBox="0 0 24 24" fill="#E4405F" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.012-3.584.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+{%- elif 'google' in n -%}<svg class="ax-plat-ic" viewBox="0 0 24 24" fill="#4285F4" aria-hidden="true"><path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"/></svg>
+{%- elif 'tiktok' in n -%}<svg class="ax-plat-ic" viewBox="0 0 24 24" fill="#010101" aria-hidden="true"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
+{%- elif 'youtube' in n -%}<svg class="ax-plat-ic" viewBox="0 0 24 24" fill="#FF0000" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+{%- elif 'linkedin' in n -%}<svg class="ax-plat-ic" viewBox="0 0 24 24" fill="#0A66C2" aria-hidden="true"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+{%- elif n.startswith('x') or 'twitter' in n -%}<svg class="ax-plat-ic" viewBox="0 0 24 24" fill="#000000" aria-hidden="true"><path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></svg>
+{%- else -%}<svg class="ax-plat-ic" viewBox="0 0 24 24" fill="#9484FB" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>
+{%- endif -%}
+{%- endmacro %}
+{#- Icon-chip multi-select for platforms: click a chip to toggle it (no Ctrl needed). A hidden input
+   carries the " . "-joined value that fieldsFrom reads; `attr` is the data-attr name (data-nc/data-cf). -#}
+{% set ALL_PLATS = ['Facebook','Instagram','Google','TikTok','YouTube','LinkedIn','X (Twitter)'] %}
+{% macro plat_picker(attr, current) -%}
+{%- set _sel = (current.split(' · ') if current else []) -%}
+<div class="ax-platpick" data-platgroup>
+  <input type="hidden" {{ attr }}="platform" value="{{ current|default('', true) }}">
+  {% for pl in ALL_PLATS %}<button type="button" class="ax-platchip{{ ' on' if pl in _sel else '' }}" data-plat="{{ pl }}" aria-pressed="{{ 'true' if pl in _sel else 'false' }}">{{ plat_ic(pl) }}<span>{{ pl }}</span></button>{% endfor %}
+  {%- for x in _sel %}{%- if x and x not in ALL_PLATS %}<button type="button" class="ax-platchip on" data-plat="{{ x }}" aria-pressed="true">{{ plat_ic(x) }}<span>{{ x }}</span></button>{%- endif %}{%- endfor %}
+</div>
+{%- endmacro %}
+{#- Render the selected platforms as read-only icon+label chips for a content card's tag row. -#}
+{% macro plat_tags(current) -%}
+{%- set _sel = (current.split(' · ') if current else []) -%}
+{%- for x in _sel %}{%- if x %}<span class="ax-platone">{{ plat_ic(x) }}<span>{{ x }}</span></span>{%- endif %}{%- endfor %}
+{%- endmacro %}
 {% set tab_titles = {'overview':'Overview','dashboard':'Dashboard','leadgen':'Lead Generation','organic':'Organic Content','calendar':'Content Calendar','conversations':'Client Communications','intel':'Market Intelligence','settings':'Notification settings','website-health':'Website Health'} %}
 <!doctype html>
 <html lang="en">
@@ -881,12 +911,22 @@
     .ax-camp-tools .ax-btn.danger:hover, [data-contenttools] .ax-btn.danger:hover, .ax-pane-tools .ax-btn.danger:hover { background: rgba(229,65,62,.08); border-color: var(--ax-bad); color: var(--ax-bad); }
     .ax-editbox { width: 100%; font: inherit; font-size: 13.5px; padding: 9px 11px; border: 1px solid var(--ax-violet); border-radius: 9px; background: #fbfbff; outline: none; margin-bottom: 8px; }
     textarea.ax-editbox { min-height: 60px; resize: vertical; }
-    /* Multi-select platform list: a compact bordered listbox (height auto-fits its options) whose
-       chosen rows take the brand violet, so several platforms can be picked at once. */
-    select.ax-multi { padding: 4px; height: auto; cursor: pointer; align-self: start; overflow-y: auto; }
-    select.ax-multi option { padding: 5px 8px; border-radius: 6px; }
-    select.ax-multi option:checked { background: var(--ax-violet) linear-gradient(0deg, var(--ax-violet), var(--ax-violet)); color: #fff; font-weight: 700; }
-    .ax-multi-hint { margin: -2px 0 8px; font-size: 11.5px; color: var(--ax-sub); }
+    /* Platform picker: a row of icon chips, click to toggle (multi-select, no Ctrl). A selected chip
+       takes the brand violet; the brand glyph keeps its own colour. */
+    .ax-platfield { margin-bottom: 8px; }
+    .ax-platfield-lab { display: block; font-size: 11.5px; font-weight: 700; color: var(--ax-sub); margin: 2px 0 6px; }
+    .ax-platpick { display: flex; flex-wrap: wrap; gap: 7px; }
+    .ax-platchip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 9px; border: 1.5px solid var(--ax-line);
+                   border-radius: var(--ax-pill); background: #fff; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 700;
+                   color: var(--ax-sub); transition: border-color .12s ease, background .12s ease, color .12s ease, box-shadow .12s ease; }
+    .ax-platchip:hover { border-color: var(--ax-violet); background: var(--ax-violet-bg); }
+    .ax-platchip.on { border-color: var(--ax-violet-d); background: var(--ax-violet-bg); color: var(--ax-ink); box-shadow: inset 0 0 0 1px var(--ax-violet); }
+    .ax-plat-ic { width: 16px; height: 16px; display: block; flex: 0 0 auto; }
+    /* Read-only platform chips shown on a content card's tag row. */
+    .ax-plattags { display: inline-flex; flex-wrap: wrap; gap: 6px; vertical-align: middle; }
+    .ax-platone { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px 3px 7px; border-radius: var(--ax-pill);
+                  background: var(--ax-canvas); border: 1px solid var(--ax-line); font-size: 12px; font-weight: 700; color: var(--ax-charcoal); }
+    .ax-platone .ax-plat-ic { width: 14px; height: 14px; }
     .ax-editrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .ax-edit-hidden { display: none; }
     .ax-strat-doc { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0 0; padding: 12px; background: var(--ax-canvas); border: 1px solid var(--ax-line); border-radius: 12px; }
@@ -1084,6 +1124,9 @@
 </head>
 <body>
 <div class="atrium" data-base="/w/{{ view.client }}" data-tab="{{ view.active_tab }}"{% if is_superadmin %} data-admin="1" data-adminname="{{ admin_name }}"{% endif %}>
+  {#- Hidden brand-glyph library: the in-place platform-tag rebuild (rebuildPlatformTags) clones from
+     here, so no SVG markup is duplicated into the script block. -#}
+  <div id="ax-plat-iconlib" hidden aria-hidden="true">{% for pl in ALL_PLATS %}<span data-plat="{{ pl }}">{{ plat_ic(pl) }}</span>{% endfor %}</div>
   <div class="ax-app">
 
     <!-- Sidebar -->
@@ -1668,7 +1711,7 @@
               <div class="ax-content-main">
                 <div class="ax-tagrow">
                   <span class="ax-tag plain" data-fld="type_tag">{{ p.type_tag }}</span>
-                  <span class="ax-tag plain" data-fld="platform">{{ p.platform }}</span>
+                  <span class="ax-plattags" data-fld="platform">{{ plat_tags(p.platform) }}</span>
                   <span class="ax-tag {{ chan }}">{{ 'Paid / Lead Generation' if chan=='paid' else 'Organic' }}</span>
                   <span class="ax-status {{ p.status }}" data-statuspill>{{ 'Changes requested' if p.status=='changes' else p.status }}</span>
                 </div>
@@ -1749,7 +1792,7 @@
                 <button class="ax-modal-x" type="button" data-modalclose aria-label="Close">&times;</button>
                 <div data-contentform="{{ p.id }}">
                   <h3>Edit details</h3>
-                  <div class="ax-editrow" style="grid-template-columns:1fr 1fr 1fr">
+                  <div class="ax-editrow">
                     <input class="ax-editbox" data-cf="ref" value="{{ p.ref }}" placeholder="Title">
                     {% set types = content_types %}
                     <select class="ax-editbox" data-cf="type_tag">
@@ -1757,14 +1800,11 @@
                       {% if p.type_tag and p.type_tag not in types %}<option value="{{ p.type_tag }}" selected>{{ p.type_tag }}</option>{% endif %}
                       {% for t in types %}<option value="{{ t }}"{% if p.type_tag == t %} selected{% endif %}>{{ t }}</option>{% endfor %}
                     </select>
-                    {% set plats = ['Facebook','Instagram','Google','TikTok','YouTube','LinkedIn','X (Twitter)'] %}
-                    {% set sel = (p.platform.split(' · ') if p.platform else []) %}
-                    <select class="ax-editbox ax-multi" data-cf="platform" multiple size="7" aria-label="Platform (pick one or more)">
-                      {% for x in sel %}{% if x and x not in plats %}<option value="{{ x }}" selected>{{ x }}</option>{% endif %}{% endfor %}
-                      {% for pl in plats %}<option value="{{ pl }}"{% if pl in sel %} selected{% endif %}>{{ pl }}</option>{% endfor %}
-                    </select>
                   </div>
-                  <p class="ax-multi-hint">Platform &mdash; tap to pick one or more (Ctrl / &#8984;-click to select several).</p>
+                  <div class="ax-platfield">
+                    <span class="ax-platfield-lab">Platform &mdash; tap to pick one or more</span>
+                    {{ plat_picker('data-cf', p.platform|default('', true)) }}
+                  </div>
                   <textarea class="ax-editbox" data-cf="caption" placeholder="Description">{{ p.caption }}</textarea>
                   <textarea class="ax-editbox" data-cf="social_caption" placeholder="Caption">{{ p.social_caption|default('', true) }}</textarea>
                   <div class="ax-newdate">
@@ -1788,23 +1828,17 @@
                 <button class="ax-modal-x" type="button" data-modalclose aria-label="Close">&times;</button>
                 <div class="ax-addpanel" data-addcontent="{{ c.id }}" style="border:0;background:transparent;padding:0;margin:0">
               <h3>Add content to {{ c.name }}</h3>
-              <div class="ax-editrow" style="grid-template-columns:1fr 1fr 1fr">
+              <div class="ax-editrow">
                 <input class="ax-editbox" data-nc="ref" placeholder="Title (e.g. Launch teaser)">
                 <select class="ax-editbox" data-nc="type_tag">
                   <option value="" disabled selected hidden>Type (e.g. Static Post)</option>
                   {% for t in content_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
                 </select>
-                <select class="ax-editbox ax-multi" data-nc="platform" multiple size="7" aria-label="Platform (pick one or more)">
-                  <option value="Facebook">Facebook</option>
-                  <option value="Instagram">Instagram</option>
-                  <option value="Google">Google</option>
-                  <option value="TikTok">TikTok</option>
-                  <option value="YouTube">YouTube</option>
-                  <option value="LinkedIn">LinkedIn</option>
-                  <option value="X (Twitter)">X (Twitter)</option>
-                </select>
               </div>
-              <p class="ax-multi-hint">Platform &mdash; tap to pick one or more (Ctrl / &#8984;-click to select several).</p>
+              <div class="ax-platfield">
+                <span class="ax-platfield-lab">Platform &mdash; tap to pick one or more</span>
+                {{ plat_picker('data-nc', '') }}
+              </div>
               <textarea class="ax-editbox" data-nc="caption" placeholder="Description"></textarea>
               <textarea class="ax-editbox" data-nc="social_caption" placeholder="Caption"></textarea>
               <input class="ax-editbox" data-nc="video_url" placeholder="Video link (optional) - paste an .mp4 or YouTube/Vimeo URL">
@@ -3380,18 +3414,7 @@
   if (isAdmin) {
     function fieldsFrom(scope, attr, into) {
       var out = into || {};
-      qsa("[" + attr + "]", scope).forEach(function (el) {
-        // A <select multiple> reports only the FIRST selection via .value, so gather every selected
-        // option and join with " . " -- the same separator the backend/seed already store (e.g.
-        // "Instagram . Facebook"). Single inputs/selects fall through to .value unchanged.
-        if (el.multiple && el.options) {
-          var vals = [];
-          for (var i = 0; i < el.options.length; i++) { if (el.options[i].selected) { vals.push(el.options[i].value); } }
-          out[el.getAttribute(attr)] = vals.join(" · ");
-        } else {
-          out[el.getAttribute(attr)] = el.value;
-        }
-      });
+      qsa("[" + attr + "]", scope).forEach(function (el) { out[el.getAttribute(attr)] = el.value; });
       return out;
     }
     function toggleHidden(el) { if (el) { el.classList.toggle("ax-edit-hidden"); } }
@@ -3451,15 +3474,57 @@
     // is handled by the shared [data-modalopen]/[data-modalclose] machinery.)
     // Update the visible card from the saved content dict -- in place, so the page never reloads,
     // scrolls, or closes the card. Each editable field is mirrored into the DOM via [data-fld].
+    // Rebuild a card's platform tag-row from the joined " . "-separated value, cloning each brand
+    // glyph from the hidden #ax-plat-iconlib (so no SVG markup is duplicated into this script).
+    function rebuildPlatformTags(scope, joined) {
+      var box = scope.querySelector('[data-fld="platform"]');
+      if (!box) { return; }
+      var lib = document.getElementById("ax-plat-iconlib");
+      var names = joined ? joined.split(" · ") : [];
+      box.innerHTML = "";
+      names.forEach(function (raw) {
+        var nm = raw.replace(/^\s+|\s+$/g, "");
+        if (!nm) { return; }
+        var one = document.createElement("span");
+        one.className = "ax-platone";
+        var src = lib ? lib.querySelector('[data-plat="' + aq(nm) + '"] svg') : null;
+        if (src) { one.appendChild(src.cloneNode(true)); }
+        var lab = document.createElement("span");
+        lab.textContent = nm;
+        one.appendChild(lab);
+        box.appendChild(one);
+      });
+    }
     function applyContentEdit(id, c) {
       var card = document.querySelector('[data-content="' + aq(id) + '"]');
       if (!card) { return false; }
-      ["ref", "type_tag", "platform", "caption", "social_caption"].forEach(function (f) {
+      ["ref", "type_tag", "caption", "social_caption"].forEach(function (f) {
         qsa('[data-fld="' + f + '"]', card).forEach(function (el) { el.textContent = c[f] || ""; });
       });
+      rebuildPlatformTags(card, c.platform || "");
       card.setAttribute("data-type", c.type_tag || "");
       return true;
     }
+    // Platform multi-pick: click an icon chip to toggle it (no Ctrl). The hidden input keeps the
+    // " . "-joined value that fieldsFrom reads on save.
+    qsa("[data-platgroup]").forEach(function (group) {
+      var hidden = group.querySelector('input[type="hidden"]');
+      function recompute() {
+        if (!hidden) { return; }
+        var vals = [];
+        qsa(".ax-platchip", group).forEach(function (chip) {
+          if (chip.classList.contains("on")) { vals.push(chip.getAttribute("data-plat")); }
+        });
+        hidden.value = vals.join(" · ");
+      }
+      qsa(".ax-platchip", group).forEach(function (chip) {
+        chip.addEventListener("click", function () {
+          var on = chip.classList.toggle("on");
+          chip.setAttribute("aria-pressed", on ? "true" : "false");
+          recompute();
+        });
+      });
+    });
     qsa("[data-contentsave]").forEach(function (btn) {
       var id = btn.getAttribute("data-contentsave");
       var form = document.querySelector('[data-contentform="' + aq(id) + '"]');
