@@ -246,7 +246,7 @@
       </nav>
       <div class="side-foot">
         {% if user %}<div class="who">Signed in as<br><b>{{ user }}</b></div>{% endif %}
-        <a class="pill logout" href="/logout">Log out</a>
+        <a class="pill logout" href="/logout" data-signout>Sign out</a>
       </div>
     </aside>
 
@@ -511,6 +511,7 @@
           <p class="meta" style="margin-top:14px">You're the super admin &mdash; you can create and manage
             admin accounts, and your account can't be deleted from the Accounts list.</p>
           {% endif %}
+          <a class="btn small" href="/profile" style="display:inline-block;text-decoration:none;margin-top:14px">Edit profile &amp; upload photo &rarr;</a>
         </div>
 
         <h2 class="section">Change your password</h2>
@@ -586,6 +587,12 @@
           var email = this.getAttribute("data-acct") || "this account";
           if (!window.confirm("Reset the password for " + email + "?\n\nA new password is generated and "
             + "shown to you so you can pass it on.")) { e.preventDefault(); }
+        });
+      });
+      // Confirm before signing out.
+      qsa("[data-signout]").forEach(function (el) {
+        el.addEventListener("click", function (ev) {
+          if (!window.confirm("Are you sure you want to sign out?")) { ev.preventDefault(); }
         });
       });
     })();

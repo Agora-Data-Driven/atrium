@@ -155,7 +155,7 @@
     .ax-ic { width: 20px; height: 20px; display: block; }
 
     /* App shell */
-    .ax-app { display: grid; grid-template-columns: 256px 1fr; min-height: 100vh; }
+    .ax-app { display: grid; grid-template-columns: 256px 1fr; min-height: 100vh; transition: grid-template-columns .3s ease; }
     .ax-side {
       background: linear-gradient(180deg, #FFFFFF 0%, #FCFCFE 100%);
       border-right: 1px solid var(--ax-line);
@@ -198,6 +198,7 @@
       width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 1px solid var(--ax-line);
       background: var(--ax-white); color: var(--ax-sub); box-shadow: 0 6px 16px rgba(16,24,40,.16);
       display: grid; place-items: center; cursor: pointer;
+      transition: left .3s ease, color .12s, border-color .12s;
     }
     #ax-navtoggle:hover { color: var(--ax-ink); border-color: #d6d8e0; }
     .atrium.nav-collapsed #ax-navtoggle { left: 68px; }
@@ -246,8 +247,9 @@
     .ax-iconbtn .ax-bdot { position: absolute; top: 8px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--ax-warn); border: 2px solid var(--ax-white); }
     .ax-avatar {
       width: 38px; height: 38px; border-radius: var(--ax-pill); display: grid; place-items: center;
-      background: var(--ax-violet-d); color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; border: 0;
+      background: var(--ax-violet-d); color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; border: 0; overflow: hidden;
     }
+    .ax-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
     /* Header dropdown menus (notifications + profile). */
     .ax-menuwrap { position: relative; display: inline-flex; }
     .ax-menu {
@@ -1234,11 +1236,12 @@
 
           <!-- Profile: the avatar opens a small account menu instead of jumping to settings. -->
           <div class="ax-menuwrap">
-            <button class="ax-avatar" type="button" id="ax-avatarbtn" title="{{ user }}" aria-haspopup="true" aria-expanded="false">{{ view.initials }}</button>
+            <button class="ax-avatar" type="button" id="ax-avatarbtn" title="{{ user }}" aria-haspopup="true" aria-expanded="false">{% if profile_photo %}<img class="ax-avatar-img" src="{{ profile_photo }}" alt="">{% else %}{{ view.initials }}{% endif %}</button>
             <div class="ax-menu ax-menu-r" id="ax-avatarmenu" hidden>
               <div class="ax-menu-h">{{ user }}</div>
               <div class="ax-menu-s2">{{ 'Super administrator' if is_superadmin else 'Client workspace' }}</div>
-              <a class="ax-menu-item ax-menu-link" href="/logout">Sign out</a>
+              <a class="ax-menu-item" href="/profile">Profile</a>
+              <a class="ax-menu-item ax-menu-link" href="/logout" data-signout>Sign out</a>
             </div>
           </div>
 
@@ -2539,6 +2542,12 @@
   setupMenu("ax-avatarbtn", "ax-avatarmenu");
   document.addEventListener("click", function () {
     qsa(".ax-menu").forEach(function (m) { m.hidden = true; });
+  });
+  // Confirm before signing out (every Sign out link).
+  qsa("[data-signout]").forEach(function (el) {
+    el.addEventListener("click", function (ev) {
+      if (!window.confirm("Are you sure you want to sign out?")) { ev.preventDefault(); }
+    });
   });
   window.addEventListener("popstate", function () {
     var parts = window.location.pathname.split("/");
