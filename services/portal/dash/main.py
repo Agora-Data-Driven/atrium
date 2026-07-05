@@ -191,6 +191,24 @@ def _establish_session(email, granted):
     session["clients"] = granted
 
 
+def _safe_next(next_url):
+    """Return next_url iff it's safe to redirect to (anti open-redirect): a same-origin relative path,
+    or an http(s) URL within *.agoradatadriven.com. Otherwise None (caller falls back)."""
+    if not next_url:
+        return None
+    if next_url.startswith("/") and not next_url.startswith("//"):
+        return next_url  # same-origin relative path
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(next_url)
+        host = (u.hostname or "").lower()
+        if u.scheme in ("http", "https") and (host == "agoradatadriven.com" or host.endswith(".agoradatadriven.com")):
+            return next_url
+    except Exception:
+        pass
+    return None
+
+
 def _mint_sso_on(resp, granted, subject):
     """Attach the shared .agoradatadriven.com SSO cookie to `resp` (so dashboards + the website editor
     trust this login additively). No-op when SSO_SECRET is unset, so a missing key never breaks login."""
@@ -574,7 +592,10 @@ def signup():
 @app.route("/logout", methods=["GET"])
 def logout():
     session.clear()
-    resp = redirect(url_for("login"))
+    # Honor ?next= so logging out from the marketing site (or a dashboard) returns there instead of
+    # the portal login page. Guarded to same-origin paths + *.agoradatadriven.com to avoid an open
+    # redirect; anything else falls back to the login page.
+    resp = redirect(_safe_next(request.values.get("next", "")) or url_for("login"))
     # Clear the shared SSO cookie too (expire it on the same domain it was set).
     resp.set_cookie(
         platform_sso.COOKIE_NAME, "", domain=COOKIE_DOMAIN,
