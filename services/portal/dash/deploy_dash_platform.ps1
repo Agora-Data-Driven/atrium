@@ -44,6 +44,18 @@ $GTM_CONTAINER_ID = "GTM-KKWX37RG"
 $SESSION_SECRET = "platform-dash-session-key"
 $SSO_SECRET     = "platform-sso-key"
 
+# The public origin the portal is served on -- used to build the Google OAuth redirect URI.
+$PORTAL_BASE_URL = "https://portal.agoradatadriven.com"
+
+# Google Sign-In (OPT-IN). These Secret Manager secrets are mounted ONLY when they exist, so a
+# default deploy (before you create them) is unaffected -- the login page simply hides the Google
+# button. Create them once (paste the OAuth client from Google Cloud Console -> Credentials):
+#   "PASTE_CLIENT_ID"     | gcloud secrets create google-oauth-client-id     --data-file=- --project=agora-data-driven
+#   "PASTE_CLIENT_SECRET" | gcloud secrets create google-oauth-client-secret --data-file=- --project=agora-data-driven
+# then grant the web SA access to each (roles/secretmanager.secretAccessor) and redeploy.
+$OAUTH_ID_SECRET     = "google-oauth-client-id"
+$OAUTH_SECRET_SECRET = "google-oauth-client-secret"
+
 # This script stays on the default $ErrorActionPreference = "Continue": gcloud writes
 # ordinary progress to stderr, and under "Stop" PowerShell wraps that stderr as a
 # terminating NativeCommandError and aborts mid-script EVEN ON SUCCESS. We gate on
@@ -96,8 +108,22 @@ if (-not $SkipBuild) {
 #   process, and the private registry JSON is only ever read behind the portal login.
 # =============================================================================
 # Assemble the env-var list; only ship GTM_CONTAINER_ID when it's set (empty -> GTM stays off).
-$ENV_VARS = "COOKIE_DOMAIN=$COOKIE_DOMAIN,REGISTRY_BUCKET=$BUCKET,REGISTRY_OBJECT=platform.json"
+$ENV_VARS = "COOKIE_DOMAIN=$COOKIE_DOMAIN,REGISTRY_BUCKET=$BUCKET,REGISTRY_OBJECT=platform.json,PORTAL_BASE_URL=$PORTAL_BASE_URL"
 if (-not [string]::IsNullOrWhiteSpace($GTM_CONTAINER_ID)) { $ENV_VARS += ",GTM_CONTAINER_ID=$GTM_CONTAINER_ID" }
+
+# Assemble the secret list. Google sign-in secrets are appended ONLY if they exist (opt-in), so a
+# default deploy still works before they're created and the login page just hides the Google button.
+$SECRETS = "SESSION_SECRET=${SESSION_SECRET}:latest,SSO_SECRET=${SSO_SECRET}:latest"
+function Test-SecretExists([string]$name) {
+    gcloud secrets describe $name --project=$PROJECT 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+if ((Test-SecretExists $OAUTH_ID_SECRET) -and (Test-SecretExists $OAUTH_SECRET_SECRET)) {
+    $SECRETS += ",GOOGLE_OAUTH_CLIENT_ID=${OAUTH_ID_SECRET}:latest,GOOGLE_OAUTH_CLIENT_SECRET=${OAUTH_SECRET_SECRET}:latest"
+    Write-Host "[OK] Google sign-in secrets found -- mounting them (the Google button turns ON)" -ForegroundColor Green
+} else {
+    Write-Host "[..] Google sign-in secrets absent -- deploying WITHOUT them (button stays off)" -ForegroundColor Yellow
+}
 
 Write-Host "[..] Deploying Cloud Run service $PLATFORM" -ForegroundColor Cyan
 gcloud run deploy $PLATFORM `
@@ -107,6 +133,6 @@ gcloud run deploy $PLATFORM `
     --service-account $WEB_SA `
     --no-invoker-iam-check `
     --update-env-vars $ENV_VARS `
-    --update-secrets "SESSION_SECRET=${SESSION_SECRET}:latest,SSO_SECRET=${SSO_SECRET}:latest"
+    --update-secrets $SECRETS
 Must "deploy Cloud Run service $PLATFORM"
 Write-Host "[OK] deployed $PLATFORM (tag $SHA)" -ForegroundColor Green

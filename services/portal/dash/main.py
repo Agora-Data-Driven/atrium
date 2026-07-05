@@ -45,6 +45,7 @@ import atrium_docs
 import atrium_view
 import audit
 import brand
+import google_oauth
 import notify
 import platform_sso
 import store
@@ -65,6 +66,15 @@ SSO_SECRET = os.environ.get("SSO_SECRET", "")
 COOKIE_DOMAIN = os.environ.get("COOKIE_DOMAIN", platform_sso.COOKIE_DOMAIN)
 # REGION is needed to address the upstream Cloud Run dashboards (set by enable_super_admin.ps1).
 REGION = os.environ.get("REGION", "asia-southeast1")
+
+# The admin "Apps" launcher deep-links (task 3): opening the portal as an admin unlocks Atrium admin,
+# Skill Mastery, and the Website editor. These are env-overridable so a deploy can point at the real
+# hosts; the defaults are the current production URLs. Skill Mastery moves behind a
+# *.agoradatadriven.com custom domain (so the shared SSO cookie reaches it) in its own phase; until
+# then this is the run.app URL.
+SKILL_MASTERY_URL = os.environ.get(
+    "SKILL_MASTERY_URL", "https://mastery-engine-c732u7m57a-uc.a.run.app")
+WEBSITE_EDITOR_URL = os.environ.get("WEBSITE_EDITOR_URL", "https://agoradatadriven.com/?edit=1")
 
 app = Flask(__name__)
 app.secret_key = SESSION_SECRET
@@ -166,6 +176,34 @@ def current_account():
     return store.get_account(user) if user else None
 
 
+def _impersonator():
+    """THE super admin's real email while they're 'acting as' another user, else None.
+
+    Set by /admin/impersonate and cleared by /admin/stop-impersonating. Its presence is what lets a
+    templated banner offer 'Stop acting as' from anywhere the impersonated session lands."""
+    return session.get("impersonator")
+
+
+def _establish_session(email, granted):
+    """Establish (or replace) the portal session for `email` with the `granted` client keys."""
+    session["ok"] = True
+    session["user"] = email
+    session["clients"] = granted
+
+
+def _mint_sso_on(resp, granted, subject):
+    """Attach the shared .agoradatadriven.com SSO cookie to `resp` (so dashboards + the website editor
+    trust this login additively). No-op when SSO_SECRET is unset, so a missing key never breaks login."""
+    if SSO_SECRET:
+        cookie_value = platform_sso.mint_sso_cookie(SSO_SECRET, granted, subject=subject)
+        resp.set_cookie(
+            platform_sso.COOKIE_NAME, cookie_value, domain=COOKIE_DOMAIN,
+            secure=True, httponly=True, samesite="None",
+            max_age=platform_sso.DEFAULT_TTL_SECONDS,
+        )
+    return resp
+
+
 def is_root_admin():
     """True iff this session is THE super admin -- may manage admin accounts.
 
@@ -178,6 +216,15 @@ def is_root_admin():
         return True
     acct = current_account()
     return bool(acct and acct.get("role") == "superadmin")
+
+
+def _resolve_login_email(email):
+    """Client keys a VERIFIED email may open, or None if there's no active account for it.
+
+    Used by the Google sign-in callback and by 'stop impersonating' to re-derive a real identity's
+    grant. THE super admin (SUPER_ADMIN_EMAIL) always resolves to "*"; everyone else is looked up in
+    the accounts registry (active only). None means "no account yet" -> route to request-access."""
+    return store.resolve_google_login(email, super_admin_email=SUPER_ADMIN_EMAIL)
 
 
 def _actor_role():
@@ -288,6 +335,26 @@ def _inject_head(resp):
         body = _GTM_BODY.replace("__GTM_ID__", gtm_id)
         html = re.sub(r"<body[^>]*>", lambda m: m.group(0) + body, html, count=1, flags=re.IGNORECASE)
 
+    # Impersonation banner: while THE super admin is "acting as" another user, every page gets a
+    # fixed escape-hatch bar (injected here so it reaches even the huge atrium.html without touching
+    # it). It's pure HTML -- a GET link to /admin/stop-impersonating -- so no JS gate is involved.
+    imp = _impersonator()
+    if imp:
+        from markupsafe import escape as _esc  # bundled with Flask/Jinja
+        acting = str(_esc(current_user() or ""))
+        real = str(_esc(imp))
+        banner = (
+            '<div style="position:fixed;left:0;right:0;bottom:0;z-index:2147483646;display:flex;'
+            'gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;background:#1856C9;'
+            "color:#fff;padding:9px 14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',"
+            'Roboto,Arial,sans-serif;font-size:13px;box-shadow:0 -4px 14px rgba(16,24,40,.18);">'
+            '<span>Acting as <b>%s</b> &middot; signed in as <b>%s</b></span>'
+            '<a href="/admin/stop-impersonating" style="background:#fff;color:#1856C9;'
+            'text-decoration:none;font-weight:800;border-radius:999px;padding:5px 13px;'
+            'font-size:12px;">Stop acting as</a></div>'
+        ) % (acting, real)
+        html = re.sub(r"<body[^>]*>", lambda m: m.group(0) + banner, html, count=1, flags=re.IGNORECASE)
+
     resp.set_data(html)
     return resp
 
@@ -307,7 +374,8 @@ def _brand_ctx():
     The deployed container only bundles dash/, so the mark lives in brand.py rather than being read
     from assets/ at runtime; this keeps the portal/login chrome in step with the Atrium sidebar.
     """
-    return {"agora_logo": brand.AGORA_LOGO_LIGHT, "favicon": brand.FAVICON_DATA_URI}
+    return {"agora_logo": brand.AGORA_LOGO_LIGHT, "favicon": brand.FAVICON_DATA_URI,
+            "impersonating": _impersonator(), "google_enabled": google_oauth.is_configured()}
 
 
 def _post_login_destination(granted, next_url):
@@ -379,27 +447,84 @@ def login():
         return render_template("login.html", next=next_url, email=email,
                                error="Incorrect email or password.", **_brand_ctx()), 401
 
-    # Establish the portal session.
-    session["ok"] = True
-    session["user"] = email
-    session["clients"] = granted
-
+    # Establish the portal session + mint the shared SSO cookie so the dashboards and the website
+    # editor trust this login additively (a missing SSO_SECRET just makes the cookie inert).
+    _establish_session(email, granted)
     resp = redirect(_post_login_destination(granted, next_url))
-    # Mint the shared SSO cookie so the dashboards trust this portal login additively. Only do this
-    # when the signing key is configured; without it SSO is simply inert (the dashboards' own
-    # password gate still works), so a missing key must never break portal login.
-    if SSO_SECRET:
-        cookie_value = platform_sso.mint_sso_cookie(SSO_SECRET, granted, subject=email)
-        resp.set_cookie(
-            platform_sso.COOKIE_NAME,
-            cookie_value,
-            domain=COOKIE_DOMAIN,
-            secure=True,
-            httponly=True,
-            samesite="None",
-            max_age=platform_sso.DEFAULT_TTL_SECONDS,
-        )
-    return resp
+    return _mint_sso_on(resp, granted, email)
+
+
+# --- Google Sign-In (central: the portal is the ONLY app that runs the OAuth flow) ----------------
+@app.route("/auth/google/login", methods=["GET"])
+def google_login():
+    """Kick off the Google OAuth flow: stash a CSRF state + the post-login destination, then redirect
+    to Google's consent screen. If Google sign-in isn't configured, fall back to the password login."""
+    if not google_oauth.is_configured():
+        return redirect(url_for("login"))
+    next_url = request.args.get("next", "/")
+    state = google_oauth.new_state()
+    session["oauth_state"] = state
+    session["oauth_next"] = next_url or "/"
+    return redirect(google_oauth.auth_url(state, google_oauth.redirect_uri()))
+
+
+@app.route("/auth/google/callback", methods=["GET"])
+def google_callback():
+    """Handle Google's redirect: verify state, exchange the code for a verified email, then log in.
+
+    An email with an ACTIVE account (or THE super admin) is signed in exactly like a password login.
+    An unknown/pending email is routed to the request-access page so they can ask an admin for access.
+    """
+    if not google_oauth.is_configured():
+        return redirect(url_for("login"))
+    if request.args.get("error"):
+        return render_template("login.html", next="/",
+                               error="Google sign-in was cancelled.", **_brand_ctx()), 401
+    state = request.args.get("state", "")
+    if not state or state != session.pop("oauth_state", None):
+        return render_template("login.html", next="/",
+                               error="Your sign-in link expired. Please try again.", **_brand_ctx()), 400
+    email, oerr = google_oauth.exchange_code(request.args.get("code", ""),
+                                             google_oauth.redirect_uri())
+    if not email:
+        return render_template("login.html", next="/",
+                               error="Could not complete Google sign-in. Please try again.",
+                               **_brand_ctx()), 400
+    next_url = session.pop("oauth_next", "/") or "/"
+    granted = _resolve_login_email(email)
+    if not granted:
+        # No active account yet -> let them file a request an admin approves in the console.
+        pending = store.get_account(email)
+        return render_template("request_access.html", email=email, next=next_url, sent=False,
+                               pending=(pending is not None and pending.get("status") == "pending"),
+                               **_brand_ctx())
+    _establish_session(email, granted)
+    resp = redirect(_post_login_destination(granted, next_url))
+    return _mint_sso_on(resp, granted, email)
+
+
+@app.route("/auth/request-access", methods=["POST"])
+def request_access():
+    """File a passwordless access request (from the Google-sign-in dead-end). Lands in the console's
+    Access requests tab for an admin to approve + assign to a client or a role."""
+    email = (request.form.get("email", "") or "").strip().lower()
+    domain = email.split("@")[-1] if "@" in email else ""
+    if "@" not in email or "." not in domain:
+        return render_template("request_access.html", email=email, sent=False,
+                               error="Please enter a valid email address.", **_brand_ctx()), 400
+    existing = store.get_account(email)
+    if existing and existing.get("status") == "active":
+        # Already has access -- don't downgrade them; just tell them to sign in.
+        return render_template("request_access.html", email=email, sent=True, already=True, **_brand_ctx())
+    name = (request.form.get("name", "") or "").strip() or email.split("@")[0]
+    message = (request.form.get("message", "") or "").strip()
+    store.upsert_google_account(email, name=name, role="client", clients=[], status="pending",
+                                message=message, requested_name=name)
+    try:
+        notify.signup_requested(name, email)
+    except Exception:
+        pass
+    return render_template("request_access.html", email=email, sent=True, **_brand_ctx())
 
 
 @app.route("/signup", methods=["GET", "POST"])
@@ -662,76 +787,18 @@ def proxy(client, subpath):
 
 
 # --- Admin + super-admin consoles --------------------------------------------------------
+# The old `/admin` and `/superadmin` pages (a client card list with inline admin controls, rendered
+# from portal.html) are RETIRED: the operator console at /admin/atrium is now the single admin
+# surface (client add/delete, account create/reset/reveal, activity, trash). Both paths redirect
+# there so any stale bookmark or link still lands somewhere useful instead of the old page.
 @app.route("/admin", methods=["GET", "POST"])
-def admin():
-    """Admin console -- add client dashboards to the registry (the seed of the CRM)."""
-    if not authed():
-        return redirect(url_for("login", next="/admin"))
-    if not is_superadmin():
-        return Response("Forbidden", status=403, mimetype="text/plain")
-
-    message = None
-    if request.method == "POST":
-        key = request.form.get("key", "").strip()
-        name = request.form.get("name", "").strip()
-        if key:
-            # CRM: add_client appends a client record. As the CRM grows, this is where contact
-            # details, plan, and onboarding state would be captured alongside the dashboard link.
-            store.add_client(key, name or None)
-            message = "Added client '%s'." % key
-        else:
-            message = "Client key is required."
-
-    return render_template(
-        "portal.html",
-        user=current_user(),
-        clients=_visible_clients(),
-        is_admin=True,
-        is_superadmin=is_superadmin(),
-        admin_message=message,
-        **_brand_ctx(),
-    )
-
-
 @app.route("/superadmin", methods=["GET", "POST"])
-def superadmin():
-    """Super-admin console -- set/reveal client portal passwords (operator helpdesk).
-
-    reveal_password returns the RECOVERABLE plaintext kept beside each pbkdf2 hash (see store.py
-    for the deliberate trade-off comment) so an operator can read a password back to a client.
-    """
+def admin_legacy_redirect():
     if not authed():
-        return redirect(url_for("login", next="/superadmin"))
+        return redirect(url_for("login", next="/admin/atrium"))
     if not is_superadmin():
         return Response("Forbidden", status=403, mimetype="text/plain")
-
-    message = None
-    revealed = None
-    if request.method == "POST":
-        action = request.form.get("action", "")
-        key = request.form.get("key", "").strip()
-        if action == "set_password" and key:
-            new_pw = request.form.get("password", "")
-            try:
-                store.set_client_password(key, new_pw)
-                message = "Password set for '%s'." % key
-            except KeyError:
-                message = "Unknown client '%s'." % key
-        elif action == "reveal" and key:
-            revealed = store.reveal_password(key)
-            message = ("Password for '%s': %s" % (key, revealed)) if revealed \
-                else "No recoverable password stored for '%s'." % key
-
-    return render_template(
-        "portal.html",
-        user=current_user(),
-        clients=_visible_clients(),
-        is_admin=True,
-        is_superadmin=True,
-        superadmin_message=message,
-        revealed_password=revealed,
-        **_brand_ctx(),
-    )
+    return redirect(url_for("admin_atrium"))
 
 
 # --- Feedback (text + voice) -------------------------------------------------------------
@@ -2095,6 +2162,7 @@ def admin_atrium():
         activity=activity, trash=trash, trash_ttl_days=audit.TRASH_TTL_DAYS,
         initial_section=(request.args.get("section") or "clients"),
         user=current_user(), workspace_name=WORKSPACE_NAME,
+        skill_mastery_url=SKILL_MASTERY_URL, website_editor_url=WEBSITE_EDITOR_URL,
         msg=request.args.get("msg"), flash_err=(request.args.get("err") == "1"), **_brand_ctx())
 
 
@@ -2241,6 +2309,105 @@ def admin_account_create_admin():
     _audit("", "created admin account", email)
     return _atrium_redirect_list(
         "Created admin '%s'. Login -> %s / %s" % (name or email, email, password), section="accounts")
+
+
+@app.route("/admin/accounts/grant-google", methods=["POST"])
+def admin_account_grant_google():
+    """Grant a Gmail (Google sign-in) access, assigned to a CLIENT or a ROLE.
+
+    ONE action for two flows: creating a fresh passwordless Google account AND approving/activating a
+    pending access request (upsert_google_account updates in place by email). `assign` is:
+      * "new-client"       -> onboard a brand-new client (company from name/requested_name) + a client
+                              account scoped to it.
+      * "role-admin"       -> an admin account (all clients).            [super-admin only]
+      * "role-superadmin"  -> another super admin (all clients).         [super-admin only]
+      * "<existing key>"   -> a client account scoped to that existing client.
+    The account is passwordless: the grantee signs in with Google (never the password form).
+    """
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    email = (request.form.get("email", "") or "").strip().lower()
+    assign = (request.form.get("assign", "") or "").strip()
+    name = (request.form.get("name", "") or "").strip()
+    domain = email.split("@")[-1] if "@" in email else ""
+    if "@" not in email or "." not in domain:
+        return _atrium_redirect_list("Please enter a valid Gmail like name@gmail.com.",
+                                     section="create", err=True)
+    # Fall back to the pending request's remembered name/company when the form left name blank.
+    pending = store.get_account(email)
+    display = name or (pending or {}).get("requested_name") or (pending or {}).get("name") \
+        or email.split("@")[0]
+
+    if assign in ("role-admin", "role-superadmin"):
+        if not is_root_admin():
+            return _atrium_redirect_list("Only the super admin can grant admin access.",
+                                         section="requests", err=True)
+        role = "superadmin" if assign == "role-superadmin" else "admin"
+        store.upsert_google_account(email, name=display, role=role, clients=["*"], status="active")
+        _audit("", "granted %s access (Google)" % role, email)
+        return _atrium_redirect_list(
+            "Granted %s access to %s. They sign in with Google." % (role, email), section="accounts")
+
+    if assign == "new-client" or not assign:
+        key = _unique_client_key(display)
+        import onboard_client  # lazy: reuses brand_for() + starter_workspace()
+        onboard_client.onboard(key, display)
+        store.upsert_google_account(email, name=display, role="client", clients=[key], status="active")
+        _audit(key, "granted client access (Google)", email)
+        return _atrium_redirect_list(
+            "Created client '%s' and granted %s access (Google sign-in)." % (key, email),
+            section="accounts")
+
+    # Otherwise `assign` is an existing client key.
+    if store.get_client(assign) is None:
+        return _atrium_redirect_list("Unknown client '%s'." % assign, section="requests", err=True)
+    store.upsert_google_account(email, name=display, role="client", clients=[assign], status="active")
+    _audit(assign, "granted client access (Google)", email)
+    return _atrium_redirect_list(
+        "Granted %s access to client '%s' (Google sign-in)." % (email, assign), section="accounts")
+
+
+# --- Impersonation: THE super admin can 'act as' any user -----------------------------------------
+@app.route("/admin/impersonate", methods=["POST"])
+def admin_impersonate():
+    """Let THE super admin (info@ / role superadmin) act as another user -- assume their role + client
+    access, with the real identity preserved so it's reversible. Signing in as info@ therefore means
+    'act as any user you want'. Only is_root_admin can START this; once acting-as, the session IS that
+    user (is_root_admin becomes false), so the 'Act as' controls disappear until they stop."""
+    if not is_root_admin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    target = (request.form.get("email", "") or "").strip().lower()
+    acct = store.get_account(target)
+    if acct is None or acct.get("status") != "active":
+        return _atrium_redirect_list("No active account for %s to act as." % target,
+                                     section="accounts", err=True)
+    clients = acct.get("clients") or []
+    granted = ["*"] if "*" in clients else list(clients)
+    # Audit BEFORE we switch identity, so the action is attributed to the real super admin (not the
+    # user being impersonated). Then remember who we really are (the escape hatch) + become them.
+    _audit("", "started acting as", target)
+    session["impersonator"] = current_user()
+    _establish_session(target, granted)
+    resp = redirect(_post_login_destination(granted, "/"))
+    return _mint_sso_on(resp, granted, target)
+
+
+@app.route("/admin/stop-impersonating", methods=["GET", "POST"])
+def admin_stop_impersonating():
+    """Return to THE super admin's own identity after acting as someone. Safe to hit even if the
+    session got into a weird state -- if there's no real identity to restore, it just logs out."""
+    real = session.pop("impersonator", None)
+    if not real:
+        return redirect(url_for("index"))
+    was = current_user() or ""     # who we were acting as (capture before we restore ourselves)
+    granted = _resolve_login_email(real)
+    if not granted:
+        session.clear()
+        return redirect(url_for("login"))
+    _establish_session(real, granted)
+    _audit("", "stopped acting as", was)
+    resp = redirect(url_for("admin_atrium"))
+    return _mint_sso_on(resp, granted, real)
 
 
 @app.route("/admin/accounts/set-password", methods=["POST"])

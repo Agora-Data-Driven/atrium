@@ -40,6 +40,7 @@ jobs:
             services/portal/dash/templates/portal.html \
             services/portal/dash/templates/login.html \
             services/portal/dash/templates/signup.html \
+            services/portal/dash/templates/request_access.html \
             services/portal/dash/templates/admin_atrium.html \
             clients/client_template/dash/dashboard.html ; do
             if [ -f "$f" ]; then
@@ -58,6 +59,14 @@ jobs:
       - name: Accounts data-layer test (off-cloud, no GCS)
         working-directory: services/portal/dash
         run: python _accounts_localtest.py
+
+      - name: Google sign-in test (OAuth helpers + Google accounts, no network)
+        working-directory: services/portal/dash
+        run: python _google_oauth_localtest.py
+
+      - name: Auth foundation route smoke test (Google sign-in, grant, impersonate; stubs GCS)
+        working-directory: services/portal/dash
+        run: python _auth_smoketest.py
 
       - name: Market Intelligence auto-refresh test (off-cloud, no network)
         working-directory: services/portal/dash

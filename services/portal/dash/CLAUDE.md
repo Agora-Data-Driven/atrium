@@ -16,15 +16,38 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
 - **Sign-up + approval:** `GET/POST /signup` (Agora-branded `signup.html`) creates a **pending**
   client account; an admin approves it from `/admin/atrium` (`POST /admin/accounts/{approve,reject}`),
   which creates the client + blank workspace and activates the login. No public self-service access.
+- **Google Sign-In (central; OPT-IN via `google_oauth.py`):** the portal is the ONE app that runs the
+  OAuth flow (`GET /auth/google/login` -> Google -> `GET /auth/google/callback`), resolves the
+  *verified* email (`_resolve_login_email` -> `store.resolve_google_login`), then establishes the SAME
+  session + shared `ag_sso` cookie a password login mints -- so every dashboard AND the website editor
+  trust a Google login identically. Authorization-code flow, confidential client, **no new dependency**
+  (token exchange via `requests`; the id_token came over TLS so we decode it + re-check iss/aud/exp/
+  email_verified, no JWKS). OFF unless `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET` are set (login page hides the
+  button; routes fall back to password). An **unknown** email is routed to `request_access.html` -> `POST
+  /auth/request-access` files a **passwordless pending** account that lands in the console's Access
+  requests tab. Redirect URI: `${PORTAL_BASE_URL}/auth/google/callback` (or `GOOGLE_OAUTH_REDIRECT_URI`).
 - **Operator console (`/admin/atrium`, `admin_atrium.html`)** = a left **side panel** with panes:
-  Clients (cards + add) · Access requests · Accounts · Create account · **Activity** (the audit feed)
-  · **Trash** (restorable soft-deletes) · Profile. Account management
-  routes (`/admin/accounts/{create-client,create-admin,set-password,reset-password,delete}` +
-  `/admin/profile/password`) are gated `is_superadmin()`; **admin-account** creation/management is
-  gated `is_root_admin()`. **Roles:** `client` < `admin` (clients `["*"]`) < `superadmin`. THE super
-  admin is `SUPER_ADMIN_EMAIL` (default `info@agoradatadriven.com`, env-overridable) or any account
-  with role `superadmin`; only they create/manage admin accounts and they can't be deleted from the
-  list. The no-password preview (`DEV_NOAUTH`) auto-signs in as `SUPER_ADMIN_EMAIL`.
+  **Apps** (launcher: Atrium Admin · Skill Mastery · Website Editor deep-links) · Clients (cards + add)
+  · Access requests · Accounts · Create account · **Activity** (audit feed) · **Trash** (restorable
+  soft-deletes) · Profile. It IS the admin landing: `/` redirects a super-admin here and the legacy
+  `/admin` + `/superadmin` routes now just redirect here too (their client-add / password-reveal
+  functions live in the console). Account routes
+  (`/admin/accounts/{create-client,create-admin,grant-google,set-password,reset-password,delete}` +
+  `/admin/profile/password`) are gated `is_superadmin()`; **admin-account** creation/management +
+  **granting a role** + **impersonation** are gated `is_root_admin()`. `POST /admin/accounts/grant-google`
+  is the ONE 'give a Gmail access' action (used from Access-requests AND Create-account): assign to a
+  **new client**, an **existing client key**, or a **role** (admin/superadmin) -> `store.upsert_google_account`
+  (passwordless, upserts by email so it also activates a pending request in place).
+- **Impersonation ("Act as user"):** `POST /admin/impersonate` lets THE super admin assume any active
+  account's role + clients (real identity kept in `session["impersonator"]`); every page then carries a
+  fixed **"Stop acting as"** banner injected by the `after_request` hook in `main.py` (so it reaches
+  even the huge `atrium.html` without editing it). `GET|POST /admin/stop-impersonating` restores the
+  real identity. Only `is_root_admin()` can START it (once acting-as you ARE that user, so the controls
+  vanish). This is what "signing in as `info@` lets you act as any user" means.
+- **Roles:** `client` < `admin` (clients `["*"]`) < `superadmin`. THE super admin is `SUPER_ADMIN_EMAIL`
+  (default `info@agoradatadriven.com`, env-overridable) or any account with role `superadmin`; only they
+  create/manage admin accounts, grant roles, impersonate, and can't be deleted. The no-password preview
+  (`DEV_NOAUTH`) auto-signs in as `SUPER_ADMIN_EMAIL`.
 - **`templates/*.html`** — big self-contained pages. Inline JS must be **esprima-4.x-safe** (no `?.`
   / `??`; classic `&&`/`||`). No Jinja inside `<script>` — JS reads state from the DOM.
 - **`atrium_docs.py` / `feedback_ai.py`** — the opt-in Google-Doc → AI strategy feature (gated, degrades).
@@ -47,5 +70,10 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   (`$GTM_CONTAINER_ID`); reverse-proxied client dashboards (`/d/<c>/`) are skipped.
 
 **Deploy:** `deploy_dash_platform.ps1` (build → `gcloud run deploy platform-dash --no-invoker-iam-check`).
-**Test (off-cloud, what CI runs):** `python _workspace_localtest.py`, `python _accounts_localtest.py`, `python _atrium_smoketest.py`, and `python _audit_localtest.py`
-from this dir. **Preview:** `run_local.ps1` (or `preview/Preview Portal (admin).cmd` at repo root).
+It mounts the Google sign-in secrets (`google-oauth-client-id` / `google-oauth-client-secret`) ONLY if
+they exist, so a default deploy stays unaffected (button off) until you create them + grant the web SA
+`secretmanager.secretAccessor` on each. Register the redirect URI
+`https://portal.agoradatadriven.com/auth/google/callback` on the OAuth client.
+**Test (off-cloud, what CI runs):** `python _workspace_localtest.py`, `python _accounts_localtest.py`,
+`python _google_oauth_localtest.py`, `python _atrium_smoketest.py`, `python _auth_smoketest.py`, and
+`python _audit_localtest.py` from this dir. **Preview:** `run_local.ps1` (or `preview/Preview Portal (admin).cmd`).

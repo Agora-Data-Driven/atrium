@@ -217,6 +217,16 @@ auto-refresh (see those bullets below). Product name is one constant:
   new client's blank `/w/<c>/`. The console nav is just **Log out** (no Portal/Admin links). The
   portal landing (`/`) shows **Open dashboard** per client; the workspace `/w/<c>/` stays reachable
   directly and from the console.
+- **Auth foundation (central Google sign-in + impersonation):** the portal is the ONE app that runs
+  Google OAuth (`google_oauth.py`, `/auth/google/{login,callback}`) and, on a verified email, mints
+  the SAME session + shared `ag_sso` cookie as a password login — so the website editor and every
+  dashboard trust a Google login identically. OPT-IN: off unless `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`
+  are set. An unknown email files a **passwordless pending request** (`/auth/request-access`) an admin
+  approves in the console's Access-requests tab via `POST /admin/accounts/grant-google` (assign to a
+  new/existing client OR a role). `/admin/atrium` IS the admin landing (`/` redirects here; the legacy
+  `/admin` + `/superadmin` pages now just redirect here too). THE super admin (`info@…` / role
+  `superadmin`) can **act as any user** (`/admin/impersonate`; a site-wide "Stop acting as" banner is
+  injected by the `after_request` hook). Full details + OAuth/secret setup: `services/portal/dash/CLAUDE.md`.
 - **Strategy doc → AI strategy (optional, opt-in):** an admin attaches a Google Doc to a campaign and
   clicks "Generate strategy". `dash/atrium_docs.py` reads it (public-export fetch by default, or the
   **Google Drive API** when `ATRIUM_DOCS_ENABLED=1`) and `feedback_ai.summarize_strategy_sections`
