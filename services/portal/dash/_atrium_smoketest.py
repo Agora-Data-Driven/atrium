@@ -454,6 +454,27 @@ def run():
            and new_eid not in [e["id"] for e in
                                workspace.load_workspace(CLIENT)["intel"]["business_research"]])
 
+    # ---- Market Intelligence AI brain (model dropdown + tunable prompts + keywords) --------------
+    _check("super-admin sees the AI Research Brain panel",
+           "AI Research Brain" in intel_page and 'id="ax-intel-model"' in intel_page)
+    _check("ai_settings rejects an unknown model",
+           c.post("/w/%s/admin/intel" % CLIENT,
+                  data={"op": "ai_settings", "model": "gpt-9"}).status_code == 400)
+    _check("ai_settings rejects a model whose key isn't configured",
+           c.post("/w/%s/admin/intel" % CLIENT,
+                  data={"op": "ai_settings", "model": "gemini-2.5-pro"}).status_code == 400)
+    r = c.post("/w/%s/admin/intel" % CLIENT,
+               data={"op": "ai_settings", "model": "", "business_prompt": "Watch RV rentals.",
+                     "media_prompt": ""})
+    _check("ai_settings (off) ok + prompt persisted",
+           r.status_code == 200
+           and workspace.load_workspace(CLIENT)["intel_ai"]["business_prompt"] == "Watch RV rentals.")
+    r = c.post("/w/%s/admin/intel" % CLIENT,
+               data={"op": "topics", "topics": "RV rentals, campgrounds"})
+    _check("intel topics saved",
+           r.status_code == 200
+           and workspace.get_intel_topics(workspace.load_workspace(CLIENT)) == ["RV rentals", "campgrounds"])
+
     # ---- Website Health (team-only tab: admins see it, THE super admin edits) --------------------
     import atrium_health   # noqa: E402
     # Pure tag detection: GTM container + GA4 + Meta pixel are recognised straight from page markup.

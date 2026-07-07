@@ -155,7 +155,7 @@ def run():
     # 9. refresh_client on an unseeded client is a safe no-op.
     _check("missing workspace -> zeros",
            intel_refresh.refresh_client("nope", fetcher=_fetcher) ==
-           {"media_buying": 0, "business_research": 0})
+           {"media_buying": 0, "business_research": 0, "ai": False})
 
 
 def main():

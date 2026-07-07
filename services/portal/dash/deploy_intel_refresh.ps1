@@ -81,24 +81,55 @@ $SCHED_AGENT = "service-$PNUM@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
 Write-Host "[OK] project number = $PNUM ; scheduler agent = $SCHED_AGENT"
 
 # =============================================================================
+# Step 2.5 -- The AI 'brain' keys (OPTIONAL). The refresh job picks a per-client model
+#             (intel_ai.py) and curates real news with it; without a key it falls back
+#             to the plain-RSS fill. We mount whichever of these secrets EXIST (same
+#             secrets mastery-engine uses, in this same project) and grant the web SA
+#             read access to them. A missing secret is skipped, not fatal.
+# =============================================================================
+$AI_SECRETS = @("GEMINI_API_KEY", "DEEPSEEK_API_KEY")
+$secretPairs = @()
+foreach ($s in $AI_SECRETS) {
+    gcloud secrets describe $s --project $PROJECT *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[..] Granting $WEB_SA secretAccessor on $s" -ForegroundColor Cyan
+        gcloud secrets add-iam-policy-binding $s `
+            --project $PROJECT `
+            --member "serviceAccount:$WEB_SA" `
+            --role "roles/secretmanager.secretAccessor" *> $null
+        Must "grant secretAccessor on $s"
+        $secretPairs += "$s=${s}:latest"
+        Write-Host "[OK] will mount $s"
+    } else {
+        Write-Host "[..] secret $s not found -- skipping (news-feed fallback for its models)" -ForegroundColor Yellow
+    }
+}
+
+# =============================================================================
 # Step 3 -- Deploy the Cloud Run JOB AS YOURSELF, overriding the image entrypoint to
 #           run the refresh script. INTEL_AUTO_ENABLED gates the feature; the web SA
 #           already has objectAdmin on the registry bucket, so no new IAM is needed
 #           for the job to read clients + write workspaces.
 # =============================================================================
 Write-Host "[..] Deploying Cloud Run job $JOB (INTEL_AUTO_ENABLED=$ENABLED)" -ForegroundColor Cyan
-gcloud run jobs deploy $JOB `
-    --image $IMG `
-    --region $REGION `
-    --project $PROJECT `
-    --service-account $WEB_SA `
-    --command python `
-    --args intel_refresh.py `
-    --memory 512Mi `
-    --cpu 1 `
-    --max-retries 1 `
-    --task-timeout 900 `
-    --set-env-vars "REGISTRY_BUCKET=$BUCKET,REGISTRY_OBJECT=platform.json,WORKSPACE_BUCKET=$BUCKET,INTEL_AUTO_ENABLED=$ENABLED"
+$deployArgs = @(
+    "run", "jobs", "deploy", $JOB,
+    "--image", $IMG,
+    "--region", $REGION,
+    "--project", $PROJECT,
+    "--service-account", $WEB_SA,
+    "--command", "python",
+    "--args", "intel_refresh.py",
+    "--memory", "512Mi",
+    "--cpu", "1",
+    "--max-retries", "1",
+    "--task-timeout", "900",
+    "--set-env-vars", "REGISTRY_BUCKET=$BUCKET,REGISTRY_OBJECT=platform.json,WORKSPACE_BUCKET=$BUCKET,INTEL_AUTO_ENABLED=$ENABLED"
+)
+if ($secretPairs.Count -gt 0) {
+    $deployArgs += @("--set-secrets", ($secretPairs -join ","))
+}
+gcloud @deployArgs
 Must "deploy Cloud Run job $JOB"
 Write-Host "[OK] deployed $JOB"
 

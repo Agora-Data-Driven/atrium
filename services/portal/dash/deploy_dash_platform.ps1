@@ -125,6 +125,20 @@ if ((Test-SecretExists $OAUTH_ID_SECRET) -and (Test-SecretExists $OAUTH_SECRET_S
     Write-Host "[..] Google sign-in secrets absent -- deploying WITHOUT them (button stays off)" -ForegroundColor Yellow
 }
 
+# Market-Intelligence AI keys (OPTIONAL, opt-in): mount whichever of GEMINI_API_KEY / DEEPSEEK_API_KEY
+# exist so the intel tab's "Refresh now" (and the model dropdown) work in-process. Same secrets
+# mastery-engine uses, in this project. Absent -> the tab falls back to the live news-feed fill.
+foreach ($s in @("GEMINI_API_KEY", "DEEPSEEK_API_KEY")) {
+    if (Test-SecretExists $s) {
+        gcloud secrets add-iam-policy-binding $s --project=$PROJECT `
+            --member="serviceAccount:$WEB_SA" --role="roles/secretmanager.secretAccessor" *> $null
+        $SECRETS += ",${s}=${s}:latest"
+        Write-Host "[OK] AI key $s found -- mounting it (intel AI brain available)" -ForegroundColor Green
+    } else {
+        Write-Host "[..] AI key $s absent -- skipping (intel falls back to news feeds for its models)" -ForegroundColor Yellow
+    }
+}
+
 Write-Host "[..] Deploying Cloud Run service $PLATFORM" -ForegroundColor Cyan
 gcloud run deploy $PLATFORM `
     --image $IMG `
