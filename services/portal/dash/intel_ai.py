@@ -299,12 +299,18 @@ def _call_vertex_gemini(model_id, system, user, fetcher, max_tokens, token_fetch
     host = "aiplatform.googleapis.com" if loc == "global" else ("%s-aiplatform.googleapis.com" % loc)
     url = ("https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent"
            % (host, _VERTEX_PROJECT, loc, model_id))
+    # Gemini 2.5 "thinks" by default, and that thinking is billed against maxOutputTokens -- on a big
+    # curation prompt it can consume the whole budget and return EMPTY text. This is structured
+    # extraction, not reasoning, so we minimise thinking: 0 for Flash (fully off), the 128 floor for
+    # Pro (Pro can't be 0). Combined with a generous token cap, the JSON answer always has room.
+    thinking_budget = 0 if "flash" in model_id else 128
     payload = {
         "system_instruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {
             "response_mime_type": "application/json",
             "maxOutputTokens": max_tokens,
+            "thinkingConfig": {"thinkingBudget": thinking_budget},
         },
     }
     headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
@@ -394,7 +400,7 @@ def _shape(entry, candidates, heading_default):
 
 # --- The one call the refresh job makes ---------------------------------------------------------
 def curate(section, client_name, topics, candidates, prompt=None, model=None,
-           limit=6, heading_default="", fetcher=None, token_fetcher=None, max_tokens=2400):
+           limit=6, heading_default="", fetcher=None, token_fetcher=None, max_tokens=8192):
     """Curate real `candidates` into up to `limit` briefing entries for `section`, using `model`.
 
     Returns `(entries, error)`:
