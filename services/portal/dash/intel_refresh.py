@@ -36,9 +36,14 @@ import store
 import workspace
 
 # --- What each section pulls --------------------------------------------------------------------
-# Media Buying News is universal -- the same ad-platform updates matter to every client.
+# Media Buying News is universal -- the same ad-platform updates matter to every client. Use
+# publisher feeds that actually resolve from a datacenter IP (Cloud Run): ppc.land is PPC-specific
+# and high-volume, Search Engine Journal covers paid heavily. (Search Engine Land's category feed
+# 000s from Cloud Run, so it was dropped -- these give the AI a reliable candidate pool even when
+# Google News rate-limits the ad-platform queries below.)
 MEDIA_BUYING_FEEDS = (
-    "https://searchengineland.com/category/ppc/feed",
+    "https://ppc.land/rss/",
+    "https://www.searchenginejournal.com/feed/",
 )
 MEDIA_BUYING_QUERIES = (
     "Google Ads update",
