@@ -1032,19 +1032,37 @@
     .ax-intel-srcrow { display: flex; flex-wrap: wrap; gap: 10px; }
     .ax-intel-srcrow .ax-editbox { flex: 1 1 160px; margin-bottom: 0; }
     .ax-intel-add { display: block; border: 1px dashed var(--ax-line); border-radius: var(--ax-radius); padding: 16px; background: var(--ax-canvas); margin-top: 4px; }
-    .ax-intel-ai { margin-bottom: 22px; }
-    .ax-intel-ai .ax-intel-ai-title { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 800; margin: 0 0 4px; }
-    .ax-intel-ai .ax-intel-ai-title .ax-ic { width: 16px; height: 16px; padding: 6px; border-radius: 9px; box-sizing: content-box; color: var(--ax-violet-d); background: var(--ax-violet-bg); }
-    .ax-intel-ai-grid { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 14px; }
-    .ax-intel-ai-grid .ax-doc-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
-    .ax-intel-ai-grid select.ax-editbox { background: #fff; }
-    .ax-intel-ai-grid textarea.ax-editbox { min-height: 66px; }
-    .ax-intel-ai-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    @media (max-width: 560px) { .ax-intel-ai-row { grid-template-columns: 1fr; } }
-    .ax-intel-ai-row .ax-doc-label { margin-top: 8px; }
-    .ax-intel-ai-status { font-size: 11.5px; color: var(--ax-sub); align-self: center; }
-    .ax-intel-ai-status.is-err { color: #c0392b; }
-    .ax-intel-ai-off { font-size: 12.5px; color: var(--ax-sub); background: var(--ax-canvas); border: 1px dashed var(--ax-line); border-radius: var(--ax-radius); padding: 10px 13px; margin: 8px 0 0; }
+    .ax-intel-ai { margin-bottom: 24px; padding: 20px 22px; }
+    .ax-intel-ai-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .ax-intel-ai-title { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 800; }
+    .ax-intel-ai-title .ax-ic { width: 16px; height: 16px; padding: 6px; border-radius: 9px; box-sizing: content-box; color: var(--ax-violet-d); background: var(--ax-violet-bg); }
+    .ax-intel-ai-pill { font-size: 10.5px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; padding: 4px 11px; border-radius: var(--ax-pill); white-space: nowrap; }
+    .ax-intel-ai-pill.is-on { color: var(--ax-green-d); background: rgba(79,171,74,.14); }
+    .ax-intel-ai-pill.is-err { color: #c0392b; background: #fdecea; }
+    .ax-intel-ai-pill.is-off { color: var(--ax-sub); background: var(--ax-canvas); }
+    .ax-intel-ai-sub { font-size: 12.5px; color: var(--ax-sub); margin: 8px 0 0; line-height: 1.5; }
+    .ax-intel-ai-controls { display: grid; grid-template-columns: 1.5fr 1fr .9fr; gap: 12px; margin-top: 16px; }
+    @media (max-width: 620px) { .ax-intel-ai-controls { grid-template-columns: 1fr; } }
+    .ax-fld { margin-top: 13px; }
+    .ax-intel-ai-controls .ax-fld { margin-top: 0; }
+    .ax-fld-label { display: block; font-size: 12px; font-weight: 700; color: var(--ax-ink); margin-bottom: 5px; }
+    .ax-fld-hint { font-weight: 500; color: var(--ax-sub); }
+    .ax-fld-labelrow { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 5px; }
+    .ax-fld-labelrow .ax-fld-label { margin-bottom: 0; }
+    .ax-fld .ax-editbox { margin-bottom: 0; }
+    .ax-intel-ai select.ax-editbox { background: #fff; }
+    .ax-linkbtn { border: 0; background: none; color: var(--ax-violet-d); font-size: 11.5px; font-weight: 700; cursor: pointer; padding: 0; }
+    .ax-linkbtn:hover { text-decoration: underline; }
+    .ax-intel-ai-adv { margin-top: 16px; border-top: 1px solid var(--ax-line); }
+    .ax-intel-ai-adv > summary { list-style: none; cursor: pointer; font-size: 12.5px; font-weight: 800; color: var(--ax-violet-d); padding: 11px 0 4px; user-select: none; }
+    .ax-intel-ai-adv > summary::-webkit-details-marker { display: none; }
+    .ax-intel-ai-adv > summary::before { content: "\25B8\00a0"; }
+    .ax-intel-ai-adv[open] > summary::before { content: "\25BE\00a0"; }
+    .ax-intel-ai-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--ax-line); }
+    .ax-intel-ai-btns { display: inline-flex; gap: 8px; }
+    .ax-intel-ai-status { font-size: 11.5px; color: var(--ax-sub); }
+    .ax-intel-ai-status.is-err { color: #c0392b; font-weight: 700; }
+    .ax-intel-ai-off { font-size: 12.5px; color: var(--ax-sub); background: var(--ax-canvas); border: 1px dashed var(--ax-line); border-radius: var(--ax-radius); padding: 10px 13px; margin: 12px 0 0; }
     .ax-intel-ai-off code { background: var(--ax-violet-bg); padding: 1px 5px; border-radius: 5px; font-size: 11.5px; }
     .ax-intel-item { position: relative; }
     .ax-intel-item.is-fav { border-color: var(--ax-green); box-shadow: 0 0 0 1px var(--ax-green) inset; }
@@ -2211,54 +2229,64 @@
 
           {% if is_superadmin %}
           {% set ai = view.intel_ai %}
-          <div class="ax-card ax-intel-ai" style="padding:18px 20px">
-            <div class="ax-intel-ai-title">{{ ic('intel') }} AI Research Brain</div>
-            <p class="ax-intel-lede" style="margin:0">Pick the AI model that researches this client, the date range to search, and how many stories to pull. It runs automatically once a day and each run <strong>adds</strong> new, de-duplicated stories to the list (it never wipes what's there); entries you add, edit, or favourite are always kept. Each headline links to its real source.</p>
+          <div class="ax-card ax-intel-ai">
+            <div class="ax-intel-ai-head">
+              <div class="ax-intel-ai-title">{{ ic('intel') }} AI Research Brain</div>
+              {% if not ai.selected %}<span class="ax-intel-ai-pill is-off">Off</span>
+              {% elif ai.last_error %}<span class="ax-intel-ai-pill is-err">Needs attention</span>
+              {% else %}<span class="ax-intel-ai-pill is-on">Active</span>{% endif %}
+            </div>
+            <p class="ax-intel-ai-sub">Choose the model, how far back to search, and how many stories to pull. It runs daily and <strong>adds</strong> new, de-duplicated stories &mdash; it never wipes the list. Entries you add, edit, or favourite always stay.</p>
 
             {% if not ai.any_available %}
-            <p class="ax-intel-ai-off">No AI model is available on the server yet. Gemini runs on <code>Vertex AI</code> (GCP-billed &mdash; enable it in the deploy); DeepSeek needs its <code>DEEPSEEK_API_KEY</code> secret. Until one is wired, this tab stays empty.</p>
+            <p class="ax-intel-ai-off">No AI model is available yet. Gemini runs on <code>Vertex AI</code> (GCP-billed); DeepSeek needs its <code>DEEPSEEK_API_KEY</code> secret.</p>
             {% endif %}
 
-            <div class="ax-intel-ai-grid" data-intel-ai>
-              <label class="ax-doc-label" for="ax-intel-model">Research model</label>
-              <select id="ax-intel-model" class="ax-editbox">
-                <option value="" {{ 'selected' if not ai.selected else '' }}>Off &mdash; no automatic research</option>
-                {% for m in ai.models %}
-                <option value="{{ m.id }}"{{ ' selected' if m.id == ai.selected else '' }}{{ ' disabled' if not m.available else '' }}>{{ m.label }}{{ '' if m.available else ' — not set up' }}</option>
-                {% endfor %}
-              </select>
-
-              <div class="ax-intel-ai-row">
-                <div>
-                  <label class="ax-doc-label" for="ax-intel-window">Date range to search</label>
-                  <select id="ax-intel-window" class="ax-editbox">
-                    {% for w in ai.windows %}
-                    <option value="{{ w.value }}"{{ ' selected' if w.value == ai.window else '' }}>{{ w.label }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <div>
-                  <label class="ax-doc-label" for="ax-intel-count">Articles per section</label>
-                  <input id="ax-intel-count" class="ax-editbox" type="number" min="1" max="25" step="1" value="{{ ai.count }}">
-                </div>
+            <div class="ax-intel-ai-controls">
+              <div class="ax-fld">
+                <label class="ax-fld-label" for="ax-intel-model">Research model</label>
+                <select id="ax-intel-model" class="ax-editbox">
+                  <option value="" {{ 'selected' if not ai.selected else '' }}>Off</option>
+                  {% for m in ai.models %}
+                  <option value="{{ m.id }}"{{ ' selected' if m.id == ai.selected else '' }}{{ ' disabled' if not m.available else '' }}>{{ m.label }}{{ '' if m.available else ' — not set up' }}</option>
+                  {% endfor %}
+                </select>
               </div>
-
-              <label class="ax-doc-label" for="ax-intel-topics">Research keywords <span style="font-weight:500;color:var(--ax-sub)">&mdash; this client's industry (comma-separated)</span></label>
-              <textarea id="ax-intel-topics" class="ax-editbox" placeholder="e.g. contract templates, creative entrepreneurs, Etsy sellers, small business legal">{{ view.intel_topics }}</textarea>
-
-              <label class="ax-doc-label" for="ax-intel-bizprompt">Business Research &mdash; what to look for
-                <button type="button" class="ax-btn ghost small" data-intel-reset="ax-intel-bizprompt">Reset to default</button></label>
-              <textarea id="ax-intel-bizprompt" class="ax-editbox" data-default="{{ ai.default_business_prompt }}" placeholder="{{ ai.default_business_prompt }}">{{ ai.business_prompt }}</textarea>
-
-              <label class="ax-doc-label" for="ax-intel-mediaprompt">Media Buying News &mdash; what to look for
-                <button type="button" class="ax-btn ghost small" data-intel-reset="ax-intel-mediaprompt">Reset to default</button></label>
-              <textarea id="ax-intel-mediaprompt" class="ax-editbox" data-default="{{ ai.default_media_prompt }}" placeholder="{{ ai.default_media_prompt }}">{{ ai.media_prompt }}</textarea>
+              <div class="ax-fld">
+                <label class="ax-fld-label" for="ax-intel-window">Date range</label>
+                <select id="ax-intel-window" class="ax-editbox">
+                  {% for w in ai.windows %}<option value="{{ w.value }}"{{ ' selected' if w.value == ai.window else '' }}>{{ w.label }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="ax-fld">
+                <label class="ax-fld-label" for="ax-intel-count">Articles / section</label>
+                <input id="ax-intel-count" class="ax-editbox" type="number" min="1" max="25" step="1" value="{{ ai.count }}">
+              </div>
             </div>
 
-            <div class="ax-actions" style="margin-top:14px">
-              <button type="button" class="ax-btn violet small" id="ax-intel-aisave">Save AI settings</button>
-              <button type="button" class="ax-btn green small" id="ax-intel-refresh">{{ ic('intel') }} Refresh now</button>
-              <span id="ax-intel-aistatus" class="ax-intel-ai-status{{ ' is-err' if ai.last_error else '' }}">{% if ai.last_run %}Last run {{ ai.last_run|atrium_date }}{% if ai.last_model %} &middot; {{ ai.last_model }}{% elif ai.selected %} &middot; news-feed fallback{% endif %}{% if ai.last_error %} &middot; {{ ai.last_error }}{% endif %}{% endif %}</span>
+            <div class="ax-fld">
+              <label class="ax-fld-label" for="ax-intel-topics">Research keywords <span class="ax-fld-hint">&mdash; this client's industry, comma-separated</span></label>
+              <textarea id="ax-intel-topics" class="ax-editbox" rows="2" placeholder="e.g. contract templates, creative entrepreneurs, Etsy sellers, small business legal">{{ view.intel_topics }}</textarea>
+            </div>
+
+            <details class="ax-intel-ai-adv"{{ ' open' if ai.business_prompt or ai.media_prompt else '' }}>
+              <summary>Advanced &mdash; fine-tune what the AI looks for</summary>
+              <div class="ax-fld">
+                <div class="ax-fld-labelrow"><label class="ax-fld-label" for="ax-intel-bizprompt">Business Research focus</label><button type="button" class="ax-linkbtn" data-intel-reset="ax-intel-bizprompt">Reset to default</button></div>
+                <textarea id="ax-intel-bizprompt" class="ax-editbox" rows="3" data-default="{{ ai.default_business_prompt }}" placeholder="{{ ai.default_business_prompt }}">{{ ai.business_prompt }}</textarea>
+              </div>
+              <div class="ax-fld">
+                <div class="ax-fld-labelrow"><label class="ax-fld-label" for="ax-intel-mediaprompt">Media Buying focus</label><button type="button" class="ax-linkbtn" data-intel-reset="ax-intel-mediaprompt">Reset to default</button></div>
+                <textarea id="ax-intel-mediaprompt" class="ax-editbox" rows="3" data-default="{{ ai.default_media_prompt }}" placeholder="{{ ai.default_media_prompt }}">{{ ai.media_prompt }}</textarea>
+              </div>
+            </details>
+
+            <div class="ax-intel-ai-foot">
+              <div class="ax-intel-ai-btns">
+                <button type="button" class="ax-btn violet small" id="ax-intel-aisave">Save settings</button>
+                <button type="button" class="ax-btn green small" id="ax-intel-refresh">{{ ic('intel') }} Refresh now</button>
+              </div>
+              <span id="ax-intel-aistatus" class="ax-intel-ai-status{{ ' is-err' if ai.last_error else '' }}">{% if ai.last_run %}Last run {{ ai.last_run|atrium_date }}{% if ai.last_model and not ai.last_error %} &middot; {{ ai.last_model }}{% endif %}{% if ai.last_error %} &middot; {{ ai.last_error }}{% endif %}{% endif %}</span>
             </div>
           </div>
           {% endif %}

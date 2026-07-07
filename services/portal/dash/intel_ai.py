@@ -88,7 +88,10 @@ _BODY_MAX = 320        # a briefing summary is short by design (matches intel_re
 # the runtime SA's, fetched from the metadata server -- no API key. `global` and a regional location
 # both work; we default to the project's region so data stays in-region.
 _VERTEX_PROJECT = os.environ.get("VERTEX_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT") or "agora-data-driven"
-_VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "asia-southeast1")
+# `global` serves the widest model set -- gemini-2.5-pro is NOT available in asia-southeast1 (404),
+# but pro AND flash both work at `global`. (Only public news + the client's keywords go to Vertex;
+# the workspace itself stays in-region in GCS.)
+_VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "global")
 _METADATA_TOKEN_URL = (
     "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
 )

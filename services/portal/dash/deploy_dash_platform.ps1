@@ -133,7 +133,7 @@ Write-Host "[..] Enabling Vertex AI (GCP-billed Gemini) + granting the runtime S
 gcloud services enable aiplatform.googleapis.com --project=$PROJECT *> $null
 gcloud projects add-iam-policy-binding $PROJECT `
     --member="serviceAccount:$WEB_SA" --role="roles/aiplatform.user" *> $null
-$ENV_VARS += ",VERTEX_GEMINI_ENABLED=1,VERTEX_PROJECT=$PROJECT,VERTEX_LOCATION=$REGION"
+$ENV_VARS += ",VERTEX_GEMINI_ENABLED=1,VERTEX_PROJECT=$PROJECT,VERTEX_LOCATION=global"
 Write-Host "[OK] Vertex Gemini available (project $PROJECT, location $REGION)" -ForegroundColor Green
 
 if (Test-SecretExists "DEEPSEEK_API_KEY") {

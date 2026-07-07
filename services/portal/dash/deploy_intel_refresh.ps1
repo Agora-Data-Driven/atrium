@@ -127,7 +127,7 @@ $deployArgs = @(
     "--cpu", "1",
     "--max-retries", "1",
     "--task-timeout", "900",
-    "--set-env-vars", "REGISTRY_BUCKET=$BUCKET,REGISTRY_OBJECT=platform.json,WORKSPACE_BUCKET=$BUCKET,INTEL_AUTO_ENABLED=$ENABLED,VERTEX_GEMINI_ENABLED=1,VERTEX_PROJECT=$PROJECT,VERTEX_LOCATION=$REGION"
+    "--set-env-vars", "REGISTRY_BUCKET=$BUCKET,REGISTRY_OBJECT=platform.json,WORKSPACE_BUCKET=$BUCKET,INTEL_AUTO_ENABLED=$ENABLED,VERTEX_GEMINI_ENABLED=1,VERTEX_PROJECT=$PROJECT,VERTEX_LOCATION=global"
 )
 if ($secretPairs.Count -gt 0) {
     $deployArgs += @("--set-secrets", ($secretPairs -join ","))
