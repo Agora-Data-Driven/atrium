@@ -185,23 +185,32 @@ auto-refresh (see those bullets below). Product name is one constant:
   `section`, gated `is_superadmin()`); clients read only. `atrium_view.intel_sections(ws)` decorates
   the two lists with their display label/lede/icon for the template. No new infra (one more workspace
   JSON key, mirrors Client Communications).
-  - **Daily auto-refresh with REAL news (opt-in, infra-light):** a Cloud Run job `intel-refresh`
-    (`dash/intel_refresh.py`) runs once a day and fills both sections with real headlines + real
-    publisher links + real dates pulled from **Google News RSS + fixed publisher feeds**
-    (`dash/intel_feed.py` — keyless, stdlib `xml.etree` parsing + lazy `requests`, NO new dependency
-    and NO API key; degrades to `[]` on any feed error, never 500s). **Media Buying News** is
-    universal (ad-platform queries + Search Engine Land PPC); **Business Research** is per-client,
-    keyed off `ws["intel_topics"]` — an admin-editable keyword list set IN PLACE via `POST
-    /w/<c>/admin/intel` `op=topics` (a blank list falls back to a generic marketing set).
-    `workspace.replace_auto_intel` swaps only `auto:True` entries each run, so **hand-added entries
-    are preserved**; editing an auto entry (`update_intel_entry`) **pins** it (drops the `auto` flag)
-    so the correction survives the next refresh. **Gated:** the job is a logged no-op unless
-    `INTEL_AUTO_ENABLED=1`. It REUSES the platform-dash image + web SA (writes the SAME
-    `workspace/<c>.json` objects), so the ONLY new infra is one Cloud Scheduler job. Stand it up /
-    redeploy with `services/portal/dash/deploy_intel_refresh.ps1` (`-Disable` ships it OFF, `-Run`
-    fires once now; **rerun it after any `intel_feed`/`intel_refresh` change** — the job is pinned to
-    an image tag, like the ingest jobs). Off-cloud test: `dash/_intel_feed_localtest.py` (injects a
-    fetcher, no network).
+  - **Daily AI-curated auto-refresh (an AI 'brain', LIVE):** a Cloud Run job `intel-refresh`
+    (`dash/intel_refresh.py`, Cloud Scheduler `intel-refresh-daily` 07:00 SGT) does
+    **retrieve-then-curate** (`dash/intel_ai.py`): RETRIEVE real candidate articles from Google News
+    RSS + publisher feeds (`dash/intel_feed.py` — keyless stdlib `xml.etree` + lazy `requests`), then
+    the client's **selected model** CURATES them (picks the relevant ones, writes a client-facing
+    summary, keeps the REAL link/source/date — never invents a URL; `curate` returns `(entries,
+    error)` — **NO news-feed fallback**, a failed model shows the reason). Two providers:
+    **Vertex AI Gemini** (`gemini-2.5-flash`/`-pro`, GCP-billed via the runtime SA's metadata token,
+    gated `VERTEX_GEMINI_ENABLED=1` + `VERTEX_PROJECT`/`VERTEX_LOCATION`; NB set
+    `thinkingConfig.thinkingBudget` 0/128 or thinking starves the JSON output) and **DeepSeek V4**
+    (`DEEPSEEK_API_KEY`). Per-client config `ws["intel_ai"]` = `{model, business_prompt, media_prompt,
+    window, count}` (admin-set in the **AI Research Brain** panel; `intel_ai.window_of`/`count_of`
+    validate the look-back window `7d…12m` + article target 1–25). **Business Research** is keyed off
+    `ws["intel_topics"]`; **Media Buying News** is universal (feeds `ppc.land` + Search Engine
+    Journal — SEL's category feed 000s from Cloud Run). Each run is **ADDITIVE**:
+    `workspace.add_auto_intel` de-dupes new stories and APPENDS them (list grows, never wiped;
+    plain-auto capped 60/section, manual + favourited always kept). Team edits via `POST
+    /w/<c>/admin/intel` ops: `ai_settings` (model/prompts/window/count), `topics`, `refresh-now`,
+    `bulk` (mass delete / favourite — favourite stars + pins), plus add/edit/delete. **Gated:** the
+    job no-ops unless `INTEL_AUTO_ENABLED=1`; it REUSES the platform-dash image + web SA. New infra:
+    the scheduler job (impersonates the **web SA**, not the cloudscheduler service agent — owners
+    can't actAs that agent) + `roles/aiplatform.user` on the web SA + the optional `DEEPSEEK_API_KEY`
+    secret. Redeploy `services/portal/dash/deploy_intel_refresh.ps1` (`-Disable` OFF, `-Run` fires
+    now; **rerun after any `intel_feed`/`intel_refresh`/`intel_ai` change** — image-pinned) AND
+    `deploy_dash_platform.ps1` (the web service's Refresh-now runs `refresh_client` in-process).
+    Off-cloud tests: `dash/_intel_feed_localtest.py` + `dash/_intel_ai_localtest.py` (inject fetchers).
 - **Routes (all behind existing session auth):** client `GET /w/<c>/` + `/w/<c>/<tab>` (overview,
   dashboard, leadgen, organic, calendar, conversations, intel, settings) gated `authed()`+`can_open(<c>)`;
   client POSTs `/w/<c>/{approve,request-changes,save-note,comment,send-message,save-notify,logo}` +
