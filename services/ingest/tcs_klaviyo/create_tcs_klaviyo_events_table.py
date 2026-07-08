@@ -18,6 +18,7 @@ RAW_DATASET = os.environ.get("RAW_DATASET", "raw_windsor")
 TABLE = "tcs_klaviyo_events"
 
 SCHEMA = [
+    bigquery.SchemaField("event_id", "STRING"),  # Klaviyo event id -- stg_email_events de-dupe key.
     bigquery.SchemaField("message_id", "STRING"),
     bigquery.SchemaField("email", "STRING"),
     bigquery.SchemaField("subject", "STRING"),

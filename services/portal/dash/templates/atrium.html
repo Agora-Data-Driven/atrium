@@ -1072,7 +1072,9 @@
     .ax-intel-item.is-fav .ax-intel-star { color: var(--ax-green-d); }
     .ax-intel-bulkbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 9px 13px; background: var(--ax-violet-bg); border: 1px solid var(--ax-line); border-radius: var(--ax-radius); }
     .ax-intel-bulkcount { font-size: 12.5px; font-weight: 800; color: var(--ax-violet-d); }
-    .ax-intel-bulkactions { display: inline-flex; gap: 7px; flex-wrap: wrap; }
+    .ax-intel-bulkactions { display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .ax-intel-bulktoggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 700; color: var(--ax-violet-d); cursor: pointer; user-select: none; }
+    .ax-intel-selectall { margin: 0 0 12px; }
     .ax-thumb-upload { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 2; display: flex; gap: 6px; justify-content: center; }
     .ax-thumb-upload .ax-btn { background: rgba(0,0,0,.45); color: #fff; border-color: rgba(255,255,255,.4); }
     .ax-thumb-upload .ax-btn:hover { background: rgba(0,0,0,.62); }
@@ -2317,11 +2319,15 @@
             <div class="ax-intel-bulkbar" data-intelbulk="{{ sec.key }}" hidden>
               <span class="ax-intel-bulkcount" data-bulkcount>0 selected</span>
               <span class="ax-intel-bulkactions">
+                <label class="ax-intel-bulktoggle"><input type="checkbox" data-bulkall="{{ sec.key }}"> Select all</label>
                 <button class="ax-btn ghost small" type="button" data-bulkfav="{{ sec.key }}">&#9733; Favourite</button>
                 <button class="ax-btn ghost small" type="button" data-bulkunfav="{{ sec.key }}">Unfavourite</button>
                 <button class="ax-btn danger small" type="button" data-bulkdel="{{ sec.key }}">Delete</button>
                 <button class="ax-btn ghost small" type="button" data-bulkclear="{{ sec.key }}">Clear</button>
               </span>
+            </div>
+            <div class="ax-intel-selectall">
+              <label class="ax-intel-bulktoggle"><input type="checkbox" data-bulkall="{{ sec.key }}"> Select all {{ sec.entries|length }} {{ 'update' if sec.entries|length == 1 else 'updates' }}</label>
             </div>
             {% endif %}
 
@@ -2828,7 +2834,19 @@
   function post(path, fields) {
     var body = new FormData();
     var k;
-    for (k in fields) { if (fields.hasOwnProperty(k)) { body.append(k, fields[k]); } }
+    for (k in fields) {
+      if (fields.hasOwnProperty(k)) {
+        var v = fields[k];
+        // An array value (e.g. bulk entry_ids) must be appended element-by-element -- appending the
+        // array whole coerces it to a comma-joined string, which the server reads as ONE field.
+        if (Object.prototype.toString.call(v) === "[object Array]") {
+          var j;
+          for (j = 0; j < v.length; j++) { body.append(k, v[j]); }
+        } else {
+          body.append(k, v);
+        }
+      }
+    }
     return postData(path, body);
   }
   // Upload one or more pictures/videos to an EXISTING content piece by id. Resolves on success.
@@ -4160,10 +4178,14 @@
       function syncBar(section) {
         var bar = document.querySelector('[data-intelbulk="' + aq(section) + '"]');
         if (!bar) { return; }
+        var checks = checksFor(section);
         var ids = selectedIds(section);
         var countEl = bar.querySelector("[data-bulkcount]");
         if (countEl) { countEl.textContent = ids.length + " selected"; }
         if (ids.length) { bar.removeAttribute("hidden"); } else { bar.setAttribute("hidden", "hidden"); }
+        // Keep every "Select all" toggle for this section reflecting the current state.
+        var allOn = checks.length > 0 && ids.length === checks.length;
+        qsa('[data-bulkall="' + aq(section) + '"]').forEach(function (t) { t.checked = allOn; });
       }
       function bulk(section, action) {
         var ids = selectedIds(section);
@@ -4178,6 +4200,15 @@
       }
       qsa("[data-intelcheck]").forEach(function (c) {
         c.addEventListener("change", function () { syncBar(c.getAttribute("data-intelsection")); });
+      });
+      // "Select all" toggles every checkbox in the section (so wiping a whole section is one click).
+      qsa("[data-bulkall]").forEach(function (t) {
+        t.addEventListener("change", function () {
+          var section = t.getAttribute("data-bulkall");
+          var on = t.checked;
+          checksFor(section).forEach(function (c) { c.checked = on; });
+          syncBar(section);
+        });
       });
       qsa("[data-bulkfav]").forEach(function (b) {
         b.addEventListener("click", function () { bulk(b.getAttribute("data-bulkfav"), "favourite"); });

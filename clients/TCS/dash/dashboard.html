@@ -75,6 +75,12 @@
   .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 6px 13px; font-size: 12px; color: var(--ink); }
   .legend .item { display: inline-flex; align-items: center; gap: 6px; }
   .legend .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .toggle { display: inline-flex; margin: 0 0 12px 13px; border: 1px solid var(--border);
+            border-radius: 999px; overflow: hidden; background: #fff; }
+  .toggle .tg { border: 0; background: transparent; color: var(--muted); font: inherit;
+                font-size: 12px; font-weight: 700; padding: 6px 15px; cursor: pointer; }
+  .toggle .tg + .tg { border-left: 1px solid var(--border); }
+  .toggle .tg.on { background: var(--teal); color: #fff; }
   .chart { width: 100%; height: 250px; display: block; }
   .chart.short { height: 120px; }
   .chart text { fill: var(--muted); font-size: 11px; }
@@ -120,6 +126,23 @@
     <div id="content" style="display:none">
       <div class="hero" id="hero"></div>
       <div class="kpis" id="kpis"></div>
+
+      <div class="panel">
+        <h2>Leads, sales &amp; clicks over time</h2>
+        <p class="desc">New quiz leads, sales (orders) and email clicks by month. <b>Relative</b> indexes each series to its own peak (100%) so you can compare their shape and timing on one scale; <b>Absolute</b> shows raw counts.</p>
+        <div class="toggle" id="actToggle" role="group" aria-label="Chart scale">
+          <button type="button" class="tg on" data-mode="relative" aria-pressed="true">Relative</button>
+          <button type="button" class="tg" data-mode="absolute" aria-pressed="false">Absolute</button>
+        </div>
+        <div class="legend">
+          <span class="item"><span class="swatch" style="background:#153a5b"></span>Leads</span>
+          <span class="item"><span class="swatch" style="background:#17a398"></span>Sales</span>
+          <span class="item"><span class="swatch" style="background:#d8952f"></span>Clicks</span>
+        </div>
+        <svg class="chart" id="actChart" preserveAspectRatio="none" viewBox="0 0 760 250" role="img" aria-label="Leads, sales and clicks by month"></svg>
+        <p class="note" id="actNote"></p>
+        <div class="tip" id="actTip"></div>
+      </div>
 
       <div class="panel">
         <h2>Why has conversion dropped?</h2>
@@ -390,6 +413,57 @@
     tb.innerHTML = html;
   }
 
+  // ---- Leads / sales / clicks trend (relative %-of-peak default, or absolute counts) ----
+  var ACT = { rows: [], mode: "relative" };
+  function seriesMax(rows, key) {
+    var m = 0, i;
+    for (i = 0; i < rows.length; i++) { var v = rows[i][key]; if (isNum(v) && Number(v) > m) { m = Number(v); } }
+    return m;
+  }
+  function renderActivity() {
+    var rows = ACT.rows || [], relative = (ACT.mode === "relative");
+    var maxL = seriesMax(rows, "leads"), maxS = seriesMax(rows, "sales"), maxC = seriesMax(rows, "clicks");
+    function norm(v, mx) { if (!isNum(v)) { return null; } if (!relative) { return Number(v); } return mx > 0 ? Number(v) / mx : null; }
+    var plot = [], i;
+    for (i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      plot.push({
+        month: r.month, leads: r.leads, sales: r.sales, clicks: r.clicks,
+        leads_v: norm(r.leads, maxL), sales_v: norm(r.sales, maxS), clicks_v: norm(r.clicks, maxC)
+      });
+    }
+    var opts = {
+      svgId: "actChart", tipId: "actTip", rows: plot, xkey: "month", isRate: relative,
+      series: [
+        { key: "leads_v", label: "Leads", color: "#153a5b" },
+        { key: "sales_v", label: "Sales", color: "#17a398" },
+        { key: "clicks_v", label: "Clicks", color: "#d8952f" }
+      ]
+    };
+    if (relative) {
+      opts.extra = function (r) {
+        return '<div class="row" style="color:#6b7c8c">counts — leads: ' + fmtInt(r.leads) +
+               " · sales: " + fmtInt(r.sales) + " · clicks: " + (isNum(r.clicks) ? fmtInt(r.clicks) : "—") + "</div>";
+      };
+    }
+    renderLineChart(opts);
+  }
+  function initActToggle() {
+    var t = el("actToggle"); if (!t) { return; }
+    var btns = t.getElementsByTagName("button"), j;
+    function onClick() {
+      ACT.mode = this.getAttribute("data-mode");
+      var bs = el("actToggle").getElementsByTagName("button"), q;
+      for (q = 0; q < bs.length; q++) {
+        var on = (bs[q].getAttribute("data-mode") === ACT.mode);
+        bs[q].className = on ? "tg on" : "tg";
+        bs[q].setAttribute("aria-pressed", on ? "true" : "false");
+      }
+      renderActivity();
+    }
+    for (j = 0; j < btns.length; j++) { btns[j].addEventListener("click", onClick); }
+  }
+
   function render(data) {
     var meta = "";
     if (data.data_through) { meta += "<div>data through <b>" + esc(String(data.data_through).slice(0, 10)) + "</b></div>"; }
@@ -398,6 +472,17 @@
 
     renderHero(data.kpis);
     renderKpis(data.kpis);
+
+    // Leads / sales / clicks trend (relative by default).
+    ACT.rows = data.activity_monthly || [];
+    ACT.mode = "relative";
+    initActToggle();
+    renderActivity();
+    var actClicks = 0, ai;
+    for (ai = 0; ai < ACT.rows.length; ai++) { if (isNum(ACT.rows[ai].clicks)) { actClicks++; } }
+    el("actNote").textContent = (ACT.rows.length && actClicks === 0)
+      ? "Email clicks are still backfilling — the clicks line will fill in as data lands."
+      : "";
 
     // Conversion trend: plot the 90-day rate only for MATURE cohorts (recent ones are too young to judge).
     var ct = (data.conversion_trend || []).slice(), i, immature = 0;

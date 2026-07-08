@@ -190,6 +190,27 @@ def _read_leads(bq):
     return out
 
 
+def _read_activity(bq):
+    """activity_monthly -> data.activity_monthly[] (leads / sales / clicks per month for the
+    combined trend chart). clicks/sends stay None for months with no email data yet so the
+    dashboard skips them instead of plotting a misleading zero."""
+    sql = f"""
+        SELECT month, leads, sales, sends, clicks
+        FROM `{PROJECT}.{DATASET}.activity_monthly`
+        ORDER BY month
+    """
+    out = []
+    for r in bq.query(sql, location=LOC).result():
+        out.append({
+            "month": _date(r["month"]),
+            "leads": _i(r["leads"]),
+            "sales": _i(r["sales"]),
+            "sends": None if r["sends"] is None else int(r["sends"]),
+            "clicks": None if r["clicks"] is None else int(r["clicks"]),
+        })
+    return out
+
+
 def _data_through(observed, monthly):
     stamps = [ts for ts in (observed or {}).values() if ts]
     if stamps:
@@ -221,6 +242,7 @@ def main():
         "kpis": _read_kpis(bq),
         "conversion_trend": _read_conversion_trend(bq),
         "monthly": monthly,
+        "activity_monthly": _read_activity(bq),
         "cohorts": _read_cohorts(bq),
         "leads": _read_leads(bq),
     }
