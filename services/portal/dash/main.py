@@ -1994,9 +1994,11 @@ def atrium_admin_intel(client):
         action = request.form.get("action", "").strip()
         if action not in workspace.INTEL_BULK_ACTIONS:
             return jsonify(ok=False, message="Unknown bulk action."), 400
-        ids = request.form.getlist("entry_ids")
-        if not ids:  # also accept a single comma-separated field
-            ids = [i for i in (request.form.get("entry_ids", "") or "").split(",")]
+        # Accept either repeated `entry_ids` fields OR a single comma-joined value (or a mix), so a
+        # front-end that coerces the id array to one comma string still deletes every selected entry.
+        ids = []
+        for raw in (request.form.getlist("entry_ids") or [request.form.get("entry_ids", "")]):
+            ids.extend((raw or "").split(","))
         ids = [i.strip() for i in ids if i.strip()]
         if not ids:
             return jsonify(ok=False, message="Nothing selected."), 400

@@ -28,8 +28,8 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # services/i
 
 # Per-job env beyond the shared GCP_PROJECT/RAW_DATASET (the loaders read secrets from SM directly).
 $JOBS = @(
-  @{ key="tcs-shopify"; dir="services/ingest/tcs_shopify"; job="tcs-shopify-ingest"; mem="1Gi";   cpu="1"; cron="45 1 * * *"; env="SHOPIFY_STORE_DOMAIN=contractshop.myshopify.com" }
-  @{ key="tcs-klaviyo"; dir="services/ingest/tcs_klaviyo"; job="tcs-klaviyo-ingest"; mem="1Gi";   cpu="1"; cron="50 1 * * *"; env="KLAVIYO_START_DATE=2023-01-01" }
+  @{ key="tcs-shopify"; dir="services/ingest/tcs_shopify"; job="tcs-shopify-ingest"; mem="1Gi";   cpu="1"; cron="45 1 * * *"; env="SHOPIFY_STORE_DOMAIN=contractshop.myshopify.com,BACKFILL_MONTHS=24" }
+  @{ key="tcs-klaviyo"; dir="services/ingest/tcs_klaviyo"; job="tcs-klaviyo-ingest"; mem="1Gi";   cpu="1"; cron="50 1 * * *"; env="BACKFILL_MONTHS=24" }
   @{ key="tcs-quiz";    dir="services/ingest/tcs_quiz";    job="tcs-quiz-ingest";    mem="512Mi"; cpu="1"; cron="55 1 * * *"; env="" }
 )
 
