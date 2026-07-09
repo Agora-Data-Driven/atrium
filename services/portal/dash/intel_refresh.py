@@ -29,6 +29,7 @@ WORKSPACE_LOCAL_DIR + REGISTRY_LOCAL_DIR; `refresh_client` takes injectable `fet
 
 import os
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import intel_ai
@@ -53,18 +54,10 @@ MEDIA_BUYING_QUERIES = (
     "LinkedIn Ads update",
 )
 
-# Business Research fixed publisher feeds (keyless RSS) -- the universal floor. The per-client
-# QUERIES come from the client's own intel_topics (workspace.get_intel_topics); when a client has no
-# topics set, this generic marketing set is used so the section still fills.
-BUSINESS_RESEARCH_FEEDS = (
-    "https://www.marketingdive.com/feeds/news/",
-    "https://www.searchenginejournal.com/feed/",
-)
-BUSINESS_RESEARCH_FALLBACK_QUERIES = (
-    "digital marketing industry trends",
-    "advertising industry news",
-    "consumer marketing trends",
-)
+# Business Research is driven ENTIRELY by the client's own research keywords (intel_topics), keyed
+# to THEIR industry. There is deliberately NO generic-feed fallback: a client with no keywords set
+# gets an empty Business Research section and a clear "add keywords" reason -- good, relevant
+# research or nothing, never off-topic marketing-industry filler.
 
 # The look-back window and article target are ADMIN-CONFIGURED per client (intel_ai.window_of /
 # count_of, set in the AI Research Brain panel). We hand the model a candidate pool a few times the
@@ -133,18 +126,37 @@ def _gather(feeds, queries, limit, window=None, fetcher=None):
     return _dedupe(interleaved)[:limit]
 
 
+# How much of the model's reasoning / raw output we keep in the (rewritten-in-full) workspace JSON.
+_TRACE_THINK_MAX = 6000
+_TRACE_RAW_MAX = 4000
+_TRACE_CANDS_MAX = 40
+
+
 def _curate_section(client, ws, section, feeds, queries, heading, count, window,
-                    model, prompt, ai_fetcher, fetcher):
-    """RETRIEVE real candidates + CURATE them with the model. Returns (entries, err) -- NO write.
+                    model, prompt, ai_fetcher, fetcher, capture=False):
+    """RETRIEVE real candidates + CURATE them. Returns (entries, err, trace) -- NO workspace write.
 
     RETRIEVES candidate articles (the AI's input) from RSS over the admin's look-back `window`, then
     CURATES with the selected model. It does NOT touch the workspace: the caller writes the results,
     so the two sections can curate CONCURRENTLY without racing the read-modify-write workspace JSON.
-    There is NO news-feed fallback: on failure it returns (None, <short reason>)."""
+    There is NO news-feed fallback: on failure it returns (None, <short reason>, trace).
+
+    `trace` is a diagnostics dict (the articles considered, how long it took, and -- when `capture`
+    is set -- the model's reasoning + raw output) surfaced to the admin's "show AI reasoning" panel."""
+    t0 = time.time()
     pool = max(_MIN_CANDIDATE_POOL, count * 3)
     candidates = _gather(feeds, queries, pool, window=window, fetcher=fetcher)
+    trace = {
+        "candidate_count": len(candidates),
+        "candidates": ["%s — %s" % ((c.get("title") or "")[:140], c.get("source") or "?")
+                       for c in candidates[:_TRACE_CANDS_MAX]],
+        "thinking": "",
+        "raw": "",
+    }
     if not candidates:
-        return None, "no source articles found"
+        trace["seconds"] = round(time.time() - t0, 1)
+        return None, "no source articles found", trace
+    cur = {}
     entries, err = intel_ai.curate(
         section,
         ws.get("display_name") or client,
@@ -155,10 +167,15 @@ def _curate_section(client, ws, section, feeds, queries, heading, count, window,
         limit=count,
         heading_default=heading,
         fetcher=ai_fetcher,
+        capture_thinking=capture,
+        trace=cur,
     )
+    trace["thinking"] = (cur.get("thinking") or "")[:_TRACE_THINK_MAX]
+    trace["raw"] = (cur.get("raw") or "")[:_TRACE_RAW_MAX]
+    trace["seconds"] = round(time.time() - t0, 1)
     if entries:
-        return entries, ""
-    return None, err or "the model returned nothing"
+        return entries, "", trace
+    return None, err or "the model returned nothing", trace
 
 
 def refresh_client(client, ws=None, fetcher=None, ai_fetcher=None):
@@ -185,40 +202,42 @@ def refresh_client(client, ws=None, fetcher=None, ai_fetcher=None):
 
     window = intel_ai.window_of(cfg)
     count = intel_ai.count_of(cfg)
+    capture = str(cfg.get("show_thinking") or "").strip() in ("1", "true", "True")
 
-    # Business Research is keyed on the CLIENT's OWN industry. When the client has set keywords,
-    # curate ONLY from their keyword searches -- the generic marketing-industry feeds (Marketing
-    # Dive, Search Engine Journal) are about the AGENCY's world, not the client's, and mixing them
-    # in flooded the pool with off-topic SEO/AI stories. They remain the floor ONLY when a client
-    # has no keywords yet, so the section still fills.
+    # Business Research is driven ENTIRELY by the client's OWN research keywords. NO FALLBACK: with no
+    # keywords the section stays empty and says why, rather than filling with off-topic agency-industry
+    # news. Media Buying is universal by design (ad-platform updates apply to every media buyer).
     topics = workspace.get_intel_topics(ws)
-    biz_queries = tuple(topics) if topics else BUSINESS_RESEARCH_FALLBACK_QUERIES
-    biz_feeds = () if topics else BUSINESS_RESEARCH_FEEDS
+    specs = [("media_buying", MEDIA_BUYING_FEEDS, MEDIA_BUYING_QUERIES, _MEDIA_HEADING, cfg.get("media_prompt"))]
+    if topics:
+        specs.append(("business_research", (), tuple(topics), _BUSINESS_HEADING, cfg.get("business_prompt")))
 
-    specs = (
-        ("media_buying", MEDIA_BUYING_FEEDS, MEDIA_BUYING_QUERIES, _MEDIA_HEADING, cfg.get("media_prompt")),
-        ("business_research", biz_feeds, biz_queries, _BUSINESS_HEADING, cfg.get("business_prompt")),
-    )
-
-    # RETRIEVE + CURATE both sections CONCURRENTLY (the slow part -- two LLM calls that used to run
+    # RETRIEVE + CURATE the sections CONCURRENTLY (the slow part -- the LLM calls that used to run
     # back-to-back now overlap, roughly halving wall time). The WRITES happen afterwards in THIS
     # thread, one section at a time, because the workspace JSON is a read-modify-write and two
     # concurrent writers would clobber each other (last-write-wins).
+    results = {}
+    if not topics:
+        results["business_research"] = (
+            None, "no research keywords set — add this client's industry keywords above",
+            {"candidate_count": 0, "candidates": [], "thinking": "", "raw": ""})
     try:
         with ThreadPoolExecutor(max_workers=len(specs)) as ex:
             futures = {
                 sec: ex.submit(_curate_section, client, ws, sec, feeds, queries, heading,
-                               count, window, model, prompt, ai_fetcher, fetcher)
+                               count, window, model, prompt, ai_fetcher, fetcher, capture)
                 for (sec, feeds, queries, heading, prompt) in specs
             }
-            results = {sec: fut.result() for sec, fut in futures.items()}
+            for sec, fut in futures.items():
+                results[sec] = fut.result()
     except Exception as exc:
         workspace.mark_intel_run(client, model, error=str(exc)[:200])
         raise
 
-    counts, errs, used_ai = {}, [], False
+    counts, errs, traces, used_ai = {}, [], {}, False
     for sec in ("media_buying", "business_research"):
-        entries, err = results.get(sec, (None, "did not run"))
+        entries, err, trace = results.get(sec, (None, "did not run", {}))
+        traces[sec] = trace
         if entries:
             workspace.add_auto_intel(client, sec, entries)
             counts[sec] = len(entries)
@@ -229,7 +248,7 @@ def refresh_client(client, ws=None, fetcher=None, ai_fetcher=None):
                 errs.append(err)
 
     err = "; ".join(dict.fromkeys(errs))        # surface each distinct reason a section couldn't fill
-    workspace.mark_intel_run(client, model if used_ai else "", error=err)
+    workspace.mark_intel_run(client, model if used_ai else "", error=err, traces=traces)
     return {"media_buying": counts["media_buying"],
             "business_research": counts["business_research"], "ai": used_ai}
 

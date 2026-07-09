@@ -1064,6 +1064,18 @@
     .ax-intel-ai-status.is-err { color: #c0392b; font-weight: 700; }
     .ax-intel-ai-off { font-size: 12.5px; color: var(--ax-sub); background: var(--ax-canvas); border: 1px dashed var(--ax-line); border-radius: var(--ax-radius); padding: 10px 13px; margin: 12px 0 0; }
     .ax-intel-ai-off code { background: var(--ax-violet-bg); padding: 1px 5px; border-radius: 5px; font-size: 11.5px; }
+    .ax-intel-thinktoggle { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; font-size: 12.5px; color: var(--ax-ink); cursor: pointer; }
+    .ax-intel-thinktoggle input { margin-top: 2px; }
+    .ax-intel-trace { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--ax-line); }
+    .ax-intel-trace-title { font-size: 12px; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; color: var(--ax-sub); margin-bottom: 10px; }
+    .ax-intel-trace-sec { border: 1px solid var(--ax-line); border-radius: var(--ax-radius); padding: 10px 13px; margin-bottom: 10px; background: var(--ax-canvas); }
+    .ax-intel-trace-sec > summary { cursor: pointer; font-weight: 700; font-size: 12.5px; }
+    .ax-trace-block { margin-top: 12px; }
+    .ax-trace-h { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--ax-sub); margin-bottom: 5px; }
+    .ax-trace-cands { margin: 0; padding-left: 20px; font-size: 12px; color: var(--ax-ink); }
+    .ax-trace-cands li { margin: 2px 0; }
+    .ax-trace-pre { margin: 0; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.5; background: #fff; border: 1px solid var(--ax-line); border-radius: 8px; padding: 10px 12px; color: var(--ax-ink); }
+    .ax-trace-empty { font-size: 12px; color: var(--ax-sub); font-style: italic; margin: 12px 0 0; }
     .ax-intel-item { position: relative; }
     .ax-intel-item.is-fav { border-color: var(--ax-green); box-shadow: 0 0 0 1px var(--ax-green) inset; }
     .ax-intel-star { color: var(--ax-green-d); font-size: 15px; line-height: 1; margin-right: 2px; }
@@ -2297,6 +2309,11 @@
               </div>
             </details>
 
+            <label class="ax-intel-thinktoggle" for="ax-intel-thinking">
+              <input type="checkbox" id="ax-intel-thinking"{{ ' checked' if ai.show_thinking else '' }}>
+              <span>Show the AI's reasoning &amp; the articles it considered <span class="ax-fld-hint">&mdash; slower; a debugging aid</span></span>
+            </label>
+
             <div class="ax-intel-ai-foot">
               <div class="ax-intel-ai-btns">
                 <button type="button" class="ax-btn violet small" id="ax-intel-aisave">Save settings</button>
@@ -2304,6 +2321,35 @@
               </div>
               <span id="ax-intel-aistatus" class="ax-intel-ai-status{{ ' is-err' if ai.last_error else '' }}">{% if ai.last_run %}Last run {{ ai.last_run|atrium_date }}{% if ai.last_model and not ai.last_error %} &middot; {{ ai.last_model }}{% endif %}{% if ai.last_error %} &middot; {{ ai.last_error }}{% endif %}{% endif %}</span>
             </div>
+
+            {% if ai.show_thinking and ai.last_trace %}
+            <div class="ax-intel-trace">
+              <div class="ax-intel-trace-title">{{ ic('intel') }} What the AI did on the last run</div>
+              {% for key, label in [('business_research', 'Business Research'), ('media_buying', 'Media Buying')] %}
+              {% set tr = ai.last_trace.get(key) %}
+              {% if tr %}
+              <details class="ax-intel-trace-sec">
+                <summary>{{ label }} &mdash; {{ tr.candidate_count }} article{{ '' if tr.candidate_count == 1 else 's' }} considered{% if tr.seconds %} &middot; {{ tr.seconds }}s{% endif %}</summary>
+                {% if tr.candidates %}
+                <div class="ax-trace-block">
+                  <div class="ax-trace-h">Articles it chose from ({{ tr.candidates|length }})</div>
+                  <ol class="ax-trace-cands">{% for c in tr.candidates %}<li>{{ c }}</li>{% endfor %}</ol>
+                </div>
+                {% endif %}
+                {% if tr.thinking %}
+                <div class="ax-trace-block"><div class="ax-trace-h">Model reasoning</div><pre class="ax-trace-pre">{{ tr.thinking }}</pre></div>
+                {% endif %}
+                {% if tr.raw %}
+                <div class="ax-trace-block"><div class="ax-trace-h">Raw model output</div><pre class="ax-trace-pre">{{ tr.raw }}</pre></div>
+                {% endif %}
+                {% if not tr.thinking and not tr.raw %}
+                <p class="ax-trace-empty">This model didn't return a separate reasoning trace. The article list and raw output above show what it worked from.</p>
+                {% endif %}
+              </details>
+              {% endif %}
+              {% endfor %}
+            </div>
+            {% endif %}
           </div>
           {% endif %}
 
@@ -4244,13 +4290,15 @@
           saveBtn.setAttribute("disabled", "disabled");
           post("/admin/intel", { op: "topics", topics: val("ax-intel-topics") })
             .then(function () {
+              var thinkEl = document.getElementById("ax-intel-thinking");
               return post("/admin/intel", {
                 op: "ai_settings",
                 model: val("ax-intel-model"),
                 window: val("ax-intel-window"),
                 count: val("ax-intel-count"),
                 business_prompt: val("ax-intel-bizprompt"),
-                media_prompt: val("ax-intel-mediaprompt")
+                media_prompt: val("ax-intel-mediaprompt"),
+                show_thinking: (thinkEl && thinkEl.checked) ? "1" : ""
               });
             })
             .then(function (data) {

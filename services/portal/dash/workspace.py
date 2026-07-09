@@ -1300,9 +1300,13 @@ def add_auto_intel(client, section, entries, cap=_MAX_AUTO_PER_SECTION):
 #                        (blank -> intel_ai's module default is used at refresh time).
 #   * backfilled      -- set True after the first 12-month backfill run, so daily runs use the short
 #                        recent window instead of re-pulling a year every day.
+#   * show_thinking   -- "1" if the admin wants the model's reasoning + considered-articles captured
+#                        and shown (slower; a debugging aid). Blank/"" = off (fast).
 #   * last_run / last_model / last_error -- best-effort run metadata surfaced to the admin.
+#   * last_trace      -- best-effort per-section diagnostics from the last run (candidates, reasoning,
+#                        raw output), written by mark_intel_run and shown when show_thinking is on.
 # It is one more additive workspace key (no new infra), mirroring intel_topics above.
-_INTEL_AI_FIELDS = ("model", "business_prompt", "media_prompt", "window", "count")
+_INTEL_AI_FIELDS = ("model", "business_prompt", "media_prompt", "window", "count", "show_thinking")
 
 
 def get_intel_ai(ws):
@@ -1331,11 +1335,12 @@ def set_intel_ai(client, fields):
     return _mutate(client, fn)
 
 
-def mark_intel_run(client, model, error="", backfilled=None):
+def mark_intel_run(client, model, error="", backfilled=None, traces=None):
     """Record run metadata after a refresh attempt (best-effort; never raises out of the job).
 
     `model` is the model id that ran (or ""); `error` is a short message on failure ("" on success);
-    `backfilled=True` latches the 12-month-backfill-done flag so daily runs stay on the short window."""
+    `backfilled=True` latches the 12-month-backfill-done flag so daily runs stay on the short window;
+    `traces` (a {section: diagnostics} dict) is stored as `last_trace` for the show-reasoning panel."""
     def fn(ws):
         cfg = ws.setdefault("intel_ai", {})
         cfg["last_run"] = now_iso()
@@ -1343,6 +1348,8 @@ def mark_intel_run(client, model, error="", backfilled=None):
         cfg["last_error"] = error or ""
         if backfilled is not None:
             cfg["backfilled"] = bool(backfilled)
+        if traces is not None:
+            cfg["last_trace"] = traces
         return cfg
     try:
         return _mutate(client, fn)

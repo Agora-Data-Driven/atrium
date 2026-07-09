@@ -196,13 +196,22 @@ auto-refresh (see those bullets below). Product name is one constant:
     gated `VERTEX_GEMINI_ENABLED=1` + `VERTEX_PROJECT`/`VERTEX_LOCATION`; NB set
     `thinkingConfig.thinkingBudget` 0/128 or thinking starves the JSON output) and **DeepSeek V4**
     (`DEEPSEEK_API_KEY`). Per-client config `ws["intel_ai"]` = `{model, business_prompt, media_prompt,
-    window, count}` (admin-set in the **AI Research Brain** panel; `intel_ai.window_of`/`count_of`
-    validate the look-back window `7d…12m` + article target 1–25). **Business Research** is keyed off
-    `ws["intel_topics"]`; **Media Buying News** is universal (feeds `ppc.land` + Search Engine
-    Journal — SEL's category feed 000s from Cloud Run). Each run is **ADDITIVE**:
+    window, count, show_thinking}` (admin-set in the **AI Research Brain** panel; `intel_ai.window_of`/
+    `count_of` validate the look-back window `7d…12m` + article target 1–25). **RELEVANCE + SPEED
+    (2026-07):** retrieval (`intel_refresh._gather`) fetches every feed/query **in parallel** and
+    **round-robin-interleaves** the pool (no single prolific source can flood it — a global newest-first
+    sort used to let Search Engine Journal crowd out the client's own hits); the two sections curate
+    **concurrently** (writes stay serial). **Business Research is keyed ENTIRELY off `ws["intel_topics"]`
+    with NO fallback** — no keywords ⇒ the section stays empty with a "set keywords" reason, never
+    generic agency-industry filler (the old `BUSINESS_RESEARCH_FEEDS`/`_FALLBACK_QUERIES` are gone).
+    **Media Buying News** is universal (feeds `ppc.land` + Search Engine Journal — SEL's category feed
+    000s from Cloud Run). **`show_thinking`** (admin toggle, default off) captures the model's reasoning
+    + the candidate list + raw output into `ws["intel_ai"]["last_trace"]` (per section), shown in the
+    panel — a debugging aid; it enables Gemini `includeThoughts` (slower) and reads DeepSeek
+    `reasoning_content`. Each run is **ADDITIVE**:
     `workspace.add_auto_intel` de-dupes new stories and APPENDS them (list grows, never wiped;
     plain-auto capped 60/section, manual + favourited always kept). Team edits via `POST
-    /w/<c>/admin/intel` ops: `ai_settings` (model/prompts/window/count), `topics`, `refresh-now`,
+    /w/<c>/admin/intel` ops: `ai_settings` (model/prompts/window/count/show_thinking), `topics`, `refresh-now`,
     `bulk` (mass delete / favourite — favourite stars + pins), plus add/edit/delete. **Gated:** the
     job no-ops unless `INTEL_AUTO_ENABLED=1`; it REUSES the platform-dash image + web SA. New infra:
     the scheduler job (impersonates the **web SA**, not the cloudscheduler service agent — owners

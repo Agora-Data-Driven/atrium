@@ -1964,6 +1964,8 @@ def atrium_admin_intel(client):
             fields["window"] = window
         if request.form.get("count") is not None:
             fields["count"] = str(intel_ai.count_of({"count": request.form.get("count", "")}))
+        if request.form.get("show_thinking") is not None:
+            fields["show_thinking"] = "1" if request.form.get("show_thinking") in ("1", "true", "on", "True") else ""
         workspace.set_intel_ai(client, fields)
         _audit(client, "set intel AI settings", model or "(off)")
         return jsonify(ok=True)

@@ -297,11 +297,15 @@ def _gcp_access_token(token_fetcher=None):
         return ""
 
 
-def _call_deepseek(model_id, system, user, fetcher, max_tokens):
-    """DeepSeek chat/completions (OpenAI-compatible). Returns (text, error)."""
+def _call_deepseek(model_id, system, user, fetcher, max_tokens, capture=False):
+    """DeepSeek chat/completions (OpenAI-compatible). Returns (text, error, thinking).
+
+    When `capture` is set we surface the model's `reasoning_content` (only the reasoner-class models
+    emit it; the V4 chat models may return none, in which case thinking is "" -- the candidate list
+    and raw output still make the run transparent)."""
     key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not key:
-        return "", "DeepSeek not configured"
+        return "", "DeepSeek not configured", ""
     payload = {
         "model": model_id,
         "max_tokens": max_tokens,
@@ -317,37 +321,48 @@ def _call_deepseek(model_id, system, user, fetcher, max_tokens):
     try:
         resp = fn(_DEEPSEEK_BASE + "/chat/completions", headers, payload, _TIMEOUT)
     except Exception as exc:
-        return "", "could not reach DeepSeek (%s)" % type(exc).__name__
+        return "", "could not reach DeepSeek (%s)" % type(exc).__name__, ""
     if getattr(resp, "status_code", 0) >= 400:
-        return "", _short_error(resp, "DeepSeek error")
+        return "", _short_error(resp, "DeepSeek error"), ""
     try:
         data = resp.json()
-        return (data["choices"][0]["message"]["content"] or "").strip(), ""
+        msg = data["choices"][0]["message"]
+        thinking = (msg.get("reasoning_content") or "").strip() if capture else ""
+        return (msg.get("content") or "").strip(), "", thinking
     except Exception:
-        return "", "DeepSeek returned an unexpected response"
+        return "", "DeepSeek returned an unexpected response", ""
 
 
-def _call_vertex_gemini(model_id, system, user, fetcher, max_tokens, token_fetcher=None):
-    """Vertex AI Gemini :generateContent (GCP-billed, SA-token auth). Returns (text, error)."""
+def _call_vertex_gemini(model_id, system, user, fetcher, max_tokens, token_fetcher=None, capture=False):
+    """Vertex AI Gemini :generateContent (GCP-billed, SA-token auth). Returns (text, error, thinking).
+
+    Gemini 2.5 "thinks" by default and that thinking is billed against maxOutputTokens -- on a big
+    curation prompt it can consume the whole budget and return EMPTY text. Normally this is structured
+    extraction, not reasoning, so we minimise thinking (0 for Flash, the 128 floor for Pro) and the
+    JSON answer always has room. When `capture` is set (the admin's "show reasoning" toggle) we give
+    thinking its OWN budget, ask for the thought parts (`includeThoughts`), and RAISE the output cap
+    so the answer still fits -- and separate the thought parts from the answer parts on the way out."""
     token = _gcp_access_token(token_fetcher)
     if not token:
-        return "", "could not get GCP credentials for Vertex"
+        return "", "could not get GCP credentials for Vertex", ""
     loc = _VERTEX_LOCATION
     host = "aiplatform.googleapis.com" if loc == "global" else ("%s-aiplatform.googleapis.com" % loc)
     url = ("https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent"
            % (host, _VERTEX_PROJECT, loc, model_id))
-    # Gemini 2.5 "thinks" by default, and that thinking is billed against maxOutputTokens -- on a big
-    # curation prompt it can consume the whole budget and return EMPTY text. This is structured
-    # extraction, not reasoning, so we minimise thinking: 0 for Flash (fully off), the 128 floor for
-    # Pro (Pro can't be 0). Combined with a generous token cap, the JSON answer always has room.
-    thinking_budget = 0 if "flash" in model_id else 128
+    if capture:
+        think_budget = 2048
+        thinking_cfg = {"thinkingBudget": think_budget, "includeThoughts": True}
+        out_cap = max(max_tokens, 4096) + think_budget   # leave room for the JSON on top of thinking
+    else:
+        thinking_cfg = {"thinkingBudget": 0 if "flash" in model_id else 128}
+        out_cap = max_tokens
     payload = {
         "system_instruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {
             "response_mime_type": "application/json",
-            "maxOutputTokens": max_tokens,
-            "thinkingConfig": {"thinkingBudget": thinking_budget},
+            "maxOutputTokens": out_cap,
+            "thinkingConfig": thinking_cfg,
         },
     }
     headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
@@ -355,24 +370,27 @@ def _call_vertex_gemini(model_id, system, user, fetcher, max_tokens, token_fetch
     try:
         resp = fn(url, headers, payload, _TIMEOUT)
     except Exception as exc:
-        return "", "could not reach Vertex AI (%s)" % type(exc).__name__
+        return "", "could not reach Vertex AI (%s)" % type(exc).__name__, ""
     if getattr(resp, "status_code", 0) >= 400:
-        return "", _short_error(resp, "Vertex error")
+        return "", _short_error(resp, "Vertex error"), ""
     try:
         data = resp.json()
         parts = data["candidates"][0]["content"]["parts"]
-        return "".join(p.get("text", "") for p in parts).strip(), ""
+        # A part flagged `thought:true` is reasoning, not the answer -- keep them apart.
+        answer = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+        thinking = "".join(p.get("text", "") for p in parts if p.get("thought")).strip() if capture else ""
+        return answer, "", thinking
     except Exception:
-        return "", "Vertex returned an unexpected response"
+        return "", "Vertex returned an unexpected response", ""
 
 
-def _call(model, system, user, fetcher, max_tokens, token_fetcher=None):
-    """Dispatch to the right provider for `model` (a MODELS dict). Returns (text, error)."""
+def _call(model, system, user, fetcher, max_tokens, token_fetcher=None, capture=False):
+    """Dispatch to the right provider for `model` (a MODELS dict). Returns (text, error, thinking)."""
     if model["provider"] == "deepseek":
-        return _call_deepseek(model["id"], system, user, fetcher, max_tokens)
+        return _call_deepseek(model["id"], system, user, fetcher, max_tokens, capture)
     if model["provider"] == "gemini":
-        return _call_vertex_gemini(model["id"], system, user, fetcher, max_tokens, token_fetcher)
-    return "", "unknown provider"
+        return _call_vertex_gemini(model["id"], system, user, fetcher, max_tokens, token_fetcher, capture)
+    return "", "unknown provider", ""
 
 
 # --- Parsing ------------------------------------------------------------------------------------
@@ -437,7 +455,8 @@ def _shape(entry, candidates, heading_default):
 
 # --- The one call the refresh job makes ---------------------------------------------------------
 def curate(section, client_name, topics, candidates, prompt=None, model=None,
-           limit=6, heading_default="", fetcher=None, token_fetcher=None, max_tokens=8192):
+           limit=6, heading_default="", fetcher=None, token_fetcher=None, max_tokens=8192,
+           capture_thinking=False, trace=None):
     """Curate real `candidates` into up to `limit` briefing entries for `section`, using `model`.
 
     Returns `(entries, error)`:
@@ -446,7 +465,10 @@ def curate(section, client_name, topics, candidates, prompt=None, model=None,
         returned nothing usable. There is NO news-feed fallback: the caller records the reason and
         shows it, rather than filling the tab with junk.
     `prompt` is the admin's editorial guidance for the section (blank -> the module default);
-    `fetcher`/`token_fetcher` are the transport injection seams for tests."""
+    `fetcher`/`token_fetcher` are the transport injection seams for tests. When `capture_thinking` is
+    set the model's reasoning is surfaced; pass a `trace` dict and it is filled IN PLACE with
+    `thinking` + `raw` (the model's reasoning and raw output) so the caller can show the admin what
+    the brain actually did -- the 2-tuple return is unchanged."""
     meta = model_meta(model)
     if meta is None:
         return None, "no model selected"
@@ -458,7 +480,10 @@ def curate(section, client_name, topics, candidates, prompt=None, model=None,
     editorial = (prompt or "").strip() or default_prompt(section)
     system = _system_prompt(section, client_name, editorial)
     user = _user_prompt(client_name, topics, cands, limit)
-    raw, err = _call(meta, system, user, fetcher, max_tokens, token_fetcher)
+    raw, err, thinking = _call(meta, system, user, fetcher, max_tokens, token_fetcher, capture_thinking)
+    if trace is not None:
+        trace["thinking"] = thinking or ""
+        trace["raw"] = raw or ""
     if err:
         return None, err
     parsed = _parse_entries(raw)
