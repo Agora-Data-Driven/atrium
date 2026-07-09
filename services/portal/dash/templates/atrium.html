@@ -2497,6 +2497,16 @@
       var collapsed = !root.classList.contains("nav-collapsed");
       setNav(collapsed);
       try { if (window.localStorage) { window.localStorage.setItem(navKey, collapsed ? "1" : "0"); } } catch (e) {}
+      // The shell grid (256px|68px -> 1fr) animates over .3s, so the .ax-main content grows/shrinks.
+      // The Looker embed is scaled to a FIXED pixel width by JS, so it must be re-fit to the new
+      // container width -- otherwise it keeps its old size and leaves the dead strip. fitDashScale is
+      // hoisted (function declaration), so it's callable here; re-run it across the whole transition
+      // so the report tracks the sidebar smoothly rather than snapping at the end.
+      var t0 = Date.now();
+      (function reflow() {
+        fitDashScale();
+        if (Date.now() - t0 < 420) { (window.requestAnimationFrame || window.setTimeout)(reflow, 16); }
+      })();
     });
   }
 
