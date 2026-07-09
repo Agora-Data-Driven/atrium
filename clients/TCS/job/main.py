@@ -191,11 +191,12 @@ def _read_leads(bq):
 
 
 def _read_activity(bq):
-    """activity_monthly -> data.activity_monthly[] (leads / sales / clicks per month for the
-    combined trend chart). clicks/sends stay None for months with no email data yet so the
-    dashboard skips them instead of plotting a misleading zero."""
+    """activity_monthly -> data.activity_monthly[] (leads / sales / click_rate per month for the
+    combined trend chart, ALL scoped to the quiz-lead cohort). click_rate/clicks/sends stay None
+    for months with no email data yet so the dashboard skips them instead of plotting a misleading
+    zero. click_rate = emails clicked (binary per send) / emails sent to quiz leads."""
     sql = f"""
-        SELECT month, leads, sales, sends, clicks
+        SELECT month, leads, sales, sends, clicks, click_rate
         FROM `{PROJECT}.{DATASET}.activity_monthly`
         ORDER BY month
     """
@@ -207,6 +208,7 @@ def _read_activity(bq):
             "sales": _i(r["sales"]),
             "sends": None if r["sends"] is None else int(r["sends"]),
             "clicks": None if r["clicks"] is None else int(r["clicks"]),
+            "click_rate": _f(r["click_rate"]),
         })
     return out
 
