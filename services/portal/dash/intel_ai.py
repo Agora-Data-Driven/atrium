@@ -90,6 +90,15 @@ def count_of(cfg):
 
 _DEEPSEEK_BASE = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
 _TIMEOUT = 60          # seconds; a slow model must never hang the whole refresh run.
+# Grounded research is a MUCH slower call: the model plans, runs several live Google searches, reads
+# real pages, then curates -- and with the "show reasoning" toggle on (includeThoughts) it is slower
+# still. 60s reliably times out (ReadTimeout); give it its own generous budget. Both sections research
+# concurrently, so wall time stays ~one call -- under the web service's 300s and the job's 900s caps.
+# Overridable via env for tuning without a code change.
+try:
+    _RESEARCH_TIMEOUT = int(os.environ.get("INTEL_RESEARCH_TIMEOUT", "240"))
+except (TypeError, ValueError):
+    _RESEARCH_TIMEOUT = 240
 _BODY_MAX = 320        # a briefing summary is short by design (matches intel_refresh._BODY_MAX-ish).
 
 # Vertex AI (GCP-billed Gemini). Project/location come from env (the deploy sets them); the token is
@@ -604,7 +613,7 @@ def _call_vertex_grounded(model_id, system, user, fetcher, token_fetcher=None, c
     headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
     fn = fetcher or _requests_post
     try:
-        resp = fn(url, headers, payload, _TIMEOUT)
+        resp = fn(url, headers, payload, _RESEARCH_TIMEOUT)
     except Exception as exc:
         return "", "could not reach Vertex AI (%s)" % type(exc).__name__, "", {}
     if getattr(resp, "status_code", 0) >= 400:

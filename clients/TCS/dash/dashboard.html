@@ -128,56 +128,16 @@
       <div class="kpis" id="kpis"></div>
 
       <div class="panel">
-        <h2>Leads, sales &amp; clicks over time</h2>
-        <p class="desc">New quiz leads, sales (orders) and email clicks by month. <b>Relative</b> indexes each series to its own peak (100%) so you can compare their shape and timing on one scale; <b>Absolute</b> shows raw counts.</p>
-        <div class="toggle" id="actToggle" role="group" aria-label="Chart scale">
-          <button type="button" class="tg on" data-mode="relative" aria-pressed="true">Relative</button>
-          <button type="button" class="tg" data-mode="absolute" aria-pressed="false">Absolute</button>
-        </div>
+        <h2>Leads, sales &amp; click rate over time</h2>
+        <p class="desc">Quiz-lead activity by month, all scoped to the same people: new quiz leads, orders they placed after taking the quiz, and their email <b>click rate</b> (emails clicked ÷ emails sent — one click per email). Each line is indexed to its own peak (100%) so their shape and timing compare on one axis; hover for the actual values. Open rate is left out on purpose — Apple Mail Privacy auto-opens make it unreliable.</p>
         <div class="legend">
           <span class="item"><span class="swatch" style="background:#153a5b"></span>Leads</span>
           <span class="item"><span class="swatch" style="background:#17a398"></span>Sales</span>
-          <span class="item"><span class="swatch" style="background:#d8952f"></span>Clicks</span>
+          <span class="item"><span class="swatch" style="background:#d8952f"></span>Click rate</span>
         </div>
-        <svg class="chart" id="actChart" preserveAspectRatio="none" viewBox="0 0 760 250" role="img" aria-label="Leads, sales and clicks by month"></svg>
+        <svg class="chart" id="actChart" preserveAspectRatio="none" viewBox="0 0 760 250" role="img" aria-label="Leads, sales and click rate by month"></svg>
         <p class="note" id="actNote"></p>
         <div class="tip" id="actTip"></div>
-      </div>
-
-      <div class="panel">
-        <h2>Why has conversion dropped?</h2>
-        <p class="desc">Lead&nbsp;→&nbsp;customer conversion within 90 days of taking the quiz, by the month the lead took it, shown against that group's email open rate. When the two fall together, engagement — not the offer — is what changed.</p>
-        <div class="legend">
-          <span class="item"><span class="swatch" style="background:#153a5b"></span>Conversion (within 90 days)</span>
-          <span class="item"><span class="swatch" style="background:#17a398"></span>Email open rate</span>
-        </div>
-        <svg class="chart" id="convChart" preserveAspectRatio="none" viewBox="0 0 760 250" role="img" aria-label="Conversion and open rate by quiz cohort month"></svg>
-        <p class="note" id="convNote"></p>
-        <div class="tip" id="convTip"></div>
-      </div>
-
-      <div class="panel">
-        <h2>Email engagement over time</h2>
-        <p class="desc">Open &amp; click rate among quiz leads by month (emails sent at/after their quiz), with send volume beneath. Hover for detail.</p>
-        <div class="legend">
-          <span class="item"><span class="swatch" style="background:#17a398"></span>Open rate</span>
-          <span class="item"><span class="swatch" style="background:#2e6ba8"></span>Click rate</span>
-        </div>
-        <svg class="chart" id="rateChart" preserveAspectRatio="none" viewBox="0 0 760 250" role="img" aria-label="Open and click rate by month"></svg>
-        <div class="legend" style="margin-top:8px"><span class="item"><span class="swatch" style="background:#bfe0da"></span>Emails sent</span></div>
-        <svg class="chart short" id="volChart" preserveAspectRatio="none" viewBox="0 0 760 120" role="img" aria-label="Emails sent by month"></svg>
-        <div class="tip" id="rateTip"></div>
-      </div>
-
-      <div class="panel">
-        <h2>Buyers vs non-buyers — is engagement the difference?</h2>
-        <p class="desc">Open rate by month, split by whether the lead ever purchased. A wide, persistent gap means engagement is the lever separating buyers from the rest.</p>
-        <div class="legend">
-          <span class="item"><span class="swatch" style="background:#17a398"></span>Bought</span>
-          <span class="item"><span class="swatch" style="background:#e8705b"></span>Never bought</span>
-        </div>
-        <svg class="chart" id="segChart" preserveAspectRatio="none" viewBox="0 0 760 250" role="img" aria-label="Open rate by month, buyers vs non-buyers"></svg>
-        <div class="tip" id="segTip"></div>
       </div>
 
       <div class="panel">
@@ -187,7 +147,7 @@
           <table id="cohorts">
             <thead><tr>
               <th>Cohort</th><th></th><th>Leads</th><th>Converted</th><th>Conv. rate</th>
-              <th>Open rate</th><th>Click rate</th><th>Avg opens</th><th>Revenue</th>
+              <th>Click rate</th><th>Avg clicks</th><th>Revenue</th>
             </tr></thead>
             <tbody></tbody>
           </table>
@@ -201,7 +161,7 @@
           <table id="leads">
             <thead><tr>
               <th>Name</th><th>Email</th><th>Taken</th><th>Bought</th><th>Revenue</th>
-              <th>Sent</th><th>Opens</th><th>Open rate</th><th>Days to buy</th>
+              <th>Sent</th><th>Clicks</th><th>Click rate</th><th>Days to buy</th>
             </tr></thead>
             <tbody></tbody>
           </table>
@@ -256,13 +216,13 @@
     html += kpiCard("Conversion rate", fmtPct(k.conversion_rate), "teal", fmtInt(k.converted) + " bought");
     html += kpiCard("Revenue (post-quiz)", fmtMoney(k.revenue), "teal", null);
     html += kpiCard("Avg days to buy", fmt1(k.avg_days_to_convert), "", null);
-    html += kpiCard("Avg opens / lead", fmt1(k.avg_opens), "", "clicks: " + fmt1(k.avg_clicks));
-    var orSub = "";
-    if (isNum(k.open_rate_this_year) && isNum(k.open_rate_prior)) {
-      var d = k.open_rate_this_year - k.open_rate_prior;
-      orSub = '<span class="' + (d < 0 ? "down" : "up") + '">' + (d < 0 ? "▼ " : "▲ ") + fmtPct(Math.abs(d)) + "</span> vs prior";
+    html += kpiCard("Avg clicks / lead", fmt1(k.avg_clicks), "", null);
+    var crSub = "";
+    if (isNum(k.click_rate_this_year) && isNum(k.click_rate_prior)) {
+      var d = k.click_rate_this_year - k.click_rate_prior;
+      crSub = '<span class="' + (d < 0 ? "down" : "up") + '">' + (d < 0 ? "▼ " : "▲ ") + fmtPct(Math.abs(d)) + "</span> vs prior";
     }
-    html += kpiCard("Open rate this yr", fmtPct(k.open_rate_this_year), "", orSub);
+    html += kpiCard("Click rate this yr", fmtPct(k.click_rate_this_year), "", crSub);
     html += kpiCard("Leads this year", fmtInt(k.leads_this_year), "amber", null);
     html += kpiCard("Converted this year", fmtInt(k.converted_this_year), tyCls, null);
     el("kpis").innerHTML = html;
@@ -276,12 +236,12 @@
       msg = "<h1>Quiz lead conversion diagnostics</h1>";
     }
     var sub = "";
-    if (isNum(k.open_rate_this_year) && isNum(k.open_rate_prior)) {
-      var d = k.open_rate_this_year - k.open_rate_prior;
-      sub = "Email open rate among quiz leads is " + fmtPct(k.open_rate_this_year) +
-            " this year vs " + fmtPct(k.open_rate_prior) + " before — " +
-            (d < 0 ? "down " + fmtPct(Math.abs(d)) + ". The charts below trace whether the conversion drop follows the engagement drop." :
-                     "roughly flat. The charts below break down what changed.");
+    if (isNum(k.click_rate_this_year) && isNum(k.click_rate_prior)) {
+      var d = k.click_rate_this_year - k.click_rate_prior;
+      sub = "Email click rate among quiz leads is " + fmtPct(k.click_rate_this_year) +
+            " this year vs " + fmtPct(k.click_rate_prior) + " before — " +
+            (d < 0 ? "down " + fmtPct(Math.abs(d)) + ". The chart below traces whether the conversion drop follows the engagement drop." :
+                     "roughly flat. The chart below breaks down what changed.");
     }
     el("hero").innerHTML = msg + "<p>" + sub + "</p>";
   }
@@ -386,13 +346,13 @@
 
   function renderCohorts(rows) {
     var tb = document.querySelector("#cohorts tbody");
-    if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="9">No cohorts yet.</td></tr>'; return; }
+    if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="8">No cohorts yet.</td></tr>'; return; }
     var html = "", i;
     for (i = 0; i < rows.length; i++) {
       var c = rows[i];
       html += "<tr><td>" + esc(c.cohort) + "</td><td></td><td>" + fmtInt(c.leads) + "</td><td>" + fmtInt(c.converted) +
-        "</td><td>" + fmtPct(c.conversion_rate) + "</td><td>" + fmtPct(c.open_rate) + "</td><td>" + fmtPct(c.click_rate) +
-        "</td><td>" + fmt1(c.avg_opens) + "</td><td>" + fmtMoney(c.revenue) + "</td></tr>";
+        "</td><td>" + fmtPct(c.conversion_rate) + "</td><td>" + fmtPct(c.click_rate) +
+        "</td><td>" + fmt1(c.avg_clicks) + "</td><td>" + fmtMoney(c.revenue) + "</td></tr>";
     }
     tb.innerHTML = html;
   }
@@ -408,7 +368,7 @@
       html += '<tr><td><span class="name">' + nm + '</span></td><td><span class="em">' + esc(d.email) + "</span></td><td>" +
         esc((d.submitted_at || "").slice(0, 10)) + "</td><td>" + bought + "</td><td>" +
         (d.is_converted ? fmtMoney(d.revenue_post_quiz) : "—") + "</td><td>" + fmtInt(d.emails_sent) + "</td><td>" +
-        fmtInt(d.opens) + "</td><td>" + fmtPct(d.open_rate) + "</td><td>" + dtc + "</td></tr>";
+        fmtInt(d.clicks) + "</td><td>" + fmtPct(d.click_rate) + "</td><td>" + dtc + "</td></tr>";
     }
     tb.innerHTML = html;
   }
@@ -421,32 +381,31 @@
     return m;
   }
   function renderActivity() {
-    var rows = ACT.rows || [], relative = (ACT.mode === "relative");
-    var maxL = seriesMax(rows, "leads"), maxS = seriesMax(rows, "sales"), maxC = seriesMax(rows, "clicks");
-    function norm(v, mx) { if (!isNum(v)) { return null; } if (!relative) { return Number(v); } return mx > 0 ? Number(v) / mx : null; }
+    var rows = ACT.rows || [];
+    var maxL = seriesMax(rows, "leads"), maxS = seriesMax(rows, "sales"), maxC = seriesMax(rows, "click_rate");
+    function norm(v, mx) { if (!isNum(v)) { return null; } return mx > 0 ? Number(v) / mx : null; }
     var plot = [], i;
     for (i = 0; i < rows.length; i++) {
       var r = rows[i];
       plot.push({
-        month: r.month, leads: r.leads, sales: r.sales, clicks: r.clicks,
-        leads_v: norm(r.leads, maxL), sales_v: norm(r.sales, maxS), clicks_v: norm(r.clicks, maxC)
+        month: r.month, leads: r.leads, sales: r.sales, clicks: r.clicks, sends: r.sends, click_rate: r.click_rate,
+        leads_v: norm(r.leads, maxL), sales_v: norm(r.sales, maxS), rate_v: norm(r.click_rate, maxC)
       });
     }
-    var opts = {
-      svgId: "actChart", tipId: "actTip", rows: plot, xkey: "month", isRate: relative,
+    renderLineChart({
+      svgId: "actChart", tipId: "actTip", rows: plot, xkey: "month", isRate: true,
       series: [
         { key: "leads_v", label: "Leads", color: "#153a5b" },
         { key: "sales_v", label: "Sales", color: "#17a398" },
-        { key: "clicks_v", label: "Clicks", color: "#d8952f" }
-      ]
-    };
-    if (relative) {
-      opts.extra = function (r) {
-        return '<div class="row" style="color:#6b7c8c">counts — leads: ' + fmtInt(r.leads) +
-               " · sales: " + fmtInt(r.sales) + " · clicks: " + (isNum(r.clicks) ? fmtInt(r.clicks) : "—") + "</div>";
-      };
-    }
-    renderLineChart(opts);
+        { key: "rate_v", label: "Click rate", color: "#d8952f" }
+      ],
+      extra: function (r) {
+        return '<div class="row" style="color:#6b7c8c">leads: ' + fmtInt(r.leads) +
+               " · sales: " + fmtInt(r.sales) +
+               " · click rate: " + (isNum(r.click_rate) ? fmtPct(r.click_rate) : "—") +
+               (isNum(r.clicks) && isNum(r.sends) ? " (" + fmtInt(r.clicks) + " / " + fmtInt(r.sends) + " sent)" : "") + "</div>";
+      }
+    });
   }
   function initActToggle() {
     var t = el("actToggle"); if (!t) { return; }
@@ -473,53 +432,15 @@
     renderHero(data.kpis);
     renderKpis(data.kpis);
 
-    // Leads / sales / clicks trend (relative by default).
+    // Leads / sales / click-rate trend — all scoped to the quiz-lead cohort, indexed to each
+    // series' own peak so their shape/timing compare on one axis.
     ACT.rows = data.activity_monthly || [];
-    ACT.mode = "relative";
-    initActToggle();
     renderActivity();
     var actClicks = 0, ai;
-    for (ai = 0; ai < ACT.rows.length; ai++) { if (isNum(ACT.rows[ai].clicks)) { actClicks++; } }
+    for (ai = 0; ai < ACT.rows.length; ai++) { if (isNum(ACT.rows[ai].click_rate)) { actClicks++; } }
     el("actNote").textContent = (ACT.rows.length && actClicks === 0)
-      ? "Email clicks are still backfilling — the clicks line will fill in as data lands."
+      ? "Email click data is still backfilling — the click-rate line will fill in as data lands."
       : "";
-
-    // Conversion trend: plot the 90-day rate only for MATURE cohorts (recent ones are too young to judge).
-    var ct = (data.conversion_trend || []).slice(), i, immature = 0;
-    for (i = 0; i < ct.length; i++) {
-      var row = ct[i];
-      row.conv_plot = row.mature ? row.conversion_rate_90d : null;
-      if (!row.mature) { immature++; }
-    }
-    renderLineChart({
-      svgId: "convChart", tipId: "convTip", rows: ct, xkey: "cohort_month", isRate: true,
-      series: [
-        { key: "conv_plot", label: "Conversion (90d)", color: "#153a5b", area: true },
-        { key: "open_rate", label: "Open rate", color: "#17a398" }
-      ],
-      extra: function (r) { return '<div class="row" style="color:#6b7c8c">leads: ' + fmtInt(r.leads) + (r.mature ? "" : " · maturing") + "</div>"; }
-    });
-    el("convNote").textContent = immature > 0
-      ? ("The most recent " + immature + " month(s) are omitted from the conversion line — those leads took the quiz under 90 days ago and haven't had a fair window to buy yet.")
-      : "";
-
-    renderLineChart({
-      svgId: "rateChart", tipId: "rateTip", rows: data.monthly || [], xkey: "month", isRate: true,
-      series: [
-        { key: "open_rate", label: "Open rate", color: "#17a398" },
-        { key: "click_rate", label: "Click rate", color: "#2e6ba8" }
-      ],
-      extra: function (r) { return '<div class="row" style="color:#6b7c8c">sent: ' + fmtInt(r.emails_sent) + " · leads: " + fmtInt(r.active_leads) + "</div>"; }
-    });
-    renderBars("volChart", data.monthly || [], "emails_sent");
-
-    renderLineChart({
-      svgId: "segChart", tipId: "segTip", rows: data.monthly || [], xkey: "month", isRate: true,
-      series: [
-        { key: "converted_open_rate", label: "Bought", color: "#17a398" },
-        { key: "nonconverted_open_rate", label: "Never bought", color: "#e8705b" }
-      ]
-    });
 
     renderCohorts(data.cohorts);
     renderLeads(data.leads);
