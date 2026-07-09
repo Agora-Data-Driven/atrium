@@ -730,6 +730,10 @@ def intel_ai_settings(ws):
         "last_model": (raw.get("last_model") or "").strip(),
         "last_error": (raw.get("last_error") or "").strip(),
         "backfilled": bool(raw.get("backfilled")),
+        # "Show AI reasoning" toggle + the last run's per-section diagnostics (candidates, reasoning,
+        # raw output) -- surfaced only when the toggle is on.
+        "show_thinking": str(raw.get("show_thinking") or "").strip() in ("1", "true", "True"),
+        "last_trace": raw.get("last_trace") if isinstance(raw.get("last_trace"), dict) else {},
     }
 
 
