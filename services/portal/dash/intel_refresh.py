@@ -29,6 +29,7 @@ WORKSPACE_LOCAL_DIR + REGISTRY_LOCAL_DIR; `refresh_client` takes injectable `fet
 
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import intel_ai
 import intel_feed
@@ -93,40 +94,57 @@ def _dedupe(rows):
 
 
 def _gather(feeds, queries, limit, window=None, fetcher=None):
-    """Fetch every feed + query, dedupe, sort newest-first, return up to `limit` RAW candidate rows.
+    """Fetch every feed + query IN PARALLEL, interleave round-robin, dedupe, return up to `limit` rows.
 
     Rows carry {title, link, body, source, date} -- the REAL articles the AI curates from (its input;
-    the model keeps each chosen article's real link/source/date)."""
-    rows = []
-    for url in feeds:
-        rows.extend(intel_feed.fetch_feed(url, limit=limit, fetcher=fetcher))
-    for q in queries:
-        url = intel_feed.google_news_url(q, window=window)
-        rows.extend(intel_feed.fetch_feed(url, limit=limit, fetcher=fetcher))
-    rows = _dedupe([r for r in rows if r.get("title")])
-    # Newest first; dateless entries fall to the bottom (mirrors atrium_view.intel_sections).
-    rows.sort(key=lambda r: (r.get("date") or ""), reverse=True)
-    return rows[:limit]
+    the model keeps each chosen article's real link/source/date).
+
+    Two deliberate choices here fix the "irrelevant research" problem:
+      * PARALLEL fetch -- a slow or dead feed no longer blocks the others (each still self-limits via
+        intel_feed's per-request timeout and can never raise), so retrieval is bounded by the SLOWEST
+        source, not their sum.
+      * ROUND-ROBIN interleave instead of a global newest-first sort. A date-sort let one high-volume
+        source (e.g. Search Engine Journal, which posts ~20x/day) flood the pool and crowd the
+        client's own keyword hits out of the top `limit` entirely -- so the model never even saw
+        them. Interleaving takes each source's freshest item first, guaranteeing every keyword/feed
+        is represented before the model ranks by relevance."""
+    urls = [u for u in list(feeds) if u]
+    urls += [u for u in (intel_feed.google_news_url(q, window=window) for q in queries) if u]
+    if not urls:
+        return []
+    per_source = [[] for _ in urls]
+
+    def _fetch(idx):
+        return idx, [r for r in intel_feed.fetch_feed(urls[idx], limit=limit, fetcher=fetcher)
+                     if r.get("title")]
+
+    with ThreadPoolExecutor(max_workers=min(8, len(urls))) as ex:
+        for idx, rows in ex.map(_fetch, range(len(urls))):
+            per_source[idx] = rows
+
+    # Round-robin: source0[0], source1[0], ..., source0[1], source1[1], ... -- each source's top
+    # item outranks any source's second item, so no single feed can monopolise the candidate list.
+    interleaved = []
+    depth = max((len(s) for s in per_source), default=0)
+    for d in range(depth):
+        for s in per_source:
+            if d < len(s):
+                interleaved.append(s[d])
+    return _dedupe(interleaved)[:limit]
 
 
-def _business_queries(ws):
-    """The Business-Research search queries for a client: its own intel_topics, else the fallback."""
-    topics = workspace.get_intel_topics(ws)
-    return tuple(topics) if topics else BUSINESS_RESEARCH_FALLBACK_QUERIES
-
-
-def _fill_section(client, ws, section, feeds, queries, heading, count, window,
-                  model, prompt, ai_fetcher, fetcher):
-    """Retrieve real candidates and ADD up to `count` newly-curated entries. Returns (added, ai, err).
+def _curate_section(client, ws, section, feeds, queries, heading, count, window,
+                    model, prompt, ai_fetcher, fetcher):
+    """RETRIEVE real candidates + CURATE them with the model. Returns (entries, err) -- NO write.
 
     RETRIEVES candidate articles (the AI's input) from RSS over the admin's look-back `window`, then
-    CURATES with the selected model and ADDS the results to the section (workspace.add_auto_intel --
-    de-duped against what's already there, so the list GROWS rather than being wiped). There is NO
-    news-feed fallback: if the model fails, the section is left as-is and the reason is returned."""
+    CURATES with the selected model. It does NOT touch the workspace: the caller writes the results,
+    so the two sections can curate CONCURRENTLY without racing the read-modify-write workspace JSON.
+    There is NO news-feed fallback: on failure it returns (None, <short reason>)."""
     pool = max(_MIN_CANDIDATE_POOL, count * 3)
     candidates = _gather(feeds, queries, pool, window=window, fetcher=fetcher)
     if not candidates:
-        return 0, False, "no source articles found"
+        return None, "no source articles found"
     entries, err = intel_ai.curate(
         section,
         ws.get("display_name") or client,
@@ -139,9 +157,8 @@ def _fill_section(client, ws, section, feeds, queries, heading, count, window,
         fetcher=ai_fetcher,
     )
     if entries:
-        workspace.add_auto_intel(client, section, entries)
-        return len(entries), True, ""
-    return 0, False, err or "the model returned nothing"
+        return entries, ""
+    return None, err or "the model returned nothing"
 
 
 def refresh_client(client, ws=None, fetcher=None, ai_fetcher=None):
@@ -169,22 +186,52 @@ def refresh_client(client, ws=None, fetcher=None, ai_fetcher=None):
     window = intel_ai.window_of(cfg)
     count = intel_ai.count_of(cfg)
 
+    # Business Research is keyed on the CLIENT's OWN industry. When the client has set keywords,
+    # curate ONLY from their keyword searches -- the generic marketing-industry feeds (Marketing
+    # Dive, Search Engine Journal) are about the AGENCY's world, not the client's, and mixing them
+    # in flooded the pool with off-topic SEO/AI stories. They remain the floor ONLY when a client
+    # has no keywords yet, so the section still fills.
+    topics = workspace.get_intel_topics(ws)
+    biz_queries = tuple(topics) if topics else BUSINESS_RESEARCH_FALLBACK_QUERIES
+    biz_feeds = () if topics else BUSINESS_RESEARCH_FEEDS
+
+    specs = (
+        ("media_buying", MEDIA_BUYING_FEEDS, MEDIA_BUYING_QUERIES, _MEDIA_HEADING, cfg.get("media_prompt")),
+        ("business_research", biz_feeds, biz_queries, _BUSINESS_HEADING, cfg.get("business_prompt")),
+    )
+
+    # RETRIEVE + CURATE both sections CONCURRENTLY (the slow part -- two LLM calls that used to run
+    # back-to-back now overlap, roughly halving wall time). The WRITES happen afterwards in THIS
+    # thread, one section at a time, because the workspace JSON is a read-modify-write and two
+    # concurrent writers would clobber each other (last-write-wins).
     try:
-        media_n, media_ai, media_err = _fill_section(
-            client, ws, "media_buying", MEDIA_BUYING_FEEDS, MEDIA_BUYING_QUERIES,
-            _MEDIA_HEADING, count, window, model, cfg.get("media_prompt"), ai_fetcher, fetcher)
-        biz_n, biz_ai, biz_err = _fill_section(
-            client, ws, "business_research", BUSINESS_RESEARCH_FEEDS, _business_queries(ws),
-            _BUSINESS_HEADING, count, window, model, cfg.get("business_prompt"),
-            ai_fetcher, fetcher)
+        with ThreadPoolExecutor(max_workers=len(specs)) as ex:
+            futures = {
+                sec: ex.submit(_curate_section, client, ws, sec, feeds, queries, heading,
+                               count, window, model, prompt, ai_fetcher, fetcher)
+                for (sec, feeds, queries, heading, prompt) in specs
+            }
+            results = {sec: fut.result() for sec, fut in futures.items()}
     except Exception as exc:
         workspace.mark_intel_run(client, model, error=str(exc)[:200])
         raise
 
-    used_ai = media_ai or biz_ai
-    err = biz_err or media_err                 # surface a reason if either section couldn't fill
+    counts, errs, used_ai = {}, [], False
+    for sec in ("media_buying", "business_research"):
+        entries, err = results.get(sec, (None, "did not run"))
+        if entries:
+            workspace.add_auto_intel(client, sec, entries)
+            counts[sec] = len(entries)
+            used_ai = True
+        else:
+            counts[sec] = 0
+            if err:
+                errs.append(err)
+
+    err = "; ".join(dict.fromkeys(errs))        # surface each distinct reason a section couldn't fill
     workspace.mark_intel_run(client, model if used_ai else "", error=err)
-    return {"media_buying": media_n, "business_research": biz_n, "ai": used_ai}
+    return {"media_buying": counts["media_buying"],
+            "business_research": counts["business_research"], "ai": used_ai}
 
 
 def refresh_all(fetcher=None, ai_fetcher=None):
