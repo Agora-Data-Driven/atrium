@@ -51,9 +51,9 @@
   *{box-sizing:border-box}
   .rv{background:radial-gradient(1000px 340px at 82% -70px,var(--paper2),transparent 60%),var(--paper);
       color:var(--ink);font-family:var(--sans);line-height:1.45;-webkit-font-smoothing:antialiased;
-      min-height:100%;font-size:14.5px;position:relative;overflow:hidden;text-rendering:optimizeLegibility}
+      min-height:100%;font-size:12px;position:relative;overflow:hidden;text-rendering:optimizeLegibility}
   .rv-ribbon{height:3px;background:linear-gradient(90deg,var(--red) 0%,var(--red-d) 8%,var(--green-d) 24%,var(--green) 60%,var(--green-l) 100%)}
-  .rv-wrap{max-width:1560px;margin:0 auto;padding:0 28px;position:relative;z-index:2}
+  .rv-wrap{max-width:1720px;margin:0 auto;padding:0 26px;position:relative;z-index:2}
   .rv-mtns{position:absolute;left:0;right:0;bottom:0;height:48vh;min-height:320px;z-index:0;pointer-events:none;opacity:.05}
   .rv-mtns svg{width:100%;height:100%;display:block}
 
@@ -82,16 +82,16 @@
   .rv-presets button:hover{color:var(--ink);border-color:var(--green)}
   .rv-presets button[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:#fff}
 
-  .rv-sec{margin-top:24px}
-  .rv-sec.tight{margin-top:16px}
+  .rv-sec{margin-top:16px}
+  .rv-sec.tight{margin-top:10px}
   .rv-eyebrow{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--red);font-weight:700;margin-bottom:9px;display:flex;align-items:center;gap:8px}
   .rv-eyebrow::before{content:"";width:13px;height:13px;border-radius:50%;border:2.5px solid var(--red);flex:none}
-  .rv-h{font-family:var(--serif);font-size:19px;font-weight:600;color:var(--green-d);margin:0 0 3px;letter-spacing:.2px}
+  .rv-h{font-family:var(--serif);font-size:15px;font-weight:600;color:var(--green-d);margin:0 0 2px;letter-spacing:.2px}
   .rv-sub{color:var(--muted);font-size:12.5px;margin:0 0 12px;max-width:66ch}
 
   .rv-kpis{display:grid;grid-template-columns:repeat(8,1fr);gap:10px}
   @media (max-width:1240px){ .rv-kpis{grid-template-columns:repeat(4,1fr)} }
-  .rv-tile{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 13px 11px;box-shadow:var(--shadow);position:relative;overflow:hidden;cursor:pointer;transition:transform .12s,box-shadow .12s,border-color .12s}
+  .rv-tile{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:9px 10px 8px;box-shadow:var(--shadow);position:relative;overflow:hidden;cursor:pointer;transition:transform .12s,box-shadow .12s,border-color .12s}
   .rv-tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--green)}
   .rv-tile.accent::before{background:var(--red)}
   .rv-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);border-color:color-mix(in srgb,var(--green) 55%,var(--line))}
@@ -102,12 +102,12 @@
   .rv-tile .spark{opacity:.5}
   .rv-tile:hover .spark,.rv-tile[aria-pressed="true"] .spark{opacity:1}
   .rv-tile .spark svg{width:46px;height:17px;display:block}
-  .rv-tile .v{font-family:var(--serif);font-size:22px;font-weight:600;color:var(--ink);line-height:1.05;margin-top:4px;font-variant-numeric:tabular-nums}
+  .rv-tile .v{font-family:var(--serif);font-size:18px;font-weight:600;color:var(--ink);line-height:1.05;margin-top:3px;font-variant-numeric:tabular-nums}
   .rv-tile .v small{font-size:13px;color:var(--muted);font-weight:600}
   .rv-tile .c{font-size:11px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
   .rv-tile .c b{color:var(--green-d);font-weight:700}
 
-  .rv-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:15px 16px}
+  .rv-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px 14px}
   .rv-hero-controls{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:11px}
   .rv-chips{display:flex;gap:6px;flex-wrap:wrap}
   .rv-chip-btn{appearance:none;border:1px solid var(--line);background:var(--card);color:var(--ink2);font:600 11px var(--sans);padding:6px 10px;border-radius:999px;cursor:pointer;transition:all .12s}
@@ -291,7 +291,7 @@
             <span><i class="dot"></i>Booking day</span>
           </div>
         </div>
-        <svg id="rv-hero" viewBox="0 0 1000 210" role="img" aria-label="Daily trend"></svg>
+        <svg id="rv-hero" viewBox="0 0 1000 172" role="img" aria-label="Daily trend"></svg>
       </div>
     </section>
 
@@ -307,7 +307,7 @@
           <h2 class="rv-h">Which days perform</h2>
           <div class="rv-card">
             <div class="rv-chart-head"><div class="rv-legend"><span><i></i><span id="rv-dow-leg">Clicks by weekday</span></span></div></div>
-            <svg id="rv-dow" viewBox="0 0 460 220" role="img" aria-label="By weekday"></svg>
+            <svg id="rv-dow" viewBox="0 0 460 188" role="img" aria-label="By weekday"></svg>
           </div>
         </div>
       </div>
@@ -323,7 +323,7 @@
           <div class="now" id="rv-cum-now"></div>
           <div class="rv-legend"><span><i></i>Cumulative spend</span><span><i class="rev"></i>Cumulative revenue</span></div>
         </div>
-        <svg id="rv-cum" viewBox="0 0 900 240" role="img" aria-label="Cumulative spend vs revenue"></svg>
+        <svg id="rv-cum" viewBox="0 0 900 190" role="img" aria-label="Cumulative spend vs revenue"></svg>
       </div>
     </section>
 
@@ -334,9 +334,9 @@
         without conversion revenue, so they show <b>reach &amp; engagement</b> — bars are impressions,
         the tooltip adds clicks, CTR and spend.</p>
       <div class="rv-three">
-        <div class="rv-card"><div class="rv-mini-h">By age</div><svg id="rv-age" viewBox="0 0 420 220" role="img" aria-label="By age"></svg></div>
-        <div class="rv-card"><div class="rv-mini-h">By gender</div><svg id="rv-gender" viewBox="0 0 300 220" role="img" aria-label="By gender"></svg></div>
-        <div class="rv-card"><div class="rv-mini-h">Top states</div><svg id="rv-region" viewBox="0 0 420 220" role="img" aria-label="By region"></svg></div>
+        <div class="rv-card"><div class="rv-mini-h">By age</div><svg id="rv-age" viewBox="0 0 420 188" role="img" aria-label="By age"></svg></div>
+        <div class="rv-card"><div class="rv-mini-h">By gender</div><svg id="rv-gender" viewBox="0 0 300 188" role="img" aria-label="By gender"></svg></div>
+        <div class="rv-card"><div class="rv-mini-h">Top states</div><svg id="rv-region" viewBox="0 0 420 188" role="img" aria-label="By region"></svg></div>
       </div>
     </section>
 
@@ -478,7 +478,7 @@ function renderHero(daily,mkey,mode){
   var cfg=METRICS[mkey], raw=daily.map(function(r){ return r[mkey]; });
   var avg=raw.reduce(function(a,b){return a+b;},0)/(raw.length||1);
   var rel=(mode==="rel"); var vals=rel?raw.map(function(v){ return avg?v/avg*100:0; }):raw;
-  var W=1000,H=210,mL=54,mR=14,mT=12,mB=28;
+  var W=1000,H=172,mL=54,mR=14,mT=10,mB=26;
   var maxV=0; vals.forEach(function(v){ if(v>maxV)maxV=v; }); if(maxV<=0)maxV=1;
   var pw=Math.pow(10,Math.floor(Math.log(maxV)/Math.log(10))); maxV=Math.ceil(maxV/pw*1.05)*pw;
   var iw=W-mL-mR,ih=H-mT-mB,N=daily.length;
@@ -536,7 +536,7 @@ function renderDow(daily){
   daily.forEach(function(r){ var d=new Date(r.date+"T00:00:00Z").getUTCDay(); sums[d]+=r.clicks; });
   var order=[1,2,3,4,5,6,0]; // Mon..Sun
   var vals=order.map(function(d){ return sums[d]; });
-  var W=460,H=220,mL=40,mR=10,mT=12,mB=28;
+  var W=460,H=188,mL=40,mR=10,mT=10,mB=24;
   var maxV=Math.max.apply(null,vals)||1; var pw=Math.pow(10,Math.floor(Math.log(maxV)/Math.log(10))); maxV=Math.ceil(maxV/pw*1.05)*pw;
   var iw=W-mL-mR,ih=H-mT-mB,bw=iw/7*0.62;
   function Y(v){ return mT+ih-(v/maxV)*ih; }
@@ -553,7 +553,7 @@ function renderCumulative(daily){
   var svg=document.getElementById("rv-cum"); clear(svg);
   var cs=[],cr=[],a=0,b=0;
   daily.forEach(function(r){ a+=r.spend; b+=r.rev; cs.push(a); cr.push(b); });
-  var W=900,H=240,mL=58,mR=14,mT=14,mB=30,N=daily.length;
+  var W=900,H=190,mL=58,mR=14,mT=12,mB=26,N=daily.length;
   var maxV=Math.max(cs[N-1]||0,cr[N-1]||0)||1; var pw=Math.pow(10,Math.floor(Math.log(maxV)/Math.log(10))); maxV=Math.ceil(maxV/pw*1.05)*pw;
   var iw=W-mL-mR,ih=H-mT-mB;
   function X(i){ return mL+(N<2?iw/2:iw*i/(N-1)); } function Y(v){ return mT+ih-(v/maxV)*ih; }
