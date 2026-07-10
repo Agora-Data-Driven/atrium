@@ -1,5 +1,11 @@
 # Atrium Team Console — Redesign Implementation Plan (Concept B: Home Hub)
 
+> **STATUS (2026-07-10): Phases 1–3 BUILT** on branch `redesign/console-home-hub` (uncommitted).
+> Admin console redesign is done and validated (all 7 off-cloud tests + JS gate green).
+> A client-page (`atrium.html`) chrome re-skin was prototyped and built, then **reverted by
+> decision** — the client page stays on its original design. Remaining: commit → PR → CI → deploy,
+> then optional Phases 4–5. See `SYSTEM_STATUS_AND_RECOMMENDATIONS.md` for the full punch list.
+
 > Turning the flat 8-item admin console into a **Home hub + focused console**, styled to the
 > Agora **website** design system. Prepared 2026-07-10. Target file:
 > `services/portal/dash/templates/admin_atrium.html` (+ one small optional change in `main.py`).
