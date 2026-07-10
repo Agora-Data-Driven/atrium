@@ -275,7 +275,7 @@
     }
   </style>
 </head>
-<body data-initial-section="{{ initial_section|default('clients', true) }}" data-has-msg="{{ '1' if msg else '0' }}">
+<body data-initial-section="{{ initial_section|default('clients', true) }}" data-has-msg="{{ '1' if msg else '0' }}" data-has-section="{{ '1' if request.args.get('section') else '0' }}">
   {#- Shared "assign this Gmail to..." selector (Access requests + Create-account grant forms). -#}
   {% macro assign_select() %}
     <select name="assign" aria-label="Assign access to">
@@ -757,9 +757,10 @@
       var section = SUB_FOR[want] ? "accounts" : want;
       if (!showSection(section)) { showSection("clients"); }
 
-      // Fresh visit (no redirect: section is the default "clients" and no flash) opens the HUB;
-      // any server redirect (a non-default section OR a flash message) opens the CONSOLE in place.
-      var startConsole = hasMsg || (want !== "clients");
+      // Fresh visit (no ?section= and no flash) opens the HUB; an explicit ?section= (e.g. the
+      // workspace Back button's ?section=clients) or any flash message opens the CONSOLE in place.
+      var hasSection = body.getAttribute("data-has-section") === "1";
+      var startConsole = hasMsg || hasSection || (want !== "clients");
       showView(startConsole ? "console" : "hub");
 
       // ---- "Upload logo": picking a file auto-submits its form. ----
