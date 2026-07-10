@@ -77,6 +77,8 @@ REGION = os.environ.get("REGION", "asia-southeast1")
 SKILL_MASTERY_URL = os.environ.get(
     "SKILL_MASTERY_URL", "https://mastery-engine-c732u7m57a-uc.a.run.app")
 WEBSITE_EDITOR_URL = os.environ.get("WEBSITE_EDITOR_URL", "https://agoradatadriven.com/?edit=1")
+SENTINEL_URL = os.environ.get(
+    "SENTINEL_URL", "https://sentinel-585951669065.asia-southeast1.run.app/login")
 
 app = Flask(__name__)
 app.secret_key = SESSION_SECRET
@@ -2284,6 +2286,7 @@ def admin_atrium():
         initial_section=(request.args.get("section") or "clients"),
         user=current_user(), workspace_name=WORKSPACE_NAME,
         skill_mastery_url=SKILL_MASTERY_URL, website_editor_url=WEBSITE_EDITOR_URL,
+        sentinel_url=SENTINEL_URL,
         msg=request.args.get("msg"), flash_err=(request.args.get("err") == "1"), **_brand_ctx())
 
 

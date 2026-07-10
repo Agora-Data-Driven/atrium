@@ -74,12 +74,18 @@
     .hub-acct .who { font-size: 13px; color: var(--muted); } .hub-acct .who b { color: var(--ink); font-weight: 700; }
     .hub-av { width: 32px; height: 32px; border-radius: 50%; flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
       font-size: 12px; font-weight: 800; color: #fff; background: var(--brand-500); }
-    .hub-main { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; padding: 32px 40px 80px; }
+    .hub-main { position: relative; z-index: 1; max-width: 1240px; margin: 0 auto; padding: 32px 40px 80px; }
+    /* Keep the headline measure readable even though the grid below runs wider. */
+    .hub-main .hub-h1, .hub-main .hub-lead, .hub-main .eyebrow { max-width: 620px; }
     .hub-h1 { font-size: 44px; line-height: 1.05; letter-spacing: -.03em; margin: 0 0 14px; }
     .hub-h1 .g { background: linear-gradient(100deg,var(--brand-600),var(--brand-400) 55%,var(--emerald));
       -webkit-background-clip: text; background-clip: text; color: transparent; }
     .hub-lead { color: var(--muted); font-size: 17px; max-width: 56ch; margin: 0 0 40px; line-height: 1.6; }
-    .suite { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 18px; }
+    /* Deterministic wrap: 1 column on phones, a balanced 2x2 on laptops, one row of 4 on
+       desktop — the last card is never orphaned (no 3+1 row at any width). */
+    .suite { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 640px)  { .suite { grid-template-columns: repeat(2, 1fr); } }
+    @media (min-width: 1100px) { .suite { grid-template-columns: repeat(4, 1fr); } }
     .app { position: relative; display: flex; flex-direction: column; gap: 13px; text-align: left; cursor: pointer; text-decoration: none;
       background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl); padding: 26px; box-shadow: var(--shadow-card); color: var(--ink);
       transition: transform .3s cubic-bezier(.22,1,.36,1), box-shadow .3s, border-color .3s; }
@@ -90,6 +96,8 @@
     .app.primary .app-ic { background: var(--brand-500); color: #fff; }
     .app.info .app-ic { background: var(--accent-100); color: var(--accent-600); }
     .app.plain .app-ic { background: var(--tint); color: var(--brand-600); }
+    /* Sentinel's brand identity is amber-orange (see sentinel/README.md). */
+    .app.amber .app-ic { background: #fdf3e3; color: #b45309; }
     .app-name { font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: -.01em; }
     .app-desc { color: var(--muted); font-size: 13.5px; line-height: 1.55; }
     .app-meta { margin-top: auto; padding-top: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; font-weight: 700; }
@@ -224,6 +232,19 @@
     .kind-tag { font-family: var(--font-display); font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 6px; text-transform: uppercase;
       letter-spacing: .06em; background: var(--canvas); color: var(--body); border: 1px solid var(--line); margin-right: 4px; }
 
+    /* Sign-out confirm modal (replaces the browser confirm() for a themed dialog). */
+    .modal-veil { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+      background: rgba(18,18,18,.42); padding: 20px; }
+    .modal-veil[hidden] { display: none; }
+    .modal { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--line);
+      border-radius: var(--r-lg); box-shadow: var(--shadow-pop); padding: 24px; animation: rise .25s cubic-bezier(.22,1,.36,1); }
+    .modal h3 { font-family: var(--font-display); font-size: 18px; font-weight: 700; margin: 0 0 8px; color: var(--ink); }
+    .modal p { margin: 0 0 20px; font-size: 13.5px; color: var(--muted); line-height: 1.55; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+    .modal-actions .btn { margin-top: 0; }
+    .modal-actions .btn.danger { background: var(--danger); box-shadow: 0 6px 16px rgba(192,69,59,.24); }
+    .modal-actions .btn.danger:hover { background: #a93a31; }
+
     /* ---- Responsive ---- */
     @media (max-width: 1000px) { .content { padding: 28px 22px 56px; } }
     @media (max-width: 880px) {
@@ -300,6 +321,12 @@
             <div class="app-name">Website Editor</div>
             <div class="app-desc">Edit the public site in place &mdash; swap images and text, save to publish live.</div>
             <div class="app-meta"><span class="app-open">Open the site &rarr;</span></div>
+          </a>
+          <a class="app amber" href="{{ sentinel_url }}" target="_blank" rel="noopener">
+            <div class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+            <div class="app-name">Sentinel</div>
+            <div class="app-desc">The internal operations command center &mdash; attendance, tasks, leave and team reporting.</div>
+            <div class="app-meta"><span class="app-open">Open Sentinel &rarr;</span></div>
           </a>
         </div>
       </main>
@@ -661,6 +688,19 @@
     </div>
   </div>
 
+  <!-- Sign-out confirm modal (opened by any [data-signout] control). -->
+  <div class="modal-veil" id="signout-veil" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signout-title">
+      <h3 id="signout-title">Sign out?</h3>
+      <p>You'll be signed out of the Agora suite &mdash; Atrium, Skill Mastery and the Website Editor
+        all share this login.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="signout-cancel">Cancel</button>
+        <a class="btn danger" id="signout-yes" href="/logout">Sign out</a>
+      </div>
+    </div>
+  </div>
+
   <script>
     // Console behaviour. DOM-driven + esprima-4.x-safe (no ?. / ??), no Jinja inside this script.
     (function () {
@@ -765,12 +805,27 @@
             + "click “Stop acting as” in the banner at the bottom.")) { e.preventDefault(); }
         });
       });
-      // Confirm before signing out.
+      // Confirm before signing out — a themed modal instead of the browser confirm().
+      var soVeil = document.getElementById("signout-veil");
+      var soCancel = document.getElementById("signout-cancel");
+      function closeSignout() { if (soVeil) { soVeil.hidden = true; } }
       qsa("[data-signout]").forEach(function (el) {
         el.addEventListener("click", function (ev) {
-          if (!window.confirm("Are you sure you want to sign out?")) { ev.preventDefault(); }
+          if (!soVeil) { return; } // no modal in the DOM -> fall through to the plain link
+          ev.preventDefault();
+          soVeil.hidden = false;
         });
       });
+      if (soCancel) { soCancel.addEventListener("click", closeSignout); }
+      if (soVeil) {
+        // Click on the dark veil (outside the dialog) closes it; Escape closes it too.
+        soVeil.addEventListener("click", function (ev) {
+          if (ev.target === soVeil) { closeSignout(); }
+        });
+        document.addEventListener("keydown", function (ev) {
+          if (ev.key === "Escape") { closeSignout(); }
+        });
+      }
     })();
   </script>
 </body>
