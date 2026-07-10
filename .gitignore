@@ -35,3 +35,4 @@ desktop.ini
 _run/
 # Claude Code harness / session state
 .claude/
+ATRIUM_ANALYSIS.md

@@ -112,9 +112,10 @@ def run():
     _check("/superadmin -> 302 /admin/atrium",
            c.get("/superadmin").headers.get("Location", "").endswith("/admin/atrium"))
 
-    # --- Console renders the Apps launcher + the grant form -----------------------------------
+    # --- Console renders the app suite (Home hub) + the grant form -----------------------------
     body = c.get("/admin/atrium").get_data(as_text=True)
-    _check("console shows Apps launcher", ">Apps<" in body and "Skill Mastery" in body and "Website Editor" in body)
+    _check("console renders the app suite",
+           "Atrium Admin" in body and "Skill Mastery" in body and "Website Editor" in body)
     _check("console shows Grant-Google form", "Grant Google access to a Gmail" in body)
     _check("console shows the pending request", "stranger@gmail.com" in body)
 

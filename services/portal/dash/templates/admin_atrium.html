@@ -15,217 +15,246 @@
   <!-- End Google tag (gtag.js) -->
   {% if favicon %}<link rel="icon" href="{{ favicon }}">{% endif %}
   <style>
-    /* Operator console: the Agora light brand (mirrors portal.html / assets/brand.json). */
+    /* ==========================================================================
+       Team console — Concept B (Home hub + focused console).
+       Tokens ported from the Agora WEBSITE design system (website/src/styles/global.css):
+       white + airy, bold black type, green = primary/CTA, purple = informational accent.
+       Fonts use the system stack (the locked runtime can't web-load Archivo/Lato — see brand.py).
+       Inline JS is esprima-4.x-safe (no ?./??) and reads state from the DOM (no Jinja in the script block).
+       ========================================================================== */
     :root {
-      --ag-green:#4CAC4C; --ag-green-d:#3E8C3B; --ag-green-bg:#EAF6E9;
-      --ag-purple:#2575FC; --ag-purple-d:#1856C9; --ag-purple-bg:#E7F0FE;
-      --ag-ink:#0C1022; --ag-charcoal:#353535; --ag-muted:#6B7280; --ag-line:#E7E8EE;
-      --ag-canvas:#FFFFFF; --ag-link:#CC3366; --ag-white:#fff; --ag-danger:#E5413E;
-      --ag-shadow:0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.06);
-      --side-w: 260px;
+      --brand-50:#f1f8f0; --brand-100:#ddeedc; --brand-200:#bee0bc; --brand-300:#94cd91;
+      --brand-400:#6cb968; --brand-500:#4fa84a; --brand-600:#3f8b3b; --brand-700:#346f31; --brand-800:#2c5a2a;
+      --emerald:#2f7a3a;
+      --accent-100:#ececfb; --accent-200:#d8d8f6; --accent-500:#6a6aea; --accent-600:#5a54dd;
+      --ink:#121212; --body:#353535; --muted:#6b6f6c;
+      --canvas:#f7f7f8; --surface:#ffffff; --line:#e6e6e9; --tint:#eef6ed;
+      --danger:#c0453b; --danger-bg:#fbeceb;
+      --shadow-card:0 1px 2px rgba(18,18,18,.04), 0 10px 24px -14px rgba(18,18,18,.12);
+      --shadow-pop:0 24px 60px -28px rgba(18,18,18,.28);
+      --shadow-glow-sm:0 10px 30px -12px rgba(79,168,74,.4);
+      --r-sm:.375rem; --r-md:.625rem; --r-lg:1rem; --r-xl:1.5rem;
+      --font-sans:'Lato',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+      --font-display:'Archivo Variable','Archivo','Lato',ui-sans-serif,system-ui,sans-serif;
+      --side-w:264px;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: "Roboto", "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", sans-serif;
-      color: var(--ag-ink);
-      background:
-        radial-gradient(820px 460px at 6% -12%, rgba(79,171,74,0.08), transparent 60%),
-        radial-gradient(760px 460px at 104% 4%, rgba(37,117,252,0.09), transparent 56%),
-        var(--ag-canvas);
-      min-height: 100vh; -webkit-font-smoothing: antialiased; }
-    a { color: var(--ag-link); }
+    html { color-scheme: light; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { margin: 0; font-family: var(--font-sans); color: var(--body); background: var(--canvas);
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; line-height: 1.5; min-height: 100vh; }
+    h1,h2,h3 { font-family: var(--font-display); color: var(--ink); font-weight: 700; letter-spacing: -.02em; text-wrap: balance; margin: 0; }
+    a { color: var(--brand-700); }
+    ::selection { background: var(--brand-200); color: var(--ink); }
+    .tnum { font-variant-numeric: tabular-nums; }
+    :focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; border-radius: 3px; }
+    img.ag-logo { height: 30px; width: auto; display: block; }
 
-    /* ---- Layout: fixed left side panel + scrolling content ---- */
+    .view { display: none; } .view.is-view { display: block; }
+
+    /* ---- Shared flash ---- */
+    .flash { background: var(--tint); border: 1px solid var(--brand-200); color: var(--brand-700);
+      border-radius: var(--r-md); padding: 12px 16px; margin-bottom: 20px; font-size: 13.5px; font-weight: 600; word-break: break-word; }
+    .flash.err { background: var(--danger-bg); border-color: rgba(192,69,59,.35); color: #9b2c2a; }
+
+    /* ============ HOME HUB (the landing / first screen) ============ */
+    .hub { position: relative; min-height: 100vh; overflow: hidden; }
+    .aurora { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+      -webkit-mask-image: linear-gradient(180deg,#000 60%,transparent 100%); mask-image: linear-gradient(180deg,#000 60%,transparent 100%); }
+    .blob { position: absolute; border-radius: 50%; filter: blur(64px); will-change: transform; }
+    .blob.b1 { top:-16%; left:-8%; width:38rem; height:38rem; background: radial-gradient(circle at 32% 32%, rgba(79,168,74,.30), transparent 62%); animation: drift1 28s ease-in-out infinite; }
+    .blob.b2 { top:-20%; right:-12%; width:34rem; height:34rem; background: radial-gradient(circle at 60% 40%, rgba(106,106,234,.15), transparent 60%); animation: drift2 34s ease-in-out infinite; }
+    .blob.b3 { bottom:-30%; left:26%; width:40rem; height:40rem; background: radial-gradient(circle at 50% 45%, rgba(108,185,104,.22), transparent 64%); animation: drift3 30s ease-in-out infinite; }
+    @keyframes drift1 { 0%,100%{transform:translate3d(0,0,0) scale(1);} 50%{transform:translate3d(8%,12%,0) scale(1.1);} }
+    @keyframes drift2 { 0%,100%{transform:translate3d(0,0,0) scale(1.04);} 50%{transform:translate3d(-10%,14%,0) scale(.94);} }
+    @keyframes drift3 { 0%,100%{transform:translate3d(0,0,0) scale(.98);} 50%{transform:translate3d(10%,-10%,0) scale(1.12);} }
+
+    .hub-top { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 22px 40px; gap: 16px; }
+    .hub-acct { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line);
+      border-radius: 999px; padding: 6px 8px 6px 14px; box-shadow: var(--shadow-card); }
+    .hub-acct .who { font-size: 13px; color: var(--muted); } .hub-acct .who b { color: var(--ink); font-weight: 700; }
+    .hub-av { width: 32px; height: 32px; border-radius: 50%; flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800; color: #fff; background: var(--brand-500); }
+    .hub-main { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; padding: 32px 40px 80px; }
+    .hub-h1 { font-size: 44px; line-height: 1.05; letter-spacing: -.03em; margin: 0 0 14px; }
+    .hub-h1 .g { background: linear-gradient(100deg,var(--brand-600),var(--brand-400) 55%,var(--emerald));
+      -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hub-lead { color: var(--muted); font-size: 17px; max-width: 56ch; margin: 0 0 40px; line-height: 1.6; }
+    .suite { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 18px; }
+    .app { position: relative; display: flex; flex-direction: column; gap: 13px; text-align: left; cursor: pointer; text-decoration: none;
+      background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl); padding: 26px; box-shadow: var(--shadow-card); color: var(--ink);
+      transition: transform .3s cubic-bezier(.22,1,.36,1), box-shadow .3s, border-color .3s; }
+    .app:hover { transform: translateY(-6px); box-shadow: var(--shadow-pop); border-color: var(--brand-300); }
+    .app-ic { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
+    .app-ic svg { width: 27px; height: 27px; }
+    .app.primary { border-color: var(--brand-300); background: linear-gradient(180deg,var(--tint),var(--surface) 55%); }
+    .app.primary .app-ic { background: var(--brand-500); color: #fff; }
+    .app.info .app-ic { background: var(--accent-100); color: var(--accent-600); }
+    .app.plain .app-ic { background: var(--tint); color: var(--brand-600); }
+    .app-name { font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: -.01em; }
+    .app-desc { color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+    .app-meta { margin-top: auto; padding-top: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; font-weight: 700; }
+    .app-stat { color: var(--brand-700); }
+    .app-open { color: var(--brand-700); } .app.info .app-open, .app.plain .app-open { color: var(--muted); }
+    .app-cta { position: absolute; top: 24px; right: 24px; color: var(--brand-600); opacity: 0; transform: translateX(-4px); transition: opacity .25s, transform .25s; }
+    .app:hover .app-cta { opacity: 1; transform: none; }
+
+    /* ============ CONSOLE ============ */
     .layout { display: flex; min-height: 100vh; }
-    .side { width: var(--side-w); flex: 0 0 var(--side-w); background: var(--ag-white);
-      border-right: 1px solid var(--ag-line); display: flex; flex-direction: column;
-      position: sticky; top: 0; height: 100vh; }
-    .side .side-brand { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px;
-      padding: 24px 20px 18px; border-bottom: 1px solid var(--ag-line); }
-    .side .side-brand svg { display: block; height: 42px; width: auto; }
-    /* "AGORA ATRIUM" as gradient TEXT (no pill background) -- keeps the green->blue colour, text only. */
-    .brand-sub { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.4px;
-      background: linear-gradient(120deg, #4CAC4C 0%, #4CAC4C 42%, #2575FC 100%);
-      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
-      padding: 0; box-shadow: none; }
-    .side-nav { padding: 14px 12px; display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; overflow-y: auto; }
-    .nav-item { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; cursor: pointer;
-      border: 0; background: transparent; color: var(--ag-charcoal); font: inherit; font-size: 14px; font-weight: 600;
-      padding: 11px 12px; border-radius: 11px; transition: background .12s, color .12s; }
-    .nav-item:hover { background: var(--ag-canvas); color: var(--ag-ink); }
-    .nav-item.is-active { background: var(--ag-green-bg); color: var(--ag-green-d); }
-    .nav-item .ic { width: 18px; height: 18px; flex: 0 0 auto; }
-    .nav-item .count { margin-left: auto; font-size: 11px; font-weight: 800; color: #fff;
-      background: var(--ag-purple-d); border-radius: 999px; padding: 1px 8px; min-width: 20px; text-align: center; }
-    .side-foot { border-top: 1px solid var(--ag-line); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
-    .side-foot .who { font-size: 12px; color: var(--ag-muted); word-break: break-word; }
-    .side-foot .who b { color: var(--ag-ink); font-weight: 700; }
-    .pill { display: inline-block; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--ag-line);
-      color: var(--ag-charcoal); text-decoration: none; font-size: 13px; font-weight: 600; background: var(--ag-white);
-      text-align: center; transition: border-color .12s, color .12s; }
-    .pill.logout { color: var(--ag-danger); }
-    .pill.logout:hover { border-color: rgba(229,65,62,0.4); }
+    .side { width: var(--side-w); flex: 0 0 var(--side-w); background: var(--surface); border-right: 1px solid var(--line);
+      display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
+    .side-top { padding: 16px 20px 12px; border-bottom: 1px solid var(--line); }
+    .home-link { display: flex; align-items: center; gap: 9px; width: 100%; border: 0; background: transparent; cursor: pointer; font: inherit;
+      color: var(--muted); font-size: 12px; font-weight: 700; padding: 6px 8px; border-radius: 8px; margin-bottom: 10px; transition: background .12s, color .12s; }
+    .home-link:hover { background: var(--canvas); color: var(--brand-700); }
+    .home-link svg { width: 15px; height: 15px; }
+    .nav { padding: 12px; display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; overflow-y: auto; }
+    .nav-group { font-family: var(--font-display); font-size: 10px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); padding: 12px 12px 6px; }
+    .nav-group.first { padding-top: 2px; }
+    .nav-item { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; border: 0; background: transparent;
+      color: var(--body); font: inherit; font-size: 13.5px; font-weight: 600; padding: 10px 12px; border-radius: var(--r-md); transition: background .13s, color .13s; }
+    .nav-item:hover { background: var(--canvas); color: var(--ink); }
+    .nav-item.is-active { background: var(--tint); color: var(--brand-700); font-weight: 700; }
+    .nav-item .ic { width: 18px; height: 18px; flex: 0 0 auto; opacity: .85; }
+    .nav-item .count { margin-left: auto; font-size: 11px; font-weight: 800; color: var(--accent-600); background: var(--accent-100);
+      border-radius: 999px; padding: 1px 8px; min-width: 20px; text-align: center; }
+    .nav-item.is-active .count { color: var(--brand-700); background: #dcefdb; }
+    .side-foot { border-top: 1px solid var(--line); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .acct-btn { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; cursor: pointer; border: 0; background: transparent;
+      font: inherit; padding: 8px; border-radius: var(--r-md); transition: background .13s; }
+    .acct-btn:hover, .acct-btn.is-active { background: var(--canvas); }
+    .acct-av { width: 34px; height: 34px; flex: 0 0 auto; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-size: 12.5px; font-weight: 800; color: #fff; background: var(--brand-500); }
+    .acct-who { min-width: 0; line-height: 1.25; }
+    .acct-who b { display: block; font-size: 13px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .acct-who em { font-style: normal; font-size: 11px; color: var(--muted); }
+    .acct-caret { margin-left: auto; color: var(--muted); }
+    .signout { display: block; text-align: center; padding: 9px; border-radius: var(--r-md); border: 1px solid var(--line);
+      background: var(--surface); color: var(--muted); text-decoration: none; font-size: 12.5px; font-weight: 700; }
+    .signout:hover { border-color: rgba(192,69,59,.4); color: var(--danger); }
 
-    .content { flex: 1 1 auto; min-width: 0; padding: 28px 32px 60px; max-width: 1100px; }
-    .pane { display: none; }
-    .pane.is-active { display: block; animation: fade .16s ease; }
-    @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-    h1.page { font-size: 22px; font-weight: 900; letter-spacing: -0.3px; margin: 0 0 4px; }
-    p.lead { color: var(--ag-muted); font-size: 14px; margin: 0 0 20px; max-width: 680px; line-height: 1.5; }
+    .content { flex: 1 1 auto; min-width: 0; padding: 40px 44px 72px; max-width: 1120px; }
+    .pane { display: none; } .pane.is-active { display: block; animation: rise .5s cubic-bezier(.22,1,.36,1); }
+    @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+    .eyebrow { font-family: var(--font-display); font-size: .75rem; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--brand-600); margin: 0 0 10px; }
+    h1.page { font-size: 30px; font-weight: 700; letter-spacing: -.02em; margin: 0 0 8px; }
+    p.lead { color: var(--muted); font-size: 15px; margin: 0 0 30px; max-width: 62ch; line-height: 1.6; }
+    h2.section { font-family: var(--font-display); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .16em; font-weight: 600; margin: 32px 0 14px; }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px 22px; margin-bottom: 16px; box-shadow: var(--shadow-card); }
+    .panel .meta { color: var(--muted); font-size: 13px; margin: 0 0 14px; line-height: 1.55; }
+    .empty { color: var(--muted); font-size: 13.5px; padding: 6px 2px; }
 
-    .flash { background: var(--ag-green-bg); border: 1px solid #CDE9CC; color: var(--ag-green-d);
-      border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; font-size: 13.5px; font-weight: 600;
-      word-break: break-word; }
-    /* An error flash is unmistakably red, so a rejected action never looks like a green success. */
-    .flash.err { background: #FDECEC; border-color: rgba(229,65,62,0.35); color: #9b2c2a; }
-    .welcome { background: linear-gradient(120deg, #fff 0%, #F6FBF5 58%, #E7F0FE 100%);
-      border: 1px solid var(--ag-line); border-radius: 8px; padding: 24px 26px; margin: 0 0 22px; box-shadow: var(--ag-shadow); }
-    .welcome h1 { margin: 0 0 8px; font-size: 24px; font-weight: 900; letter-spacing: -0.3px; }
-    .welcome p { margin: 0; color: var(--ag-muted); font-size: 14px; max-width: 640px; line-height: 1.5; }
-    h2.section { font-size: 12px; color: var(--ag-muted); text-transform: uppercase; letter-spacing: 0.9px;
-      font-weight: 700; margin: 26px 0 12px; }
-    .panel { background: var(--ag-white); border: 1px solid var(--ag-line); border-radius: 14px; padding: 18px;
-      margin-bottom: 16px; box-shadow: var(--ag-shadow); }
-    .panel h3 { margin: 0 0 12px; font-size: 15px; font-weight: 800; }
-    .panel .meta { color: var(--ag-muted); font-size: 12px; margin: 0 0 12px; }
-    .empty { color: var(--ag-muted); font-size: 13.5px; padding: 6px 2px; }
-
-    label { display: block; font-size: 11px; color: var(--ag-muted); margin: 10px 0 4px;
-      text-transform: uppercase; letter-spacing: .5px; font-weight: 700; }
+    label { display: block; font-size: 11px; color: var(--muted); margin: 12px 0 5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
     input[type=text], input[type=email], input[type=password], textarea, select {
-      width: 100%; padding: 10px 12px; background: var(--ag-white); color: var(--ag-ink);
-      border: 1px solid var(--ag-line); border-radius: 10px; font: inherit; font-size: 13px; outline: none;
-      transition: border-color .12s, box-shadow .12s; }
-    input:focus, textarea:focus, select:focus { border-color: var(--ag-green); box-shadow: 0 0 0 3px rgba(79,171,74,.14); }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .btn { margin-top: 12px; padding: 10px 16px; border: 0; border-radius: 10px; font-size: 13px; font-weight: 700;
-      cursor: pointer; background: var(--ag-green); color: #fff; box-shadow: 0 6px 14px rgba(79,171,74,.22); }
-    .btn.violet { background: var(--ag-purple-d); color: #fff; box-shadow: 0 6px 14px rgba(24,86,201,.22); }
-    .btn.small { margin-top: 0; padding: 8px 13px; }
-    .btn:hover { filter: brightness(1.05); }
-    .btn-ghost { margin: 0; padding: 8px 13px; border: 1px solid var(--ag-line); border-radius: 10px;
-      background: var(--ag-white); color: var(--ag-charcoal); font-size: 13px; font-weight: 700; cursor: pointer; }
-    .btn-ghost:hover { border-color: var(--ag-purple); color: var(--ag-purple-d); }
-    .btn-ghost-danger { margin: 0; padding: 8px 13px; border: 1px solid var(--ag-line); border-radius: 10px;
-      background: var(--ag-white); color: var(--ag-danger); font-size: 13px; font-weight: 700; cursor: pointer; }
-    .btn-ghost-danger:hover { border-color: rgba(229,65,62,0.4); background: rgba(229,65,62,0.06); }
+      width: 100%; padding: 11px 13px; background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+      border-radius: var(--r-md); font: inherit; font-size: 13.5px; outline: none; transition: border-color .13s, box-shadow .13s; }
+    input::placeholder { color: #a2a7a3; }
+    input:focus, textarea:focus, select:focus { border-color: var(--brand-500); box-shadow: 0 0 0 3.5px rgba(79,168,74,.16); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .btn { margin-top: 14px; padding: 11px 18px; border: 0; border-radius: var(--r-md); font-size: 13px; font-weight: 700; cursor: pointer;
+      background: var(--brand-500); color: #fff; box-shadow: var(--shadow-glow-sm); transition: background .13s, transform .13s; }
+    .btn:hover { background: var(--brand-600); transform: translateY(-1px); }
+    .btn.violet { background: var(--accent-600); box-shadow: 0 10px 30px -12px rgba(90,84,221,.45); }
+    .btn.violet:hover { background: var(--accent-500); }
+    .btn.small { margin-top: 0; padding: 8px 13px; font-size: 12.5px; box-shadow: none; }
+    .btn-ghost, .btn-ghost-danger { margin: 0; padding: 8px 13px; border: 1px solid var(--line); border-radius: var(--r-md);
+      background: var(--surface); font-size: 12.5px; font-weight: 700; cursor: pointer; transition: border-color .13s, color .13s, background .13s; }
+    .btn-ghost { color: var(--body); } .btn-ghost:hover { border-color: var(--brand-400); color: var(--brand-700); }
+    .btn-ghost-danger { color: var(--danger); } .btn-ghost-danger:hover { border-color: rgba(192,69,59,.4); background: var(--danger-bg); }
 
     /* Client workspace cards (unchanged markers: .card .name + href="/w/<key>/"). */
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-    .card { position: relative; display: flex; align-items: center; gap: 14px; background: var(--ag-white);
-      border: 1px solid var(--ag-line); border-radius: 14px; padding: 18px; box-shadow: var(--ag-shadow);
-      transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
-    .card:hover { transform: translateY(-2px); border-color: #d7dae3; }
-    .card .card-main { flex: 1 1 auto; min-width: 0; text-decoration: none; color: var(--ag-ink); padding-right: 18px; }
-    .card .name { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .card .st { font-size: 12px; color: var(--ag-muted); margin-top: 6px; }
-    .card .card-side { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 8px; width: 76px; }
-    .card .card-logo { width: 76px; height: 56px; display: flex; align-items: center; justify-content: center;
-      border: 1px solid var(--ag-line); border-radius: 10px; background: var(--ag-canvas); overflow: hidden; padding: 6px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 15px; }
+    .card { position: relative; display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--line);
+      border-radius: var(--r-lg); padding: 17px; box-shadow: var(--shadow-card);
+      transition: transform .28s cubic-bezier(.22,1,.36,1), box-shadow .28s, border-color .28s; }
+    .card:hover { transform: translateY(-4px); box-shadow: var(--shadow-pop); border-color: var(--brand-300); }
+    .card .card-main { flex: 1 1 auto; min-width: 0; text-decoration: none; color: var(--ink); padding-right: 18px; }
+    .card .name { font-family: var(--font-display); font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card .st { font-size: 12px; color: var(--muted); margin-top: 5px; }
+    .card .card-side { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 8px; width: 72px; }
+    .card .card-logo { width: 72px; height: 54px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line);
+      border-radius: 10px; background: var(--canvas); overflow: hidden; padding: 6px; }
     .card .card-logo img, .card .card-logo svg { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; mix-blend-mode: multiply; }
     .card .logo-up { margin: 0; }
-    .card .mini-btn { display: inline-block; cursor: pointer; font-size: 11px; font-weight: 700; color: var(--ag-purple-d);
-      border: 1px solid var(--ag-line); border-radius: 999px; padding: 4px 10px; background: var(--ag-white);
-      transition: border-color .12s, background .12s; }
-    .card .mini-btn:hover { border-color: var(--ag-purple); background: var(--ag-purple-bg); }
+    .card .mini-btn { display: inline-block; cursor: pointer; font-size: 11px; font-weight: 700; color: var(--accent-600); border: 1px solid var(--line);
+      border-radius: 999px; padding: 4px 10px; background: var(--surface); transition: border-color .12s, background .12s; }
+    .card .mini-btn:hover { border-color: var(--accent-500); background: var(--accent-100); }
     .card .card-del { position: absolute; top: 8px; right: 10px; margin: 0; }
-    .card .del-x { border: 0; background: transparent; cursor: pointer; color: #c2c7d0; font-size: 18px;
-      line-height: 1; padding: 4px 6px; border-radius: 8px; transition: color .12s, background .12s; }
-    .card .del-x:hover { color: var(--ag-danger); background: rgba(229,65,62,0.08); }
+    .card .del-x { border: 0; background: transparent; cursor: pointer; color: #c2c7d0; font-size: 18px; line-height: 1; padding: 4px 6px;
+      border-radius: 8px; transition: color .12s, background .12s; }
+    .card .del-x:hover { color: var(--danger); background: var(--danger-bg); }
 
-    /* Apps launcher tiles. */
-    .apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
-    .app-tile { display: flex; flex-direction: column; gap: 10px; text-decoration: none; color: var(--ag-ink);
-      background: var(--ag-white); border: 1px solid var(--ag-line); border-radius: 14px; padding: 20px;
-      box-shadow: var(--ag-shadow); transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
-    .app-tile:hover { transform: translateY(-2px); border-color: #d7dae3; box-shadow: 0 10px 26px rgba(16,24,40,.10); }
-    .app-tile .app-ic { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center;
-      justify-content: center; background: var(--ag-green-bg); color: var(--ag-green-d); }
-    .app-tile.violet .app-ic { background: var(--ag-purple-bg); color: var(--ag-purple-d); }
-    .app-tile .app-ic svg { width: 22px; height: 22px; }
-    .app-tile .app-name { font-weight: 800; font-size: 15px; }
-    .app-tile .app-desc { color: var(--ag-muted); font-size: 12.5px; line-height: 1.45; }
-    .app-tile .app-go { margin-top: auto; font-size: 12px; font-weight: 800; color: var(--ag-purple-d); }
+    /* Merged Accounts page: inner tabs (Requests · People · Add new). */
+    .subtabs { display: flex; align-items: center; gap: 28px; border-bottom: 1px solid var(--line); margin: 0 0 26px; }
+    .subtab { border: 0; background: transparent; font: inherit; font-size: 14px; font-weight: 700; color: var(--muted); padding: 12px 2px;
+      margin-bottom: -1px; cursor: pointer; border-bottom: 2px solid transparent; display: inline-flex; align-items: center; gap: 9px; transition: color .13s; }
+    .subtab:hover { color: var(--ink); }
+    .subtab.is-active { color: var(--brand-700); border-bottom-color: var(--brand-500); }
+    .subcount { font-size: 10.5px; font-weight: 800; color: var(--accent-600); background: var(--accent-100); border-radius: 999px; padding: 1px 8px; }
+    .subtab.is-active .subcount { color: var(--brand-700); background: #dcefdb; }
+    .sub { display: none; } .sub.is-active { display: block; animation: rise .4s cubic-bezier(.22,1,.36,1); }
 
-    /* Impersonation ("Act as") control on account rows + the request grant form. */
-    .grant { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-    .grant select { width: auto; min-width: 180px; }
-    .grant input[type=email], .grant input[type=text] { width: 220px; }
-    /* Access requests + account rows. */
-    .req, .acct { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid var(--ag-line); }
+    /* Access-request + account rows, activity + trash feed. */
+    .req, .acct { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); }
     .req:first-of-type, .acct:first-of-type { border-top: 0; }
     .req-main, .acct-main { flex: 1 1 auto; min-width: 0; }
-    .req-name, .acct-name { font-weight: 800; font-size: 14px; }
-    .req-sub, .acct-sub { font-size: 12px; color: var(--ag-muted); margin-top: 3px; word-break: break-word; }
+    .req-name, .acct-name { font-weight: 700; font-size: 14px; color: var(--ink); }
+    .req-sub, .acct-sub { font-size: 12px; color: var(--muted); margin-top: 3px; word-break: break-word; }
     .req-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
     .req-actions form, .acct-actions form { margin: 0; }
-    .badge { font-size: 10px; font-weight: 800; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: .5px; }
-    .badge.role-superadmin { background: var(--ag-purple-bg); color: var(--ag-purple-d); }
-    .badge.role-admin { background: #EAF0FE; color: #3355BB; }
-    .badge.role-client { background: var(--ag-green-bg); color: var(--ag-green-d); }
-    /* Account management: an actions row under each account (set password / reset / delete). */
+    .badge { font-family: var(--font-display); font-size: 10px; font-weight: 700; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: .06em; }
+    .badge.role-superadmin { background: var(--accent-100); color: var(--accent-600); }
+    .badge.role-admin { background: var(--accent-100); color: var(--accent-600); }
+    .badge.role-client { background: var(--tint); color: var(--brand-700); }
     .acct { flex-wrap: wrap; }
     .acct-actions { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
     .acct-pw { display: flex; gap: 8px; align-items: center; }
     .acct-pw input { width: 200px; }
-    .share { display: inline-flex; align-items: center; gap: 8px; background: var(--ag-canvas); border: 1px dashed var(--ag-line);
-      border-radius: 10px; padding: 10px 12px; font-size: 13px; color: var(--ag-charcoal); }
-    .share code { font-weight: 700; color: var(--ag-ink); }
-    /* Activity feed + Trash rows */
+    .grant { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .grant select { width: auto; min-width: 180px; }
+    .grant input[type=email], .grant input[type=text] { width: 220px; }
+    .share { display: inline-flex; align-items: center; gap: 8px; background: var(--canvas); border: 1px dashed var(--line);
+      border-radius: var(--r-md); padding: 10px 12px; font-size: 13px; color: var(--body); }
+    .share code { font-weight: 700; color: var(--ink); }
     .feed { max-height: 72vh; overflow-y: auto; }
     .role-tag { font-size: 10px; font-weight: 800; padding: 1px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: .5px; }
-    .role-tag.superadmin { background: var(--ag-purple-bg); color: var(--ag-purple-d); }
-    .role-tag.admin { background: #EAF0FE; color: #3355BB; }
-    .role-tag.client { background: var(--ag-green-bg); color: var(--ag-green-d); }
-    .act-detail { font-weight: 600; color: var(--ag-charcoal); }
-    .kind-tag { font-size: 10px; font-weight: 800; padding: 1px 8px; border-radius: 6px; text-transform: uppercase;
-      letter-spacing: .5px; background: var(--ag-canvas); color: var(--ag-charcoal); border: 1px solid var(--ag-line); margin-right: 4px; }
-    /* ---- Responsive: large desktop → phone ------------------------------------------------- */
-    @media (max-width: 1000px) {
-      .content { padding: 24px 22px 56px; }
-    }
-    /* Tablet / small laptop: the fixed left rail collapses into a top bar whose nav scrolls
-       horizontally (a tab strip), so the console works on any width without a hamburger. */
-    @media (max-width: 760px) {
-      /* No sticky rail at this size, so clipping page-level horizontal scroll is safe and keeps the
-         collapsed nav (a horizontal scroll strip) from ever widening the page. */
+    .role-tag.superadmin { background: var(--accent-100); color: var(--accent-600); }
+    .role-tag.admin { background: var(--accent-100); color: var(--accent-600); }
+    .role-tag.client { background: var(--tint); color: var(--brand-700); }
+    .act-detail { font-weight: 600; color: var(--body); }
+    .kind-tag { font-family: var(--font-display); font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 6px; text-transform: uppercase;
+      letter-spacing: .06em; background: var(--canvas); color: var(--body); border: 1px solid var(--line); margin-right: 4px; }
+
+    /* ---- Responsive ---- */
+    @media (max-width: 1000px) { .content { padding: 28px 22px 56px; } }
+    @media (max-width: 880px) {
       body { overflow-x: hidden; }
+      .hub-top, .hub-main { padding-left: 20px; padding-right: 20px; }
+      .hub-h1 { font-size: 34px; }
       .layout { flex-direction: column; min-height: 100vh; }
-      .side { position: static; width: 100%; flex: 0 0 auto; height: auto; min-width: 0;
-        border-right: 0; border-bottom: 1px solid var(--ag-line); }
-      .side-brand { flex-direction: row; align-items: center; justify-content: space-between;
-        gap: 12px; padding: 13px 16px; }
-      .side-brand svg { height: 24px; }
-      .side-nav { flex-direction: row; flex-wrap: nowrap; gap: 6px; padding: 8px 12px; min-width: 0;
-        overflow-x: auto; overflow-y: visible; -webkit-overflow-scrolling: touch; }
-      .nav-item { width: auto; flex: 0 0 auto; white-space: nowrap; padding: 9px 12px; }
-      .nav-item .count { margin-left: 6px; }
-      .side-foot { flex-direction: row; align-items: center; justify-content: space-between;
-        gap: 12px; padding: 10px 16px; }
-      .side-foot .who { font-size: 11px; }
-      .pill { flex: 0 0 auto; }
-      .content { padding: 20px 16px 44px; max-width: none; }
-      .welcome { padding: 20px 18px; }
-      .welcome h1 { font-size: 21px; }
-      h1.page { font-size: 20px; }
+      .side { position: static; width: 100%; flex: 0 0 auto; height: auto; min-width: 0; border-right: 0; border-bottom: 1px solid var(--line); }
+      .side-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .home-link { margin-bottom: 0; width: auto; }
+      .nav { flex-direction: row; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overflow-y: visible; -webkit-overflow-scrolling: touch; }
+      .nav-group { display: none; }
+      .nav-item { width: auto; flex: 0 0 auto; white-space: nowrap; }
+      .side-foot { flex-direction: row; align-items: center; justify-content: space-between; }
+      .acct-btn { width: auto; } .signout { flex: 0 0 auto; }
+      .content { padding: 22px 16px 44px; max-width: none; }
     }
-    /* Phones: single-column forms + cards, wrapping action rows, full-width inputs. */
     @media (max-width: 520px) {
       .content { padding: 16px 13px 40px; }
       .row { grid-template-columns: 1fr; }
       .grid { grid-template-columns: minmax(0, 1fr); }
-      .panel { padding: 15px; }
-      .acct-pw { flex-wrap: wrap; }
-      .acct-pw input { width: 100%; }
-      .share { width: 100%; flex-wrap: wrap; }
-      /* Stack each request / activity / trash row so its action buttons drop below the text. */
-      .req { flex-wrap: wrap; align-items: flex-start; }
-      .req-actions { width: 100%; }
-      .card .card-main { padding-right: 8px; }
+      .acct-pw { flex-wrap: wrap; } .acct-pw input { width: 100%; }
+      .req { flex-wrap: wrap; align-items: flex-start; } .req-actions { width: 100%; }
       .feed { max-height: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .blob { animation: none; } .pane.is-active, .sub.is-active { animation: none; }
     }
   </style>
 </head>
-<body data-initial-section="{{ initial_section|default('clients', true) }}">
+<body data-initial-section="{{ initial_section|default('clients', true) }}" data-has-msg="{{ '1' if msg else '0' }}">
   {#- Shared "assign this Gmail to..." selector (Access requests + Create-account grant forms). -#}
   {% macro assign_select() %}
     <select name="assign" aria-label="Assign access to">
@@ -235,392 +264,422 @@
       {% for c in clients %}<option value="{{ c.key }}">Client: {{ c.name|default(c.key, true) }}</option>{% endfor %}
     </select>
   {% endmacro %}
-  <div class="layout">
-    <!-- ===================== LEFT SIDE PANEL ===================== -->
-    <aside class="side">
-      <div class="side-brand">{{ agora_logo|safe }}<span class="brand-sub">{{ workspace_name }}</span></div>
-      <nav class="side-nav" id="side-nav">
-        <button type="button" class="nav-item" data-section="apps">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
-          <span>Apps</span>
-        </button>
-        <button type="button" class="nav-item" data-section="profile">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          <span>Profile</span>
-        </button>
-        <button type="button" class="nav-item" data-section="clients">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-          <span>Clients</span>
-        </button>
-        <button type="button" class="nav-item" data-section="requests">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          <span>Access requests</span>
-          {% if pending %}<span class="count">{{ pending|length }}</span>{% endif %}
-        </button>
-        <button type="button" class="nav-item" data-section="accounts">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          <span>Manage Accounts</span>
-        </button>
-        <button type="button" class="nav-item" data-section="create">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          <span>Create account</span>
-        </button>
-        <button type="button" class="nav-item" data-section="activity">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-          <span>Activity</span>
-        </button>
-        <button type="button" class="nav-item" data-section="trash">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-          <span>Bin</span>
-          {% if trash %}<span class="count">{{ trash|length }}</span>{% endif %}
-        </button>
-      </nav>
-      <div class="side-foot">
-        {% if user %}<div class="who">Signed in as<br><b>{{ user }}</b></div>{% endif %}
-        <a class="pill logout" href="/logout" data-signout>Sign out</a>
-      </div>
-    </aside>
 
-    <!-- ===================== CONTENT ===================== -->
-    <main class="content">
-      {% if msg %}<div class="flash {{ 'err' if flash_err else '' }}">{{ msg }}</div>{% endif %}
-
-      <!-- ---------- APPS (admin launcher) ---------- -->
-      <section class="pane" data-pane="apps">
-        <h1 class="page">Apps</h1>
-        <p class="lead">Everything signing in as an admin unlocks. One login (this account) opens all
-          of them &mdash; your session carries across.</p>
-        <div class="apps">
-          <a class="app-tile" href="#" data-goto-section="clients">
-            <div class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
+  <!-- ===================== HOME HUB (landing) ===================== -->
+  <div class="view" data-view="hub">
+    <div class="hub">
+      <div class="aurora" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span></div>
+      <header class="hub-top">
+        <span class="ag-logo">{{ agora_logo|safe }}</span>
+        <div class="hub-acct">
+          {% if user %}<span class="who"><b>{{ profile.name|default(user, true) }}</b> &middot; {{ 'Super admin' if profile.role == 'superadmin' else 'Administrator' }}</span>{% endif %}
+          <span class="hub-av">{{ (profile.name|default(user, true)|default('?', true))[:1]|upper }}</span>
+        </div>
+      </header>
+      <main class="hub-main">
+        <p class="eyebrow">Welcome back{% if profile.name %}, {{ profile.name.split()[0] }}{% endif %}</p>
+        <h1 class="hub-h1">Your <span class="g">Agora</span> suite.</h1>
+        <p class="hub-lead">One login opens everything. Pick a product to jump in &mdash; your session
+          carries across, no second sign-in.</p>
+        <div class="suite">
+          <a class="app primary" href="#" data-open-console>
+            <span class="app-cta"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg></span>
+            <div class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></div>
             <div class="app-name">Atrium Admin</div>
-            <div class="app-desc">Client workspaces, accounts, access requests and activity &mdash; the console you're in.</div>
-            <div class="app-go">Open clients &rarr;</div>
+            <div class="app-desc">Client workspaces, accounts, access requests and activity &mdash; your day-to-day console.</div>
+            <div class="app-meta"><span class="app-stat tnum">{{ clients|length }} client workspace{{ '' if clients|length == 1 else 's' }}</span></div>
           </a>
-          <a class="app-tile violet" href="{{ skill_mastery_url }}" target="_blank" rel="noopener">
+          <a class="app info" href="{{ skill_mastery_url }}" target="_blank" rel="noopener">
             <div class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg></div>
             <div class="app-name">Skill Mastery</div>
             <div class="app-desc">The spaced-repetition mastery engine &mdash; quizzes, priority drills and progress.</div>
-            <div class="app-go">Open Skill Mastery &rarr;</div>
+            <div class="app-meta"><span class="app-open">Open Skill Mastery &rarr;</span></div>
           </a>
-          <a class="app-tile" href="{{ website_editor_url }}" target="_blank" rel="noopener">
+          <a class="app plain" href="{{ website_editor_url }}" target="_blank" rel="noopener">
             <div class="app-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div>
             <div class="app-name">Website Editor</div>
             <div class="app-desc">Edit the public site in place &mdash; swap images and text, save to publish live.</div>
-            <div class="app-go">Open the site &rarr;</div>
+            <div class="app-meta"><span class="app-open">Open the site &rarr;</span></div>
           </a>
         </div>
-      </section>
+      </main>
+    </div>
+  </div>
 
-      <!-- ---------- CLIENTS ---------- -->
-      <section class="pane" data-pane="clients">
-        <div class="welcome">
-          <h1>Welcome to the Atrium</h1>
-          <p>Your home base for every Agora client. Click a client to open their workspace and edit it
-             in place, or add a new one below &mdash; we'll create the login and a blank workspace and drop
-             you straight into it.</p>
+  <!-- ===================== CONSOLE ===================== -->
+  <div class="view" data-view="console">
+    <div class="layout">
+      <aside class="side">
+        <div class="side-top">
+          <button type="button" class="home-link" data-go-hub>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 18l-6-6 6-6"/></svg>
+            All apps
+          </button>
+          <span class="ag-logo">{{ agora_logo|safe }}</span>
         </div>
-
-        <h2 class="section">Client workspaces</h2>
-        {% if clients %}
-        <div class="grid">
-          {% for c in clients %}
-          <div class="card">
-            <a class="card-main" href="/w/{{ c.key }}/">
-              <div class="name">{{ c.name|default(c.key, true) }}</div>
-              <div class="st">{{ 'Open workspace →' if c.has_workspace else 'No workspace yet' }}</div>
-            </a>
-            <div class="card-side">
-              <div class="card-logo">{{ c.logo|safe }}</div>
-              <form class="logo-up" method="post" action="/admin/atrium/{{ c.key }}/logo" enctype="multipart/form-data">
-                <label class="mini-btn">Logo
-                  <input type="file" name="logo" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
-                         data-logo-input hidden>
-                </label>
-              </form>
-            </div>
-            <form class="card-del" method="post" action="/admin/atrium/{{ c.key }}/delete"
-                  data-delete-client data-client-name="{{ c.name|default(c.key, true) }}">
-              <button type="submit" class="del-x" title="Delete client" aria-label="Delete client">&times;</button>
-            </form>
-          </div>
-          {% endfor %}
+        <nav class="nav" id="side-nav">
+          <div class="nav-group first">Workspaces</div>
+          <button type="button" class="nav-item" data-section="clients">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+            <span>Clients</span>
+          </button>
+          <button type="button" class="nav-item" data-section="activity">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            <span>Activity</span>
+          </button>
+          <button type="button" class="nav-item" data-section="trash">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+            <span>Bin</span>
+            {% if trash %}<span class="count">{{ trash|length }}</span>{% endif %}
+          </button>
+          <div class="nav-group">People &amp; access</div>
+          <button type="button" class="nav-item" data-section="accounts">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span>Accounts</span>
+            {% if pending %}<span class="count">{{ pending|length }}</span>{% endif %}
+          </button>
+        </nav>
+        <div class="side-foot">
+          <button type="button" class="acct-btn" data-section="profile" title="Your profile">
+            <span class="acct-av">{{ (profile.name|default(user, true)|default('?', true))[:1]|upper }}</span>
+            <span class="acct-who">
+              <b>{{ profile.name|default(user, true) }}</b>
+              <em>{{ 'Super admin' if profile.role == 'superadmin' else 'Administrator' }}</em>
+            </span>
+          </button>
+          <a class="signout" href="/logout" data-signout>Sign out</a>
         </div>
-        {% else %}
-        <div class="panel">No clients yet. Create your first one from <b>Create account</b>.</div>
-        {% endif %}
+      </aside>
 
-        <h2 class="section">Add a new client</h2>
-        <form class="panel" method="post" action="/admin/atrium/new">
-          <p class="meta">Just enter a name. We create the client, a portal login (auto-generated
-          password), and a <strong>blank Atrium workspace</strong>, then drop you straight into it.</p>
-          <label>Display name</label>
-          <input type="text" name="name" placeholder="Honey Tribe Resort" required>
-          <button class="btn violet" type="submit">Create client</button>
-        </form>
-      </section>
+      <main class="content">
+        {% if msg %}<div class="flash {{ 'err' if flash_err else '' }}">{{ msg }}</div>{% endif %}
 
-      <!-- ---------- ACCESS REQUESTS ---------- -->
-      <section class="pane" data-pane="requests">
-        <h1 class="page">Access requests</h1>
-        <p class="lead">Requests land here when someone signs in with Google (or uses the sign-up page)
-          without an account yet. Grant access &mdash; assigned to a <b>new client</b>, an
-          <b>existing client</b>, or a <b>role</b> &mdash; or reject to remove it.</p>
-        <div class="panel">
-          <p class="meta">Two ways in for a new person: they can <b>Sign in with Google</b> (an unknown
-            email is offered a request), or use this link:</p>
-          <div class="share">Sign-up link: <code>/signup</code> <a href="/signup" target="_blank" class="btn-ghost small">Open</a></div>
-        </div>
-        {% if pending %}
-        <div class="panel">
-          {% for a in pending %}
-          <div class="req">
-            <div class="req-main">
-              <div class="req-name">{{ a.requested_name|default(a.name, true)|default(a.email, true) }}</div>
-              <div class="req-sub">{{ a.email }}{% if a.auth == 'google' %} &middot; Google{% endif %}{% if a.created_at %} &middot; requested {{ a.created_at[:10] }}{% endif %}</div>
-              {% if a.message %}<div class="req-sub">&ldquo;{{ a.message }}&rdquo;</div>{% endif %}
-            </div>
-            <div class="req-actions">
-              <form class="grant" method="post" action="/admin/accounts/grant-google">
-                <input type="hidden" name="email" value="{{ a.email }}">
-                {{ assign_select() }}
-                <button type="submit" class="btn small">Grant access</button>
-              </form>
-              <form method="post" action="/admin/accounts/reject" data-reject-request data-req-email="{{ a.email }}">
-                <button type="submit" class="btn-ghost-danger small">Reject</button>
-              </form>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-        {% else %}
-        <div class="panel"><div class="empty">No pending requests right now.</div></div>
-        {% endif %}
-      </section>
+        <!-- ---------- CLIENTS ---------- -->
+        <section class="pane" data-pane="clients">
+          <p class="eyebrow">Atrium Admin &middot; Workspaces</p>
+          <h1 class="page">Clients</h1>
+          <p class="lead">Your home base for every Agora client. Click a client to open their workspace
+            and edit it in place, or add a new one below &mdash; we'll create the login and a blank
+            workspace and drop you straight into it.</p>
 
-      <!-- ---------- ACTIVITY (audit feed) ---------- -->
-      <section class="pane" data-pane="activity">
-        <h1 class="page">Activity</h1>
-        <p class="lead">Everything admins and clients do across every workspace &mdash; newest first.</p>
-        {% if activity %}
-        <div class="panel feed">
-          {% for a in activity %}
-          <div class="req">
-            <div class="req-main">
-              <div class="req-name">{{ a.actor }} <span class="role-tag {{ a.role }}">{{ a.role }}</span> &middot; {{ a.action }}{% if a.detail %} <span class="act-detail">&ldquo;{{ a.detail }}&rdquo;</span>{% endif %}</div>
-              <div class="req-sub">{{ a.client_name }}{% if a.when %} &middot; {{ a.when }} UTC{% endif %}</div>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-        {% else %}
-        <div class="panel"><div class="empty">No activity recorded yet.</div></div>
-        {% endif %}
-      </section>
-
-      <!-- ---------- TRASH (restorable soft-deletes) ---------- -->
-      <section class="pane" data-pane="trash">
-        <h1 class="page">Bin</h1>
-        <p class="lead">Deleted content, campaigns, calendar events and clients are kept here for
-          {{ trash_ttl_days }} days, then removed automatically. <b>Restore</b> puts an item back where
-          it was.</p>
-        {% if trash %}
-        <div class="panel feed">
-          {% for t in trash %}
-          <div class="req">
-            <div class="req-main">
-              <div class="req-name"><span class="kind-tag">{{ t.kind }}</span> {{ t.label }}</div>
-              <div class="req-sub">{{ t.client_name }}{% if t.actor %} &middot; deleted by {{ t.actor }}{% endif %}{% if t.when %} &middot; {{ t.when }} UTC{% endif %} &middot; auto-deletes in {{ t.days_left }} day{{ '' if t.days_left == 1 else 's' }}</div>
-            </div>
-            <div class="req-actions">
-              <form method="post" action="/admin/atrium/restore">
-                <input type="hidden" name="entry_id" value="{{ t.id }}">
-                <button type="submit" class="btn small">Restore</button>
-              </form>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-        {% else %}
-        <div class="panel"><div class="empty">Bin is empty.</div></div>
-        {% endif %}
-      </section>
-
-      <!-- ---------- ACCOUNTS ---------- -->
-      <section class="pane" data-pane="accounts">
-        <h1 class="page">Manage Accounts</h1>
-        <p class="lead">Every login to the portal. Change or reset a client's password from here, or
-          remove an account. {% if is_root_admin %}As the super admin you can also manage admin accounts.{% endif %}</p>
-
-        <h2 class="section">Client accounts</h2>
-        <div class="panel">
-          {% if client_accounts %}
-            {% for a in client_accounts %}
-            <div class="acct">
-              <div class="acct-main">
-                <div class="acct-name">{{ a.name }} <span class="badge role-client">Client</span></div>
-                <div class="acct-sub">{{ a.email }} &middot; {{ a.client_label }}</div>
-              </div>
-              <div class="acct-actions">
-                {% if a.client_key %}<a class="btn small" href="/w/{{ a.client_key }}/?preview=client" title="See the client's own view">View client site →</a>{% endif %}
-                {% if is_root_admin %}
-                <form method="post" action="/admin/impersonate" data-actas data-acct="{{ a.email }}">
-                  <input type="hidden" name="email" value="{{ a.email }}">
-                  <button type="submit" class="btn-ghost small" title="Sign in as this user">Act as &rarr;</button>
-                </form>
-                {% endif %}
-                <form class="acct-pw" method="post" action="/admin/accounts/set-password">
-                  <input type="hidden" name="email" value="{{ a.email }}">
-                  <input type="text" name="password" placeholder="New password (min 6)" autocomplete="off">
-                  <button type="submit" class="btn small">Change</button>
-                </form>
-                <form method="post" action="/admin/accounts/reset-password" data-reset data-acct="{{ a.email }}">
-                  <input type="hidden" name="email" value="{{ a.email }}">
-                  <button type="submit" class="btn-ghost small">Reset &amp; reveal</button>
-                </form>
-                <form method="post" action="/admin/accounts/delete" data-delete-account data-acct="{{ a.email }}">
-                  <input type="hidden" name="email" value="{{ a.email }}">
-                  <button type="submit" class="btn-ghost-danger small">Delete</button>
+          {% if clients %}
+          <div class="grid">
+            {% for c in clients %}
+            <div class="card">
+              <a class="card-main" href="/w/{{ c.key }}/">
+                <div class="name">{{ c.name|default(c.key, true) }}</div>
+                <div class="st">{{ 'Open workspace →' if c.has_workspace else 'No workspace yet' }}</div>
+              </a>
+              <div class="card-side">
+                <div class="card-logo">{{ c.logo|safe }}</div>
+                <form class="logo-up" method="post" action="/admin/atrium/{{ c.key }}/logo" enctype="multipart/form-data">
+                  <label class="mini-btn">Logo
+                    <input type="file" name="logo" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                           data-logo-input hidden>
+                  </label>
                 </form>
               </div>
+              <form class="card-del" method="post" action="/admin/atrium/{{ c.key }}/delete"
+                    data-delete-client data-client-name="{{ c.name|default(c.key, true) }}">
+                <button type="submit" class="del-x" title="Delete client" aria-label="Delete client">&times;</button>
+              </form>
             </div>
             {% endfor %}
+          </div>
           {% else %}
-            <div class="empty">No client accounts yet. Create one from <b>Create account</b> or approve a request.</div>
+          <div class="panel">No clients yet. Create your first one from <b>Accounts &rarr; Add new</b>.</div>
           {% endif %}
-        </div>
 
-        <h2 class="section">Admin accounts</h2>
-        <div class="panel">
-          {% if admin_accounts %}
-            {% for a in admin_accounts %}
-            <div class="acct">
-              <div class="acct-main">
-                <div class="acct-name">{{ a.name }}
-                  {% if a.role == 'superadmin' %}<span class="badge role-superadmin">Super administrator</span>
-                  {% else %}<span class="badge role-admin">Administrator</span>{% endif %}
+          <h2 class="section">Add a new client</h2>
+          <form class="panel" method="post" action="/admin/atrium/new">
+            <p class="meta">Just enter a name. We create the client, a portal login (auto-generated
+            password), and a <strong>blank Atrium workspace</strong>, then drop you straight into it.</p>
+            <label>Display name</label>
+            <input type="text" name="name" placeholder="Honey Tribe Resort" required>
+            <button class="btn violet" type="submit">Create client</button>
+          </form>
+        </section>
+
+        <!-- ---------- ACCOUNTS (merged: Requests · People · Add new) ---------- -->
+        <section class="pane" data-pane="accounts">
+          <p class="eyebrow">Atrium Admin &middot; People &amp; access</p>
+          <h1 class="page">Accounts</h1>
+          <p class="lead">Everyone who can sign in &mdash; review pending requests, manage existing
+            logins, or add someone new. One place, one job.</p>
+
+          <div class="subtabs" role="tablist">
+            <button type="button" class="subtab" data-subtab="requests">Requests{% if pending %} <span class="subcount">{{ pending|length }}</span>{% endif %}</button>
+            <button type="button" class="subtab" data-subtab="people">People</button>
+            <button type="button" class="subtab" data-subtab="add">Add new</button>
+          </div>
+
+          <!-- REQUESTS -->
+          <div class="sub" data-sub="requests">
+            <div class="panel">
+              <p class="meta">Two ways in for a new person: they can <b>Sign in with Google</b> (an unknown
+                email is offered a request), or use this link:</p>
+              <div class="share">Sign-up link: <code>/signup</code> <a href="/signup" target="_blank" class="btn-ghost small">Open</a></div>
+            </div>
+            {% if pending %}
+            <div class="panel">
+              {% for a in pending %}
+              <div class="req">
+                <div class="req-main">
+                  <div class="req-name">{{ a.requested_name|default(a.name, true)|default(a.email, true) }}</div>
+                  <div class="req-sub">{{ a.email }}{% if a.auth == 'google' %} &middot; Google{% endif %}{% if a.created_at %} &middot; requested {{ a.created_at[:10] }}{% endif %}</div>
+                  {% if a.message %}<div class="req-sub">&ldquo;{{ a.message }}&rdquo;</div>{% endif %}
                 </div>
-                <div class="acct-sub">{{ a.email }} &middot; All clients</div>
+                <div class="req-actions">
+                  <form class="grant" method="post" action="/admin/accounts/grant-google">
+                    <input type="hidden" name="email" value="{{ a.email }}">
+                    {{ assign_select() }}
+                    <button type="submit" class="btn small">Grant access</button>
+                  </form>
+                  <form method="post" action="/admin/accounts/reject" data-reject-request data-req-email="{{ a.email }}">
+                    <button type="submit" class="btn-ghost-danger small">Reject</button>
+                  </form>
+                </div>
               </div>
-              {% if is_root_admin and a.role != 'superadmin' and a.email != super_admin_email %}
-              <div class="acct-actions">
-                <form method="post" action="/admin/impersonate" data-actas data-acct="{{ a.email }}">
-                  <input type="hidden" name="email" value="{{ a.email }}">
-                  <button type="submit" class="btn-ghost small" title="Sign in as this admin">Act as &rarr;</button>
-                </form>
-                <form class="acct-pw" method="post" action="/admin/accounts/set-password">
-                  <input type="hidden" name="email" value="{{ a.email }}">
-                  <input type="text" name="password" placeholder="New password (min 6)" autocomplete="off">
-                  <button type="submit" class="btn small">Change</button>
-                </form>
-                <form method="post" action="/admin/accounts/reset-password" data-reset data-acct="{{ a.email }}">
-                  <input type="hidden" name="email" value="{{ a.email }}">
-                  <button type="submit" class="btn-ghost small">Reset &amp; reveal</button>
-                </form>
-                <form method="post" action="/admin/accounts/delete" data-delete-account data-acct="{{ a.email }}">
-                  <input type="hidden" name="email" value="{{ a.email }}">
-                  <button type="submit" class="btn-ghost-danger small">Delete</button>
-                </form>
-              </div>
+              {% endfor %}
+            </div>
+            {% else %}
+            <div class="panel"><div class="empty">No pending requests right now.</div></div>
+            {% endif %}
+          </div>
+
+          <!-- PEOPLE -->
+          <div class="sub" data-sub="people">
+            <h2 class="section">Client accounts</h2>
+            <div class="panel">
+              {% if client_accounts %}
+                {% for a in client_accounts %}
+                <div class="acct">
+                  <div class="acct-main">
+                    <div class="acct-name">{{ a.name }} <span class="badge role-client">Client</span></div>
+                    <div class="acct-sub">{{ a.email }} &middot; {{ a.client_label }}</div>
+                  </div>
+                  <div class="acct-actions">
+                    {% if a.client_key %}<a class="btn small" href="/w/{{ a.client_key }}/?preview=client" title="See the client's own view">View client site →</a>{% endif %}
+                    {% if is_root_admin %}
+                    <form method="post" action="/admin/impersonate" data-actas data-acct="{{ a.email }}">
+                      <input type="hidden" name="email" value="{{ a.email }}">
+                      <button type="submit" class="btn-ghost small" title="Sign in as this user">Act as &rarr;</button>
+                    </form>
+                    {% endif %}
+                    <form class="acct-pw" method="post" action="/admin/accounts/set-password">
+                      <input type="hidden" name="email" value="{{ a.email }}">
+                      <input type="text" name="password" placeholder="New password (min 6)" autocomplete="off">
+                      <button type="submit" class="btn small">Change</button>
+                    </form>
+                    <form method="post" action="/admin/accounts/reset-password" data-reset data-acct="{{ a.email }}">
+                      <input type="hidden" name="email" value="{{ a.email }}">
+                      <button type="submit" class="btn-ghost small">Reset &amp; reveal</button>
+                    </form>
+                    <form method="post" action="/admin/accounts/delete" data-delete-account data-acct="{{ a.email }}">
+                      <input type="hidden" name="email" value="{{ a.email }}">
+                      <button type="submit" class="btn-ghost-danger small">Delete</button>
+                    </form>
+                  </div>
+                </div>
+                {% endfor %}
+              {% else %}
+                <div class="empty">No client accounts yet. Create one from <b>Add new</b> or approve a request.</div>
               {% endif %}
             </div>
+
+            <h2 class="section">Admin accounts</h2>
+            <div class="panel">
+              {% if admin_accounts %}
+                {% for a in admin_accounts %}
+                <div class="acct">
+                  <div class="acct-main">
+                    <div class="acct-name">{{ a.name }}
+                      {% if a.role == 'superadmin' %}<span class="badge role-superadmin">Super administrator</span>
+                      {% else %}<span class="badge role-admin">Administrator</span>{% endif %}
+                    </div>
+                    <div class="acct-sub">{{ a.email }} &middot; All clients</div>
+                  </div>
+                  {% if is_root_admin and a.role != 'superadmin' and a.email != super_admin_email %}
+                  <div class="acct-actions">
+                    <form method="post" action="/admin/impersonate" data-actas data-acct="{{ a.email }}">
+                      <input type="hidden" name="email" value="{{ a.email }}">
+                      <button type="submit" class="btn-ghost small" title="Sign in as this admin">Act as &rarr;</button>
+                    </form>
+                    <form class="acct-pw" method="post" action="/admin/accounts/set-password">
+                      <input type="hidden" name="email" value="{{ a.email }}">
+                      <input type="text" name="password" placeholder="New password (min 6)" autocomplete="off">
+                      <button type="submit" class="btn small">Change</button>
+                    </form>
+                    <form method="post" action="/admin/accounts/reset-password" data-reset data-acct="{{ a.email }}">
+                      <input type="hidden" name="email" value="{{ a.email }}">
+                      <button type="submit" class="btn-ghost small">Reset &amp; reveal</button>
+                    </form>
+                    <form method="post" action="/admin/accounts/delete" data-delete-account data-acct="{{ a.email }}">
+                      <input type="hidden" name="email" value="{{ a.email }}">
+                      <button type="submit" class="btn-ghost-danger small">Delete</button>
+                    </form>
+                  </div>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              {% else %}
+                <div class="empty">No admin accounts.</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- ADD NEW -->
+          <div class="sub" data-sub="add">
+            <h2 class="section">Grant Google access to a Gmail</h2>
+            <form class="panel" method="post" action="/admin/accounts/grant-google">
+              <p class="meta">Give any Google account access &mdash; they sign in with <b>Sign in with
+                Google</b> (no password). Assign them to a new client, an existing client, or a role.</p>
+              <div class="row">
+                <div><label>Google email</label><input type="email" name="email" placeholder="person@gmail.com" required></div>
+                <div><label>Name / company (optional)</label><input type="text" name="name" placeholder="Person or company name"></div>
+              </div>
+              <label>Assign access to</label>
+              <div class="grant">
+                {{ assign_select() }}
+                <button class="btn" type="submit">Grant access</button>
+              </div>
+            </form>
+
+            <h2 class="section">New client account</h2>
+            <form class="panel" method="post" action="/admin/accounts/create-client">
+              <p class="meta">Creates the client, a blank workspace, and an active login. Leave the password
+                blank to auto-generate one (it'll be shown after).</p>
+              <div class="row">
+                <div><label>Company name</label><input type="text" name="company" placeholder="Blue Mountain Co" required></div>
+                <div><label>Client email</label><input type="email" name="email" placeholder="owner@company.com" required></div>
+              </div>
+              <label>Password (optional)</label>
+              <input type="text" name="password" placeholder="Leave blank to auto-generate" autocomplete="off">
+              <button class="btn" type="submit">Create client account</button>
+            </form>
+
+            {% if is_root_admin %}
+            <h2 class="section">New admin account</h2>
+            <form class="panel" method="post" action="/admin/accounts/create-admin">
+              <p class="meta">Admins see and manage every client. Only you (the super admin) can create them.</p>
+              <div class="row">
+                <div><label>Name</label><input type="text" name="name" placeholder="Team member"></div>
+                <div><label>Admin email</label><input type="email" name="email" placeholder="teammate@agoradatadriven.com" required></div>
+              </div>
+              <label>Password (optional)</label>
+              <input type="text" name="password" placeholder="Leave blank to auto-generate" autocomplete="off">
+              <button class="btn violet" type="submit">Create admin account</button>
+            </form>
+            {% else %}
+            <h2 class="section">New admin account</h2>
+            <div class="panel"><div class="empty">Only the super admin can create admin accounts.</div></div>
+            {% endif %}
+          </div>
+        </section>
+
+        <!-- ---------- ACTIVITY ---------- -->
+        <section class="pane" data-pane="activity">
+          <p class="eyebrow">Atrium Admin &middot; Workspaces</p>
+          <h1 class="page">Activity</h1>
+          <p class="lead">Everything admins and clients do across every workspace &mdash; newest first.</p>
+          {% if activity %}
+          <div class="panel feed">
+            {% for a in activity %}
+            <div class="req">
+              <div class="req-main">
+                <div class="req-name">{{ a.actor }} <span class="role-tag {{ a.role }}">{{ a.role }}</span> &middot; {{ a.action }}{% if a.detail %} <span class="act-detail">&ldquo;{{ a.detail }}&rdquo;</span>{% endif %}</div>
+                <div class="req-sub">{{ a.client_name }}{% if a.when %} &middot; {{ a.when }} UTC{% endif %}</div>
+              </div>
+            </div>
             {% endfor %}
+          </div>
           {% else %}
-            <div class="empty">No admin accounts.</div>
+          <div class="panel"><div class="empty">No activity recorded yet.</div></div>
           {% endif %}
-        </div>
-      </section>
+        </section>
 
-      <!-- ---------- CREATE ACCOUNT ---------- -->
-      <section class="pane" data-pane="create">
-        <h1 class="page">Create account</h1>
-        <p class="lead">Create a login directly &mdash; no request/approval step. New clients get a blank
-          workspace immediately.</p>
-
-        <h2 class="section">Grant Google access to a Gmail</h2>
-        <form class="panel" method="post" action="/admin/accounts/grant-google">
-          <p class="meta">Give any Google account access &mdash; they sign in with <b>Sign in with
-            Google</b> (no password). Assign them to a new client, an existing client, or a role.</p>
-          <div class="row">
-            <div><label>Google email</label><input type="email" name="email" placeholder="person@gmail.com" required></div>
-            <div><label>Name / company (optional)</label><input type="text" name="name" placeholder="Person or company name"></div>
+        <!-- ---------- BIN (restorable soft-deletes) ---------- -->
+        <section class="pane" data-pane="trash">
+          <p class="eyebrow">Atrium Admin &middot; Workspaces</p>
+          <h1 class="page">Bin</h1>
+          <p class="lead">Deleted content, campaigns, calendar events and clients are kept here for
+            {{ trash_ttl_days }} days, then removed automatically. <b>Restore</b> puts an item back where
+            it was.</p>
+          {% if trash %}
+          <div class="panel feed">
+            {% for t in trash %}
+            <div class="req">
+              <div class="req-main">
+                <div class="req-name"><span class="kind-tag">{{ t.kind }}</span> {{ t.label }}</div>
+                <div class="req-sub">{{ t.client_name }}{% if t.actor %} &middot; deleted by {{ t.actor }}{% endif %}{% if t.when %} &middot; {{ t.when }} UTC{% endif %} &middot; auto-deletes in {{ t.days_left }} day{{ '' if t.days_left == 1 else 's' }}</div>
+              </div>
+              <div class="req-actions">
+                <form method="post" action="/admin/atrium/restore">
+                  <input type="hidden" name="entry_id" value="{{ t.id }}">
+                  <button type="submit" class="btn small">Restore</button>
+                </form>
+              </div>
+            </div>
+            {% endfor %}
           </div>
-          <label>Assign access to</label>
-          <div class="grant">
-            {{ assign_select() }}
-            <button class="btn" type="submit">Grant access</button>
-          </div>
-        </form>
-
-        <h2 class="section">New client account</h2>
-        <form class="panel" method="post" action="/admin/accounts/create-client">
-          <p class="meta">Creates the client, a blank workspace, and an active login. Leave the password
-            blank to auto-generate one (it'll be shown after).</p>
-          <div class="row">
-            <div><label>Company name</label><input type="text" name="company" placeholder="Blue Mountain Co" required></div>
-            <div><label>Client email</label><input type="email" name="email" placeholder="owner@company.com" required></div>
-          </div>
-          <label>Password (optional)</label>
-          <input type="text" name="password" placeholder="Leave blank to auto-generate" autocomplete="off">
-          <button class="btn" type="submit">Create client account</button>
-        </form>
-
-        {% if is_root_admin %}
-        <h2 class="section">New admin account</h2>
-        <form class="panel" method="post" action="/admin/accounts/create-admin">
-          <p class="meta">Admins see and manage every client. Only you (the super admin) can create them.</p>
-          <div class="row">
-            <div><label>Name</label><input type="text" name="name" placeholder="Team member"></div>
-            <div><label>Admin email</label><input type="email" name="email" placeholder="teammate@agoradatadriven.com" required></div>
-          </div>
-          <label>Password (optional)</label>
-          <input type="text" name="password" placeholder="Leave blank to auto-generate" autocomplete="off">
-          <button class="btn violet" type="submit">Create admin account</button>
-        </form>
-        {% else %}
-        <h2 class="section">New admin account</h2>
-        <div class="panel"><div class="empty">Only the super admin can create admin accounts.</div></div>
-        {% endif %}
-      </section>
-
-      <!-- ---------- PROFILE ---------- -->
-      <section class="pane" data-pane="profile">
-        <h1 class="page">Profile</h1>
-        <p class="lead">Your operator account.</p>
-        <div class="panel">
-          <div class="acct-name" style="font-size:16px">{{ profile.name }}
-            {% if profile.role == 'superadmin' %}<span class="badge role-superadmin">Super administrator</span>
-            {% else %}<span class="badge role-admin">Administrator</span>{% endif %}
-          </div>
-          <div class="acct-sub" style="margin-top:6px">{{ profile.email }}</div>
-          {% if profile.role == 'superadmin' %}
-          <p class="meta" style="margin-top:14px">You're the super admin &mdash; you can create and manage
-            admin accounts, and your account can't be deleted from the Accounts list.</p>
-          {% endif %}
-          <a class="btn small" href="/profile" style="display:inline-block;text-decoration:none;margin-top:14px">Edit profile &amp; upload photo &rarr;</a>
-        </div>
-
-        <h2 class="section">Change your password</h2>
-        <form class="panel" method="post" action="/admin/profile/password">
-          {% if profile.has_account %}
-          <label>New password (min 6 characters)</label>
-          <input type="text" name="password" placeholder="New password" autocomplete="off" required>
-          <button class="btn" type="submit">Update password</button>
           {% else %}
-          <div class="empty">This session is signed in via an environment secret, so there's no stored
-            password to change here.</div>
+          <div class="panel"><div class="empty">Bin is empty.</div></div>
           {% endif %}
-        </form>
-      </section>
-    </main>
+        </section>
+
+        <!-- ---------- PROFILE ---------- -->
+        <section class="pane" data-pane="profile">
+          <p class="eyebrow">Your account</p>
+          <h1 class="page">Profile</h1>
+          <p class="lead">Your operator account.</p>
+          <div class="panel">
+            <div class="acct-name" style="font-size:16px">{{ profile.name }}
+              {% if profile.role == 'superadmin' %}<span class="badge role-superadmin">Super administrator</span>
+              {% else %}<span class="badge role-admin">Administrator</span>{% endif %}
+            </div>
+            <div class="acct-sub" style="margin-top:6px">{{ profile.email }}</div>
+            {% if profile.role == 'superadmin' %}
+            <p class="meta" style="margin-top:14px">You're the super admin &mdash; you can create and manage
+              admin accounts, and your account can't be deleted from the Accounts list.</p>
+            {% endif %}
+            <a class="btn small" href="/profile" style="display:inline-block;text-decoration:none;margin-top:14px">Edit profile &amp; upload photo &rarr;</a>
+          </div>
+
+          <h2 class="section">Change your password</h2>
+          <form class="panel" method="post" action="/admin/profile/password">
+            {% if profile.has_account %}
+            <label>New password (min 6 characters)</label>
+            <input type="text" name="password" placeholder="New password" autocomplete="off" required>
+            <button class="btn" type="submit">Update password</button>
+            {% else %}
+            <div class="empty">This session is signed in via an environment secret, so there's no stored
+              password to change here.</div>
+            {% endif %}
+          </form>
+        </section>
+      </main>
+    </div>
   </div>
 
   <script>
     // Console behaviour. DOM-driven + esprima-4.x-safe (no ?. / ??), no Jinja inside this script.
     (function () {
       var qsa = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+      var body = document.body;
 
-      // ---- Left-panel section switching: a nav button shows its matching pane. ----
+      // ---- Top-level view switch: Home hub <-> console. ----
+      function showView(v) {
+        qsa(".view").forEach(function (el) { el.classList.toggle("is-view", el.getAttribute("data-view") === v); });
+        window.scrollTo(0, 0);
+      }
+      qsa("[data-open-console]").forEach(function (b) {
+        b.addEventListener("click", function (e) { e.preventDefault(); showView("console"); });
+      });
+      qsa("[data-go-hub]").forEach(function (b) {
+        b.addEventListener("click", function () { showView("hub"); });
+      });
+
+      // ---- Console pane switching (a nav button shows its matching pane). ----
       function showSection(name) {
         var matched = false;
         qsa(".pane").forEach(function (p) {
@@ -628,17 +687,40 @@
           p.classList.toggle("is-active", on);
           if (on) { matched = true; }
         });
-        qsa(".nav-item").forEach(function (b) {
+        qsa("[data-section]").forEach(function (b) {
           b.classList.toggle("is-active", b.getAttribute("data-section") === name);
         });
         return matched;
       }
-      qsa(".nav-item").forEach(function (b) {
+      qsa("[data-section]").forEach(function (b) {
         b.addEventListener("click", function () { showSection(b.getAttribute("data-section")); });
       });
-      // Open the section the server asked for (after a redirect), else default to Clients.
-      var want = document.body.getAttribute("data-initial-section") || "clients";
-      if (!showSection(want)) { showSection("clients"); }
+
+      // ---- Accounts inner tabs (Requests / People / Add new). ----
+      function showSub(name) {
+        qsa(".sub").forEach(function (s) { s.classList.toggle("is-active", s.getAttribute("data-sub") === name); });
+        qsa(".subtab").forEach(function (t) { t.classList.toggle("is-active", t.getAttribute("data-subtab") === name); });
+      }
+      qsa(".subtab").forEach(function (t) {
+        t.addEventListener("click", function () { showSub(t.getAttribute("data-subtab")); });
+      });
+
+      // ---- Decide the opening view + pane from what the server asked for. ----
+      // Server sections that map into the merged Accounts page:
+      var SUB_FOR = { requests: "requests", create: "add", accounts: "people" };
+      var want = body.getAttribute("data-initial-section") || "clients";
+      var hasMsg = body.getAttribute("data-has-msg") === "1";
+
+      // Default sub for the Accounts page, and resolve the section a redirect asked for.
+      var sub = SUB_FOR[want] || "requests";
+      showSub(sub);
+      var section = SUB_FOR[want] ? "accounts" : want;
+      if (!showSection(section)) { showSection("clients"); }
+
+      // Fresh visit (no redirect: section is the default "clients" and no flash) opens the HUB;
+      // any server redirect (a non-default section OR a flash message) opens the CONSOLE in place.
+      var startConsole = hasMsg || (want !== "clients");
+      showView(startConsole ? "console" : "hub");
 
       // ---- "Upload logo": picking a file auto-submits its form. ----
       qsa("input[data-logo-input]").forEach(function (inp) {
@@ -673,13 +755,6 @@
           var email = this.getAttribute("data-acct") || "this account";
           if (!window.confirm("Reset the password for " + email + "?\n\nA new password is generated and "
             + "shown to you so you can pass it on.")) { e.preventDefault(); }
-        });
-      });
-      // App tiles that jump to another console section instead of navigating away.
-      qsa("[data-goto-section]").forEach(function (el) {
-        el.addEventListener("click", function (e) {
-          e.preventDefault();
-          showSection(el.getAttribute("data-goto-section"));
         });
       });
       // Confirm before "Act as" (impersonation): a clear, reversible action.
