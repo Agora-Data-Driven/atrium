@@ -1349,7 +1349,9 @@
                   title="Copy a shareable link to this month's recap"
                   {% if view.active_tab != 'overview' %}style="display:none"{% endif %}>Share recap <span class="ax-share-arrow">&rarr;</span></button>
           {% if is_superadmin %}
-          <a class="ax-backadmin" href="/admin/atrium" title="Back to all client workspaces">{{ ic('overview') }}<span>Back</span></a>
+          {#- ?section=clients lands the team on the console's Clients pane (pick another client),
+              not the suite hub — the hub only greets a FRESH visit to /admin/atrium. -#}
+          <a class="ax-backadmin" href="/admin/atrium?section=clients" title="Back to all client workspaces">{{ ic('overview') }}<span>Back</span></a>
           {% else %}
           <a class="ax-backadmin" href="/" title="Back to your portal">{{ ic('overview') }}<span>Back</span></a>
           {% endif %}

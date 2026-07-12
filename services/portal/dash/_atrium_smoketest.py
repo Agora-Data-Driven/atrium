@@ -176,12 +176,13 @@ def run():
         _check("old console POST /%s removed" % path,
                c.post("/admin/atrium/%s/%s" % (CLIENT, path), data={}).status_code in (404, 405))
 
-    # The console landing renders the welcome, links each card straight to the workspace, and hides
-    # the worked-example `template` client.
+    # The console landing opens on the Home hub (the "Your Agora suite" welcome), links each client
+    # card straight to the workspace, and hides the worked-example `template` client.
     store.add_client(CLIENT, "Riverdance RV Resort")
     store.add_client("template", "Template")
     landing = c.get("/admin/atrium").get_data(as_text=True)
-    _check("console landing renders welcome", "Welcome to the Atrium" in landing)
+    _check("console landing renders the suite hub welcome",
+           "Welcome back" in landing and "Atrium Admin" in landing)
     _check("console card opens the workspace directly", ('href="/w/%s/"' % CLIENT) in landing)
     _check("template client hidden from console", '<div class="name">Template</div>' not in landing)
     store.remove_client("template")
