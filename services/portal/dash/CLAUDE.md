@@ -55,12 +55,17 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   installed marketing tags (GTM/GA4/pixels) by scanning the page HTML (no GTM API, infra-free, degrades).
 - **`watcher.py`** — the team-only Watcher tab: paste a YouTube channel link, archive EVERY video's
   raw transcript. No YouTube API key: channel-page scrape → public `youtubei/v1/browse` playlist
-  paging (classic renderer AND 2025+ lockupViewModel shapes) → `youtube-transcript-api` (pinned in
-  requirements, lazy import). Registry in `ws["watcher"]`; each channel's transcripts in its own
-  `workspace/watcher/<c>/<id>.json` object. `POST /w/<c>/admin/watcher` (op add|fetch|refresh|delete;
-  fetch = batches of 8, page JS loops it) + `GET /w/<c>/watcher/video/<id>/<vid>` (full transcript
-  behind the click-to-expand cards). Degrades gracefully; `WATCHER_PROXY_URL` optional if YouTube
-  blocks the Cloud Run egress IPs. Test: `python _watcher_localtest.py`.
+  paging (classic renderer AND 2025+ lockupViewModel shapes; captures upload age →
+  `published_estimate` ISO date) → `youtube-transcript-api` (pinned in requirements, lazy import).
+  Channels are classified: `platform` / `industry` (auto-labeled via `intel_ai.classify_text`,
+  hand-editable) / `kind` creator|competitor. Registry in `ws["watcher"]`; each channel's
+  transcripts in its own `workspace/watcher/<c>/<id>.json` object. `POST /w/<c>/admin/watcher`
+  (op add|fetch|refresh|meta|label|delete; fetch = MISSING-only batches of 8, page JS loops it; a
+  rate-limit reports `blocked` and never marks videos failed) + `GET /w/<c>/watcher/video/<id>/<vid>`
+  (full transcript behind the click-to-expand cards). UI: 3-across creator grid, collapsed to the 4
+  newest videos, filter bar (search/platform/industry/type) + date sort. YouTube blocks datacenter
+  IPs — for Cloud Run fetching create Secret `watcher-proxy-url` (mounted as `WATCHER_PROXY_URL`
+  when present). Test: `python _watcher_localtest.py`.
 - **`intel_feed.py` / `intel_refresh.py`** — the DAILY Market Intelligence auto-refresh (opt-in,
   `INTEL_AUTO_ENABLED=1`). `intel_feed` parses Google News RSS + publisher feeds (keyless, stdlib
   `xml.etree` + lazy `requests`, degrades to `[]`); `intel_refresh.main()` is the Cloud Run **job**

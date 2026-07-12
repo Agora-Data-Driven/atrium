@@ -145,6 +145,20 @@ if (Test-SecretExists "DEEPSEEK_API_KEY") {
     Write-Host "[..] DEEPSEEK_API_KEY absent -- DeepSeek models stay unavailable (Gemini still works)" -ForegroundColor Yellow
 }
 
+# Watcher egress proxy (OPT-IN). YouTube blocks datacenter IPs, so transcript fetching from Cloud
+# Run needs a residential proxy. Create the secret once with the full proxy URL, e.g. Webshare
+# rotating residential  http://USER-rotate:PASS@p.webshare.io:80 :
+#   "PASTE_PROXY_URL" | gcloud secrets create watcher-proxy-url --data-file=- --project=agora-data-driven
+# then redeploy. Absent secret -> the Watcher tab still works but YouTube may rate-limit fetches.
+if (Test-SecretExists "watcher-proxy-url") {
+    gcloud secrets add-iam-policy-binding "watcher-proxy-url" --project=$PROJECT `
+        --member="serviceAccount:$WEB_SA" --role="roles/secretmanager.secretAccessor" *> $null
+    $SECRETS += ",WATCHER_PROXY_URL=watcher-proxy-url:latest"
+    Write-Host "[OK] watcher-proxy-url found -- mounting it (Watcher fetches go through the proxy)" -ForegroundColor Green
+} else {
+    Write-Host "[..] watcher-proxy-url absent -- Watcher fetches directly (YouTube may rate-limit)" -ForegroundColor Yellow
+}
+
 Write-Host "[..] Deploying Cloud Run service $PLATFORM" -ForegroundColor Cyan
 gcloud run deploy $PLATFORM `
     --image $IMG `

@@ -165,11 +165,13 @@ def _walk_playlist(node, found=None, token_box=None):
     if isinstance(node, dict):
         r = node.get("playlistVideoRenderer")
         if isinstance(r, dict) and r.get("videoId"):
-            found.append({"id": r["videoId"], "title": _renderer_title(r)})
+            found.append({"id": r["videoId"], "title": _renderer_title(r),
+                          "published_text": _renderer_published(r)})
         lk = node.get("lockupViewModel")
         if (isinstance(lk, dict) and lk.get("contentId")
                 and lk.get("contentType") == "LOCKUP_CONTENT_TYPE_VIDEO"):
-            found.append({"id": lk["contentId"], "title": _lockup_title(lk)})
+            found.append({"id": lk["contentId"], "title": _lockup_title(lk),
+                          "published_text": _lockup_published(lk)})
         cc = node.get("continuationCommand")
         if isinstance(cc, dict) and cc.get("token"):
             token_box.append(cc["token"])
@@ -193,6 +195,51 @@ def _lockup_title(lockup):
     """A lockupViewModel's display title (metadata.lockupMetadataViewModel.title.content)."""
     meta = (lockup.get("metadata") or {}).get("lockupMetadataViewModel") or {}
     return ((meta.get("title") or {}).get("content") or "").strip() or "(untitled video)"
+
+
+_AGO_RE = re.compile(r"\b(\d+)\s+(minute|hour|day|week|month|year)s?\s+ago\b", re.I)
+
+
+def _find_ago(texts):
+    """The first 'N units ago' string in `texts` (YouTube's relative upload age), or ''."""
+    for t in texts:
+        if t and _AGO_RE.search(t):
+            return _AGO_RE.search(t).group(0)
+    return ""
+
+
+def _renderer_published(renderer):
+    """A playlistVideoRenderer's relative upload age ('2 weeks ago'), or '' when absent."""
+    info = renderer.get("videoInfo") or {}
+    return _find_ago([r.get("text", "") for r in (info.get("runs") or [])])
+
+
+def _lockup_published(lockup):
+    """A lockupViewModel's relative upload age, scraped from its metadata text rows."""
+    meta = (lockup.get("metadata") or {}).get("lockupMetadataViewModel") or {}
+    cmv = (meta.get("metadata") or {}).get("contentMetadataViewModel") or {}
+    texts = []
+    for row in cmv.get("metadataRows") or []:
+        for part in row.get("metadataParts") or []:
+            texts.append(((part.get("text") or {}).get("content") or ""))
+    return _find_ago(texts)
+
+
+_AGO_DAYS = {"minute": 1 / 1440.0, "hour": 1 / 24.0, "day": 1, "week": 7, "month": 30.44, "year": 365.25}
+
+
+def published_estimate(text, now=None):
+    """Turn YouTube's relative age ('3 weeks ago') into an estimated ISO date ('2026-06-21').
+
+    Coarse by nature (YouTube only says 'ago'), but good enough to sort and filter videos by
+    date across creators. Returns '' when the text carries no parseable age."""
+    m = _AGO_RE.search(text or "")
+    if not m:
+        return ""
+    import datetime
+    days = int(m.group(1)) * _AGO_DAYS[m.group(2).lower()]
+    when = (now or datetime.datetime.now(datetime.timezone.utc)) - datetime.timedelta(days=days)
+    return when.strftime("%Y-%m-%d")
 
 
 def _unescape(text):
@@ -301,10 +348,14 @@ def _snippet_text(snippet):
 def fetch_transcripts_batch(videos, limit=8, pause=0.25):
     """Fetch transcripts for up to `limit` pending videos IN PLACE (mutates the video dicts).
 
-    A video is pending when it has neither a transcript nor a recorded error. Returns the number
-    fetched this call. A short pause between videos keeps the request pattern polite. If YouTube
-    starts blocking mid-batch, the batch stops early (the block error is recorded on the video that
-    hit it, non-permanently, so a later run retries it).
+    A video is pending when it has neither a transcript nor a recorded error. Returns
+    (fetched, blocked): how many videos were resolved this call, and whether YouTube's
+    rate-limiting cut the batch short.
+
+    A rate-limit is a SESSION condition, not a fact about the video -- so it never writes an
+    error onto the video (the video stays pending and the very next fetch resumes exactly where
+    this one stopped, retrying only the still-missing ones). Only real per-video outcomes are
+    recorded: a transcript, a permanent "no transcript exists", or a non-rate-limit fetch error.
     """
     from workspace import now_iso  # local import: avoids a cycle at module load
     done = 0
@@ -314,6 +365,8 @@ def fetch_transcripts_batch(videos, limit=8, pause=0.25):
         if v.get("transcript") or v.get("error"):
             continue
         result = fetch_transcript(v.get("id", ""))
+        if not result["ok"] and "rate-limiting" in result["error"]:
+            return done, True
         v["fetched_at"] = now_iso()
         if result["ok"]:
             v["transcript"] = result["transcript"]
@@ -325,8 +378,6 @@ def fetch_transcripts_batch(videos, limit=8, pause=0.25):
             v["error"] = result["error"]
             v["permanent"] = bool(result["permanent"])
         done += 1
-        if "rate-limiting" in v.get("error", ""):
-            break
         if pause:
             time.sleep(pause)
-    return done
+    return done, False
