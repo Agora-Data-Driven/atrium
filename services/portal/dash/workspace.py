@@ -255,6 +255,12 @@ def add_watcher_channel(client, fields):
         "url": fields.get("url", ""),
         "title": fields.get("title", ""),
         "channel_id": fields.get("channel_id", ""),
+        # Classification: platform is fixed per source type (YouTube-only today, the field exists
+        # so Website/podcast/etc. can join later); industry is the auto/AI label (hand-editable);
+        # kind separates the creators we learn from ("creator") from rivals ("competitor").
+        "platform": fields.get("platform", "youtube"),
+        "industry": fields.get("industry", ""),
+        "kind": fields.get("kind", "creator"),
         "video_count": int(fields.get("video_count", 0) or 0),
         "transcript_count": 0,
         "failed_count": 0,

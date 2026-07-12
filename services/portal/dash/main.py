@@ -2115,13 +2115,24 @@ _WATCHER_PREVIEW_CHARS = 260
 
 def _watcher_view(ws, client):
     """The Watcher pane's render model: each registry entry + its video cards, transcript bodies
-    trimmed to a short preview (the full text is served on demand by atrium_watcher_video)."""
+    trimmed to a short preview (the full text is served on demand by atrium_watcher_video).
+
+    Adds the filter/sort fields the creator grid needs: platform/industry/kind (with defaults for
+    channels added before those fields existed) and `latest` -- the newest video's estimated
+    publish date (fallback: the day the channel was added) -- which drives the date sort."""
     out = []
     for ch in workspace.watcher_channels(ws):
         entry = dict(ch)
+        entry.setdefault("platform", "youtube")
+        entry.setdefault("industry", "")
+        entry.setdefault("kind", "creator")
         cards = []
+        latest = ""
         for v in workspace.read_watcher_videos(client, ch.get("id", "")):
             text = v.get("transcript") or ""
+            published = v.get("published", "")
+            if published > latest:
+                latest = published
             cards.append({
                 "id": v.get("id", ""),
                 "title": v.get("title", ""),
@@ -2130,10 +2141,41 @@ def _watcher_view(ws, client):
                 "preview": (text[:_WATCHER_PREVIEW_CHARS] + "…") if len(text) > _WATCHER_PREVIEW_CHARS else text,
                 "words": len(text.split()) if text else 0,
                 "error": v.get("error", ""),
+                "published": published,
+                "published_text": v.get("published_text", ""),
             })
         entry["videos"] = cards
+        entry["latest"] = latest or (ch.get("added_at", "") or "")[:10]
         out.append(entry)
     return out
+
+
+_WATCHER_KINDS = ("creator", "competitor")
+
+
+def _watcher_autolabel(title, video_titles):
+    """Ask the intel AI for a short industry label for a creator ('AI Automation', 'Fitness', ...).
+
+    Judged from the channel name + its video titles (plenty of signal, no transcript needed).
+    Returns (industry, error) -- ("", reason) when no AI provider is configured or the call fails,
+    so adding a channel NEVER breaks on labeling; the chip just stays empty and hand-editable."""
+    titles = [t for t in (video_titles or []) if t][:40]
+    if not titles:
+        return "", "no video titles to judge from"
+    system = (
+        "You classify content creators into ONE short industry/niche label (1-3 words, Title Case) "
+        "for a marketing team's watchlist. Examples: \"AI Automation\", \"E-commerce\", \"Fitness\", "
+        "\"Personal Finance\", \"Real Estate\", \"Digital Marketing\". "
+        "Answer with JSON only: {\"industry\": \"<label>\"}"
+    )
+    user = "Creator: %s\nRecent video titles:\n%s" % (title, "\n".join("- " + t for t in titles))
+    raw, err = intel_ai.classify_text(system, user, max_tokens=128)
+    if err:
+        return "", err
+    m = re.search(r'"industry"\s*:\s*"([^"]{1,60})"', raw or "")
+    if not m:
+        return "", "AI returned no label"
+    return m.group(1).strip(), ""
 
 
 def _watcher_counts(client, channel_id, videos):
@@ -2150,22 +2192,30 @@ def _watcher_counts(client, channel_id, videos):
 
 def _watcher_video_entry(v):
     """A fresh archive entry for one listed video (no transcript yet)."""
+    import watcher
+    published_text = v.get("published_text", "")
     return {"id": v["id"], "title": v.get("title", ""),
             "url": "https://www.youtube.com/watch?v=" + v["id"],
             "transcript": "", "language": "", "generated": False,
-            "error": "", "permanent": False, "fetched_at": ""}
+            "error": "", "permanent": False, "fetched_at": "",
+            "published_text": published_text,
+            "published": watcher.published_estimate(published_text)}
 
 
 @app.route("/w/<client>/admin/watcher", methods=["POST"])
 def atrium_admin_watcher(client):
     """Manage watched YouTube channels (team-only). `op` is one of:
 
-    * add     -- resolve the pasted channel `url`, list EVERY video, store the (transcript-less)
-                 archive; transcripts are then pulled by repeated `fetch` calls.
-    * fetch   -- fetch the next batch of missing transcripts (the page JS loops this until
-                 `remaining` hits 0, so each request stays short). `retry=1` first clears
-                 non-permanent errors so blocked/failed videos are tried again.
-    * refresh -- re-list the channel and add any newly uploaded videos (existing transcripts kept).
+    * add     -- resolve the pasted channel `url`, list EVERY video, auto-label the industry,
+                 store the (transcript-less) archive; transcripts come from repeated `fetch` calls.
+    * fetch   -- fetch the next batch of MISSING transcripts only (the page JS loops this until
+                 `remaining` hits 0, so each request stays short). A YouTube rate-limit stops the
+                 batch and reports `blocked` WITHOUT marking any video failed, so the next fetch
+                 resumes exactly where it stopped. `retry=1` first clears non-permanent errors.
+    * refresh -- re-list the channel: add newly uploaded videos, refresh upload dates (existing
+                 transcripts kept).
+    * meta    -- hand-edit the classification (industry text and/or kind creator|competitor).
+    * label   -- re-run the AI industry auto-label from the stored video titles.
     * delete  -- remove the channel and its whole transcript archive.
     """
     gate = _atrium_admin_json_gate(client)
@@ -2187,8 +2237,11 @@ def atrium_admin_watcher(client):
         listing = watcher.list_videos(info["channel_id"])
         if not listing["ok"]:
             return jsonify(ok=False, message=listing["error"])
+        # Auto-label the industry from the channel name + video titles (best-effort; "" if no AI).
+        industry, _label_err = _watcher_autolabel(info["title"], [v.get("title", "") for v in listing["videos"]])
         entry = workspace.add_watcher_channel(client, {
             "url": info["url"], "title": info["title"], "channel_id": info["channel_id"],
+            "platform": "youtube", "industry": industry, "kind": "creator",
             "video_count": len(listing["videos"]),
         })
         workspace.write_watcher_videos(client, entry["id"],
@@ -2206,13 +2259,13 @@ def atrium_admin_watcher(client):
             for v in videos:
                 if v.get("error") and not v.get("permanent"):
                     v["error"] = ""
-        fetched = watcher.fetch_transcripts_batch(videos)
+        fetched, blocked = watcher.fetch_transcripts_batch(videos)
         workspace.write_watcher_videos(client, channel_id, videos)
         pending = _watcher_counts(client, channel_id, videos)
         if fetched:
             _audit(client, "fetched watcher transcripts", "%d videos" % fetched)
-        return jsonify(ok=True, fetched=fetched, remaining=pending, total=len(videos),
-                       done=len(videos) - pending)
+        return jsonify(ok=True, fetched=fetched, blocked=blocked, remaining=pending,
+                       total=len(videos), done=len(videos) - pending)
 
     if op == "refresh":
         ch = workspace.find_watcher_channel(ws, channel_id)
@@ -2220,14 +2273,50 @@ def atrium_admin_watcher(client):
         if not listing["ok"]:
             return jsonify(ok=False, message=listing["error"])
         videos = workspace.read_watcher_videos(client, channel_id)
-        known = {v.get("id") for v in videos}
-        new = [_watcher_video_entry(v) for v in listing["videos"] if v["id"] not in known]
-        if new:
-            videos = new + videos  # the listing is newest-first; keep the archive that way too
-            workspace.write_watcher_videos(client, channel_id, videos)
+        by_id = {v.get("id"): v for v in videos}
+        new = []
+        for lv in listing["videos"]:
+            known = by_id.get(lv["id"])
+            if known is None:
+                new.append(_watcher_video_entry(lv))
+            elif lv.get("published_text"):
+                # Backfill/refresh the upload age on videos we already hold (older archives
+                # predate date capture, and relative ages drift as time passes).
+                known["published_text"] = lv["published_text"]
+                known["published"] = watcher.published_estimate(lv["published_text"])
+        videos = new + videos  # the listing is newest-first; keep the archive that way too
+        workspace.write_watcher_videos(client, channel_id, videos)
         _watcher_counts(client, channel_id, videos)
         _audit(client, "refreshed watcher channel", "%s: %d new" % (ch.get("title", ""), len(new)))
         return jsonify(ok=True, new=len(new))
+
+    if op == "meta":
+        # Hand-edit the classification: industry (free text) and/or kind (creator|competitor).
+        fields = {}
+        if "industry" in request.form:
+            fields["industry"] = request.form.get("industry", "").strip()[:40]
+        if "kind" in request.form:
+            kind = request.form.get("kind", "").strip()
+            if kind not in _WATCHER_KINDS:
+                return jsonify(ok=False, message="Unknown type.")
+            fields["kind"] = kind
+        if not fields:
+            return jsonify(ok=False, message="Nothing to change.")
+        workspace.update_watcher_channel(client, channel_id, fields)
+        _audit(client, "edited watcher channel labels",
+               ", ".join("%s=%s" % (k, v) for k, v in fields.items()))
+        return jsonify(ok=True)
+
+    if op == "label":
+        # Re-run the AI industry label from the stored video titles.
+        ch = workspace.find_watcher_channel(ws, channel_id)
+        titles = [v.get("title", "") for v in workspace.read_watcher_videos(client, channel_id)]
+        industry, err = _watcher_autolabel(ch.get("title", ""), titles)
+        if not industry:
+            return jsonify(ok=False, message="Could not auto-label: %s." % (err or "no label"))
+        workspace.update_watcher_channel(client, channel_id, {"industry": industry})
+        _audit(client, "auto-labeled watcher channel", "%s -> %s" % (ch.get("title", ""), industry))
+        return jsonify(ok=True, industry=industry)
 
     if op == "delete":
         removed = workspace.delete_watcher_channel(client, channel_id)
@@ -2248,7 +2337,8 @@ def atrium_watcher_video(client, channel_id, video_id):
         if v.get("id") == video_id:
             return jsonify(ok=True, title=v.get("title", ""), url=v.get("url", ""),
                            transcript=v.get("transcript", ""), error=v.get("error", ""),
-                           language=v.get("language", ""), fetched_at=v.get("fetched_at", ""))
+                           language=v.get("language", ""), fetched_at=v.get("fetched_at", ""),
+                           published_text=v.get("published_text", ""))
     return Response('{"error":"not_found"}', status=404, mimetype="application/json")
 
 

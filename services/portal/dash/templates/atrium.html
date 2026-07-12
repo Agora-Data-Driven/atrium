@@ -1252,24 +1252,58 @@
     .ax-wh-notes { width: 100%; box-sizing: border-box; }
     @media (max-width: 560px) { .ax-wh-cells { grid-template-columns: repeat(2, 1fr); } }
 
-    /* ---- Watcher (team-only tab): channel panels + a uniform grid of expandable transcript cards */
+    /* ---- Watcher (team-only tab): filterable creator grid + expandable transcript archives ---- */
     .ax-wt-addcard { margin-bottom: 16px; }
     .ax-wt-addrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .ax-wt-eye .ax-ic { width: 26px; height: 26px; color: var(--ax-purple, #9484FB); }
     .ax-wt-url { flex: 1 1 280px; min-width: 200px; }
     .ax-wt-addmsg { margin-top: 10px; font-size: 13.5px; font-weight: 600; color: #c0322f; }
     .ax-wt-addmsg.is-busy { color: var(--ax-sub); }
-    .ax-wt-channel { margin-bottom: 18px; }
-    .ax-wt-chhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
-    .ax-wt-chtitle { font-size: 17px; font-weight: 800; color: var(--ax-ink); }
-    .ax-wt-chmeta { font-size: 13px; color: var(--ax-sub); margin-top: 3px; }
+    /* Filter bar: search + platform + industry + type + sort. */
+    .ax-wt-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+    .ax-wt-fsearch { flex: 1 1 220px; min-width: 160px; }
+    .ax-wt-fsel { padding: 9px 12px; border-radius: 10px; border: 1px solid var(--ax-line); background: #fff; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--ax-ink); }
+    .ax-wt-fcount { font-size: 12.5px; font-weight: 700; color: var(--ax-sub); margin-left: auto; }
+    /* Creator grid: three on screen at once on desktop; a card expands to the full row. */
+    .ax-wt-cgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+    @media (max-width: 1280px) { .ax-wt-cgrid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 820px) { .ax-wt-cgrid { grid-template-columns: 1fr; } }
+    .ax-wt-creator { margin: 0; }
+    .ax-wt-creator.is-open { grid-column: 1 / -1; }
+    .ax-wt-creator.is-open .ax-wt-recent { display: none; }
+    .ax-wt-chead { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .ax-wt-chtitle { font-size: 16.5px; font-weight: 800; color: var(--ax-ink); line-height: 1.25; }
+    .ax-wt-kind { font: inherit; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; cursor: pointer; border: 1px solid; flex: 0 0 auto; }
+    .ax-wt-kind.creator { color: #2f7a2c; border-color: rgba(79,171,74,.45); background: rgba(79,171,74,.10); }
+    .ax-wt-kind.competitor { color: #c0322f; border-color: rgba(229,65,62,.4); background: rgba(229,65,62,.10); }
+    .ax-wt-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+    .ax-wt-chip.plat { color: #c4302b; border-color: rgba(196,48,43,.35); background: rgba(196,48,43,.06); }
+    button.ax-wt-chip { font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+    .ax-wt-chip.ind { color: var(--ax-deep, #5C4BD0); border-color: rgba(148,132,251,.5); background: rgba(148,132,251,.10); }
+    .ax-wt-chip.ind.is-empty { color: var(--ax-sub); border-style: dashed; background: #fff; }
+    .ax-wt-indedit { display: flex; gap: 6px; align-items: center; }
+    .ax-wt-indedit[hidden] { display: none; }
+    .ax-wt-indedit input { width: 150px; padding: 4px 8px; font-size: 12.5px; }
+    .ax-wt-chmeta { font-size: 12.5px; color: var(--ax-sub); margin-top: 8px; }
     .ax-wt-chmeta a { color: var(--ax-deep, #1856C9); }
-    .ax-wt-chactions { display: flex; gap: 8px; flex-wrap: wrap; }
-    .ax-wt-progress { margin-top: 12px; }
+    .ax-wt-chactions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .ax-wt-chactions .ax-btn { padding: 6px 11px; font-size: 12px; }
+    .ax-wt-progress { margin-top: 10px; }
     .ax-wt-bar { height: 8px; border-radius: 999px; background: var(--ax-canvas); border: 1px solid var(--ax-line); overflow: hidden; }
     .ax-wt-bar span { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--ax-purple, #9484FB); transition: width .3s ease; }
     .ax-wt-ptext { margin-top: 6px; font-size: 12.5px; font-weight: 600; color: var(--ax-sub); }
-    .ax-wt-search { width: 100%; box-sizing: border-box; margin-top: 12px; }
+    /* Collapsed card: the 4 most recent videos as compact rows. */
+    .ax-wt-recent { margin-top: 12px; border-top: 1px solid var(--ax-line); }
+    .ax-wt-vrow { padding: 9px 2px; border-bottom: 1px solid var(--ax-line); cursor: default; }
+    .ax-wt-vrow.is-ready { cursor: pointer; }
+    .ax-wt-vrow.is-ready:hover { background: var(--ax-canvas); }
+    .ax-wt-vrt { font-size: 12.5px; font-weight: 700; color: var(--ax-ink); line-height: 1.3; max-height: 2.6em; overflow: hidden; }
+    .ax-wt-vrm { font-size: 11.5px; color: var(--ax-sub); margin-top: 3px; }
+    .ax-wt-vrm .ok { color: #2f7a2c; font-weight: 700; }
+    .ax-wt-vrm .bad { color: #c0322f; font-weight: 700; }
+    .ax-wt-expandbtn { width: 100%; margin-top: 10px; padding: 7px 10px; font-size: 12.5px; }
+    .ax-wt-full { margin-top: 12px; }
+    .ax-wt-search { width: 100%; box-sizing: border-box; margin-top: 2px; }
     /* Uniform boxes: every card is the SAME fixed height; the preview is clipped with a fade and the
        full transcript opens in the reader modal on click. */
     .ax-wt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-top: 14px; }
@@ -2633,7 +2667,7 @@
         {% if is_superadmin %}
         <section class="ax-pane {{ 'is-active' if view.active_tab=='watcher' else '' }}" data-pane="watcher">
           <h1 class="ax-greet">Watcher</h1>
-          <p class="ax-lede">Watch a YouTube channel and archive the transcript of every video it has published. Paste the channel link below &mdash; raw transcripts for now, AI summaries later.</p>
+          <p class="ax-lede">Watch creators and competitors across platforms (YouTube for now) and archive the transcript of everything they publish. Paste a channel link below &mdash; Watcher lists every video, auto-labels the creator's industry, and pulls the raw transcripts.</p>
 
           <div class="ax-panel ax-wt-addcard">
             <div class="ax-wt-addrow">
@@ -2644,68 +2678,127 @@
             <div class="ax-wt-addmsg" id="ax-wt-addmsg" hidden></div>
           </div>
 
-          {% for ch in watcher %}
-          <div class="ax-panel ax-wt-channel" data-wtchannel="{{ ch.id }}">
-            <div class="ax-wt-chhead">
-              <div class="ax-wt-chinfo">
+          {% if watcher %}
+          <div class="ax-panel ax-wt-filters">
+            <input class="ax-editbox ax-wt-fsearch" id="ax-wt-fsearch" type="search" placeholder="Search creators&hellip;">
+            <select class="ax-wt-fsel" id="ax-wt-fplatform" title="Platform">
+              <option value="">All platforms</option>
+              {% for p in watcher|map(attribute='platform')|unique|sort %}
+              <option value="{{ p }}">{{ 'YouTube' if p == 'youtube' else p|title }}</option>
+              {% endfor %}
+            </select>
+            <select class="ax-wt-fsel" id="ax-wt-findustry" title="Industry">
+              <option value="">All industries</option>
+              {% for ind in watcher|map(attribute='industry')|reject('equalto','')|unique|sort %}
+              <option value="{{ ind|lower }}">{{ ind }}</option>
+              {% endfor %}
+            </select>
+            <select class="ax-wt-fsel" id="ax-wt-fkind" title="Type">
+              <option value="">Creators + competition</option>
+              <option value="creator">Creators</option>
+              <option value="competitor">Competition</option>
+            </select>
+            <select class="ax-wt-fsel" id="ax-wt-fsort" title="Sort">
+              <option value="latest">Newest upload</option>
+              <option value="added">Recently added</option>
+              <option value="name">Name A&ndash;Z</option>
+            </select>
+            <span class="ax-wt-fcount" id="ax-wt-fcount"></span>
+          </div>
+
+          <div class="ax-wt-cgrid" id="ax-wt-cgrid">
+            {% for ch in watcher %}
+            <div class="ax-panel ax-wt-creator" data-wtchannel="{{ ch.id }}"
+                 data-wtname="{{ ch.title|lower }}" data-wtplatform="{{ ch.platform }}"
+                 data-wtindustry="{{ ch.industry|lower }}" data-wtkind="{{ ch.kind }}"
+                 data-wtlatest="{{ ch.latest }}" data-wtadded="{{ ch.added_at }}">
+              <div class="ax-wt-chead">
                 <div class="ax-wt-chtitle">{{ ch.title }}</div>
-                <div class="ax-wt-chmeta">
-                  <a href="{{ ch.url }}" target="_blank" rel="noopener noreferrer">YouTube channel</a>
-                  &middot; {{ ch.video_count }} video{{ '' if ch.video_count == 1 else 's' }}
-                  &middot; {{ ch.transcript_count }} transcript{{ '' if ch.transcript_count == 1 else 's' }}
-                  {% if ch.failed_count %} &middot; {{ ch.failed_count }} unavailable{% endif %}
-                  {% if ch.last_fetch %} &middot; updated {{ ch.last_fetch|atrium_dt }}{% endif %}
-                </div>
+                <button class="ax-wt-kind {{ ch.kind }}" type="button" data-wtkindbtn="{{ ch.id }}"
+                        title="Click to switch between creator and competition">{{ 'Creator' if ch.kind == 'creator' else 'Competition' }}</button>
+              </div>
+              <div class="ax-wt-chips">
+                <span class="ax-wt-chip plat">{{ 'YouTube' if ch.platform == 'youtube' else ch.platform|title }}</span>
+                <button class="ax-wt-chip ind {{ 'is-empty' if not ch.industry }}" type="button" data-wtind="{{ ch.id }}"
+                        title="Click to edit the industry label">{{ ch.industry or '+ industry' }}</button>
+                <span class="ax-wt-indedit" data-wtindedit="{{ ch.id }}" hidden>
+                  <input class="ax-editbox" type="text" maxlength="40" value="{{ ch.industry }}" placeholder="Industry&hellip;">
+                  <button class="ax-btn" type="button" data-wtindsave="{{ ch.id }}">Save</button>
+                </span>
+              </div>
+              <div class="ax-wt-chmeta">
+                <a href="{{ ch.url }}" target="_blank" rel="noopener noreferrer">Open channel</a>
+                &middot; {{ ch.video_count }} video{{ '' if ch.video_count == 1 else 's' }}
+                &middot; {{ ch.transcript_count }} transcript{{ '' if ch.transcript_count == 1 else 's' }}
+                {% if ch.failed_count %} &middot; {{ ch.failed_count }} unavailable{% endif %}
               </div>
               <div class="ax-wt-chactions">
-                {% if ch.transcript_count + ch.failed_count < ch.video_count %}
-                <button class="ax-btn violet" type="button" data-wtfetch="{{ ch.id }}">Fetch transcripts</button>
-                {% elif ch.failed_count %}
-                <button class="ax-btn violet" type="button" data-wtfetch="{{ ch.id }}" data-wtretry="1">Retry failed</button>
+                {% if ch.transcript_count < ch.video_count %}
+                <button class="ax-btn violet" type="button" data-wtfetch="{{ ch.id }}">Fetch missing</button>
                 {% endif %}
-                <button class="ax-btn" type="button" data-wtrefresh="{{ ch.id }}">Check for new videos</button>
+                <button class="ax-btn" type="button" data-wtrefresh="{{ ch.id }}">Check new</button>
+                <button class="ax-btn" type="button" data-wtlabel="{{ ch.id }}">Auto-label</button>
                 <button class="ax-btn" type="button" data-wtdelete="{{ ch.id }}" data-wtname="{{ ch.title }}">Remove</button>
               </div>
-            </div>
-            <div class="ax-wt-progress" data-wtprogress="{{ ch.id }}" hidden>
-              <div class="ax-wt-bar"><span></span></div>
-              <div class="ax-wt-ptext"></div>
-            </div>
-            {% if ch.videos|length > 8 %}
-            <input class="ax-editbox ax-wt-search" type="search" data-wtsearch="{{ ch.id }}" placeholder="Search video titles&hellip;">
-            {% endif %}
-            <div class="ax-wt-grid">
-              {% for v in ch.videos %}
-              <div class="ax-wt-video {{ 'is-ready' if v.has_transcript else ('is-failed' if v.error else 'is-pending') }}"
-                   data-wtvideo="{{ v.id }}" data-wtchan="{{ ch.id }}" role="button" tabindex="0"
-                   title="{{ 'Click to read the full transcript' if v.has_transcript else v.error or 'Transcript not fetched yet' }}">
-                <div class="ax-wt-vtitle">{{ v.title }}</div>
-                {% if v.has_transcript %}
-                <div class="ax-wt-vprev">{{ v.preview }}</div>
-                {% elif v.error %}
-                <div class="ax-wt-vprev is-err">{{ v.error }}</div>
-                {% else %}
-                <div class="ax-wt-vprev is-dim">Transcript not fetched yet.</div>
+              <div class="ax-wt-progress" data-wtprogress="{{ ch.id }}" hidden>
+                <div class="ax-wt-bar"><span></span></div>
+                <div class="ax-wt-ptext"></div>
+              </div>
+
+              <div class="ax-wt-recent">
+                {% for v in ch.videos[:4] %}
+                <div class="ax-wt-vrow {{ 'is-ready' if v.has_transcript }}" data-wtvideo="{{ v.id }}" data-wtchan="{{ ch.id }}"
+                     {% if v.has_transcript %}role="button" tabindex="0" title="Read the full transcript"{% endif %}>
+                  <div class="ax-wt-vrt">{{ v.title }}</div>
+                  <div class="ax-wt-vrm">{% if v.published_text %}{{ v.published_text }} &middot; {% endif %}{% if v.has_transcript %}<span class="ok">{{ v.words }} words</span>{% elif v.error %}<span class="bad">no transcript</span>{% else %}pending{% endif %}</div>
+                </div>
+                {% endfor %}
+              </div>
+              {% if ch.videos|length > 4 %}
+              <button class="ax-btn ax-wt-expandbtn" type="button" data-wtexpand="{{ ch.id }}"
+                      data-labelopen="Show all {{ ch.videos|length }} videos" data-labelclose="Collapse">Show all {{ ch.videos|length }} videos</button>
+              {% endif %}
+
+              <div class="ax-wt-full" data-wtfull="{{ ch.id }}" hidden>
+                {% if ch.videos|length > 8 %}
+                <input class="ax-editbox ax-wt-search" type="search" data-wtsearch="{{ ch.id }}" placeholder="Search video titles&hellip;">
                 {% endif %}
-                <div class="ax-wt-vfoot">
-                  {% if v.has_transcript %}
-                  <span class="ax-wt-chip ok">{{ v.words }} words</span><span class="ax-wt-open">Expand</span>
-                  {% elif v.error %}
-                  <span class="ax-wt-chip bad">No transcript</span>
-                  {% else %}
-                  <span class="ax-wt-chip">Pending</span>
-                  {% endif %}
+                <div class="ax-wt-grid">
+                  {% for v in ch.videos %}
+                  <div class="ax-wt-video {{ 'is-ready' if v.has_transcript else ('is-failed' if v.error else 'is-pending') }}"
+                       data-wtvideo="{{ v.id }}" data-wtchan="{{ ch.id }}" role="button" tabindex="0"
+                       title="{{ 'Click to read the full transcript' if v.has_transcript else v.error or 'Transcript not fetched yet' }}">
+                    <div class="ax-wt-vtitle">{{ v.title }}</div>
+                    {% if v.has_transcript %}
+                    <div class="ax-wt-vprev">{{ v.preview }}</div>
+                    {% elif v.error %}
+                    <div class="ax-wt-vprev is-err">{{ v.error }}</div>
+                    {% else %}
+                    <div class="ax-wt-vprev is-dim">Transcript not fetched yet.</div>
+                    {% endif %}
+                    <div class="ax-wt-vfoot">
+                      {% if v.has_transcript %}
+                      <span class="ax-wt-chip ok">{{ v.words }} words</span>
+                      {% elif v.error %}
+                      <span class="ax-wt-chip bad">No transcript</span>
+                      {% else %}
+                      <span class="ax-wt-chip">Pending</span>
+                      {% endif %}
+                      <span class="ax-wt-open">{{ v.published_text or '' }}</span>
+                    </div>
+                  </div>
+                  {% endfor %}
                 </div>
               </div>
-              {% endfor %}
             </div>
+            {% endfor %}
           </div>
           {% else %}
           <div class="ax-panel ax-wt-empty">
             {{ ic('watcher') }}
-            <div>No channels are being watched yet. Paste a YouTube channel link above and click <strong>Watch channel</strong> &mdash; Watcher will list every video, then pull each transcript.</div>
+            <div>No creators are being watched yet. Paste a YouTube channel link above and click <strong>Watch channel</strong> &mdash; Watcher will list every video, auto-label the industry, then pull each transcript.</div>
           </div>
-          {% endfor %}
+          {% endif %}
 
           <!-- Full-transcript reader: opened by clicking any video card. -->
           <div class="ax-wt-modal" id="ax-wt-modal" hidden>
@@ -3142,11 +3235,13 @@
     }
   })();
 
-  // ---- Watcher (team-only tab): watch channels, batch-fetch transcripts, expand a video --------
+  // ---- Watcher (team-only tab): filterable creator grid + transcript archives ------------------
   // Add resolves + lists the whole channel in one POST (can take a while on big channels). Fetch
-  // loops short batch POSTs (op=fetch) until `remaining` is 0, driving the per-channel progress
-  // bar, then reloads. Clicking a ready card GETs the FULL transcript (only previews are inlined
-  // in the page) into the reader modal.
+  // loops short batch POSTs (op=fetch) over the MISSING transcripts only, driving the per-creator
+  // progress bar; a `blocked` response (YouTube rate-limit) stops the loop with progress kept, so
+  // the next click resumes where it stopped. Cards collapse to the 4 most recent videos and expand
+  // to the full archive; the top bar filters by creator/platform/industry/type and sorts by date.
+  // Clicking a ready video GETs the FULL transcript (only previews are inlined) into the modal.
   (function () {
     var addBtn = document.getElementById("ax-wt-add");
     var addMsg = document.getElementById("ax-wt-addmsg");
@@ -3162,7 +3257,7 @@
         var url = input ? input.value.replace(/^\s+|\s+$/g, "") : "";
         if (!url) { showAddMsg("Paste a YouTube channel link first.", false); return; }
         addBtn.setAttribute("disabled", "disabled");
-        showAddMsg("Finding the channel and listing every video — this can take a minute for big channels…", true);
+        showAddMsg("Finding the channel, listing every video, and labeling the industry — this can take a minute…", true);
         post("/admin/watcher", { op: "add", url: url })
           .then(function (data) {
             if (data && data.ok === false) {
@@ -3179,19 +3274,20 @@
       });
     }
 
-    // Fetch transcripts: loop batches until nothing is pending, then reload.
+    // Fetch MISSING transcripts: loop batches until nothing is pending. retry=1 on the first call
+    // clears non-permanent errors, so "missing" = everything except stored transcripts and videos
+    // permanently without one. A blocked response stops politely; progress is already saved.
     qsa("[data-wtfetch]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var chan = btn.getAttribute("data-wtfetch");
-        var retry = btn.getAttribute("data-wtretry") === "1";
         var wrap = document.querySelector('[data-wtprogress="' + aq(chan) + '"]');
         var bar = wrap ? wrap.querySelector(".ax-wt-bar span") : null;
         var ptext = wrap ? wrap.querySelector(".ax-wt-ptext") : null;
         btn.setAttribute("disabled", "disabled");
         if (wrap) { wrap.hidden = false; }
-        if (ptext) { ptext.textContent = "Fetching transcripts…"; }
+        if (ptext) { ptext.textContent = "Fetching missing transcripts…"; }
         function step(first) {
-          post("/admin/watcher", { op: "fetch", channel_id: chan, retry: (first && retry) ? "1" : "0" })
+          post("/admin/watcher", { op: "fetch", channel_id: chan, retry: first ? "1" : "0" })
             .then(function (data) {
               if (!data || data.ok === false) {
                 btn.removeAttribute("disabled");
@@ -3199,6 +3295,14 @@
                 return;
               }
               if (bar && data.total > 0) { bar.style.width = Math.round((data.done / data.total) * 100) + "%"; }
+              if (data.blocked) {
+                if (ptext) {
+                  ptext.textContent = "YouTube is rate-limiting right now — progress saved at " + data.done +
+                    " of " + data.total + ". Click Fetch missing again later; it resumes right here.";
+                }
+                btn.removeAttribute("disabled");
+                return;
+              }
               if (ptext) { ptext.textContent = "Fetched " + data.done + " of " + data.total + " transcripts…"; }
               if (data.remaining > 0 && data.fetched > 0) {
                 step(false);
@@ -3208,7 +3312,7 @@
             })
             .catch(function () {
               btn.removeAttribute("disabled");
-              if (ptext) { ptext.textContent = "Fetching stopped (network error) — click Fetch transcripts to resume."; }
+              if (ptext) { ptext.textContent = "Fetching stopped (network error) — click Fetch missing to resume."; }
             });
         }
         step(true);
@@ -3221,6 +3325,43 @@
       });
     });
 
+    qsa("[data-wtlabel]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        adminAction("/admin/watcher", { op: "label", channel_id: btn.getAttribute("data-wtlabel") }, btn);
+      });
+    });
+
+    // Creator <-> Competition: the badge toggles the kind in place.
+    qsa("[data-wtkindbtn]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var card = btn.closest ? btn.closest(".ax-wt-creator") : null;
+        var current = card ? card.getAttribute("data-wtkind") : "creator";
+        var next = current === "creator" ? "competitor" : "creator";
+        adminAction("/admin/watcher", { op: "meta", channel_id: btn.getAttribute("data-wtkindbtn"), kind: next }, btn);
+      });
+    });
+
+    // Industry chip: click to swap in an inline editor; Save posts the new label.
+    qsa("[data-wtind]").forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        var id = chip.getAttribute("data-wtind");
+        var edit = document.querySelector('[data-wtindedit="' + aq(id) + '"]');
+        if (!edit) { return; }
+        chip.hidden = true;
+        edit.hidden = false;
+        var box = edit.querySelector("input");
+        if (box) { box.focus(); }
+      });
+    });
+    qsa("[data-wtindsave]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-wtindsave");
+        var edit = document.querySelector('[data-wtindedit="' + aq(id) + '"]');
+        var box = edit ? edit.querySelector("input") : null;
+        adminAction("/admin/watcher", { op: "meta", channel_id: id, industry: box ? box.value : "" }, btn);
+      });
+    });
+
     qsa("[data-wtdelete]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var name = btn.getAttribute("data-wtname") || "this channel";
@@ -3230,7 +3371,22 @@
       });
     });
 
-    // Title search: hides non-matching cards within one channel's grid.
+    // Expand / collapse a creator: open shows the full archive across the whole row.
+    qsa("[data-wtexpand]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-wtexpand");
+        var card = document.querySelector('[data-wtchannel="' + aq(id) + '"]');
+        var full = document.querySelector('[data-wtfull="' + aq(id) + '"]');
+        if (!card || !full) { return; }
+        var open = !card.classList.contains("is-open");
+        card.classList.toggle("is-open", open);
+        full.hidden = !open;
+        btn.textContent = btn.getAttribute(open ? "data-labelclose" : "data-labelopen");
+        if (open && card.scrollIntoView) { card.scrollIntoView({ behavior: "smooth", block: "start" }); }
+      });
+    });
+
+    // Per-creator title search (inside the expanded archive).
     qsa("[data-wtsearch]").forEach(function (input) {
       input.addEventListener("input", function () {
         var q = input.value.toLowerCase();
@@ -3243,6 +3399,57 @@
         });
       });
     });
+
+    // The top filter bar: search + platform + industry + type, and the date/name sort.
+    var fSearch = document.getElementById("ax-wt-fsearch");
+    var fPlatform = document.getElementById("ax-wt-fplatform");
+    var fIndustry = document.getElementById("ax-wt-findustry");
+    var fKind = document.getElementById("ax-wt-fkind");
+    var fSort = document.getElementById("ax-wt-fsort");
+    var fCount = document.getElementById("ax-wt-fcount");
+    var cgrid = document.getElementById("ax-wt-cgrid");
+    function applyFilters() {
+      if (!cgrid) { return; }
+      var q = fSearch ? fSearch.value.toLowerCase() : "";
+      var plat = fPlatform ? fPlatform.value : "";
+      var ind = fIndustry ? fIndustry.value : "";
+      var kind = fKind ? fKind.value : "";
+      var shown = 0, total = 0;
+      qsa(".ax-wt-creator", cgrid).forEach(function (card) {
+        total += 1;
+        var name = card.getAttribute("data-wtname") || "";
+        var cind = card.getAttribute("data-wtindustry") || "";
+        var hit = (!q || name.indexOf(q) !== -1 || cind.indexOf(q) !== -1)
+          && (!plat || card.getAttribute("data-wtplatform") === plat)
+          && (!ind || cind === ind)
+          && (!kind || card.getAttribute("data-wtkind") === kind);
+        card.style.display = hit ? "" : "none";
+        if (hit) { shown += 1; }
+      });
+      if (fCount) { fCount.textContent = shown === total ? total + " watched" : shown + " of " + total; }
+    }
+    function applySort() {
+      if (!cgrid || !fSort) { return; }
+      var mode = fSort.value;
+      var cards = qsa(".ax-wt-creator", cgrid);
+      cards.sort(function (a, b) {
+        if (mode === "name") {
+          var an = a.getAttribute("data-wtname") || "", bn = b.getAttribute("data-wtname") || "";
+          return an < bn ? -1 : (an > bn ? 1 : 0);
+        }
+        var key = mode === "added" ? "data-wtadded" : "data-wtlatest";
+        var av = a.getAttribute(key) || "", bv = b.getAttribute(key) || "";
+        return av > bv ? -1 : (av < bv ? 1 : 0);   // ISO strings: newest first
+      });
+      cards.forEach(function (card) { cgrid.appendChild(card); });
+    }
+    if (fSearch) { fSearch.addEventListener("input", applyFilters); }
+    [fPlatform, fIndustry, fKind].forEach(function (sel) {
+      if (sel) { sel.addEventListener("change", applyFilters); }
+    });
+    if (fSort) { fSort.addEventListener("change", applySort); }
+    applyFilters();
+    applySort();
 
     // The reader modal: fetch + show one full transcript.
     var modal = document.getElementById("ax-wt-modal");
@@ -3268,7 +3475,8 @@
           mTitle.textContent = data.title || "Transcript";
           if (mOpen) { mOpen.href = data.url || "#"; }
           var bits = [];
-          if (data.language) { bits.push("Captions: " + data.language); }
+          if (data.published_text) { bits.push("Published " + data.published_text); }
+          if (data.language) { bits.push("captions: " + data.language); }
           if (data.fetched_at) { bits.push("fetched " + data.fetched_at.slice(0, 10)); }
           mMeta.textContent = bits.join(" · ");
           mBody.textContent = data.transcript || data.error || "No transcript stored for this video.";
@@ -3278,7 +3486,7 @@
           mBody.textContent = "Please try again.";
         });
     }
-    qsa(".ax-wt-video.is-ready").forEach(function (card) {
+    qsa(".ax-wt-video.is-ready, .ax-wt-vrow.is-ready").forEach(function (card) {
       function go() { openVideo(card.getAttribute("data-wtchan"), card.getAttribute("data-wtvideo")); }
       card.addEventListener("click", go);
       card.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });

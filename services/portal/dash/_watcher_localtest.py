@@ -63,10 +63,14 @@ def _video_renderer(vid, title):
     return {"playlistVideoRenderer": {"videoId": vid, "title": {"runs": [{"text": title}]}}}
 
 
-def _video_lockup(vid, title):
+def _video_lockup(vid, title, ago=""):
     """The 2025+ lockupViewModel shape (what live YouTube now serves for playlist items)."""
+    meta = {"title": {"content": title}}
+    if ago:
+        meta["metadata"] = {"contentMetadataViewModel": {"metadataRows": [
+            {"metadataParts": [{"text": {"content": "12K views"}}, {"text": {"content": ago}}]}]}}
     return {"lockupViewModel": {"contentId": vid, "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
-                                "metadata": {"lockupMetadataViewModel": {"title": {"content": title}}}}}
+                                "metadata": {"lockupMetadataViewModel": meta}}}
 
 
 def _browse_pages():
@@ -80,7 +84,7 @@ def _browse_pages():
     ]}}
     page2 = {"onResponseReceivedActions": [
         _video_lockup("vid00000002", "SQL window functions"),   # duplicate: must de-dupe
-        _video_lockup("vid00000003", "Pandas in production"),
+        _video_lockup("vid00000003", "Pandas in production", ago="2 weeks ago"),
     ]}
     return {"first": page1, "TOKEN-2": page2}
 
@@ -107,6 +111,27 @@ def run():
            listing["ok"] and [v["id"] for v in listing["videos"]]
            == ["vid00000001", "vid00000002", "vid00000003"])
     _check("list_videos rejects a bad id", watcher.list_videos("nope")["ok"] is False)
+    _check("lockup upload age captured", listing["videos"][2]["published_text"] == "2 weeks ago")
+
+    import datetime as _dt
+    _now = _dt.datetime(2026, 7, 12, tzinfo=_dt.timezone.utc)
+    _check("published_estimate: weeks", watcher.published_estimate("2 weeks ago", _now) == "2026-06-28")
+    _check("published_estimate: years",
+           watcher.published_estimate("Streamed 1 year ago", _now) in ("2025-07-11", "2025-07-12"))
+    _check("published_estimate: garbage is empty", watcher.published_estimate("hello") == "")
+
+    # A rate-limit is a session condition: the batch stops, reports blocked, and NO video is
+    # marked failed -- the next fetch resumes over the exact same missing set.
+    real_fetch_fn = watcher.fetch_transcript
+    watcher.fetch_transcript = lambda vid: {
+        "ok": False, "transcript": "", "language": "", "generated": False,
+        "error": "YouTube is rate-limiting or blocking this server right now — re-run later.",
+        "permanent": False}
+    blocked_vids = [{"id": "a", "transcript": "", "error": ""}, {"id": "b", "transcript": "", "error": ""}]
+    n, blocked = watcher.fetch_transcripts_batch(blocked_vids, pause=0)
+    _check("rate-limit stops the batch WITHOUT poisoning videos",
+           n == 0 and blocked is True and blocked_vids[0]["error"] == "" and blocked_vids[1]["error"] == "")
+    watcher.fetch_transcript = real_fetch_fn
 
     # --- watcher.py: transcript fetch error paths (package stubbed, no network) ------------------
     real_import = watcher._import_transcript_api
@@ -193,6 +218,30 @@ def run():
     chan = r.get_json()["channel"]
     r = c.post("/w/%s/admin/watcher" % CLIENT, data={"op": "add", "url": "@datawithdana"})
     _check("duplicate channel is refused", r.get_json()["ok"] is False)
+
+    ch = workspace.find_watcher_channel(workspace.load_workspace(CLIENT), chan)
+    _check("channel classified with defaults (youtube creator, no AI -> empty industry)",
+           ch["platform"] == "youtube" and ch["kind"] == "creator" and ch["industry"] == "")
+
+    # Hand-edit the classification, then flip it via the AI label op (AI stubbed).
+    r = c.post("/w/%s/admin/watcher" % CLIENT,
+               data={"op": "meta", "channel_id": chan, "industry": "Data Science", "kind": "competitor"})
+    ch = workspace.find_watcher_channel(workspace.load_workspace(CLIENT), chan)
+    _check("op=meta sets industry + kind",
+           r.get_json()["ok"] is True and ch["industry"] == "Data Science" and ch["kind"] == "competitor")
+    _check("op=meta rejects a bogus kind",
+           c.post("/w/%s/admin/watcher" % CLIENT,
+                  data={"op": "meta", "channel_id": chan, "kind": "frenemy"}).get_json()["ok"] is False)
+    real_autolabel = main._watcher_autolabel
+    main._watcher_autolabel = lambda title, titles: ("AI Automation", "")
+    r = c.post("/w/%s/admin/watcher" % CLIENT, data={"op": "label", "channel_id": chan})
+    ch = workspace.find_watcher_channel(workspace.load_workspace(CLIENT), chan)
+    _check("op=label re-runs the AI industry label",
+           r.get_json()["industry"] == "AI Automation" and ch["industry"] == "AI Automation")
+    main._watcher_autolabel = real_autolabel
+    body = c.get("/w/%s/watcher" % CLIENT).get_data(as_text=True)
+    _check("filter bar + creator grid render (industry option present)",
+           'id="ax-wt-fsearch"' in body and 'id="ax-wt-cgrid"' in body and "AI Automation" in body)
 
     body = c.get("/w/%s/watcher" % CLIENT).get_data(as_text=True)
     _check("watcher tab renders pending cards",

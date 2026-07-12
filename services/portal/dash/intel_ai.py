@@ -204,6 +204,19 @@ def any_provider_configured():
     return any(provider_configured(p) for p in _provider_keys())
 
 
+def classify_text(system, user, max_tokens=256, fetcher=None, token_fetcher=None):
+    """One small structured call with the default available model. Returns (text, error).
+
+    A generic hook for tiny classification jobs elsewhere in the app (e.g. the Watcher tab's
+    auto-industry label). Uses the same provider plumbing as the intel brain; JSON output mode,
+    no grounding, no thinking capture. Degrades to ("", reason) when no provider is configured."""
+    mid = default_model()
+    if not mid:
+        return "", "no AI provider configured"
+    text, err, _thinking = _call(model_meta(mid), system, user, fetcher, max_tokens, token_fetcher)
+    return text, err
+
+
 # --- The prompts --------------------------------------------------------------------------------
 def _system_prompt(section, client_name, editorial):
     """The fixed curation contract + the admin's editorial guidance. Locks the JSON output shape."""
