@@ -8,6 +8,10 @@ never visualized directly. This script is the process step:
         -->  classify into demand tags  -->  dash/data/jobs.sqlite (+ FTS)
         -->  dash/data/aggregates.json (pre-baked charts for first paint)
 
+Raw input = the base Desktop export (result.json) PLUS every incremental
+raw_files/pulled/*.jsonl written by telegram_pull.py (the automated pull),
+in chronological order. URL dedupe makes any overlap harmless.
+
 The dashboard web service reads ONLY the outputs, mirroring the repo's
 three-stage contract (sql -> job -> dash) until this ingestion gets the full
 treatment (BigQuery views + export job).
@@ -17,6 +21,7 @@ Usage:
 Outputs land in  ../dash/data/  (gitignored).
 """
 
+import glob
 import json
 import os
 import re
@@ -33,8 +38,12 @@ except ImportError:  # pragma: no cover
     sys.exit("pip install ijson first (streaming parse; the export is ~1 GB)")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_RAW = os.path.join(HERE, "..", "raw_files", "result.json")
-OUT_DIR = os.path.join(HERE, "..", "dash", "data")
+# Env-overridable so the Cloud Run job can point at the GCS volume + /tmp.
+DEFAULT_RAW = os.environ.get(
+    "UPWORK_RAW", os.path.join(HERE, "..", "raw_files", "result.json"))
+PULLED_DIR = os.environ.get(
+    "UPWORK_PULLED_DIR", os.path.join(HERE, "..", "raw_files", "pulled"))
+OUT_DIR = os.environ.get("UPWORK_OUT_DIR", os.path.join(HERE, "..", "dash", "data"))
 
 BOT_NAME = "Zenfl Upwork Bot"
 DESC_CAP = 6000  # chars; keeps pathological posts from bloating the DB
@@ -272,6 +281,30 @@ def monday_of(iso_date):
     return (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
 
 
+def iter_raw_messages(raw_path):
+    """Every raw message: the base Desktop export (streamed with ijson), then
+    each incremental telegram_pull.py file in filename (= chronological)
+    order. Increment message ids are deduped across files (a crashed pull can
+    re-fetch a window); base/increment overlap is absorbed by URL dedupe."""
+    if os.path.exists(raw_path):
+        with open(raw_path, "rb") as f:
+            for msg in ijson.items(f, "messages.item"):
+                yield msg
+    seen_ids = set()
+    for path in sorted(glob.glob(os.path.join(PULLED_DIR, "*.jsonl"))):
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                msg = json.loads(line)
+                mid = msg.get("id")
+                if mid in seen_ids:
+                    continue
+                seen_ids.add(mid)
+                yield msg
+
+
 def run(raw_path):
     os.makedirs(OUT_DIR, exist_ok=True)
     db_path = os.path.join(OUT_DIR, "jobs.sqlite")
@@ -297,47 +330,46 @@ def run(raw_path):
                 " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
             del batch[:]
 
-    with open(raw_path, "rb") as f:
-        for msg in ijson.items(f, "messages.item"):
-            n_msgs += 1
-            if n_msgs % 100000 == 0:
-                flush()
-                db.commit()
-                print("  ... %dk messages, %d unique jobs, %.0fs" %
-                      (n_msgs // 1000, n_jobs, time.time() - t0), flush=True)
-            if msg.get("from") != BOT_NAME or msg.get("type") != "message":
-                continue
-            job = parse_job(msg)
-            if job is None:
-                continue
-            url = job["url"]
-            if url in seen:
-                n_dups += 1
-                rid = seen[url]
-                dup_counts[rid] += 1
-                if job["feed"]:
-                    feeds_by_row[rid].add(job["feed"])
-                continue
-            rid = next_id
-            next_id += 1
-            seen[url] = rid
-            n_jobs += 1
+    for msg in iter_raw_messages(raw_path):
+        n_msgs += 1
+        if n_msgs % 100000 == 0:
+            flush()
+            db.commit()
+            print("  ... %dk messages, %d unique jobs, %.0fs" %
+                  (n_msgs // 1000, n_jobs, time.time() - t0), flush=True)
+        if msg.get("from") != BOT_NAME or msg.get("type") != "message":
+            continue
+        job = parse_job(msg)
+        if job is None:
+            continue
+        url = job["url"]
+        if url in seen:
+            n_dups += 1
+            rid = seen[url]
+            dup_counts[rid] += 1
             if job["feed"]:
                 feeds_by_row[rid].add(job["feed"])
-            tags = tags_for(job)
-            batch.append((
-                rid, url, job["date"], monday_of(job["date"]), job["date"][:7],
-                job["title"], job["category"], job["budget_type"],
-                job["rate_min"], job["rate_max"], job["fixed_budget"],
-                job["level"], job["contract_to_hire"],
-                " • ".join(job["skills"]), job["description"],
-                job["feed"] or "", job.get("country"), job.get("rating"),
-                job.get("reviews"), job.get("client_jobs"), job.get("hire_rate"),
-                job.get("avg_rate"), job.get("spent"), job.get("verified", 0),
-                "|".join(tags)))
-            db.executemany("INSERT INTO job_skills VALUES (?,?)",
-                           [(rid, s) for s in dict.fromkeys(job["skills"])])
-            db.executemany("INSERT INTO job_tags VALUES (?,?)", [(rid, t) for t in tags])
+            continue
+        rid = next_id
+        next_id += 1
+        seen[url] = rid
+        n_jobs += 1
+        if job["feed"]:
+            feeds_by_row[rid].add(job["feed"])
+        tags = tags_for(job)
+        batch.append((
+            rid, url, job["date"], monday_of(job["date"]), job["date"][:7],
+            job["title"], job["category"], job["budget_type"],
+            job["rate_min"], job["rate_max"], job["fixed_budget"],
+            job["level"], job["contract_to_hire"],
+            " • ".join(job["skills"]), job["description"],
+            job["feed"] or "", job.get("country"), job.get("rating"),
+            job.get("reviews"), job.get("client_jobs"), job.get("hire_rate"),
+            job.get("avg_rate"), job.get("spent"), job.get("verified", 0),
+            "|".join(tags)))
+        db.executemany("INSERT INTO job_skills VALUES (?,?)",
+                       [(rid, s) for s in dict.fromkeys(job["skills"])])
+        db.executemany("INSERT INTO job_tags VALUES (?,?)", [(rid, t) for t in tags])
 
     flush()
     db.executemany("UPDATE jobs SET dup_count = dup_count + ? WHERE id=?",
@@ -575,5 +607,7 @@ def write_aggregates(db):
 
 if __name__ == "__main__":
     raw = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_RAW
-    print("processing", raw, flush=True)
+    if not os.path.exists(raw) and not glob.glob(os.path.join(PULLED_DIR, "*.jsonl")):
+        sys.exit("no raw input: %s missing and no pulled/*.jsonl increments" % raw)
+    print("processing", raw, "+ pulled increments", flush=True)
     run(raw)

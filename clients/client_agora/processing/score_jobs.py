@@ -42,7 +42,20 @@ BRIEF_PATH = os.path.join(HERE, "agora_job_fit_brief.md")
 MODEL = "gemini-2.5-flash-lite"
 PROJECT = os.environ.get("VERTEX_PROJECT") or "agora-data-driven"
 LOCATION = os.environ.get("VERTEX_LOCATION", "global")
+# Throughput is capped by per-endpoint dynamic shared quota, so fan out across
+# regions — each has its own capacity pool. Same per-token price everywhere.
+LOCATIONS = [l.strip() for l in os.environ.get(
+    "VERTEX_LOCATIONS",
+    "global,us-central1,us-east4,us-west1,europe-west1,europe-west4,asia-southeast1"
+).split(",") if l.strip()]
 PRICE_IN, PRICE_OUT = 0.10, 0.40  # USD per 1M tokens, sync tier (batch would be half)
+PRICE_CACHED = 0.025              # explicit-context-cache hits bill at ~25% of input
+CACHE_TTL_S = 14400               # 4h — outlives the full run; recreated on expiry
+
+
+def cost_usd(tin, tout, tcached):
+    """USD for one call. promptTokenCount INCLUDES the cached tokens, so split them out."""
+    return ((tin - tcached) * PRICE_IN + tcached * PRICE_CACHED + tout * PRICE_OUT) / 1e6
 
 RUBRIC = """
 You score Upwork job posts for fit with Agora Data Driven (the agency described above).
@@ -54,13 +67,19 @@ Score bands:
   ad creative/UGC/copywriting, email/lifecycle/CRM, SEO/organic, funnels/lead gen,
   analytics/dashboards/tracking, data engineering/BigQuery/pipelines, automation/AI
   systems, market research, web/landing-page design) with no red flags. Ongoing or
-  retainer-shaped work sits at the top of the band.
-- 75-89: Core-service ask with minor friction: tiny one-off task, vague scope, a
-  mandated no-code-only stack (Zapier/Make/n8n), or "individual freelancer preferred"
-  wording.
+  retainer-shaped work sits at the top of the band. This band INCLUDES jobs framed as
+  "assistant", "junior", "support", or "basic tools" whenever the actual TASKS are the
+  services above -- job framing and seniority level are irrelevant; only the tasks and
+  red flags matter. Agora being overqualified for simple work is never worth a single
+  point of deduction (the client is paying for it anyway).
+- 75-89: Core-service ask with one of EXACTLY these frictions and nothing else: tiny
+  one-off task, genuinely vague scope, a mandated no-code-only stack (Zapier/Make/n8n),
+  or explicit "individual freelancer only, no teams" wording. Nothing else belongs in
+  this band -- NOT seniority framing, NOT "too simple for Agora", NOT "support-oriented".
 - 50-74: Partial overlap: Agora could deliver it, but the core of the job is adjacent
-  to (not inside) its services -- e.g. a software build with a marketing component, VA
-  work with some marketing tasks, a Shopify store build focused on catalog setup.
+  to (not inside) its services -- e.g. a software build with a marketing component,
+  purely administrative VA work (scheduling, inbox, data entry) with only incidental
+  marketing tasks, a Shopify store build focused on catalog setup.
 - 25-49: Mostly outside services OR a significant red flag applies.
 - 0-24: No meaningful overlap (e.g. pure mobile/game development, hardware, blockchain
   protocol work, translation, legal/medical/accounting practice work).
@@ -76,6 +95,18 @@ Red flags (these, not narrowness, are what lower a score):
 Budget signals: a clearly unworkable budget for the scope (e.g. $3/hr for senior data
 engineering) is minor friction, not a disqualifier. Do not chase client history stats;
 they are context only.
+
+Calibration examples -- score consistently with these:
+- "Technical Administrative Assistant (Marketing & AI Focus)": digital marketing
+  initiatives, AI-driven tasks, content production, basic CMS/web tools, $10-30/hr
+  -> 88. The tasks ARE Agora services; the assistant framing and basic tooling cost
+  nothing. Scoring this 75 for "administrative assistant framing" would be WRONG.
+- "Media Buyer (Meta, Google, TikTok) for supplements brand, ongoing" -> 97.
+- "n8n automation workflow, must be built in n8n" -> 80. The mandated no-code-only
+  stack is real friction; the automation work itself is core.
+- "Bookings and Admin Assistant: scheduling, inbox, Zoho CRM data entry" -> 40. Here
+  the TASKS themselves are administrative, not Agora services.
+- "Hungarian lawyer to authenticate company documents" -> 0.
 
 Return ONLY JSON: {"score": <integer 0-100>, "reason": "<1-2 specific sentences naming
 which Agora service(s) the job maps to, or why it doesn't fit>"}
@@ -103,11 +134,93 @@ def get_token(force=False):
         return tok
 
 
-def vertex_url():
-    host = ("aiplatform.googleapis.com" if LOCATION == "global"
-            else "%s-aiplatform.googleapis.com" % LOCATION)
+def _host(loc):
+    return ("aiplatform.googleapis.com" if loc == "global"
+            else "%s-aiplatform.googleapis.com" % loc)
+
+
+def vertex_url(loc):
     return ("https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent"
-            % (host, PROJECT, LOCATION, MODEL))
+            % (_host(loc), PROJECT, loc, MODEL))
+
+
+# --- explicit context cache: the ~2k-token brief+rubric is identical on every
+# --- call, so cache it once and pay ~25% for that slice of every request.
+# --- Caches are REGIONAL — one per active location, created lazily.
+_cache = {}  # loc -> {"name": str, "failed": bool}
+_cache_lock = threading.Lock()
+
+
+def get_or_create_cache(system_prompt, session, loc):
+    """CachedContents resource name for `loc`, '' when unavailable right now.
+
+    NON-BLOCKING for the pool: exactly one thread creates a region's cache
+    while everyone else pays plain price for that single call; a failed create
+    cools down 120s and is retried (a ReadTimeout must not cost a region its
+    discount for the whole run)."""
+    c = _cache.get(loc)
+    if c and c["name"]:
+        return c["name"]  # lock-free happy path
+    with _cache_lock:
+        c = _cache.setdefault(loc, {"name": "", "busy": False, "retry_at": 0.0})
+        if c["name"]:
+            return c["name"]
+        if c["busy"] or time.time() < c["retry_at"]:
+            return ""  # someone else is creating / cooling down — plain this call
+        c["busy"] = True
+    url = "https://%s/v1/projects/%s/locations/%s/cachedContents" % (_host(loc), PROJECT, loc)
+    body = {
+        "model": "projects/%s/locations/%s/publishers/google/models/%s" % (PROJECT, loc, MODEL),
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "ttl": "%ds" % CACHE_TTL_S,
+        "displayName": "job-fit-scorer-%s" % loc,
+    }
+    name, why = "", ""
+    try:
+        r = session.post(url, json=body, timeout=90,
+                         headers={"Authorization": "Bearer " + get_token(),
+                                  "Content-Type": "application/json"})
+        if r.status_code < 400:
+            name = r.json().get("name", "")
+        else:
+            why = "HTTP %s" % r.status_code
+    except Exception as exc:
+        why = type(exc).__name__
+    with _cache_lock:
+        c["busy"] = False
+        if name:
+            c["name"] = name
+            print("context cache ON [%s]" % loc, flush=True)
+        else:
+            c["retry_at"] = time.time() + 120
+            print("cache create failed [%s] (%s) -> plain price there, retry in 2 min"
+                  % (loc, why), flush=True)
+    return name
+
+
+def invalidate_cache(loc):
+    with _cache_lock:
+        if loc in _cache:
+            _cache[loc]["name"] = ""  # next call recreates (e.g. TTL expiry mid-run)
+
+
+def probe_locations(session):
+    """Keep only locations that answer a tiny request (model availability varies)."""
+    good = []
+    for loc in LOCATIONS:
+        try:
+            r = session.post(vertex_url(loc), json={
+                "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
+                "generationConfig": {"maxOutputTokens": 1},
+            }, timeout=30, headers={"Authorization": "Bearer " + get_token(),
+                                    "Content-Type": "application/json"})
+            if r.status_code < 400 or r.status_code == 429:  # 429 = alive, just busy
+                good.append(loc)
+            else:
+                print("region %s dropped (HTTP %s)" % (loc, r.status_code), flush=True)
+        except Exception as exc:
+            print("region %s dropped (%s)" % (loc, type(exc).__name__), flush=True)
+    return good or ["global"]
 
 
 def job_text(row):
@@ -145,28 +258,43 @@ def job_text(row):
     ])
 
 
-def score_one(system_prompt, text, session):
-    payload = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"role": "user", "parts": [{"text": text}]}],
-        "generationConfig": {
-            "response_mime_type": "application/json",
-            "response_schema": {
-                "type": "OBJECT",
-                "properties": {
-                    "score": {"type": "INTEGER"},
-                    "reason": {"type": "STRING"},
-                },
-                "required": ["score", "reason"],
-            },
-            "maxOutputTokens": 256,
-            "thinkingConfig": {"thinkingBudget": 0},
+GEN_CONFIG = {
+    "response_mime_type": "application/json",
+    "response_schema": {
+        "type": "OBJECT",
+        "properties": {
+            "score": {"type": "INTEGER"},
+            "reason": {"type": "STRING"},
         },
-    }
+        "required": ["score", "reason"],
+    },
+    "maxOutputTokens": 256,
+    "thinkingConfig": {"thinkingBudget": 0},
+}
+
+
+ACTIVE = list(LOCATIONS)  # narrowed by probe_locations() at run start
+
+
+def score_one(system_prompt, text, session, hint=0):
+    """Returns (score, reason, in_tokens, out_tokens, cached_tokens).
+
+    `hint` spreads jobs across the active regions; a retry hops to the NEXT
+    region, so a 429 in one pool usually succeeds immediately in another."""
     last_err = ""
-    for attempt in range(5):
+    for attempt in range(9):
+        loc = ACTIVE[(hint + attempt) % len(ACTIVE)]
+        cache_name = get_or_create_cache(system_prompt, session, loc)
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": text}]}],
+            "generationConfig": GEN_CONFIG,
+        }
+        if cache_name:
+            payload["cachedContent"] = cache_name
+        else:
+            payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
         try:
-            r = session.post(vertex_url(), json=payload, timeout=90,
+            r = session.post(vertex_url(loc), json=payload, timeout=90,
                              headers={"Authorization": "Bearer " + get_token(),
                                       "Content-Type": "application/json"})
         except Exception as exc:
@@ -177,22 +305,31 @@ def score_one(system_prompt, text, session):
             get_token(force=True)
             continue
         if r.status_code in (429, 500, 503, 529):
-            last_err = "HTTP %s" % r.status_code
-            time.sleep(min(2 ** attempt * 2, 30))
+            # transient capacity pressure in THIS region; the next attempt hits a
+            # different region, so back off only briefly on early attempts
+            last_err = "HTTP %s (%s)" % (r.status_code, loc)
+            time.sleep(min(2 ** attempt, 30) * 0.5 + random.uniform(0, 2))
             continue
         if r.status_code >= 400:
-            raise RuntimeError("Vertex %s: %s" % (r.status_code, r.text[:300]))
+            # an expired/deleted cache surfaces as a 4xx naming CachedContent —
+            # drop it and let the next attempt recreate
+            if cache_name and ("achedContent" in r.text or r.status_code == 404):
+                invalidate_cache(loc)
+                last_err = "cache expired (%s)" % loc
+                continue
+            raise RuntimeError("Vertex %s [%s]: %s" % (r.status_code, loc, r.text[:300]))
         data = r.json()
         u = data.get("usageMetadata") or {}
         tin = int(u.get("promptTokenCount") or 0)
         tout = int(u.get("candidatesTokenCount") or 0) + int(u.get("thoughtsTokenCount") or 0)
+        tcached = int(u.get("cachedContentTokenCount") or 0)
         try:
             parts = data["candidates"][0]["content"]["parts"]
             raw = "".join(p.get("text", "") for p in parts).strip()
             obj = json.loads(raw)
             score = max(0, min(100, int(obj["score"])))
             reason = str(obj.get("reason", "")).strip()
-            return score, reason, tin, tout
+            return score, reason, tin, tout, tcached
         except Exception as exc:
             last_err = "parse: %s" % type(exc).__name__
             time.sleep(1)
@@ -213,26 +350,31 @@ JOB_COLS = ("url,date,title,category,budget_type,rate_min,rate_max,fixed_budget,
 
 
 def pick_jobs(limit, seed=42):
+    """Unscored jobs, NEWEST FIRST (the dates people actually browse fill in
+    first as the live dashboard refreshes mid-run). Sampling stays random."""
     jobs = sqlite3.connect(JOBS_DB)
     done = {u for (u,) in open_scores_db().execute("SELECT url FROM scores")}
-    urls = [u for (u,) in jobs.execute("SELECT url FROM jobs") if u not in done]
+    urls = [u for (u,) in jobs.execute("SELECT url FROM jobs ORDER BY date DESC") if u not in done]
     if limit and len(urls) > limit:
         rng = random.Random(seed)
         urls = rng.sample(urls, limit)
-    rows = []
+    by_url = {}
     for i in range(0, len(urls), 900):
         chunk = urls[i:i + 900]
         q = "SELECT %s FROM jobs WHERE url IN (%s)" % (JOB_COLS, ",".join("?" * len(chunk)))
-        rows.extend(jobs.execute(q, chunk).fetchall())
+        for row in jobs.execute(q, chunk):
+            by_url[row[0]] = row
     jobs.close()
-    return rows
+    return [by_url[u] for u in urls if u in by_url]
 
 
-def run(rows, workers):
+def run(rows, workers, budget=0.0):
+    """Score `rows`. `budget` (USD) > 0 = HARD cap: submission stops once the
+    running spend crosses it (checked between 2k-row chunks; resumable later)."""
     system_prompt = open(BRIEF_PATH, encoding="utf-8").read() + "\n\n" + RUBRIC
     db = open_scores_db()
     db_lock = threading.Lock()
-    tally = {"n": 0, "in": 0, "out": 0, "err": 0}
+    tally = {"n": 0, "in": 0, "out": 0, "cached": 0, "err": 0, "cost": 0.0}
     t0 = time.time()
     session_local = threading.local()
 
@@ -241,35 +383,53 @@ def run(rows, workers):
             session_local.s = requests.Session()
         return session_local.s
 
-    def work(row):
-        return row[0], score_one(system_prompt, job_text(row), sess())
+    global ACTIVE
+    ACTIVE = probe_locations(requests.Session())
+    print("active regions (%d): %s" % (len(ACTIVE), ", ".join(ACTIVE)), flush=True)
 
+    def work(row, hint):
+        return row[0], score_one(system_prompt, job_text(row), sess(), hint)
+
+    stopped = False
+    CHUNK = 2000
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(work, row) for row in rows]
-        for fut in as_completed(futures):
-            try:
-                url, (score, reason, tin, tout) = fut.result()
-            except Exception as exc:
-                tally["err"] += 1
-                print("  ERROR: %s" % str(exc)[:200], flush=True)
-                continue
-            with db_lock:
-                db.execute("INSERT OR REPLACE INTO scores VALUES (?,?,?,?,?,?,?)",
-                           (url, score, reason, MODEL,
-                            datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                            tin, tout))
-                tally["n"] += 1
-                tally["in"] += tin
-                tally["out"] += tout
-                if tally["n"] % 50 == 0:
-                    db.commit()
-                    print("  %d/%d scored, %.0fs elapsed" %
-                          (tally["n"], len(rows), time.time() - t0), flush=True)
+        for ci in range(0, len(rows), CHUNK):
+            if budget > 0 and tally["cost"] >= budget:
+                stopped = True
+                break
+            futures = [pool.submit(work, row, ci + i) for i, row in enumerate(rows[ci:ci + CHUNK])]
+            for fut in as_completed(futures):
+                try:
+                    url, (score, reason, tin, tout, tcached) = fut.result()
+                except Exception as exc:
+                    tally["err"] += 1
+                    print("  ERROR: %s" % str(exc)[:200], flush=True)
+                    continue
+                with db_lock:
+                    db.execute("INSERT OR REPLACE INTO scores VALUES (?,?,?,?,?,?,?)",
+                               (url, score, reason, MODEL,
+                                datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                tin, tout))
+                    tally["n"] += 1
+                    tally["in"] += tin
+                    tally["out"] += tout
+                    tally["cached"] += tcached
+                    tally["cost"] += cost_usd(tin, tout, tcached)
+                    if tally["n"] % 1000 == 0:
+                        db.commit()
+                        rate = tally["n"] / max(1.0, time.time() - t0)
+                        eta_min = (len(rows) - tally["n"]) / max(0.1, rate) / 60
+                        print("  %d/%d scored | $%.2f spent | %.1f/s | ~%.0f min left" %
+                              (tally["n"], len(rows), tally["cost"], rate, eta_min), flush=True)
+            db.commit()
     db.commit()
-    cost = tally["in"] / 1e6 * PRICE_IN + tally["out"] / 1e6 * PRICE_OUT
+    if stopped:
+        print("\n!! BUDGET CAP HIT: $%.2f >= $%.2f — stopped cleanly (re-run resumes)"
+              % (tally["cost"], budget), flush=True)
     print("\nDone: %d scored, %d failed, %.0fs" % (tally["n"], tally["err"], time.time() - t0))
-    print("Tokens: %s in / %s out -> $%.4f (sync tier)" %
-          ("{:,}".format(tally["in"]), "{:,}".format(tally["out"]), cost))
+    print("Tokens: %s in (%s cached) / %s out -> $%.2f" %
+          ("{:,}".format(tally["in"]), "{:,}".format(tally["cached"]),
+           "{:,}".format(tally["out"]), tally["cost"]))
 
 
 def report():
@@ -311,6 +471,8 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="seeded random sample of N unscored jobs")
     ap.add_argument("--all", action="store_true", help="every unscored job")
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--budget", type=float, default=0.0,
+                    help="hard USD cap for this run (0 = no cap); stops cleanly, resumable")
     ap.add_argument("--report", action="store_true")
     args = ap.parse_args()
 
@@ -324,18 +486,21 @@ def main():
         for row in rows:
             text = job_text(row)
             print("=" * 70)
-            print(text[:400].encode("ascii", "replace").decode())
-            score, reason, tin, tout = score_one(system_prompt, text, s)
-            print("--> SCORE %d | %s | %d in / %d out tokens"
-                  % (score, reason.encode("ascii", "replace").decode(), tin, tout))
+            print(text[:300].encode("ascii", "replace").decode())
+            score, reason, tin, tout, tcached = score_one(system_prompt, text, s)
+            print("--> SCORE %d | %s" % (score, reason.encode("ascii", "replace").decode()))
+            print("    %d in (%d cached) / %d out -> $%.6f"
+                  % (tin, tcached, tout, cost_usd(tin, tout, tcached)))
         return
     limit = 0 if args.all else (args.limit or 500)
     rows = pick_jobs(limit)
     if not rows:
         print("nothing to score")
         return
-    print("Scoring %d jobs with %s (%d workers)..." % (len(rows), MODEL, args.workers))
-    run(rows, args.workers)
+    print("Scoring %d jobs with %s (%d workers%s)..."
+          % (len(rows), MODEL, args.workers,
+             (", budget $%.2f" % args.budget) if args.budget else ""))
+    run(rows, args.workers, args.budget)
     report()
 
 

@@ -6,7 +6,9 @@ raw Telegram export): data/jobs.sqlite (+FTS) and data/aggregates.json.
 
 Data resolution order:
   1. local DATA_DIR (default ./data — dev, or baked into the image)
-  2. gs://$DATA_BUCKET/$DATA_PREFIX  -> downloaded once to /tmp at startup
+  2. gs://$DATA_BUCKET/$DATA_PREFIX  -> downloaded to /tmp at startup, then a
+     per-worker thread polls for newer objects every ~2 min and hot-swaps them
+     (so the refresh job just uploads — no service restart needed)
 
 Endpoints:
   GET /                 the dashboard (static, self-contained HTML)
@@ -25,6 +27,7 @@ import re
 import sqlite3
 import statistics
 import threading
+import time
 from flask import Flask, g, jsonify, request, send_from_directory
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -71,8 +74,60 @@ def data_dir():
         return _resolved_dir
 
 
+# --- live data refresh: the refresh job (cloud or laptop) re-uploads
+# --- jobs.sqlite / aggregates.json / job_scores.sqlite; this thread pulls any
+# --- newer object into the local data dir so per-request connections open
+# --- fresh data with NO restart/redeploy. First tick only baselines the
+# --- object stamps (startup already downloaded them); later ticks download
+# --- changes and atomically swap. Started lazily (per worker, post-fork).
+SCORES_REFRESH_S = int(os.environ.get("SCORES_REFRESH_S", "120"))
+_refresher_started = False
+_refresher_lock = threading.Lock()
+
+
+def _data_refresher():
+    from google.cloud import storage  # lazy: not needed for local dev
+    bucket = storage.Client().bucket(DATA_BUCKET)
+    names = ("jobs.sqlite", "aggregates.json", "job_scores.sqlite")
+    last = {}
+    baselined = False
+    while True:
+        try:
+            changed_main = False
+            for name in names:
+                blob = bucket.get_blob("%s/%s" % (DATA_PREFIX, name))
+                if blob is None or last.get(name) == blob.updated:
+                    continue
+                if baselined:
+                    dest = os.path.join(data_dir(), name)
+                    part = "%s.part.%d.%d" % (dest, os.getpid(), threading.get_ident())
+                    blob.download_to_filename(part)
+                    os.replace(part, dest)  # atomic: in-flight requests keep the old inode
+                    if name != "job_scores.sqlite":
+                        changed_main = True
+                    print("data refresh: swapped in newer %s" % name)
+                last[name] = blob.updated
+            if changed_main:
+                _stats_cache.clear()  # cached /api/stats payloads are now stale
+            baselined = True
+        except Exception as exc:
+            print("data refresh failed:", exc)
+        time.sleep(SCORES_REFRESH_S)
+
+
+def _ensure_refresher():
+    global _refresher_started
+    if _refresher_started or not DATA_BUCKET:
+        return
+    with _refresher_lock:
+        if not _refresher_started:
+            threading.Thread(target=_data_refresher, daemon=True).start()
+            _refresher_started = True
+
+
 def db():
     if "db" not in g:
+        _ensure_refresher()
         conn = sqlite3.connect(os.path.join(data_dir(), "jobs.sqlite"))
         conn.row_factory = sqlite3.Row
         # scores are a SEPARATE db (they survive jobs.sqlite rebuilds) — attach
@@ -201,13 +256,14 @@ def healthz():
 
 @app.get("/api/aggregates")
 def aggregates():
+    _ensure_refresher()  # workers that only serve the first paint still refresh
     with open(os.path.join(data_dir(), "aggregates.json"), encoding="utf-8") as fh:
         return app.response_class(fh.read(), mimetype="application/json")
 
 
 
 
-_stats_cache = {}  # normalized filter querystring -> response json (data is immutable per deploy)
+_stats_cache = {}  # normalized filter querystring -> response json (cleared by _data_refresher on new data)
 
 
 @app.get("/api/stats")

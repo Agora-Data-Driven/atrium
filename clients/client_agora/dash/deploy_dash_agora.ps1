@@ -87,9 +87,11 @@ if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
 # 5) deploy (manual, from this machine)
 Write-Host "-- deploying $SERVICE"
+# 4Gi: /tmp is tmpfs (in-memory) and a hot data refresh briefly holds the old
+# AND new jobs.sqlite (~0.7 GB each) plus the 1 GB sqlite mmap
 gcloud run deploy $SERVICE --image $IMAGE --project $PROJECT --region $REGION `
     --service-account $SA --no-invoker-iam-check `
-    --memory 2Gi --cpu 1 --concurrency 40 --timeout 60 `
+    --memory 4Gi --cpu 1 --concurrency 40 --timeout 60 `
     --min-instances 0 --max-instances 3 `
     --set-env-vars "DATA_BUCKET=$BUCKET,DATA_PREFIX=upwork"
 if ($LASTEXITCODE -ne 0) { throw "deploy failed" }
