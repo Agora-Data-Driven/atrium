@@ -151,7 +151,9 @@ auto-refresh (see those bullets below). Product name is one constant:
   object `workspace/assistant/<c>/index.json` (rebuilt lazily via `fingerprint` whenever data
   moves; no vector DB, no new deps), `ask` retrieves top chunks (optionally date-ranged — dated
   sources only) and answers with the intel brain's provider plumbing (`intel_ai._call`, the
-  client's configured model or the default; prompts for `{"answer": ...}` JSON, parsed leniently).
+  client's configured model or the default; prompts for `{"answer": ...}` JSON, parsed leniently —
+  `_parse_answer` also SALVAGES nearly-JSON (trailing junk, truncation, raw newlines) so the chat
+  never displays a raw JSON envelope; the UI renders answers as markdown via `mdToHtml`).
   The admin's **Detail control** (`assistant_ai.DEPTHS` quick|standard|deep, saved via
   `op=settings` → `ws["assistant"]["depth"]`, dropdown beside the model picker in both surfaces)
   shapes the pipeline: deep first has the model PLAN extra BM25 queries (`plan_queries`, so a

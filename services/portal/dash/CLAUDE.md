@@ -79,7 +79,12 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   (watcher transcripts, intel, campaigns/content, metrics, calendar, conversations, health, plus
   the opt-in client dashboard export — grant via `enable_assistant_dash_data.ps1`). Pure-Python
   BM25 index stored as `workspace/assistant/<c>/index.json` (lazy rebuild on `fingerprint` change);
-  answers via `intel_ai._call` (JSON-mode, parsed leniently) with cited sources.
+  answers via `intel_ai._call` (JSON-mode; `_parse_answer` parses leniently AND salvages
+  nearly-JSON — `strict=False`, `raw_decode` past trailing junk, then a hand-scan of the
+  `"answer"` string literal that survives stray characters, truncation at the token cap, and raw
+  newlines — so the UI is never handed a raw JSON envelope) with cited sources. Bot bubbles render
+  the model's markdown via `mdToHtml` in `atrium.html` (headings/bold/lists; HTML-escaped first,
+  esprima-safe).
   `POST /w/<c>/admin/assistant` (op ask|settings|reindex). Dev: `VERTEX_ACCESS_TOKEN` env runs
   Vertex off-cloud. Test: `python _assistant_localtest.py`. UI: the team-only floating bubble
   (`ax-asfab` FAB + `ax-aspanel` pop-up in `atrium.html`, inside `.atrium` so the vars/font
