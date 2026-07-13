@@ -886,7 +886,7 @@ def feedback():
 # service, bucket, SA, IAM, or domain. Client-facing routes live under /w/<c>/; team management
 # extends the operator console under /admin/atrium/.
 ATRIUM_TABS = {"overview", "dashboard", "leadgen", "organic", "calendar", "conversations",
-               "intel", "settings"}
+               "intel", "progress", "settings"}
 # Team-only tabs: rendered ONLY for admins/super-admins (is_superadmin), never shown to clients. The
 # Website Health tab monitors the client's live site + the marketing tags installed on it; the
 # Watcher tab archives every video transcript from watched YouTube channels; the Assistant tab is
@@ -1025,6 +1025,9 @@ def atrium(client, tab):
         admin_preview=admin_preview,
         admin_name=_admin_sender_name(user),
         profile_photo=(current_account() or {}).get("photo", ""),
+        # Progress tab: the client-safe task columns (server-side filtered -- internal fields and
+        # client_facing:false tasks never reach this render; see _progress_tasks).
+        progress_cols=_progress_tasks(ws),
         favicon=brand.FAVICON_DATA_URI,
     )
 
@@ -1170,6 +1173,81 @@ def atrium_comment(client):
     _audit(client, "requested changes" if kind == "changes" else "commented",
            item.get("ref") or content_id)
     return jsonify(ok=True, comment=comment, status=item.get("status"))
+
+
+def _progress_tasks(ws):
+    """The CLIENT-SAFE shape of a workspace's tasks for the Progress tab, grouped by stage.
+
+    This is the server-side filter the spec demands (§6/§7): only client_facing tasks are included,
+    and only their client-safe fields are shaped for the template -- lead/support/sub-task owners,
+    priority, internal_notes, and the account manager NEVER reach the client's HTML."""
+    today = datetime.date.today().isoformat()
+    soon = (datetime.date.today() + datetime.timedelta(days=2)).isoformat()
+    cols = [{"key": k, "name": lbl, "tasks": []} for k, lbl in TASK_CLIENT_STAGES]
+    by_key = {c["key"]: c for c in cols}
+    for t in (ws or {}).get("tasks") or []:
+        if not t.get("client_facing"):
+            continue
+        stage = t.get("stage") or "in_process"
+        subs = [{"text": s.get("text", ""), "done": bool(s.get("done"))}
+                for s in t.get("subtasks") or []]
+        done = len([s for s in subs if s["done"]])
+        comments = [{"id": c.get("id", ""), "sender": c.get("sender", ""),
+                     "sender_name": c.get("sender_name", ""), "body": c.get("body", ""),
+                     "kind": c.get("kind", "comment"), "resolved": bool(c.get("resolved")),
+                     "created_at": c.get("created_at", "")}
+                    for c in t.get("comments") or []]
+        due = t.get("due_date") or ""
+        view = {
+            "id": t.get("id", ""), "title": t.get("title", ""),
+            "stage": stage,
+            "campaign": t.get("campaign", ""), "content_type": t.get("content_type", ""),
+            "due_date": due,
+            "due_soon": bool(due and today <= due <= soon and stage != "closed"),
+            "client_note": t.get("client_note", ""),
+            "deliverable_url": t.get("deliverable_url", ""),
+            "subtasks": subs, "subs_done": done, "subs_total": len(subs),
+            "pct": (int(round(100.0 * done / len(subs))) if subs else 0),
+            "open_changes": len(workspace.task_open_changes(t)),
+            "comments": comments, "comment_count": len(comments),
+            "in_review": stage == "for_launch",
+        }
+        (by_key.get(stage) or cols[0])["tasks"].append(view)
+    return cols
+
+
+@app.route("/w/<client>/task-comment", methods=["POST"])
+def atrium_task_comment(client):
+    """Client comment / request-changes on a client-facing task -- the Progress tab's ONE write.
+
+    Mirrors /w/<c>/comment on content: kind "changes" raises a change request (a flagged bubble the
+    team must resolve); anything else is a plain comment. A task the team kept internal
+    (client_facing false) is invisible here -- commenting on it 404s just like a missing one."""
+    gate = _atrium_json_gate(client)
+    if gate:
+        return gate
+    task_id = request.form.get("task_id", "").strip()
+    body = request.form.get("body", "").strip()
+    if not body:
+        return Response('{"error":"empty"}', status=400, mimetype="application/json")
+    kind = "changes" if request.form.get("kind", "").strip() == "changes" else "comment"
+    ws = workspace.load_workspace(client)
+    existing = workspace._find_task(ws or {}, task_id)
+    if existing is None or (not existing.get("client_facing") and not is_superadmin()):
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    try:
+        task, comment = workspace.add_task_comment(
+            client, task_id, "client", _client_sender_name(current_user()), body, kind=kind)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    if kind == "changes":
+        notify.client_task_changes(client, task, current_user())
+    else:
+        notify.client_task_commented(client, task, body, current_user())
+    _audit(client, "requested task changes" if kind == "changes" else "commented on task",
+           task.get("title") or task_id)
+    return jsonify(ok=True, comment=comment,
+                   open_changes=len(workspace.task_open_changes(task)))
 
 
 @app.route("/w/<client>/resolve-comment", methods=["POST"])
@@ -2630,6 +2708,324 @@ def atrium_admin_reply_inline(client):
     return jsonify(ok=True, message=message, status=conv.get("status"))
 
 
+# --- Task tracker: the internal delivery board (spec: TASK_TRACKER_INTEGRATION.md) ---------------
+# Cross-client team board in the operator console (Delivery -> Task Board) + the client-facing
+# read-only Progress tab in each workspace. One data source: ws["tasks"] per client (workspace.py).
+# Departments come from the accounts roster; stage KEYS are canonical (workspace.TASK_STAGES) and
+# the client sees friendlier labels (In progress / In review / Live / Completed) on their tab.
+TASK_DEPARTMENTS = (("acquisition", "Acquisition"), ("lifecycle", "Lifecycle"),
+                    ("data", "Data Analyst"), ("development", "Development"),
+                    ("bidbrain", "Bidbrain"))
+TASK_LABELS = ("Paid Media", "Organic", "Creative", "Strategy", "Reporting", "Website")
+TASK_STAGE_META = (("in_process", "In Process"), ("for_launch", "For Launch"),
+                   ("launched", "Launched"), ("closed", "Closed"))
+TASK_STAGE_LABELS = dict(TASK_STAGE_META)
+# The client-facing relabels (spec §3.1) -- keys never change, labels are friendlier.
+TASK_CLIENT_STAGES = (("in_process", "In progress"), ("for_launch", "In review"),
+                      ("launched", "Live"), ("closed", "Completed"))
+
+
+def _team_roster():
+    """The assignable team: ACTIVE admin/superadmin accounts as [{id: email, name}] (spec §3.3).
+
+    Lead / support / sub-task owners reference these ids (emails). Sorted by name so every
+    dropdown renders in a stable, human order."""
+    out = []
+    for a in store.list_accounts():
+        if a.get("status") == "active" and a.get("role") in ("admin", "superadmin"):
+            email = a.get("email") or ""
+            name = a.get("name") or (email.split("@")[0].split(".")[0].title() if email else "?")
+            out.append({"id": email, "name": name})
+    out.sort(key=lambda p: p["name"].lower())
+    return out
+
+
+def _person_name(names, pid):
+    """A person's display name from the roster map, degrading to the email's local part."""
+    if not pid:
+        return ""
+    return names.get(pid) or pid.split("@")[0].split(".")[0].title()
+
+
+def _task_next_stage(stage):
+    """The (key, label) after `stage` on the board, or (None, None) at the end."""
+    keys = [k for k, _l in TASK_STAGE_META]
+    try:
+        i = keys.index(stage)
+    except ValueError:
+        return None, None
+    if i >= len(keys) - 1:
+        return None, None
+    return TASK_STAGE_META[i + 1]
+
+
+def _task_board(clients_tasks, roster):
+    """Shape every client's tasks into the console's stage columns (render-ready dicts).
+
+    `clients_tasks` is [(client_key, client_name, task_dict), ...] from the admin_atrium walk --
+    the workspaces are already loaded there, so this adds NO extra bucket reads."""
+    names = {p["id"]: p["name"] for p in roster}
+    today = datetime.date.today()
+    today_iso = today.isoformat()
+    soon_iso = (today + datetime.timedelta(days=2)).isoformat()
+    dept_label = dict(TASK_DEPARTMENTS)
+    cols = [{"key": k, "name": lbl, "tasks": []} for k, lbl in TASK_STAGE_META]
+    by_key = {c["key"]: c for c in cols}
+    for ckey, cname, t in clients_tasks:
+        subs = [dict(s, owner_name=_person_name(names, s.get("assignee_id") or ""))
+                for s in (t.get("subtasks") or [])]
+        done = len([s for s in subs if s.get("done")])
+        due = t.get("due_date") or ""
+        due_cls = ""
+        if due and t.get("stage") != "closed":
+            due_cls = "over" if due < today_iso else ("soon" if due <= soon_iso else "")
+        lead = t.get("lead_id") or ""
+        support = [s for s in (t.get("support_ids") or []) if s]
+        nxt_key, nxt_label = _task_next_stage(t.get("stage") or "in_process")
+        view = dict(t)
+        view.update({
+            "client_key": ckey, "client_name": cname,
+            "subtasks": subs,
+            "department_label": dept_label.get(t.get("department", ""), t.get("department", "") or "—"),
+            "lead_name": _person_name(names, lead),
+            "support_people": [{"id": s, "name": _person_name(names, s)} for s in support],
+            "subs_done": done, "subs_total": len(subs),
+            "subs_unassigned": len([s for s in subs if not s.get("done") and not s.get("assignee_id")]),
+            "open_changes": len(workspace.task_open_changes(t)),
+            "due_cls": due_cls,
+            # For the person filter: one space-joined haystack of everyone on the task.
+            "people": " ".join([lead] + support).strip(),
+            "comment_count": len(t.get("comments") or []),
+            "all_subs_done": bool(subs) and done == len(subs),
+            "next_stage_key": nxt_key or "", "next_stage_label": nxt_label or "",
+        })
+        col = by_key.get(t.get("stage") or "in_process") or cols[0]
+        col["tasks"].append(view)
+    for col in cols:
+        col["tasks"].sort(key=lambda v: (v.get("due_date") or "9999-99-99", v.get("created_at") or ""))
+    return cols
+
+
+def _task_reply(msg, err=False, **extra):
+    """Answer a task-route POST: console forms redirect back to the Tasks pane with a flash;
+    anything else (fetch/API) gets JSON. Keeps the console on plain <form> posts (no JS state)."""
+    if request.form.get("redirect") == "console":
+        return _atrium_redirect_list(msg, section="tasks", err=err)
+    if err:
+        return jsonify(ok=False, error=msg)
+    return jsonify(ok=True, **extra)
+
+
+def _task_fields_from_form():
+    """The editable task fields from the posted form (shared by op=add and op=edit)."""
+    return {
+        "title": request.form.get("title", "").strip(),
+        "department": request.form.get("department", "").strip(),
+        "lead_id": request.form.get("lead_id", "").strip(),
+        "support_ids": [s for s in request.form.getlist("support_ids") if s],
+        "priority": request.form.get("priority", "Medium"),
+        "labels": [l for l in request.form.getlist("labels") if l],
+        "campaign": request.form.get("campaign", "").strip(),
+        "content_type": request.form.get("content_type", "").strip(),
+        "due_date": request.form.get("due_date", "").strip(),
+        "client_facing": _bool_field("client_facing"),
+        "client_note": request.form.get("client_note", "").strip(),
+        "deliverable_url": request.form.get("deliverable_url", "").strip(),
+        "internal_notes": request.form.get("internal_notes", "").strip(),
+    }
+
+
+@app.route("/w/<client>/admin/task", methods=["POST"])
+def atrium_admin_task(client):
+    """Create or edit a task on a client's board (op=add|edit; TEAM only)."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    op = request.form.get("op", "add").strip()
+    fields = _task_fields_from_form()
+    actor = current_user() or ""
+    if op == "edit":
+        task_id = request.form.get("task_id", "").strip()
+        try:
+            task = workspace.update_task(client, task_id, fields, actor=actor)
+        except KeyError:
+            return _task_reply("That task no longer exists.", err=True)
+        _audit(client, "edited task", task.get("title", ""))
+        return _task_reply("Task updated.", task_id=task["id"])
+    if not fields["title"]:
+        return _task_reply("A task needs a title.", err=True)
+    stage = request.form.get("stage", "in_process").strip()
+    fields["stage"] = stage if stage in workspace.TASK_STAGES else "in_process"
+    try:
+        task = workspace.add_task(client, fields, actor=actor)
+    except KeyError:
+        return _task_reply("No workspace exists for that client yet.", err=True)
+    _audit(client, "added task", task["title"])
+    return _task_reply("Task added.", task_id=task["id"])
+
+
+@app.route("/w/<client>/admin/task/move", methods=["POST"])
+def atrium_admin_task_move(client):
+    """Move a task to another stage (TEAM only; the close-guard message passes through verbatim)."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    task_id = request.form.get("task_id", "").strip()
+    stage = request.form.get("stage", "").strip()
+    try:
+        task = workspace.move_task_stage(client, task_id, stage, actor=current_user() or "")
+    except KeyError:
+        return _task_reply("That task (or stage) no longer exists.", err=True)
+    except ValueError as exc:
+        return _task_reply(str(exc), err=True)
+    label = TASK_STAGE_LABELS.get(stage, stage)
+    _audit(client, "moved task to %s" % label, task.get("title", ""))
+    return _task_reply("Moved to %s." % label, stage=task["stage"])
+
+
+@app.route("/w/<client>/admin/task/delete", methods=["POST"])
+def atrium_admin_task_delete(client):
+    """Soft-delete a task -> the console Bin (restorable for 30 days; TEAM only)."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    task_id = request.form.get("task_id", "").strip()
+    try:
+        removed = workspace.delete_task(client, task_id)
+    except KeyError:
+        return _task_reply("That task no longer exists.", err=True)
+    _trash(client, "task", removed.get("title") or task_id, removed)
+    _audit(client, "deleted task", removed.get("title", ""))
+    return _task_reply("Task moved to the Bin (restorable for %d days)." % audit.TRASH_TTL_DAYS)
+
+
+@app.route("/w/<client>/admin/task/subtask", methods=["POST"])
+def atrium_admin_task_subtask(client):
+    """Sub-task ops on a task (op=add|toggle|assign|delete; TEAM only)."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    op = request.form.get("op", "").strip()
+    task_id = request.form.get("task_id", "").strip()
+    subtask_id = request.form.get("subtask_id", "").strip()
+    try:
+        if op == "add":
+            text = request.form.get("text", "").strip()
+            if not text:
+                return _task_reply("A sub-task needs a description.", err=True)
+            workspace.add_subtask(client, task_id, text,
+                                  request.form.get("assignee_id", "").strip())
+            msg = "Sub-task added."
+        elif op == "toggle":
+            workspace.set_subtask_done(client, task_id, subtask_id, _bool_field("done"))
+            msg = "Sub-task updated."
+        elif op == "assign":
+            workspace.set_subtask_owner(client, task_id, subtask_id,
+                                        request.form.get("assignee_id", "").strip())
+            msg = "Sub-task owner updated."
+        elif op == "delete":
+            workspace.delete_subtask(client, task_id, subtask_id)
+            msg = "Sub-task removed."
+        else:
+            return _task_reply("Unknown sub-task action.", err=True)
+    except KeyError:
+        return _task_reply("That task or sub-task no longer exists.", err=True)
+    return _task_reply(msg)
+
+
+@app.route("/w/<client>/admin/task/comment", methods=["POST"])
+def atrium_admin_task_comment(client):
+    """Team comment on a task, or resolve a client change request (op=add|resolve; TEAM only)."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    op = request.form.get("op", "add").strip()
+    task_id = request.form.get("task_id", "").strip()
+    if op == "resolve":
+        comment_id = request.form.get("comment_id", "").strip()
+        try:
+            task, _comment, open_left = workspace.resolve_task_comment(client, task_id, comment_id)
+        except KeyError:
+            return _task_reply("That task or comment no longer exists.", err=True)
+        if task.get("client_facing"):
+            notify.team_task_resolved(client, workspace.load_workspace(client), task)
+        _audit(client, "resolved task change request", task.get("title", ""))
+        return _task_reply("Change request resolved.", open_changes=open_left)
+    body = request.form.get("body", "").strip()
+    if not body:
+        return _task_reply("Write a comment first.", err=True)
+    sender_name = _admin_sender_name(current_user())
+    try:
+        task, comment = workspace.add_task_comment(client, task_id, "agora", sender_name, body)
+    except KeyError:
+        return _task_reply("That task no longer exists.", err=True)
+    # A comment on a client-facing task reaches the client's Progress tab -> notify opted-in users.
+    if task.get("client_facing"):
+        notify.team_task_commented(client, workspace.load_workspace(client), task, body, sender_name)
+    _audit(client, "commented on task", task.get("title", ""))
+    return _task_reply("Comment posted.", comment=comment)
+
+
+@app.route("/admin/atrium/tasks/export", methods=["GET"])
+def admin_atrium_tasks_export():
+    """Download the WHOLE Task Board (every client's tasks) as one JSON backup (super-admin only).
+
+    Read-only: gathers `ws["tasks"]` from each client's workspace. Pairs with the Import route below
+    (a restore); it's the server-side equivalent of the prototype's Export button."""
+    if not authed():
+        return redirect(url_for("login", next="/admin/atrium"))
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    payload = {"version": 1, "exported_at": workspace.now_iso(), "clients": {}}
+    for c in store.list_clients():
+        key = c.get("key")
+        if key == "template":
+            continue
+        ws = workspace.load_workspace(key)
+        tasks = (ws or {}).get("tasks") or []
+        if tasks:
+            payload["clients"][key] = {"name": c.get("name") or key, "tasks": tasks}
+    body = json.dumps(payload, indent=2)
+    fname = "agora-task-board-%s.json" % datetime.date.today().isoformat()
+    return Response(body, mimetype="application/json",
+                    headers={"Content-Disposition": "attachment; filename=%s" % fname})
+
+
+@app.route("/admin/atrium/tasks/import", methods=["POST"])
+def admin_atrium_tasks_import():
+    """Restore tasks from an exported JSON backup (super-admin only). Non-destructive: upserts BY ID
+    into each client that still exists (existing tasks updated, new ones added; nothing deleted)."""
+    if not authed():
+        return redirect(url_for("login", next="/admin/atrium"))
+    if not is_superadmin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return _atrium_redirect_list("Choose a JSON backup to import.", section="tasks", err=True)
+    try:
+        data = json.loads(upload.read().decode("utf-8"))
+        clients = (data or {}).get("clients") or {}
+        if not isinstance(clients, dict):
+            raise ValueError("bad shape")
+    except (ValueError, UnicodeDecodeError):
+        return _atrium_redirect_list("That file isn't a valid task-board backup.", section="tasks", err=True)
+    known = {c.get("key") for c in store.list_clients()}
+    added = updated = skipped = 0
+    for key, block in clients.items():
+        if key not in known or workspace.load_workspace(key) is None:
+            skipped += 1
+            continue
+        tasks = (block or {}).get("tasks") if isinstance(block, dict) else block
+        a, u = workspace.upsert_tasks(key, tasks or [])
+        added += a
+        updated += u
+    _audit("", "imported task board", "added %d, updated %d" % (added, updated))
+    note = "Imported: %d added, %d updated." % (added, updated)
+    if skipped:
+        note += " %d client(s) in the file no longer exist — skipped." % skipped
+    return _atrium_redirect_list(note, section="tasks")
+
+
 # --- Atrium team management (super-admin operator console) --------------------------------------
 # The console is the LANDING PAGE only: a card grid to open / add / delete clients. There is no
 # per-client management page anymore -- the team edits each workspace IN PLACE via /w/<c>/admin/*
@@ -2672,6 +3068,7 @@ def admin_atrium():
         return Response("Forbidden", status=403, mimetype="text/plain")
     clients = []
     name_by_key = {}
+    board_tasks = []   # (client_key, client_name, task) for the Delivery -> Task Board pane
     for c in store.list_clients():
         key, name = c.get("key"), c.get("name")
         name_by_key[key] = name or key
@@ -2689,10 +3086,15 @@ def admin_atrium():
             for piece in camp.get("content", []) or []:
                 if piece.get("status") == "awaiting":
                     awaiting += 1
+        # Task Board: same already-loaded workspace, so collecting its tasks is another free walk.
+        for t in (ws or {}).get("tasks") or []:
+            board_tasks.append((key, name or key, t))
         clients.append({"key": key, "name": name,
                         "has_workspace": ws is not None, "logo": logo, "awaiting": awaiting})
     # Clients needing attention come first; the sort is stable so ties keep their registry order.
     clients.sort(key=lambda c: -c["awaiting"])
+    task_roster = _team_roster()
+    task_cols = _task_board(board_tasks, task_roster)
 
     all_accounts = store.list_accounts()
     pending = [a for a in all_accounts if a.get("status") == "pending"]
@@ -2739,6 +3141,12 @@ def admin_atrium():
         user=current_user(), workspace_name=WORKSPACE_NAME,
         skill_mastery_url=SKILL_MASTERY_URL, website_editor_url=WEBSITE_EDITOR_URL,
         sentinel_url=SENTINEL_URL,
+        # Delivery -> Task Board: stage columns of every client's tasks + the pickers' vocabularies.
+        task_cols=task_cols, task_roster=task_roster,
+        task_departments=TASK_DEPARTMENTS, task_labels=TASK_LABELS,
+        # Nav badge = every task on the board (matches the prototype's total count).
+        task_open_total=sum(len(col["tasks"]) for col in task_cols),
+        task_trash_count=len([t for t in trash if t.get("kind") == "task"]),
         msg=request.args.get("msg"), flash_err=(request.args.get("err") == "1"), **_brand_ctx())
 
 
@@ -3211,6 +3619,8 @@ def admin_atrium_restore():
             workspace.insert_campaign(client, payload)
         elif kind == "calendar":
             workspace.insert_calendar_event(client, payload)
+        elif kind == "task":
+            workspace.insert_task(client, payload)
         elif kind == "client":
             store.restore_client(payload)
             if extra.get("workspace") is not None:

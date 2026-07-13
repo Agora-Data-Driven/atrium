@@ -128,6 +128,27 @@ def client_commented(client, item, body, user=None):
     _send_email(team_address(), "New Atrium comment on %s" % ref, body or "")
 
 
+def client_task_commented(client, task, body, user=None):
+    """A client commented on a Progress-tab task. Notify the AGORA team."""
+    title = task.get("title") or task.get("id") or "a task"
+    _record(client, "message", "You commented on %s." % title)
+    _log("client task comment on %s (by %s)" % (title, user or "client"))
+    _send_email(team_address(), "New Atrium task comment: %s" % title, body or "")
+
+
+def client_task_changes(client, task, user=None):
+    """A client raised a change request on a Progress-tab task. Notify the AGORA team.
+
+    Honours the actor's `changes` notification toggle, exactly like content change requests."""
+    title = task.get("title") or task.get("id") or "a task"
+    if not _changes_notify_on(client, user):
+        _log("task change request on %s suppressed by %s's notify prefs" % (title, user or "client"))
+        return
+    _record(client, "message", "You requested changes on %s." % title)
+    _log("client task change request on %s (by %s)" % (title, user or "client"))
+    _send_email(team_address(), "%s requested changes on task: %s" % (client, title), "")
+
+
 # --- visitor -> team ----------------------------------------------------------------------------
 def signup_requested(company, email):
     """A visitor requested an account via self-service sign-up. Notify the AGORA team.
@@ -171,6 +192,26 @@ def team_commented(client, ws, item, body, sender_name="AGORA"):
     for email, prefs in _eligible_recipients(ws, "content"):
         if prefs.get("frequency") == "instant":
             _send_email(email, "AGORA commented on %s" % ref, body or "")
+
+
+def team_task_commented(client, ws, task, body, sender_name="AGORA"):
+    """The team commented on a client-facing task. Record activity; email opted-in recipients."""
+    title = task.get("title") or task.get("id") or "a task"
+    _record(client, "message", "%s commented on %s." % (sender_name, title))
+    _log("team task comment on %s for %s" % (title, client))
+    for email, prefs in _eligible_recipients(ws, "content"):
+        if prefs.get("frequency") == "instant":
+            _send_email(email, "AGORA commented on %s" % title, body or "")
+
+
+def team_task_resolved(client, ws, task):
+    """The team resolved a client's task change request. Record activity; email opted-in users."""
+    title = task.get("title") or task.get("id") or "a task"
+    _record(client, "check", "Your change request on %s was addressed." % title)
+    _log("task change request resolved on %s for %s" % (title, client))
+    for email, prefs in _eligible_recipients(ws, "changes"):
+        if prefs.get("frequency") == "instant":
+            _send_email(email, "Change request addressed: %s" % title, "")
 
 
 def team_replied(client, ws, conversation, sender_name="AGORA"):

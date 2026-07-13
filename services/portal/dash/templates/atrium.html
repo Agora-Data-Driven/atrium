@@ -44,6 +44,7 @@
 {%- elif name == 'gear' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
 {%- elif name == 'campaigns' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l17-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
 {%- elif name == 'insights' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 21.5h4"/><path d="M12 2.5a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3a7 7 0 0 0-4-12.7z"/></svg>
+{%- elif name == 'progress' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>
 {%- else -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/></svg>
 {%- endif -%}
 {%- endmacro %}
@@ -111,7 +112,7 @@
 {%- set _sel = (current.split(' · ') if current else []) -%}
 {%- for x in _sel %}{%- if x %}<span class="ax-platone">{{ plat_ic(x) }}<span>{{ x }}</span></span>{%- endif %}{%- endfor %}
 {%- endmacro %}
-{% set tab_titles = {'overview':'Overview','dashboard':'Dashboard','leadgen':'Paid Media','organic':'Organic Content','calendar':'Content Calendar','conversations':'Communications','intel':'Market Intelligence','settings':'Notification settings','website-health':'Website Health','watcher':'Watcher','assistant':'Assistant'} %}
+{% set tab_titles = {'overview':'Overview','dashboard':'Dashboard','leadgen':'Paid Media','organic':'Organic Content','calendar':'Content Calendar','conversations':'Communications','intel':'Market Intelligence','progress':'Progress','settings':'Notification settings','website-health':'Website Health','watcher':'Watcher','assistant':'Assistant'} %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -1472,6 +1473,96 @@
     .ax-ascost-row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; color: var(--ax-charcoal); }
     .ax-ascost-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 700; }
     .ax-ascost-row.is-total { font-weight: 800; color: var(--ax-ink); }
+    /* ---- Progress tab: the client-facing read-only delivery board (TASK_TRACKER_INTEGRATION.md).
+       Client stage labels: In progress / In review / Live / Completed. Read-only except the comment
+       composer (comment / request changes), which reuses the .ax-com bubble styles above. ---- */
+    .ax-pg-ro { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: var(--ax-green-d);
+      background: var(--ax-green-bg); border-radius: var(--ax-pill); padding: 5px 12px; margin: 0 0 18px; }
+    .ax-pg-ro .ax-ic { width: 14px; height: 14px; }
+    .ax-pg-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 0 0 20px; }
+    .ax-pg-tile { background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: var(--ax-radius); padding: 14px 16px; box-shadow: var(--ax-shadow); }
+    .ax-pg-tile .n { font-size: 25px; font-weight: 900; color: var(--ax-ink); line-height: 1; }
+    .ax-pg-tile .l { font-size: 12px; font-weight: 700; color: var(--ax-sub); margin-top: 6px; display: flex; align-items: center; gap: 7px; }
+    .ax-pg-tile .l .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+    .ax-pg-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; align-items: start; }
+    .ax-pg-colhead { display: flex; align-items: center; gap: 8px; padding: 2px 4px 10px; }
+    .ax-pg-colhead .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+    .ax-pg-colhead .t { font-size: 11.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ax-ink); }
+    .ax-pg-colhead .c { margin-left: auto; font-size: 11px; font-weight: 800; color: var(--ax-sub); background: var(--ax-white);
+      border: 1px solid var(--ax-line); border-radius: var(--ax-pill); padding: 1px 8px; }
+    .ax-pg-collist { display: flex; flex-direction: column; gap: 10px; }
+    .ax-pg-colempty { border: 1px dashed var(--ax-line); border-radius: var(--ax-radius); color: var(--ax-sub); font-size: 12px; padding: 14px 8px; text-align: center; }
+    .ax-pg-card { background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: var(--ax-radius); padding: 14px;
+      box-shadow: var(--ax-shadow); cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit;
+      transition: transform .18s ease, box-shadow .18s, border-color .18s; }
+    .ax-pg-card:hover { transform: translateY(-3px); box-shadow: var(--ax-shadow-lg); border-color: #d4d6df; }
+    .ax-pg-chip { display: inline-flex; align-items: center; font-size: 10px; font-weight: 800; border-radius: var(--ax-pill);
+      padding: 2px 9px; letter-spacing: .03em; text-transform: uppercase; background: var(--ax-violet-bg); color: var(--ax-violet-d); }
+    .ax-pg-title { font-weight: 800; font-size: 14px; color: var(--ax-ink); line-height: 1.4; margin: 8px 0 0; }
+    .ax-pg-type { font-size: 12px; color: var(--ax-sub); margin-top: 3px; }
+    .ax-pg-prog { margin-top: 11px; }
+    .ax-pg-prog .bar { height: 6px; border-radius: var(--ax-pill); background: var(--ax-line); overflow: hidden; }
+    .ax-pg-prog .bar i { display: block; height: 100%; background: var(--ax-grad-green); border-radius: var(--ax-pill); }
+    .ax-pg-prog .meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--ax-sub); margin-top: 5px; font-weight: 600; }
+    .ax-pg-foot { display: flex; align-items: center; gap: 7px; margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--ax-line); flex-wrap: wrap; }
+    .ax-pg-target { font-size: 11.5px; font-weight: 700; color: var(--ax-charcoal); }
+    .ax-pg-target.soon { color: #B4610A; }
+    .ax-pg-tag { font-size: 10px; font-weight: 800; border-radius: var(--ax-pill); padding: 2px 9px; text-transform: uppercase; letter-spacing: .03em; }
+    .ax-pg-tag.review { color: var(--ax-violet-d); background: var(--ax-violet-bg); }
+    .ax-pg-tag.changes { color: var(--ax-bad); background: #FDECEC; }
+    .ax-pg-tag.cmt { color: var(--ax-sub); background: var(--ax-canvas); border: 1px solid var(--ax-line); text-transform: none; letter-spacing: 0; }
+    /* Stage tones keyed by the CANONICAL stage keys (labels stay client-friendly). */
+    .ax-pg-stage { font-size: 10px; font-weight: 800; border-radius: var(--ax-pill); padding: 3px 10px; letter-spacing: .03em; text-transform: uppercase; }
+    .ax-pg-stage.in_process { background: var(--ax-violet-bg); color: var(--ax-violet-d); }
+    .ax-pg-stage.for_launch { background: #FDF0E1; color: #B4610A; }
+    .ax-pg-stage.launched { background: var(--ax-green-bg); color: var(--ax-green-d); }
+    .ax-pg-stage.closed { background: #EEF0F3; color: #5B6472; }
+    /* Detail overlay (read-only + the comment thread). */
+    .ax-pg-veil { position: fixed; inset: 0; background: rgba(12,16,34,.45); z-index: 120; display: flex; align-items: flex-start;
+      justify-content: center; padding: 40px 20px; overflow-y: auto; }
+    .ax-pg-veil[hidden] { display: none; }
+    .ax-pg-modal { width: 100%; max-width: 580px; background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: 12px;
+      box-shadow: var(--ax-shadow-lg); }
+    .ax-pg-mhead { display: flex; align-items: flex-start; gap: 12px; padding: 20px 22px 15px; border-bottom: 1px solid var(--ax-line); }
+    .ax-pg-meyebrow { font-size: 10.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--ax-sub);
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .ax-pg-mtitle { font-size: 19px; font-weight: 900; color: var(--ax-ink); margin: 5px 0 0; line-height: 1.3; }
+    .ax-pg-mx { margin-left: auto; border: 0; background: transparent; color: var(--ax-sub); font-size: 22px; line-height: 1;
+      padding: 2px 8px; border-radius: 8px; cursor: pointer; }
+    .ax-pg-mx:hover { color: var(--ax-ink); background: var(--ax-canvas); }
+    .ax-pg-mbody { padding: 18px 22px 22px; }
+    .ax-pg-kv { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; margin: 0 0 4px; }
+    .ax-pg-kv .k { font-size: 10.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--ax-sub); }
+    .ax-pg-kv .v { font-size: 13.5px; color: var(--ax-ink); font-weight: 700; margin-top: 2px; }
+    .ax-pg-sl { font-size: 11px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: var(--ax-sub); margin: 16px 0 8px; }
+    .ax-pg-note { background: var(--ax-green-bg); border: 1px solid #cdeccf; border-radius: 10px; padding: 11px 13px; font-size: 13.5px;
+      color: var(--ax-green-d); line-height: 1.5; }
+    .ax-pg-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .ax-pg-steps li { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--ax-charcoal); }
+    .ax-pg-steps li.done span { color: var(--ax-sub); }
+    .ax-pg-stepic { width: 18px; height: 18px; flex: 0 0 auto; border-radius: 50%; border: 1.5px solid var(--ax-line);
+      display: flex; align-items: center; justify-content: center; }
+    .ax-pg-stepic.done { background: var(--ax-green); border-color: var(--ax-green); color: #fff; }
+    .ax-pg-stepic svg { width: 11px; height: 11px; }
+    .ax-pg-deliv { display: inline-flex; align-items: center; gap: 7px; margin-top: 12px; background: var(--ax-grad-green); color: #fff;
+      font-size: 13px; font-weight: 800; border-radius: 8px; padding: 9px 15px; text-decoration: none; }
+    .ax-pg-comments { margin-top: 18px; border-top: 1px dashed var(--ax-line); padding-top: 13px; }
+    .ax-pg-comlist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; max-height: 300px; overflow-y: auto; padding-right: 4px; }
+    .ax-pg-comempty { font-size: 12.5px; color: var(--ax-sub); padding: 2px 2px 10px; }
+    .ax-pg-comform { display: flex; gap: 8px; align-items: flex-end; }
+    .ax-pg-comform textarea { flex: 1; resize: vertical; min-height: 44px; font: inherit; font-size: 13px; padding: 9px 11px;
+      border: 1px solid var(--ax-line); border-radius: 10px; outline: none; }
+    .ax-pg-comform textarea:focus { border-color: var(--ax-violet); }
+    .ax-pg-comsend { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
+    .ax-pg-mfoot { display: flex; align-items: center; gap: 10px; padding: 13px 22px; border-top: 1px solid var(--ax-line); }
+    .ax-pg-mfoot .hint { font-size: 12px; color: var(--ax-sub); }
+    .ax-pg-mfoot .close { margin-left: auto; }
+    .ax-pg-empty { background: var(--ax-white); border: 1px dashed var(--ax-line); border-radius: var(--ax-radius);
+      padding: 44px 24px; text-align: center; color: var(--ax-sub); box-shadow: var(--ax-shadow); }
+    .ax-pg-empty h3 { font-size: 17px; margin: 0 0 6px; color: var(--ax-ink); }
+    @media (max-width: 980px) { .ax-pg-summary { grid-template-columns: repeat(2, 1fr); } .ax-pg-board { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 640px) { .ax-pg-board { grid-template-columns: 1fr; } }
+
     /* On the Assistant tab the pane IS the chat, so the bubble would be redundant — hide it there
        (showTab keeps the root's data-tab current; the FAB/panel live inside .atrium). */
     .atrium[data-tab="assistant"] .ax-asfab, .atrium[data-tab="assistant"] .ax-aspanel { display: none; }
@@ -1562,6 +1653,14 @@
           {{ ic(key) }}<span>{{ label }}</span>
         </a>
         {% endfor %}
+
+        {#- Progress: the read-only delivery board — every client-facing task and where it stands.
+           The badge is the count of tasks sitting in review (For Launch), i.e. waiting on the client. -#}
+        {% set pg_review = ((progress_cols|default([], true))|selectattr('key','equalto','for_launch')|map(attribute='tasks')|sum(start=[]))|length %}
+        <a href="{{ '/w/' ~ view.client ~ '/progress' }}" data-tab="progress" title="Progress" class="{{ 'is-active' if view.active_tab == 'progress' else '' }}">
+          {{ ic('progress') }}<span>Progress</span>
+          {% if pg_review > 0 %}<span class="ax-count">{{ pg_review }}</span>{% endif %}
+        </a>
       </nav>
 
       <div class="ax-side-card">
@@ -2730,6 +2829,118 @@
         </section>
 
         <!-- ============ NOTIFICATION SETTINGS ============ -->
+        {#- ============ PROGRESS (the client-facing read-only delivery board) ============
+           Renders ONLY what main._progress_tasks shaped: client_facing tasks, client-safe fields.
+           No owners, no priority, no internal notes ever reach this HTML. The one client power is
+           the comment composer (Comment / Request changes -> POST /w/<c>/task-comment). -#}
+        <section class="ax-pane {{ 'is-active' if view.active_tab=='progress' else '' }}" data-pane="progress">
+          <h1 class="ax-greet">Progress</h1>
+          <p class="ax-lede">Everything we're building for you and exactly where each piece stands &mdash; updated live by your Agora team.</p>
+          <span class="ax-pg-ro"><svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Read-only &mdash; but you can comment on any item.</span>
+
+          {% set pg_total = (progress_cols|default([], true))|map(attribute='tasks')|sum(start=[])|length %}
+          {% set pg_dots = {'in_process':'var(--ax-violet)','for_launch':'#F2820C','launched':'var(--ax-green)','closed':'#8A93A3'} %}
+          {% if pg_total %}
+          <div class="ax-pg-summary">
+            {% for col in progress_cols %}
+            <div class="ax-pg-tile"><div class="n tnum">{{ col.tasks|length }}</div>
+              <div class="l"><span class="dot" style="background: {{ pg_dots[col.key] }}"></span>{{ col.name }}</div></div>
+            {% endfor %}
+          </div>
+          <div class="ax-pg-board">
+            {% for col in progress_cols %}
+            <div>
+              <div class="ax-pg-colhead"><span class="dot" style="background: {{ pg_dots[col.key] }}"></span>
+                <span class="t">{{ col.name }}</span><span class="c tnum">{{ col.tasks|length }}</span></div>
+              <div class="ax-pg-collist">
+                {% for t in col.tasks %}
+                <button type="button" class="ax-pg-card" data-pgopen="{{ t.id }}">
+                  {% if t.campaign %}<span class="ax-pg-chip">{{ t.campaign }}</span>{% endif %}
+                  <div class="ax-pg-title">{{ t.title }}</div>
+                  {% if t.content_type %}<div class="ax-pg-type">{{ t.content_type }}</div>{% endif %}
+                  {% if t.subs_total %}
+                  <div class="ax-pg-prog"><div class="bar"><i style="width: {{ t.pct }}%"></i></div>
+                    <div class="meta"><span>{{ t.subs_done }} of {{ t.subs_total }} steps</span><span class="tnum">{{ t.pct }}%</span></div></div>
+                  {% endif %}
+                  <div class="ax-pg-foot">
+                    {% if t.open_changes %}<span class="ax-pg-tag changes">Changes requested</span>
+                    {% elif t.in_review %}<span class="ax-pg-tag review">Ready for your review</span>
+                    {% elif t.due_date %}<span class="ax-pg-target {{ 'soon' if t.due_soon else '' }}">Target {{ (t.due_date ~ 'T00:00:00Z')|atrium_date }}</span>{% endif %}
+                    {% if t.comment_count %}<span class="ax-pg-tag cmt">💬 {{ t.comment_count }}</span>{% endif %}
+                  </div>
+                </button>
+                {% else %}
+                <div class="ax-pg-colempty">&mdash;</div>
+                {% endfor %}
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="ax-pg-empty"><h3>Nothing to show yet</h3>
+            <div>When your Agora team starts work, your deliverables will appear here.</div></div>
+          {% endif %}
+
+          <!-- Hidden store: one read-only detail per task; JS shows it in the veil below. -->
+          <div id="ax-pg-store" hidden>
+            {% for col in progress_cols %}{% for t in col.tasks %}
+            <div class="ax-pg-modal" data-pgd="{{ t.id }}" hidden>
+              <div class="ax-pg-mhead">
+                <div>
+                  <div class="ax-pg-meyebrow">{% if t.campaign %}{{ t.campaign }} &middot;{% endif %}
+                    <span class="ax-pg-stage {{ t.stage }}">{{ col.name }}</span></div>
+                  <h2 class="ax-pg-mtitle">{{ t.title }}</h2>
+                </div>
+                <button type="button" class="ax-pg-mx" data-pgclose aria-label="Close">&times;</button>
+              </div>
+              <div class="ax-pg-mbody">
+                <div class="ax-pg-kv">
+                  <div><div class="k">Type</div><div class="v">{{ t.content_type or '—' }}</div></div>
+                  <div><div class="k">Target</div><div class="v">{{ (t.due_date ~ 'T00:00:00Z')|atrium_date if t.due_date else '—' }}</div></div>
+                </div>
+                {% if t.client_note %}<div class="ax-pg-sl">Update from your team</div>
+                <div class="ax-pg-note">{{ t.client_note }}</div>{% endif %}
+                {% if t.subtasks %}
+                <div class="ax-pg-sl">Progress &middot; {{ t.subs_done }} of {{ t.subs_total }}</div>
+                <ul class="ax-pg-steps">
+                  {% for s in t.subtasks %}
+                  <li class="{{ 'done' if s.done else '' }}"><span class="ax-pg-stepic {{ 'done' if s.done else '' }}">{% if s.done %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{% endif %}</span><span>{{ s.text }}</span></li>
+                  {% endfor %}
+                </ul>
+                {% endif %}
+                {% if t.deliverable_url %}<a class="ax-pg-deliv" href="{{ t.deliverable_url }}" target="_blank" rel="noopener">View deliverable →</a>{% endif %}
+                <div class="ax-pg-comments">
+                  <div class="ax-pg-sl" style="margin-top:0">Comments</div>
+                  <div class="ax-pg-comlist" data-pglist="{{ t.id }}">
+                    {% for cm in t.comments %}
+                    <div class="ax-com {{ 'client' if cm.sender == 'client' else 'agora' }}{{ ' changes' if cm.kind == 'changes' else '' }}{{ ' resolved' if cm.kind == 'changes' and cm.resolved else '' }}">
+                      {% if cm.kind == 'changes' %}<div class="ax-com-flag">{{ ic('message') }} Request changes{% if cm.resolved %} &middot; Addressed{% endif %}</div>{% endif %}
+                      <span class="ax-com-who">{{ cm.sender_name or ('You' if cm.sender == 'client' else 'Agora team') }}</span>
+                      <div>{{ cm.body }}</div>
+                      <span class="ax-com-when">{{ cm.created_at|atrium_dt }}</span>
+                    </div>
+                    {% else %}
+                    <div class="ax-pg-comempty">No comments yet &mdash; start the conversation below.</div>
+                    {% endfor %}
+                  </div>
+                  <div class="ax-pg-comform">
+                    <textarea data-pginput="{{ t.id }}" placeholder="Write a comment to your team…" aria-label="Comment"></textarea>
+                    <div class="ax-pg-comsend">
+                      <button type="button" class="ax-btn ghost" data-pgchanges="{{ t.id }}">Request changes</button>
+                      <button type="button" class="ax-btn violet" data-pgcomment="{{ t.id }}">Comment</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="ax-pg-mfoot"><span class="hint">Your comments go straight to your Agora team.</span>
+                <button type="button" class="ax-btn ghost close" data-pgclose>Close</button></div>
+            </div>
+            {% endfor %}{% endfor %}
+          </div>
+          <div class="ax-pg-veil" id="ax-pg-veil" hidden></div>
+        </section>
+
         <!-- ============ WEBSITE HEALTH (team-only: admins see it, super admin edits) ============ -->
         {% if is_superadmin %}
         {% set wh = ws.website_health or {} %}
@@ -6166,6 +6377,100 @@
   document.addEventListener("keydown", function (e) {
     if (e.key !== "Escape") { return; }
     qsa("[data-modal]").forEach(function (m) { if (!m.hidden) { m.hidden = true; } });
+  });
+})();
+</script>
+<script>
+// Progress tab (client-facing read-only board). Self-contained + esprima-4.x-safe; state lives in
+// the DOM (server-rendered detail nodes in #ax-pg-store), the ONE write is POST <base>/task-comment.
+(function () {
+  var qsa = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+  var root = document.querySelector(".atrium");
+  var veil = document.getElementById("ax-pg-veil");
+  var storeBox = document.getElementById("ax-pg-store");
+  if (!root || !veil || !storeBox) { return; }
+  var base = root.getAttribute("data-base") || "";
+
+  function pgClose() {
+    var open = veil.firstElementChild;
+    if (open) { open.hidden = true; storeBox.appendChild(open); }
+    veil.hidden = true;
+  }
+  function pgOpen(id) {
+    var node = document.querySelector('[data-pgd="' + id + '"]');
+    if (!node) { return; }
+    pgClose();
+    veil.appendChild(node);
+    node.hidden = false;
+    veil.hidden = false;
+    veil.scrollTop = 0;
+  }
+  qsa("[data-pgopen]").forEach(function (card) {
+    card.addEventListener("click", function () { pgOpen(card.getAttribute("data-pgopen")); });
+  });
+  qsa("[data-pgclose]").forEach(function (b) { b.addEventListener("click", pgClose); });
+  veil.addEventListener("click", function (e) { if (e.target === veil) { pgClose(); } });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") { pgClose(); } });
+
+  // Append one comment bubble to a task's thread, built with DOM nodes (never raw HTML).
+  function addBubble(taskId, kind, body) {
+    var list = document.querySelector('[data-pglist="' + taskId + '"]');
+    if (!list) { return; }
+    var empty = list.querySelector(".ax-pg-comempty");
+    if (empty) { list.removeChild(empty); }
+    var bubble = document.createElement("div");
+    bubble.className = "ax-com client" + (kind === "changes" ? " changes" : "");
+    if (kind === "changes") {
+      var flag = document.createElement("div");
+      flag.className = "ax-com-flag";
+      flag.textContent = "Request changes";
+      bubble.appendChild(flag);
+    }
+    var who = document.createElement("span");
+    who.className = "ax-com-who";
+    who.textContent = "You";
+    bubble.appendChild(who);
+    var text = document.createElement("div");
+    text.textContent = body;
+    bubble.appendChild(text);
+    var when = document.createElement("span");
+    when.className = "ax-com-when";
+    when.textContent = "Just now";
+    bubble.appendChild(when);
+    list.appendChild(bubble);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  function send(taskId, kind, btn) {
+    var input = document.querySelector('[data-pginput="' + taskId + '"]');
+    if (!input) { return; }
+    var body = (input.value || "").replace(/^\s+|\s+$/g, "");
+    if (!body) { input.focus(); return; }
+    btn.disabled = true;
+    var fd = new FormData();
+    fd.append("task_id", taskId);
+    fd.append("body", body);
+    if (kind === "changes") { fd.append("kind", "changes"); }
+    fetch(base + "/task-comment", { method: "POST", body: fd, credentials: "same-origin" })
+      .then(function (resp) {
+        if (!resp || !resp.ok) { throw new Error("request failed"); }
+        return resp.json();
+      })
+      .then(function () {
+        addBubble(taskId, kind, body);
+        input.value = "";
+        btn.disabled = false;
+      })
+      .catch(function () {
+        btn.disabled = false;
+        window.alert("That didn't send — please try again.");
+      });
+  }
+  qsa("[data-pgcomment]").forEach(function (b) {
+    b.addEventListener("click", function () { send(b.getAttribute("data-pgcomment"), "comment", b); });
+  });
+  qsa("[data-pgchanges]").forEach(function (b) {
+    b.addEventListener("click", function () { send(b.getAttribute("data-pgchanges"), "changes", b); });
   });
 })();
 </script>

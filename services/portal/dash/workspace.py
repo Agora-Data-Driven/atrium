@@ -1164,6 +1164,296 @@ def set_calendar_status(client, index, status):
     return _mutate(client, fn)
 
 
+# --- Task tracker: the internal delivery board + the client Progress tab -------------------------
+# One more additive key, ws["tasks"] = [task, ...] (no new infra -- see TASK_TRACKER_INTEGRATION.md).
+# A task is a deliverable travelling across four stages. The INTERNAL board (operator console) sees
+# everything; the client Progress tab sees only client_facing tasks, and only their client-safe
+# fields (never lead/support/owners, priority, internal_notes, or account_manager_id).
+#
+# Task shape (spec §3.2):
+#   id, title, stage, department, lead_id, support_ids[], priority, labels[], campaign,
+#   content_type, due_date, subtasks[] ({id, text, done, assignee_id}),
+#   comments[] (the content-comment shape incl. kind:"changes" + resolved), history[],
+#   client_facing, client_note, deliverable_url,        <- client-safe
+#   internal_notes, account_manager_id                  <- internal only
+TASK_STAGES = ("in_process", "for_launch", "launched", "closed")
+TASK_PRIORITIES = ("Low", "Medium", "High", "Urgent")
+# The fields update_task will patch (id/comments/subtasks/history have their own helpers).
+_TASK_FIELDS = ("title", "department", "lead_id", "support_ids", "priority", "labels", "campaign",
+                "content_type", "due_date", "client_facing", "client_note", "deliverable_url",
+                "internal_notes", "account_manager_id")
+
+
+def tasks_of(ws):
+    """The workspace's task list (never None)."""
+    return list((ws or {}).get("tasks") or [])
+
+
+def _find_task(ws, task_id):
+    """The task dict with id `task_id`, or None."""
+    for t in ws.get("tasks", []):
+        if t.get("id") == task_id:
+            return t
+    return None
+
+
+def task_open_changes(task):
+    """The task's UNRESOLVED "Request changes" comments (the client-flag is derived, not stored)."""
+    return [c for c in (task or {}).get("comments", [])
+            if c.get("kind") == "changes" and not c.get("resolved")]
+
+
+def _clean_support(lead_id, support_ids):
+    """Support people minus the lead (the lead is never double-counted as their own support)."""
+    seen, out = set(), []
+    for s in support_ids or []:
+        s = (s or "").strip() if isinstance(s, str) else s
+        if s and s != lead_id and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def _task_history(task, actor, field, old, new):
+    """Append one activity entry to a task's history (stage moves, edits)."""
+    task.setdefault("history", []).append({
+        "actor": actor or "", "field": field, "old": old or "", "new": new or "", "at": now_iso(),
+    })
+
+
+def add_task(client, fields, actor=""):
+    """Create a task on the client's board. Returns the stored task dict.
+
+    `fields` is a dict of the task fields; the stage defaults to in_process and is validated,
+    support_ids never contains lead_id, and a "created" history entry is stamped."""
+    f = dict(fields or {})
+    stage = f.get("stage") or "in_process"
+    if stage not in TASK_STAGES:
+        raise KeyError("no task stage '%s'" % stage)
+    lead = (f.get("lead_id") or "").strip()
+    task = {
+        "id": f.get("id") or _new_id("tk"),
+        "title": f.get("title") or "(untitled task)",
+        "stage": stage,
+        "department": f.get("department") or "",
+        "lead_id": lead,
+        "support_ids": _clean_support(lead, f.get("support_ids")),
+        "priority": f.get("priority") if f.get("priority") in TASK_PRIORITIES else "Medium",
+        "labels": list(f.get("labels") or []),
+        "campaign": f.get("campaign") or "",
+        "content_type": f.get("content_type") or "",
+        "due_date": f.get("due_date") or "",
+        "subtasks": [],
+        "comments": [],
+        "history": [],
+        "client_facing": bool(f.get("client_facing")),
+        "client_note": f.get("client_note") or "",
+        "deliverable_url": f.get("deliverable_url") or "",
+        "internal_notes": f.get("internal_notes") or "",
+        "account_manager_id": f.get("account_manager_id") or lead,
+        "created_at": now_iso(),
+    }
+    _task_history(task, actor, "created", "", task["title"])
+
+    def fn(ws):
+        ws.setdefault("tasks", []).append(task)
+        return task
+    return _mutate(client, fn)
+
+
+def update_task(client, task_id, fields, actor=""):
+    """Patch a task's editable fields (never id/stage/subtasks/comments -- those have their own
+    helpers). Enforces priority + the lead-never-in-support rule. Returns the task."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        f = dict(fields or {})
+        if "priority" in f and f["priority"] not in TASK_PRIORITIES:
+            f.pop("priority")
+        for k in _TASK_FIELDS:
+            if k in f:
+                task[k] = f[k]
+        task["lead_id"] = (task.get("lead_id") or "").strip()
+        task["support_ids"] = _clean_support(task["lead_id"], task.get("support_ids"))
+        task["client_facing"] = bool(task.get("client_facing"))
+        _task_history(task, actor, "edited", "", "task updated")
+        return task
+    return _mutate(client, fn)
+
+
+def move_task_stage(client, task_id, stage, actor=""):
+    """Move a task to `stage`, guarded: a move to `closed` is BLOCKED while any sub-task is still
+    open or any client change request is unresolved (raises ValueError listing what to resolve).
+    Records the move in the task's history. Returns the task; no-op if already there."""
+    if stage not in TASK_STAGES:
+        raise KeyError("no task stage '%s'" % stage)
+
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        if task.get("stage") == stage:
+            return task
+        if stage == "closed":
+            blockers = ["sub-task: %s" % s.get("text", "")
+                        for s in task.get("subtasks", []) if not s.get("done")]
+            blockers += ["open change request: %s" % (c.get("body", "")[:60])
+                         for c in task_open_changes(task)]
+            if blockers:
+                raise ValueError("Can't close this task yet -- resolve first: " + "; ".join(blockers))
+        _task_history(task, actor, "stage", task.get("stage", ""), stage)
+        task["stage"] = stage
+        return task
+    return _mutate(client, fn)
+
+
+def delete_task(client, task_id):
+    """Remove a task from the board. Returns the removed task dict (so the route can Trash it)."""
+    def fn(ws):
+        tasks = ws.get("tasks", [])
+        for i, t in enumerate(tasks):
+            if t.get("id") == task_id:
+                return tasks.pop(i)
+        raise KeyError("no task '%s'" % task_id)
+    return _mutate(client, fn)
+
+
+def insert_task(client, task):
+    """Re-insert a previously-removed task verbatim (Trash restore). Idempotent on the task id."""
+    def fn(ws):
+        t = dict(task or {})
+        tasks = ws.setdefault("tasks", [])
+        if any(x.get("id") == t.get("id") for x in tasks):
+            return t  # already present -- don't duplicate on a double-restore
+        tasks.append(t)
+        return t
+    return _mutate(client, fn)
+
+
+def upsert_tasks(client, tasks):
+    """Merge a list of tasks into the client's board BY ID (used by the JSON import/restore).
+
+    Non-destructive: an incoming task whose id already exists REPLACES that task in place; a new id
+    is appended. Nothing is ever removed. Returns (added, updated) counts."""
+    def fn(ws):
+        board = ws.setdefault("tasks", [])
+        index = {t.get("id"): i for i, t in enumerate(board) if t.get("id")}
+        added = updated = 0
+        for raw in tasks or []:
+            t = dict(raw or {})
+            tid = t.get("id")
+            if tid and tid in index:
+                board[index[tid]] = t
+                updated += 1
+            else:
+                board.append(t)
+                if tid:
+                    index[tid] = len(board) - 1
+                added += 1
+        return added, updated
+    return _mutate(client, fn)
+
+
+def add_task_comment(client, task_id, sender, sender_name, body, kind="comment"):
+    """Append a threaded comment to a task. Returns (task, comment).
+
+    Mirrors add_content_comment: `sender` is "client" or "agora"; kind "changes" is a client
+    "Request changes" (flagged bubble, carries `resolved`) -- the task-level flag is DERIVED from
+    unresolved changes-comments (task_open_changes), not stored."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        comment = {
+            "id": _new_id("cm"),
+            "sender": sender,
+            "sender_name": sender_name or "",
+            "body": body or "",
+            "created_at": now_iso(),
+            "kind": kind or "comment",
+        }
+        if (kind or "comment") == "changes":
+            comment["resolved"] = False
+        task.setdefault("comments", []).append(comment)
+        return task, comment
+    return _mutate(client, fn)
+
+
+def resolve_task_comment(client, task_id, comment_id):
+    """Mark a task's "Request changes" comment resolved (TEAM action). Returns
+    (task, comment, open_changes_left). Raises KeyError if the task or comment is gone."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        target = next((c for c in task.get("comments", []) if c.get("id") == comment_id), None)
+        if target is None:
+            raise KeyError("no comment '%s'" % comment_id)
+        target["resolved"] = True
+        return task, target, len(task_open_changes(task))
+    return _mutate(client, fn)
+
+
+def add_subtask(client, task_id, text, assignee_id=None):
+    """Append a sub-task ({id, text, done, assignee_id}) to a task. Returns (task, subtask)."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        sub = {"id": _new_id("st"), "text": text or "", "done": False,
+               "assignee_id": assignee_id or ""}
+        task.setdefault("subtasks", []).append(sub)
+        return task, sub
+    return _mutate(client, fn)
+
+
+def _find_subtask(task, subtask_id):
+    for s in (task or {}).get("subtasks", []):
+        if s.get("id") == subtask_id:
+            return s
+    return None
+
+
+def set_subtask_done(client, task_id, subtask_id, done):
+    """Check / uncheck one sub-task. Returns (task, subtask)."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        sub = _find_subtask(task, subtask_id)
+        if sub is None:
+            raise KeyError("no subtask '%s'" % subtask_id)
+        sub["done"] = bool(done)
+        return task, sub
+    return _mutate(client, fn)
+
+
+def set_subtask_owner(client, task_id, subtask_id, assignee_id):
+    """Assign (or clear, with "") the owner of one sub-task. Returns (task, subtask)."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        sub = _find_subtask(task, subtask_id)
+        if sub is None:
+            raise KeyError("no subtask '%s'" % subtask_id)
+        sub["assignee_id"] = assignee_id or ""
+        return task, sub
+    return _mutate(client, fn)
+
+
+def delete_subtask(client, task_id, subtask_id):
+    """Remove one sub-task from a task. Returns the task."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        task["subtasks"] = [s for s in task.get("subtasks", []) if s.get("id") != subtask_id]
+        return task
+    return _mutate(client, fn)
+
+
 # --- Client Communications: email + meeting summaries (team-written, client-read) ---------------
 def add_email_summary(client, subject, summary, date=None, email_id=None):
     """Add an email summary (newest first) to the Client Communications tab. Returns it."""
