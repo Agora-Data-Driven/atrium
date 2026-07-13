@@ -104,6 +104,11 @@ def run():
     # Every client tab renders.
     body = c.get("/w/%s/" % CLIENT).get_data(as_text=True)
     _check("overview renders", "Riverdance RV Resort" in body and "Agora Atrium" in body)
+    # An unclosed <style>/<script> swallows the ENTIRE body into <head> (blank page in a browser)
+    # while every string-presence check still passes -- so check the tags actually balance.
+    for tag in ("style", "script"):
+        _check("every <%s> is closed (page can render)" % tag,
+               body.count("<" + tag) == body.count("</" + tag + ">"))
     _check("greeting present", "Good <span" in body)
     _check("leadgen content present in DOM", "Summer Lead-Gen Push" in body)
     _check("organic content present in DOM", "June Nurture &amp; SEO" in body or "June Nurture" in body)
