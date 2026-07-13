@@ -756,15 +756,26 @@
 
     var keys = g.keys;
     if (!keys.length) { demandGeom = null; return; }
-    var maxV = 1;
+    // series on the optional right axis (the context line in "2nd axis" mode)
+    // scale independently, so the tag lines keep a readable shape
+    var maxL = 1, maxR = 1, dual = false;
     g.series.forEach(function (s) {
-      keys.forEach(function (k) { var v = s.map[k] || 0; if (v > maxV) maxV = v; });
+      var onRight = s.axis === "r";
+      if (onRight) dual = true;
+      keys.forEach(function (k) {
+        var v = s.map[k] || 0;
+        if (onRight) { if (v > maxR) maxR = v; }
+        else if (v > maxL) maxL = v;
+      });
     });
-    var ticks = niceTicks(maxV, 4);
+    var ticks = niceTicks(maxL, 4);
     var yMax = ticks[ticks.length - 1];
+    var rticks = niceTicks(maxR, 4);
+    var yMaxR = rticks[rticks.length - 1];
     var plotW = W - padL - padR, plotH = H - padT - padB;
     var x = function (i) { return padL + (keys.length === 1 ? plotW / 2 : i * plotW / (keys.length - 1)); };
     var y = function (v) { return padT + plotH - (v / yMax) * plotH; };
+    var yR = function (v) { return padT + plotH - (v / yMaxR) * plotH; };
     var NS = "http://www.w3.org/2000/svg";
 
     // gridlines: solid hairlines, recessive
@@ -779,6 +790,13 @@
       tx.setAttribute("text-anchor", "end");
       tx.textContent = g.share ? t + "%" : fmt(t);
       svg.appendChild(tx);
+      if (dual) {
+        // right-axis readings at the shared gridline heights, in the context gray
+        var rtx = document.createElementNS(NS, "text");
+        rtx.setAttribute("x", W - padR + 7); rtx.setAttribute("y", y(t) + 3.5);
+        rtx.textContent = compact(yMaxR * t / yMax);
+        svg.appendChild(rtx);
+      }
     });
     // x labels: ~6, evenly picked
     var stepX = Math.max(1, Math.ceil(keys.length / 6));
@@ -861,10 +879,11 @@
     // series: context gray first (under), then colored lines
     var ordered = g.series.slice().sort(function (a, b) { return (b.context ? 1 : 0) - (a.context ? 1 : 0); });
     ordered.forEach(function (s) {
-      var pts = keys.map(function (k, idx) { return [x(idx), y(s.map[k] || 0)]; });
+      var sy = s.axis === "r" ? yR : y;
+      var pts = keys.map(function (k, idx) { return [x(idx), sy(s.map[k] || 0)]; });
       if (s.area) {
         var ap = "M" + pts.map(function (p) { return p[0] + "," + p[1]; }).join("L") +
-          "L" + pts[pts.length - 1][0] + "," + y(0) + "L" + pts[0][0] + "," + y(0) + "Z";
+          "L" + pts[pts.length - 1][0] + "," + sy(0) + "L" + pts[0][0] + "," + sy(0) + "Z";
         var area = document.createElementNS(NS, "path");
         area.setAttribute("d", ap);
         area.setAttribute("fill", s.color);
@@ -892,9 +911,10 @@
       svg.appendChild(dot);
     });
 
-    // direct end labels (selective): <=4 non-context series, skip on collision
+    // direct end labels (selective): <=4 non-context series, skip on collision;
+    // the right-axis readings own that margin in 2nd-axis mode
     var labelable = ordered.filter(function (s) { return !s.context; });
-    if (labelable.length >= 2 && labelable.length <= 4 && padR > 40) {
+    if (!dual && labelable.length >= 2 && labelable.length <= 4 && padR > 40) {
       var placed = [];
       labelable.forEach(function (s) {
         var vy = y(s.map[keys[keys.length - 1]] || 0);
@@ -1288,6 +1308,15 @@
       if (vm === "share" && !state.tags.length) return; // needs tag series to compare
       state.valmode = vm;
       syncValSeg();
+      if (lastStats) renderDemand(lastStats);
+    });
+    document.getElementById("ctxSeg").addEventListener("click", function (ev) {
+      var b = ev.target.closest("button"); if (!b) return;
+      if (b.id === "ctxShowBtn") state.showCtx = !state.showCtx;
+      else if (!state.showCtx) return; // 2nd axis is moot with the line hidden
+      else state.ctxAxis = !state.ctxAxis;
+      syncCtxSeg();
+      writeUrl();
       if (lastStats) renderDemand(lastStats);
     });
     document.getElementById("fClear").addEventListener("click", clearFilters);
