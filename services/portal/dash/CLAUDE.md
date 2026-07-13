@@ -125,6 +125,20 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   `xml.etree` + lazy `requests`, degrades to `[]`); `intel_refresh.main()` is the Cloud Run **job**
   entry point — it reuses THIS image + the web SA to write `ws["intel"]` (auto entries only; hand-
   added/edited ones are preserved). Deploy: `deploy_intel_refresh.ps1`. Test: `_intel_feed_localtest.py`.
+- **Task tracker (Delivery board + client Progress tab):** `ws["tasks"]` per client, helpers in
+  `workspace.py` (stages `in_process|for_launch|launched|closed` — keys canonical; lead +
+  `support_ids` never overlap; sub-tasks carry their own `assignee_id`; `move_task_stage` blocks
+  `closed` while sub-tasks/change-requests are open). Team board = the console's Delivery → Task
+  Board pane in `admin_atrium.html` (tasks collected in `admin_atrium()` from the workspaces it
+  already loads; overlays server-rendered into `#tk-store`, forms post `redirect=console`). Team
+  routes `POST /w/<c>/admin/task{,/move,/delete,/subtask,/comment}` (`is_superadmin()`; delete →
+  Bin `kind:"task"` → `workspace.insert_task` on restore). Client side: the `progress` tab renders
+  `main._progress_tasks(ws)` (client_facing + client-safe fields ONLY — owners/priority/internal
+  notes never reach the client HTML; client stage labels In progress / In review / Live /
+  Completed); the one client write is `POST /w/<c>/task-comment` (comment / request-changes;
+  resolve is team-only). Notifications: `notify.client_task_commented/client_task_changes/
+  team_task_commented/team_task_resolved`. Spec: `/TASK_TRACKER_INTEGRATION.md`; tests live in
+  `_workspace_localtest.py` (helpers) + `_atrium_smoketest.py` (routes, gating, no-leak render).
 - **`audit.py`** — super-admin activity feed + restorable Trash; ONE private `audit.json` in the
   registry bucket (no new infra). `main.py` calls `_audit()`/`_trash()` from the mutation/delete
   routes; the console **Activity**/**Trash** tabs read it; deletes are restorable for 30 days (lazy

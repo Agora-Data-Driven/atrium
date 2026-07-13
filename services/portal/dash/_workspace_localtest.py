@@ -176,6 +176,75 @@ def run():
     except KeyError:
         _check("unknown intel section raises", True)
 
+    # 8h. Task tracker: the full add / edit / move / sub-task / comment / delete round-trip.
+    task = workspace.add_task(CLIENT, {
+        "title": "Park & Porch — lead-gen funnel", "department": "acquisition",
+        "lead_id": "zhen@100.digital", "support_ids": ["ehjay@agoradatadriven.com", "zhen@100.digital"],
+        "priority": "High", "labels": ["Paid Media"], "campaign": "Park & Porch | Leads",
+        "content_type": "Funnel", "due_date": "2026-07-20", "client_facing": True,
+        "client_note": "Funnel is live.", "deliverable_url": "https://drive.google.com/x",
+        "internal_notes": "Watch CPL.",
+    }, actor="info@agoradatadriven.com")
+    _check("task created with id + default stage",
+           task["id"].startswith("tk_") and task["stage"] == "in_process")
+    _check("task lead never duplicated into support", task["support_ids"] == ["ehjay@agoradatadriven.com"])
+    _check("task history stamped created", task["history"][0]["field"] == "created")
+    try:
+        workspace.add_task(CLIENT, {"title": "bad", "stage": "not_a_stage"})
+        _check("unknown task stage raises", False)
+    except KeyError:
+        _check("unknown task stage raises", True)
+
+    workspace.update_task(CLIENT, task["id"],
+                          {"priority": "Urgent", "support_ids": ["zhen@100.digital", "ian@100.digital"]})
+    t2 = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
+    _check("task edit patched priority", t2["priority"] == "Urgent")
+    _check("task edit re-enforced lead-not-in-support", t2["support_ids"] == ["ian@100.digital"])
+
+    _task, sub1 = workspace.add_subtask(CLIENT, task["id"], "Propose funnel", "zhen@100.digital")
+    _task, sub2 = workspace.add_subtask(CLIENT, task["id"], "Create info pack")
+    workspace.set_subtask_done(CLIENT, task["id"], sub1["id"], True)
+    workspace.set_subtask_owner(CLIENT, task["id"], sub2["id"], "ehjay@agoradatadriven.com")
+    t3 = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
+    _check("sub-tasks persisted with done + owner",
+           t3["subtasks"][0]["done"] is True and t3["subtasks"][1]["assignee_id"] == "ehjay@agoradatadriven.com")
+
+    # A client change request blocks closing until the team resolves it (and open sub-tasks block too).
+    _task, chg = workspace.add_task_comment(CLIENT, task["id"], "client", "Daniela",
+                                            "Please swap the hero image.", kind="changes")
+    _check("change request recorded unresolved", chg["resolved"] is False)
+    _check("open-changes flag derives from the thread",
+           len(workspace.task_open_changes(t3)) == 0 and
+           len(workspace.task_open_changes(workspace._find_task(workspace.load_workspace(CLIENT), task["id"]))) == 1)
+    try:
+        workspace.move_task_stage(CLIENT, task["id"], "closed")
+        _check("close blocked while sub-task + change request open", False)
+    except ValueError as exc:
+        _check("close blocked while sub-task + change request open",
+               "Create info pack" in str(exc) and "change request" in str(exc))
+    workspace.move_task_stage(CLIENT, task["id"], "launched", actor="info@agoradatadriven.com")
+    t4 = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
+    _check("stage move recorded in history",
+           t4["stage"] == "launched" and t4["history"][-1]["old"] == "in_process"
+           and t4["history"][-1]["new"] == "launched")
+    workspace.resolve_task_comment(CLIENT, task["id"], chg["id"])
+    workspace.set_subtask_done(CLIENT, task["id"], sub2["id"], True)
+    workspace.move_task_stage(CLIENT, task["id"], "closed")
+    _check("close allowed once sub-tasks done + changes resolved",
+           workspace._find_task(workspace.load_workspace(CLIENT), task["id"])["stage"] == "closed")
+
+    workspace.delete_subtask(CLIENT, task["id"], sub2["id"])
+    _check("sub-task deleted",
+           len(workspace._find_task(workspace.load_workspace(CLIENT), task["id"])["subtasks"]) == 1)
+    removed = workspace.delete_task(CLIENT, task["id"])
+    _check("delete_task returns the payload for the Trash", removed["id"] == task["id"])
+    _check("task gone after delete",
+           workspace._find_task(workspace.load_workspace(CLIENT), task["id"]) is None)
+    workspace.insert_task(CLIENT, removed)
+    workspace.insert_task(CLIENT, removed)   # double-restore must not duplicate
+    _check("insert_task restores once (idempotent)",
+           len([t for t in workspace.load_workspace(CLIENT)["tasks"] if t["id"] == task["id"]]) == 1)
+
     # 9. Everything survived a reload from disk.
     reloaded = workspace.load_workspace(CLIENT)
     _camp, rvr016 = workspace._find_content(reloaded, "RVR-016")

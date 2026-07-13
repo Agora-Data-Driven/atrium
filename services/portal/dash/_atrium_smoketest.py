@@ -10,6 +10,7 @@ Run with a Flask-capable interpreter:
 """
 
 import io
+import json
 import os
 import shutil
 import sys
@@ -649,6 +650,133 @@ def run():
         s.update({"ok": True, "user": "x@y.com", "clients": ["someoneelse"]})
     _check("non-grantee forbidden", c.get("/w/%s/" % CLIENT).status_code == 403)
     _check("non-grantee creative forbidden", c.get("/w/%s/creative/RVR-014" % CLIENT).status_code == 403)
+
+    # ---- Task tracker: internal board + client Progress tab (TASK_TRACKER_INTEGRATION.md). ----
+    with c.session_transaction() as s:
+        s.update(SUPER)
+    # Team creates a client-facing task (with internal-only fields) + a purely internal one.
+    rt = c.post("/w/%s/admin/task" % CLIENT, data={
+        "op": "add", "title": "Park & Porch funnel", "department": "acquisition",
+        "lead_id": "zhen@100.digital", "support_ids": "ehjay@agoradatadriven.com",
+        "priority": "High", "labels": "Paid Media", "campaign": "Park & Porch | Leads",
+        "content_type": "Funnel", "due_date": "2026-07-20", "client_facing": "1",
+        "client_note": "Funnel is live.", "deliverable_url": "https://drive.google.com/x",
+        "internal_notes": "INTERNAL-ONLY-MARKER-XYZ",
+    })
+    _check("team adds a task", rt.status_code == 200 and rt.get_json().get("ok") is True)
+    task_id = rt.get_json()["task_id"]
+    _check("internal-only task created",
+           c.post("/w/%s/admin/task" % CLIENT,
+                  data={"op": "add", "title": "HIDDEN-INTERNAL-TASK"}).get_json().get("ok") is True)
+    # Sub-tasks + a team comment.
+    _check("sub-task added",
+           c.post("/w/%s/admin/task/subtask" % CLIENT,
+                  data={"op": "add", "task_id": task_id, "text": "Create info pack",
+                        "assignee_id": "ehjay@agoradatadriven.com"}).get_json().get("ok") is True)
+    sub_id = workspace._find_task(workspace.load_workspace(CLIENT), task_id)["subtasks"][0]["id"]
+    _check("sub-task toggled done",
+           c.post("/w/%s/admin/task/subtask" % CLIENT,
+                  data={"op": "toggle", "task_id": task_id, "subtask_id": sub_id,
+                        "done": "1"}).get_json().get("ok") is True)
+    _check("team comments on the task",
+           c.post("/w/%s/admin/task/comment" % CLIENT,
+                  data={"op": "add", "task_id": task_id,
+                        "body": "First draft is up."}).get_json().get("ok") is True)
+    # The console renders the board with the task; a console-posted form redirects back to it.
+    console = c.get("/admin/atrium").get_data(as_text=True)
+    _check("console shows the Task Board nav + the task",
+           'data-section="tasks"' in console and "Park &amp; Porch funnel" in console)
+    _check("console form posts redirect back to the Tasks pane",
+           c.post("/w/%s/admin/task/move" % CLIENT,
+                  data={"redirect": "console", "task_id": task_id,
+                        "stage": "for_launch"}).status_code == 302)
+
+    # The CLIENT sees the Progress tab: their client-facing task, client-safe fields ONLY.
+    with c.session_transaction() as s:
+        s.update({"ok": True, "user": "owner@riverdanceresort.com", "clients": [CLIENT]})
+    pg = c.get("/w/%s/progress" % CLIENT).get_data(as_text=True)
+    _check("client Progress tab renders the client-facing task",
+           'data-pane="progress"' in pg and "Park &amp; Porch funnel" in pg)
+    _check("internal notes never reach the client HTML", "INTERNAL-ONLY-MARKER-XYZ" not in pg)
+    _check("lead/support identities never reach the client HTML", "zhen@100.digital" not in pg)
+    _check("internal-only tasks never reach the client HTML", "HIDDEN-INTERNAL-TASK" not in pg)
+    for path in ("task", "task/move", "task/delete", "task/subtask", "task/comment"):
+        _check("admin task route /%s forbidden for the client" % path,
+               c.post("/w/%s/admin/%s" % (CLIENT, path), data={}).status_code == 403)
+    # The client's ONE write: comment + request changes.
+    _check("client comments on a task",
+           c.post("/w/%s/task-comment" % CLIENT,
+                  data={"task_id": task_id, "body": "Looks great!"}).get_json().get("ok") is True)
+    rchg = c.post("/w/%s/task-comment" % CLIENT,
+                  data={"task_id": task_id, "body": "Please swap the hero.", "kind": "changes"})
+    _check("client raises a task change request", rchg.get_json().get("open_changes") == 1)
+    chg_id = rchg.get_json()["comment"]["id"]
+    hidden_id = next(t["id"] for t in workspace.load_workspace(CLIENT)["tasks"]
+                     if t["title"] == "HIDDEN-INTERNAL-TASK")
+    _check("client cannot comment on an internal-only task (404)",
+           c.post("/w/%s/task-comment" % CLIENT,
+                  data={"task_id": hidden_id, "body": "hi"}).status_code == 404)
+
+    # Back to the team: the open change request blocks closing, resolving unblocks it.
+    with c.session_transaction() as s:
+        s.update(SUPER)
+    blocked = c.post("/w/%s/admin/task/move" % CLIENT, data={"task_id": task_id, "stage": "closed"})
+    _check("close is blocked while a change request is open",
+           blocked.get_json().get("ok") is False and "change request" in blocked.get_json()["error"])
+    _check("team resolves the change request",
+           c.post("/w/%s/admin/task/comment" % CLIENT,
+                  data={"op": "resolve", "task_id": task_id,
+                        "comment_id": chg_id}).get_json().get("open_changes") == 0)
+    _check("close allowed once resolved",
+           c.post("/w/%s/admin/task/move" % CLIENT,
+                  data={"task_id": task_id, "stage": "closed"}).get_json().get("ok") is True)
+
+    # Delete -> Bin -> restore round-trip.
+    _check("task delete is a soft-delete",
+           c.post("/w/%s/admin/task/delete" % CLIENT,
+                  data={"task_id": task_id}).get_json().get("ok") is True)
+    _check("task gone from the workspace",
+           workspace._find_task(workspace.load_workspace(CLIENT), task_id) is None)
+    import audit as _audit_mod
+    entry = next(t for t in _audit_mod.trash_list() if t.get("kind") == "task")
+    _check("deleted task is in the Bin", entry["payload"]["id"] == task_id)
+    _check("task restore returns it to the board",
+           c.post("/admin/atrium/restore", data={"entry_id": entry["id"]}).status_code == 302
+           and workspace._find_task(workspace.load_workspace(CLIENT), task_id) is not None)
+
+    # ---- Task board Export / Import (JSON backup + non-destructive restore, super-admin). ----
+    with c.session_transaction() as s:
+        s.update(SUPER)
+    ex = c.get("/admin/atrium/tasks/export")
+    _check("task export returns a JSON attachment",
+           ex.status_code == 200 and "attachment" in ex.headers.get("Content-Disposition", ""))
+    exported = ex.get_json()
+    _check("export payload carries this client's tasks",
+           CLIENT in exported.get("clients", {}) and exported["clients"][CLIENT]["tasks"])
+    with c.session_transaction() as s:
+        s.update({"ok": True, "user": "owner@riverdanceresort.com", "clients": [CLIENT]})
+    _check("client cannot export (super-admin only)",
+           c.get("/admin/atrium/tasks/export").status_code == 403)
+    _check("client cannot import (super-admin only)",
+           c.post("/admin/atrium/tasks/import").status_code == 403)
+    # Import an edited copy: change one task's title (update-by-id) + add a brand-new task.
+    with c.session_transaction() as s:
+        s.update(SUPER)
+    imp = dict(exported)
+    imp_tasks = list(exported["clients"][CLIENT]["tasks"])
+    imp_tasks[0] = dict(imp_tasks[0], title="Imported title change")
+    imp_tasks.append({"id": "tk_imported_new", "title": "Imported new task", "stage": "in_process"})
+    imp = {"version": 1, "clients": {CLIENT: {"name": "Riverdance", "tasks": imp_tasks},
+                                     "ghostclient": {"tasks": [{"id": "x", "title": "skip me"}]}}}
+    ri = c.post("/admin/atrium/tasks/import",
+                data={"file": (io.BytesIO(json.dumps(imp).encode()), "backup.json", "application/json")},
+                content_type="multipart/form-data")
+    _check("import redirects back to the Tasks pane", ri.status_code == 302)
+    after = {t["id"]: t for t in workspace.load_workspace(CLIENT)["tasks"]}
+    _check("import UPDATED an existing task by id", after[imp_tasks[0]["id"]]["title"] == "Imported title change")
+    _check("import ADDED the new task", "tk_imported_new" in after)
+    _check("import skipped a client that no longer exists",
+           workspace.load_workspace("ghostclient") is None)
 
     print("[smoketest] PASS")
     return 0
