@@ -4,21 +4,24 @@ Tab 1: **Upwork job-demand analytics** over the Zenfl Upwork Bot Telegram feed
 archive. Built for spotting what services are in demand (Paid Media, AI/ML,
 Automation, …) and for interns to browse real jobs (skills, description, link).
 
-## Pipeline (raw is never visualized directly)
+## Pipeline (raw is never visualized directly — and fully in GCP since 2026-07-14)
 
 ```
-raw_files/result.json          Telegram Desktop export of the bot chat (~1 GB, gitignored-worthy)
-   │  processing/process_upwork.py       (streams with ijson; ~11 min for 160k messages)
+Telegram (Zenfl Upwork Bot chat)
+   │  Cloud Run job `agora-upwork-refresh` (daily 07:15 Manila; Telethon pull)
    ▼
-dash/data/jobs.sqlite          one row per unique job URL + job_skills/job_tags + FTS5 index
-dash/data/aggregates.json      pre-baked unfiltered payload (weekly series, momentum, top lists)
-dash/data/job_scores.sqlite    AI "Agora fit" scores (processing/score_jobs.py — SEPARATE file,
-   │                           keyed by URL, so it survives jobs.sqlite rebuilds)
-   │  dash/deploy_dash_agora.ps1
+gs://…-agora-dash/raw/         result.json base export + pulled/*.jsonl increments + watermark
+   │  same job: processing/process_upwork.py (streams base+increments off the volume)
    ▼
-gs://agora-data-driven-agora-dash/upwork/    (private; service downloads at startup)
+gs://…-agora-dash/upwork/      jobs.sqlite (unique job URLs + skills/tags + FTS5),
+   │                           aggregates.json, job_scores.sqlite (scorer-owned,
+   │                           SEPARATE so it survives jobs.sqlite rebuilds)
+   ▼  (dash hot-reloads newer objects within ~2 min — no restart)
 Cloud Run service `agora-dash`               (asia-southeast1, SA agora-dash-web@)
 ```
+
+Laptop equivalents (fallback): `raw_files/` + `refresh_upwork.ps1` +
+`dash/deploy_dash_agora.ps1` (see the refresh section below).
 
 ## Agora-fit scoring (processing/score_jobs.py)
 
@@ -79,18 +82,61 @@ The dashboard handles this three ways (all shipped 2026-07-13):
 3. **Every outage banded + feed creations marked** on the chart, so any
    remaining step has a visible explanation.
 
-## Refresh with a new Telegram export
+## Refresh — FULLY AUTOMATED IN GCP (since 2026-07-14)
 
-1. Replace `raw_files/result.json` (Telegram Desktop → export chat → JSON).
-2. `python processing/process_upwork.py`
-3. `dash/deploy_dash_agora.ps1 -DataOnly` then restart the service (the
-   command it prints), or run the full script to also rebuild the image.
+Cloud Run **job `agora-upwork-refresh`** (`job/`) runs daily at **07:15
+Asia/Manila** (Cloud Scheduler `agora-upwork-refresh-daily`): it pulls new bot
+messages straight from Telegram (`processing/telegram_pull.py`, Telethon as a
+user account — the Bot API can't read another bot's chat; session + api creds
+from Secret Manager `agora-telegram-session` / `agora-telegram-api`),
+reprocesses (streaming the base export off a gcsfuse mount of the dash
+bucket), and uploads `upwork/jobs.sqlite` + `aggregates.json`. The dash
+service **hot-reloads** any newer data object within ~2 min (`_data_refresher`
+in `dash/main.py` — per-worker thread, atomic swap, stats-cache clear), so the
+job needs zero permissions on the service and there is no restart.
 
-Deploys run as `info@agoradatadriven.com` (the script sets
-`CLOUDSDK_CORE_ACCOUNT`). Full pipeline: `dash/deploy_dash_agora.ps1`.
+Cloud state layout (all in `gs://agora-data-driven-agora-dash/`):
+`raw/result.json` (base Desktop export), `raw/pulled/*.jsonl` (increments),
+`raw/pull_state.json` (watermark), `upwork/*` (processed outputs). No laptop
+involved. Redeploy after edits: `job/deploy_job_agora.ps1` (`-Run` also
+executes once); it stages `processing/{telegram_pull,process_upwork}.py` into
+the image, so **rerun it after editing either script**. Run on demand:
+`gcloud run jobs execute agora-upwork-refresh --region asia-southeast1`.
+
+### Laptop fallback (kept, normally OFF)
+
+`refresh_upwork.ps1` runs the same loop locally against `raw_files/`
+(`-Score` also runs the fit scorer; `-SkipPull` for a manual export;
+`-Force` rebuilds with 0 new). `fetch_telegram_secrets.ps1` restores the
+Telegram creds/session from Secret Manager onto a new machine;
+`install_refresh_task.ps1` registers the daily local task — do NOT run it
+while the cloud job is on (two watermarks diverge; harmless but wasteful).
+⚠️ Local and cloud keep SEPARATE pull state — if you ever switch back,
+delete the stale side's `pull_state.json`+`pulled/` or expect a re-pull.
+
+From-scratch Telegram setup (session invalidated / new account):
+https://my.telegram.org → *API development tools* → create an app → write
+`raw_files/telegram_api.json` as `{"api_id": <id>, "api_hash": "<hash>"}` →
+`..\..\.venv\Scripts\python.exe processing\telegram_pull.py --login` (phone +
+code, once) → re-upload the secrets (commands in `fetch_telegram_secrets.ps1`'s
+header). The venv needs `telethon` + `ijson` (installed 2026-07-14).
+
+How the increments work: the puller bootstraps its watermark from the last
+message id in the base `raw_files/result.json`, then appends each pull as
+`raw_files/pulled/*.jsonl` in the SAME shape as the Desktop export
+(`text_entities` rebuilt from Telethon's UTF-16 entity offsets), so
+`process_upwork.py` parses base + increments with one code path and URL
+dedupe absorbs any overlap. If you ever redo a full Desktop export, replace
+`result.json`, delete `raw_files/pull_state.json` + `raw_files/pulled/*`, and
+the next pull re-bootstraps. `refresh_upwork.ps1 -Score` also runs the fit
+scorer (resumable, unscored jobs only); `-SkipPull` / `-Force` cover the
+manual-export and rebuild-anyway cases.
+
+Deploys/uploads run as `info@agoradatadriven.com` (the scripts set
+`CLOUDSDK_CORE_ACCOUNT`). Full image rebuild: `dash/deploy_dash_agora.ps1`.
 
 ## Next (the real data-engineering treatment)
 
-Automate the Telegram pull (Telethon/telegram-export on a schedule) and move
-the processed store into BigQuery per the repo's three-stage contract
-(`sql/` views → export job → dash), replacing the laptop-run processor.
+Move the processed store into BigQuery per the repo's three-stage contract
+(`sql/` views → export job → dash). The pull+process loop is already a Cloud
+Run job (see above).
