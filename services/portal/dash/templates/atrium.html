@@ -836,7 +836,7 @@
     .ax-mile-title { font-size: 13.5px; font-weight: 700; margin: 1px 0 4px; }
     .ax-cal-day { font-size: 12px; font-weight: 700; margin-bottom: 4px; flex: 0 0 auto; }
     .ax-cal-cell.today .ax-cal-day { color: var(--ax-green-d); }
-    /* Calendar event pills, colour-coded by source: Lead Gen = purple, Organic = green, Personal = grey.
+    /* Calendar event pills, colour-coded by source: Paid Ads = purple, Organic = green, Personal = grey.
        Compact so they squish into the fixed-height box. */
     .ax-cal-ev { font-size: 10.5px; line-height: 1.25; margin-bottom: 2px; padding: 1px 6px; border-radius: 5px; font-weight: 700; color: #fff; background: #98a0b0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 0 auto; }
     .ax-cal-ev.leadgen { background: var(--ax-violet-d); }
@@ -970,7 +970,7 @@
     .ax-admin-tools .ax-btn.admin:hover { background: linear-gradient(135deg, var(--ax-violet-d) 0%, #4A3BB4 100%); }
     .ax-admin-tools .ax-btn.danger { background: linear-gradient(135deg, var(--ax-bad) 0%, #C9302D 100%); color: #fff; border-color: transparent; }  /* Delete -> brand red (destructive) */
     .ax-admin-tools .ax-btn.danger:hover { background: linear-gradient(135deg, #C9302D 0%, #A8211F 100%); }
-    /* Campaign-card controls (Lead Gen + Organic): neutral slate / navy / red-outline, per request. */
+    /* Campaign-card controls (Paid Ads + Organic): neutral slate / navy / red-outline, per request. */
     /* Match the Add/Delete-campaign buttons' size (the `.small` look) so the tool rows read consistently. */
     .ax-camp-tools .ax-btn { font-size: 12px; font-weight: 700; padding: 6px 11px; }
     .ax-camp-tools .ax-btn.green { background: linear-gradient(135deg, #3F4654 0%, #2D3340 100%); }                  /* Add content -> slate */
@@ -1902,20 +1902,6 @@
                   </select>
                 </div>
               </div>
-              {# Cross-campaign content-type filter: pick a type and every campaign collapses to just
-                 its matching pieces, each headed by its campaign marker (see .ax-typeview JS/CSS). #}
-              {% set type_opts = content_types %}
-              {% set used_types = camps|map(attribute='content')|sum(start=[])|map(attribute='type_tag')|select|unique|list %}
-              <div class="ax-campswitch">
-                <span class="ax-campswitch-label">{{ ic('tag') }} Filter by type</span>
-                <div class="ax-campbox is-type">
-                  <select class="ax-select" data-globaltypefilter="{{ tab }}" aria-label="Show one content type across every campaign">
-                    <option value="all">All types</option>
-                    {% for t in type_opts %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
-                    {% for t in used_types if t not in type_opts %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
-                  </select>
-                </div>
-              </div>
             </div>
             {% endif %}
           </div>
@@ -2294,7 +2280,7 @@
             <div class="ax-modal-card">
               <button class="ax-modal-x" type="button" data-modalclose aria-label="Close">&times;</button>
               <div class="ax-addpanel" data-addcampaign="{{ chan }}" style="border:0;background:transparent;padding:0;margin:0">
-            <h3>Add a {{ 'paid / lead-gen' if chan=='paid' else 'organic' }} campaign</h3>
+            <h3>Add a {{ 'paid ads' if chan=='paid' else 'organic' }} campaign</h3>
             <input class="ax-editbox" data-ac="name" placeholder="Campaign name">
             <div class="ax-strat-doc" style="margin-top:14px">
               <span class="ax-doc-label">{{ ic('sparkle') }} Strategy doc → AI writes the strategy</span>
@@ -3254,6 +3240,16 @@
       var collapsed = !root.classList.contains("nav-collapsed");
       setNav(collapsed);
       try { if (window.localStorage) { window.localStorage.setItem(navKey, collapsed ? "1" : "0"); } } catch (e) {}
+      // The shell grid (256px|68px -> 1fr) animates over .3s, so the .ax-main content grows/shrinks.
+      // The Looker embed is scaled to a FIXED pixel width by JS, so it must be re-fit to the new
+      // container width -- otherwise it keeps its old size and leaves the dead strip. fitDashScale is
+      // hoisted (function declaration), so it's callable here; re-run it across the whole transition
+      // so the report tracks the sidebar smoothly rather than snapping at the end.
+      var t0 = Date.now();
+      (function reflow() {
+        fitDashScale();
+        if (Date.now() - t0 < 420) { (window.requestAnimationFrame || window.setTimeout)(reflow, 16); }
+      })();
     });
   }
 
@@ -5671,7 +5667,7 @@
       // Today (SGT business day) for the overdue/red logic, read from the Month-history button.
       var histBtn = document.querySelector("[data-today]");
       var todayIso = histBtn ? (histBtn.getAttribute("data-today") || "") : "";
-      // Jump from a linked content event straight to its card on the Lead-Gen / Organic tab:
+      // Jump from a linked content event straight to its card on the Paid Ads / Organic tab:
       // switch tab, expand the (collapsible) card, scroll it into view and flash it.
       function gotoContent(cid, tab) {
         closeDlg();
