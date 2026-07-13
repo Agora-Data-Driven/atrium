@@ -1383,6 +1383,19 @@
     .ax-as-msg.user .ax-as-bubble { background: var(--ax-purple, #9484FB); color: #fff; border-bottom-right-radius: 4px; }
     .ax-as-msg.bot .ax-as-bubble.is-err { background: rgba(229,65,62,.08); border-color: rgba(229,65,62,.34); color: #c0322f; }
     .ax-as-bubble.is-thinking { color: var(--ax-sub); font-style: italic; }
+    /* Answers render as markdown (mdToHtml): headings, lists, bold. Bot bubbles hold real block
+       elements, so they drop pre-wrap (the HTML carries its own structure). */
+    .ax-as-msg.bot .ax-as-bubble { white-space: normal; }
+    .ax-as-bubble p { margin: 0 0 9px; }
+    .ax-as-bubble p:last-child, .ax-as-bubble ul:last-child, .ax-as-bubble ol:last-child { margin-bottom: 0; }
+    .ax-as-bubble h3, .ax-as-bubble h4, .ax-as-bubble h5 { margin: 13px 0 6px; line-height: 1.3; font-weight: 800; color: inherit; }
+    .ax-as-bubble h3:first-child, .ax-as-bubble h4:first-child, .ax-as-bubble h5:first-child { margin-top: 0; }
+    .ax-as-bubble h3 { font-size: 15.5px; }
+    .ax-as-bubble h4 { font-size: 14.5px; }
+    .ax-as-bubble h5 { font-size: 14px; }
+    .ax-as-bubble ul, .ax-as-bubble ol { margin: 0 0 9px; padding-left: 20px; }
+    .ax-as-bubble li { margin: 3px 0; }
+    .ax-as-bubble code { background: rgba(16,24,40,.07); border-radius: 4px; padding: 1px 5px; font-size: .92em; }
     .ax-as-sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .ax-as-schip { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: #fff; border: 1px solid var(--ax-line); color: var(--ax-sub); text-decoration: none; }
     a.ax-as-schip:hover { color: var(--ax-deep, #1856C9); border-color: var(--ax-purple, #9484FB); }
@@ -4089,7 +4102,7 @@
             bubble.textContent = (data && data.message) || "Could not answer. Please try again.";
             return;
           }
-          bubble.textContent = data.answer;
+          bubble.innerHTML = mdToHtml(data.answer);
           addSources(bubble, data.sources);
           if (assistCost && data.usage) { assistCost.note(data.usage, data.totals); }
           history.push({ role: "bot", text: data.answer });
