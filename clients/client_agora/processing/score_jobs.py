@@ -305,15 +305,22 @@ def score_one(system_prompt, text, session, hint=0):
             get_token(force=True)
             continue
         if r.status_code in (429, 500, 503, 529):
-            # transient capacity pressure in THIS region; the next attempt hits a
-            # different region, so back off only briefly on early attempts
+            # transient capacity pressure: hop region next attempt, but keep the
+            # backoff PATIENT — short synchronized sleeps just re-collide the pool
             last_err = "HTTP %s (%s)" % (r.status_code, loc)
-            time.sleep(min(2 ** attempt, 30) * 0.5 + random.uniform(0, 2))
+            try:
+                retry_after = float(r.headers.get("Retry-After") or 0)
+            except (TypeError, ValueError):
+                retry_after = 0
+            time.sleep(max(retry_after, min(2 ** attempt, 45)) + random.uniform(0, 4))
             continue
         if r.status_code >= 400:
-            # an expired/deleted cache surfaces as a 4xx naming CachedContent —
-            # drop it and let the next attempt recreate
-            if cache_name and ("achedContent" in r.text or r.status_code == 404):
+            # an expired/deleted cache surfaces as a 4xx — observed shapes include
+            # "CachedContent not found" AND "Cache content <id> is expired."
+            # (Vertex enforces ~60min TTL regardless of the requested 4h.) Drop the
+            # dead cache and retry: the next attempt recreates it for this region.
+            low = (r.text or "").lower()
+            if cache_name and ("cache" in low or r.status_code == 404):
                 invalidate_cache(loc)
                 last_err = "cache expired (%s)" % loc
                 continue

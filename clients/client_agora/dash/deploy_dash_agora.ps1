@@ -41,6 +41,20 @@ if (-not $SkipData) {
     if (-not (Test-Path (Join-Path $DATA "jobs.sqlite"))) {
         throw "data/jobs.sqlite missing - run processing\process_upwork.py first"
     }
+    # Staleness guard: since 2026-07-14 the CLOUD job (agora-upwork-refresh) owns
+    # the data — uploading an older local build silently regresses the live dash
+    # (the hot-reloader swaps in whatever is newest in the bucket). Compare ages.
+    $remote = gcloud storage objects describe "gs://$BUCKET/upwork/jobs.sqlite" --project $PROJECT --format "value(updateTime)" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $remote) {
+        $remoteT = [datetime]::Parse($remote).ToUniversalTime()
+        $localT = (Get-Item (Join-Path $DATA "jobs.sqlite")).LastWriteTimeUtc
+        if ($localT -lt $remoteT) {
+            Write-Warning ("bucket jobs.sqlite ({0:u}) is NEWER than your local build ({1:u})." -f $remoteT, $localT)
+            Write-Warning "Uploading would REGRESS the live dashboard (the cloud job refreshes it daily)."
+            $ans = Read-Host "Type OVERWRITE to upload anyway, anything else aborts"
+            if ($ans -ne "OVERWRITE") { throw "aborted: local data older than bucket (rerun the cloud job instead)" }
+        }
+    }
     # 1) bucket (idempotent, private, uniform)
     $null = gcloud storage buckets describe "gs://$BUCKET" --project $PROJECT 2>$null
     if ($LASTEXITCODE -ne 0) {
