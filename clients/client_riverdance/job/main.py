@@ -7,8 +7,9 @@ Windsor.ai connector API** on each scheduled run and assembles the private `rive
 consumed by the gated dash service — the "live and accurate" path.
 
 Shape written to the bucket (matched BY NAME to dash/dashboard.html's DATA.*):
-  { client, location, dates[], rows[] (per ad-per-day), creatives[] (with inlined image),
-    campaign{}, source{}, logo, agora_logo }
+  { client, location, dates[], rows[] (per ad-per-day, incl. `camp` = campaign name for the
+    dash's campaign filter/table), creatives[] (with inlined image), campaign{}, source{},
+    logo, agora_logo }
 
 Secrets/config:
   WINDSOR_API_KEY  — Windsor connector key (Secret Manager `riverdance-windsor-key`, mounted as env).
@@ -148,6 +149,7 @@ def build(rows_in):
     for r in rows_in:
         rows.append({
             "date": r.get("date"), "ad": r.get("ad_name"),
+            "camp": r.get("campaign") or "",
             "spend": round(_num(r.get("spend")), 4),
             "imps": int(_num(r.get("impressions"))), "clicks": int(_num(r.get("clicks"))),
             "lclk": int(_num(r.get("link_clicks"))), "reach": int(_num(r.get("reach"))),

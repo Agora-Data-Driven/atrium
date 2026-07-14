@@ -103,6 +103,31 @@ executes once); it stages `processing/{telegram_pull,process_upwork}.py` into
 the image, so **rerun it after editing either script**. Run on demand:
 `gcloud run jobs execute agora-upwork-refresh --region asia-southeast1`.
 
+### Slack alerts — 90+ fit jobs, every 10 minutes (since 2026-07-14)
+
+Cloud Run job **`agora-upwork-alerts`** (same image, `--alerts` args, scheduler
+`agora-upwork-alerts-10min`, 1Gi/1cpu): every 10 min it pulls new bot messages
+(same watermark as the nightly rebuild — which therefore always runs `--force`),
+fit-scores ONLY the new jobs (`job/alerts.py` reuses score_jobs.py's brief +
+rubric + Flash-Lite call; metadata-server token), Slack-posts every job scoring
+**≥ SCORE_MIN (90)** (title/budget/country/spend/reason/link, max 20 per tick),
+and merges the scores into the shared `upwork/job_scores.sqlite`
+(generation-conditional upload — a concurrent laptop batch-scorer sync wins and
+backfills, nothing is lost). The webhook lives in Secret Manager
+`agora-upwork-slack-webhook`; while it holds the placeholder value the runs
+no-op ("alerts disabled"). To (re)wire Slack:
+
+```
+# api.slack.com/apps -> your app -> Incoming Webhooks -> copy the URL, then:
+gcloud secrets versions add agora-upwork-slack-webhook --project agora-data-driven --data-file=<file-with-url>
+```
+
+Threshold: redeploy the alerts job with a different `SCORE_MIN` env. Cost:
+~$5-10/mo (144 short runs + ~$0.0003/scored job). ⚠️ The Telethon session is
+shared with the nightly job — brief overlap at 07:1x is tolerated, but if
+`AuthKeyDuplicated` errors ever appear in logs, mint a second session
+(`--login` again to a second file) and give the alerts job its own secret.
+
 ### Laptop fallback (kept, normally OFF)
 
 `refresh_upwork.ps1` runs the same loop locally against `raw_files/`

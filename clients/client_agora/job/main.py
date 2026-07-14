@@ -18,7 +18,11 @@ Steps: decode session -> pull (skip everything if 0 new) -> process (streams the
 ~1 GB base straight off the volume) -> upload jobs.sqlite + aggregates.json.
 job_scores.sqlite is never touched here (separate store, scorer owns it).
 
-Args: --force  rebuild/upload even when the pull finds nothing new.
+Args: --force   rebuild/upload even when the pull finds nothing new.
+      --alerts  alerts mode (job `agora-upwork-alerts`, every 10 min): after the
+                pull, score the new jobs and Slack-alert >=SCORE_MIN (alerts.py)
+                instead of rebuilding. The nightly refresh runs --force so the
+                alert pulls always reach the dashboard.
 """
 
 import base64
@@ -71,6 +75,11 @@ def main():
     code, out = run_step("telegram_pull.py", pull_env)
     if code != 0:
         sys.exit("telegram_pull.py failed (exit %d)" % code)
+    if "--alerts" in sys.argv:
+        sys.path.insert(0, HERE)
+        import alerts
+        alerts.run_alerts(out)
+        return
     m = re.search(r"NEW_MESSAGES=(\d+)", out)
     new_msgs = int(m.group(1)) if m else -1
     if new_msgs == 0 and not force:

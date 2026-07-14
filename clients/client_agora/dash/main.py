@@ -39,6 +39,7 @@ app = Flask(__name__)
 
 _dl_lock = threading.Lock()
 _resolved_dir = None
+_downloaded_stamps = {}  # object name -> blob.updated of the copy we HOLD locally
 
 
 def data_dir():
@@ -62,14 +63,18 @@ def data_dir():
         for name in ("jobs.sqlite", "aggregates.json", "job_scores.sqlite"):
             dest = os.path.join(tmp, name)
             if not os.path.exists(dest):
-                blob = bucket.blob("%s/%s" % (DATA_PREFIX, name))
-                if name == "job_scores.sqlite" and not blob.exists():
+                blob = bucket.get_blob("%s/%s" % (DATA_PREFIX, name))
+                if blob is None:
                     continue  # scores are optional — dash works without them
                 # unique temp + atomic replace: concurrent workers can never
                 # truncate a file another worker is already serving from
                 part = "%s.part.%d" % (dest, os.getpid())
                 blob.download_to_filename(part)
                 os.replace(part, dest)
+                # remember WHICH object version we hold: the refresher compares
+                # the bucket against this, never against "what it saw first"
+                # (else an upload landing before its first tick is missed forever)
+                _downloaded_stamps[name] = blob.updated
         _resolved_dir = tmp
         return _resolved_dir
 
@@ -89,8 +94,11 @@ def _data_refresher():
     from google.cloud import storage  # lazy: not needed for local dev
     bucket = storage.Client().bucket(DATA_BUCKET)
     names = ("jobs.sqlite", "aggregates.json", "job_scores.sqlite")
-    last = {}
-    baselined = False
+    # baseline = the object versions the startup download actually fetched
+    # (inherited from the preloading master via fork). A fresh worker in a
+    # long-lived container may re-download something another worker already
+    # swapped in — redundant but always convergent.
+    last = dict(_downloaded_stamps)
     while True:
         try:
             changed_main = False
@@ -98,18 +106,16 @@ def _data_refresher():
                 blob = bucket.get_blob("%s/%s" % (DATA_PREFIX, name))
                 if blob is None or last.get(name) == blob.updated:
                     continue
-                if baselined:
-                    dest = os.path.join(data_dir(), name)
-                    part = "%s.part.%d.%d" % (dest, os.getpid(), threading.get_ident())
-                    blob.download_to_filename(part)
-                    os.replace(part, dest)  # atomic: in-flight requests keep the old inode
-                    if name != "job_scores.sqlite":
-                        changed_main = True
-                    print("data refresh: swapped in newer %s" % name)
+                dest = os.path.join(data_dir(), name)
+                part = "%s.part.%d.%d" % (dest, os.getpid(), threading.get_ident())
+                blob.download_to_filename(part)
+                os.replace(part, dest)  # atomic: in-flight requests keep the old inode
+                if name != "job_scores.sqlite":
+                    changed_main = True
+                print("data refresh: swapped in newer %s" % name)
                 last[name] = blob.updated
             if changed_main:
                 _stats_cache.clear()  # cached /api/stats payloads are now stale
-            baselined = True
         except Exception as exc:
             print("data refresh failed:", exc)
         time.sleep(SCORES_REFRESH_S)
