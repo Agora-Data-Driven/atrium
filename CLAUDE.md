@@ -191,6 +191,51 @@ auto-refresh (see those bullets below). Product name is one constant:
   accept a `usage_out` dict that captures token counts; `intel_ai.PRICING`/`cost_of` price them
   (approximate, editable) and `workspace.add_assistant_usage` persists the all-time tally in
   `ws["assistant"]["usage"]`; each `op=ask` response carries `usage` + `totals`.
+- **Mail is a TEAM-ONLY tab (client email archive + AI digest, `mailroom.py`):** connect the
+  agency's mailboxes ONCE in the console (`/admin/atrium` -> **Mailboxes**; add/remove/test is
+  root-admin only -- entries carry live credentials); each client's Mail tab then lists that
+  client's contact emails/domains and the sync pulls ONLY correspondence with those contacts (the
+  Gmail query is BUILT from the contact list -- from:/to: each address or bare domain -- so
+  unrelated mail never leaves the mailbox). Two connector kinds: **dwd** -- our own Workspace
+  mailboxes via the Gmail API + domain-wide delegation, KEYLESS (the runtime SA signJwt's as the
+  dedicated `mail-sync` SA; one-time `enable_atrium_mail.ps1` + a 2-minute Workspace-admin grant,
+  nothing stored per mailbox) -- and **imap** -- ANY other Google account the team holds an app
+  password for (stdlib `imaplib` + `email`, Gmail's `X-GM-RAW` runs the SAME query, All Mail covers
+  sent + received). State mirrors Watcher exactly: the global mailbox registry is ONE private
+  object `workspace/mail/_mailboxes.json` (an imap app password lives there verbatim, is required
+  to log in, and is NEVER rendered back -- `workspace.public_mailboxes` strips it); each thread's
+  full messages are their OWN object `workspace/mail/<c>/<key>.json` (key = mailbox id + Gmail
+  thread id; quoted-reply tails stripped, message-id dedup makes re-runs cheap); `ws["mail"]`
+  keeps only the small index (contacts, subjects/participants/summaries, the digest,
+  last_sync/last_error). **Machine mail never lands:** the
+  query excludes the Promotions/Social categories and `mailroom.is_automated` drops robot messages
+  per message (noreply/bounce senders, Auto-Submitted, Precedence bulk/junk/auto_reply,
+  autoresponders) -- deliberately CONSERVATIVE: List-Unsubscribe alone never counts, so human mail
+  relayed through a client's Google-Groups alias is kept. **Response stats are computed, not
+  guessed** (`thread_stats`/`stats_line`): per thread `awaiting_reply` (is the last word the
+  client's) + average AGORA reply hours (a sender matching a connected mailbox address, or a dwd
+  mailbox's domain, counts as agency -- so a VA answering from info@ is "us"); shown as the Mail
+  tab's stats strip + per-row chips. The intel brain (`intel_ai._call`; model = Assistant's ->
+  intel's -> default) writes TWO voices per changed thread in ONE call
+  (`summarize_thread` -> internal summary + `client_summary`): the internal one (blunt, includes
+  reply-quality observations) runs the Mail tab and the digest; the client one is MIRRORED onto
+  the client-visible Communications tab's **Email Summary** feed (`workspace.upsert_email_summary`,
+  stable id `mail_<key>` so re-summarizing updates in place; deleting the thread retracts the
+  mirror -- safe by construction, the client was on every thread). The rolling digest is STATUS /
+  NEEDS ACTION / RECENT / **REPLIES** -- the REPLIES section judges reply speed + quality against
+  the computed `stats_line` numbers, explicitly treating AGORA replies as possibly written by an
+  assistant (the VA-accountability view). AI spend folds into the Assistant cost tally, and the
+  **Assistant indexes the email archive too** (`build_chunks` `mail_threads`, kind `email`, plus a
+  computed `mail:responsiveness` snapshot chunk -- so "how well are we handling this client's
+  email?" retrieves real numbers). Routes: `POST /w/<c>/admin/mail`
+  (op contacts|sync|digest|delete, gated `is_superadmin()`), `GET /w/<c>/mail/thread/<key>` (the
+  click-to-read full thread), `POST /admin/mail` (op add|delete|test, gated `is_root_admin()`).
+  **Auto-pull:** Cloud Run job `mail-refresh` (`mail_refresh.py`, Cloud Scheduler
+  `mail-refresh-hourly`, gated `MAIL_SYNC_ENABLED=1`, REUSES the platform-dash image + web SA --
+  `deploy_mail_refresh.ps1`; rerun after any mailroom/mail_refresh change, image-pinned). First
+  sync backfills `MAIL_FIRST_SYNC_DAYS` (90); later runs re-query a short `MAIL_SYNC_DAYS` (7)
+  overlap. A default deploy stays infra-free: imap mailboxes work immediately; only the dwd
+  connector needs the enable script. Off-cloud test: `dash/_mail_localtest.py` (in CI).
 - **Content with a date mirrors onto the Content Calendar (linked event):** when an admin gives a
   content piece a `date` (in the add/edit-content form), `workspace.add_content`/`update_content`
   mirror it into `calendar[]` as a linked event carrying `content_id` + `tab` (paid→`leadgen`,

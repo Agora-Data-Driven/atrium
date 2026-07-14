@@ -1357,6 +1357,32 @@
     /* The transcript reader modal. */
     .ax-wt-modal { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15,18,30,.45); }
     .ax-wt-modal[hidden] { display: none; }
+    /* Mail (team-only tab): the contacts/digest cards + archive rows. Reader = the wt-modal. */
+    .ax-ml-h { margin: 0 0 6px; font-size: 15.5px; font-weight: 700; }
+    .ax-ml-note { margin: 0 0 10px; font-size: 13px; color: var(--ax-sub); }
+    .ax-ml-note code { background: var(--ax-canvas); padding: 1px 5px; border-radius: 6px; }
+    .ax-ml-contacts { width: 100%; resize: vertical; }
+    .ax-ml-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+    .ax-ml-status { font-size: 12.5px; color: var(--ax-sub); }
+    .ax-ml-hint { font-size: 13.5px; }
+    .ax-ml-dighead { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .ax-ml-dighead > div { display: flex; align-items: center; gap: 10px; }
+    .ax-ml-digest { white-space: pre-wrap; font-size: 14px; line-height: 1.55; margin-top: 8px; }
+    .ax-ml-list { display: flex; flex-direction: column; gap: 10px; }
+    .ax-ml-row { position: relative; cursor: pointer; padding-right: 42px; }
+    .ax-ml-row:hover { box-shadow: 0 0 0 2px var(--ax-violet-bg) inset; }
+    .ax-ml-rowhead { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .ax-ml-sub { font-weight: 700; font-size: 14.5px; }
+    .ax-ml-meta { font-size: 12.5px; color: var(--ax-sub); }
+    .ax-ml-sum { margin-top: 6px; font-size: 13.5px; line-height: 1.5; }
+    .ax-ml-del { position: absolute; top: 10px; right: 12px; border: 0; background: transparent; color: var(--ax-sub); font-size: 18px; cursor: pointer; line-height: 1; }
+    .ax-ml-del:hover { color: var(--ax-bad); }
+    .ax-ml-statsrow { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; font-size: 13.5px; }
+    .ax-ml-statsrow .is-bad b { color: var(--ax-bad); }
+    .ax-ml-mbody .ax-ml-msg { border-top: 1px solid var(--ax-line); padding: 12px 0; }
+    .ax-ml-mbody .ax-ml-msg:first-child { border-top: 0; padding-top: 0; }
+    .ax-ml-msghead { font-size: 12.5px; color: var(--ax-sub); margin-bottom: 6px; }
+    .ax-ml-msgbody { white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; }
     .ax-wt-progress[hidden], .ax-wt-addmsg[hidden] { display: none; }
     .ax-wt-mbox { display: flex; flex-direction: column; width: 100%; max-width: 860px; max-height: 84vh; background: var(--ax-white, #fff); border-radius: var(--ax-radius, 14px); box-shadow: var(--ax-shadow-lg, 0 18px 50px rgba(20,24,40,.25)); padding: 20px 22px; animation: axConfirmIn .14s ease-out; }
     .ax-wt-mhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
@@ -1627,7 +1653,7 @@
         {#- Insights: the research/monitoring surfaces. Market Intelligence is client-visible;
            Website Health + Watcher stay TEAM-ONLY (admins + super-admins, hidden from clients
            entirely) — the nav, the panes, AND the routes all gate on is_superadmin. -#}
-        {% set tools_open = view.active_tab in ('intel', 'website-health', 'watcher') %}
+        {% set tools_open = view.active_tab in ('intel', 'website-health', 'watcher', 'mail') %}
         <div class="ax-nav-group {{ 'is-open' if tools_open else '' }}">
           <button class="ax-nav-ghead" type="button" title="Insights" aria-expanded="{{ 'true' if tools_open else 'false' }}">
             {{ ic('insights') }}<span>Insights</span>
@@ -1643,6 +1669,9 @@
             </a>
             <a href="{{ '/w/' ~ view.client ~ '/watcher' }}" data-tab="watcher" title="Watcher" class="{{ 'is-active' if view.active_tab == 'watcher' else '' }}">
               {{ ic('watcher') }}<span>Watcher</span>
+            </a>
+            <a href="{{ '/w/' ~ view.client ~ '/mail' }}" data-tab="mail" title="Mail" class="{{ 'is-active' if view.active_tab == 'mail' else '' }}">
+              {{ ic('mail') }}<span>Mail</span>
             </a>
             {% endif %}
           </div>
@@ -3221,6 +3250,81 @@
           </div>
         </section>
 
+        <!-- ============ MAIL (team-only: client email archive + AI digest) ============ -->
+        <section class="ax-pane {{ 'is-active' if view.active_tab=='mail' else '' }}" data-pane="mail">
+          <h1 class="ax-greet">Mail</h1>
+          <p class="ax-lede">Every email conversation with {{ ws.display_name }}, pulled automatically from the agency's connected mailboxes, summarized by AI, and rolled into a running briefing. Mailboxes are connected once in the <a href="/admin/atrium?section=mailboxes">operator console</a>; below you control which addresses count as this client.</p>
+
+          {% if mail %}
+          {% if mail.mailbox_count == 0 %}
+          <div class="ax-panel ax-ml-hint">No mailboxes are connected yet &mdash; connect one in the <a href="/admin/atrium?section=mailboxes">operator console &rarr; Mailboxes</a> first, then come back here.</div>
+          {% endif %}
+
+          <div class="ax-panel">
+            <h3 class="ax-ml-h">This client's email addresses</h3>
+            <p class="ax-ml-note">Comma-separated emails or whole domains (e.g. <code>maya@riverdance.com, riverdance.com</code>). Only mail to or from these addresses is ever pulled &mdash; nothing else leaves the mailbox.</p>
+            <textarea class="ax-editbox ax-ml-contacts" id="ax-ml-contacts" rows="2" placeholder="name@client.com, clientdomain.com">{{ mail.contacts }}</textarea>
+            <div class="ax-ml-actions">
+              <button class="ax-btn" type="button" id="ax-ml-savecontacts">Save contacts</button>
+              <button class="ax-btn violet" type="button" id="ax-ml-sync">Sync now</button>
+              <span class="ax-ml-status" id="ax-ml-status">{% if mail.last_sync %}Last sync {{ mail.last_sync|atrium_dt }}{% if mail.last_error %} &middot; {{ mail.last_error }}{% endif %}{% else %}Never synced yet &mdash; the hourly job also syncs automatically once it's deployed.{% endif %}</span>
+            </div>
+          </div>
+
+          <div class="ax-panel">
+            <div class="ax-ml-dighead">
+              <h3 class="ax-ml-h">AI briefing</h3>
+              <div>
+                {% if mail.digest.updated %}<span class="ax-ml-meta">updated {{ mail.digest.updated|atrium_dt }}</span>{% endif %}
+                <button class="ax-btn" type="button" id="ax-ml-redigest">Refresh briefing</button>
+              </div>
+            </div>
+            <div class="ax-ml-digest" id="ax-ml-digest">{{ mail.digest.body or 'No briefing yet — sync some mail and the AI keeps a running summary of where things stand with this client.' }}</div>
+          </div>
+
+          {% if mail.threads %}
+          <div class="ax-panel ax-ml-statsrow">
+            <span><b>{{ mail.stats.total }}</b> conversation{{ '' if mail.stats.total == 1 else 's' }}</span>
+            <span class="{{ 'is-bad' if mail.stats.awaiting else '' }}"><b>{{ mail.stats.awaiting }}</b> awaiting our reply{% if mail.stats.awaiting and mail.stats.oldest_awaiting %} (oldest {{ mail.stats.oldest_awaiting|atrium_date }}){% endif %}</span>
+            {% if mail.stats.avg_response_hours is not none %}<span>avg reply time <b>{{ mail.stats.avg_response_hours }}h</b></span>{% endif %}
+            <span class="ax-ml-meta">Ask the Assistant &ldquo;how well are we handling {{ ws.display_name }}'s emails?&rdquo; &mdash; it judges against these numbers and the actual replies.</span>
+          </div>
+          <div class="ax-ml-list">
+            {% for t in mail.threads %}
+            <div class="ax-panel ax-ml-row" data-mlthread="{{ t.id }}" role="button" tabindex="0" title="Read the full thread">
+              <div class="ax-ml-rowhead">
+                <div class="ax-ml-sub">{{ t.subject }}{% if t.awaiting_reply %} <span class="ax-wt-chip bad">Awaiting our reply</span>{% endif %}</div>
+                <div class="ax-ml-meta">{{ t.last_date|atrium_date }} &middot; {{ t.message_count }} message{{ '' if t.message_count == 1 else 's' }}</div>
+              </div>
+              <div class="ax-ml-meta">{{ t.participants }}{% if t.mailbox %} &middot; via {{ t.mailbox }}{% endif %}</div>
+              {% if t.summary %}<div class="ax-ml-sum">{{ t.summary }}</div>{% endif %}
+              <button class="ax-ml-del" type="button" data-mldelete="{{ t.id }}" title="Remove this thread from the archive" aria-label="Remove thread">&times;</button>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="ax-panel ax-wt-empty">
+            {{ ic('mail') }}
+            <div>No client email archived yet. {% if mail.mailbox_count == 0 %}Connect a mailbox in the operator console, add this client's addresses above, then{% else %}Add this client's addresses above, then{% endif %} click <strong>Sync now</strong>.</div>
+          </div>
+          {% endif %}
+
+          <!-- Full-thread reader: opened by clicking any row (reuses the Watcher modal styling). -->
+          <div class="ax-wt-modal" id="ax-ml-modal" hidden>
+            <div class="ax-wt-mbox" role="dialog" aria-modal="true" aria-label="Email thread">
+              <div class="ax-wt-mhead">
+                <div class="ax-wt-mtitle" id="ax-ml-mtitle"></div>
+                <div class="ax-wt-mactions">
+                  <button class="ax-btn" id="ax-ml-mclose" type="button">Close</button>
+                </div>
+              </div>
+              <div class="ax-wt-mmeta" id="ax-ml-mmeta"></div>
+              <div class="ax-wt-mbody ax-ml-mbody" id="ax-ml-mbody"></div>
+            </div>
+          </div>
+          {% endif %}
+        </section>
+
         <!-- ============ ASSISTANT (team-only: RAG chat over the whole workspace) ============ -->
         {#- The Assistant's model options, shared by the tab bar and the floating bubble's settings
            strip. "Automatic" follows the intel research brain's model, else the deploy default. -#}
@@ -3481,7 +3585,7 @@
     organic: "Organic Content", calendar: "Content Calendar",
     conversations: "Communications", intel: "Market Intelligence",
     settings: "Notification settings", "website-health": "Website Health", watcher: "Watcher",
-    assistant: "Assistant"
+    assistant: "Assistant", mail: "Mail"
   };
   // Looker Studio embed: scale the fixed-canvas report to fill the container width (runs for ALL
   // users, not just admins). The report has a fixed native canvas (data-native-w/h); a 100%-width
@@ -4126,6 +4230,144 @@
           fallbackCopy(text, copied);
         }
       });
+    }
+  })();
+
+  // ---- Mail (team-only tab): contacts, sync, briefing, and the thread reader -------------------
+  // Save contacts / Refresh briefing update in place; Sync now reloads on success so the fresh
+  // threads render server-side (no Jinja in this script). Clicking a row GETs the FULL thread
+  // (only the index is inlined) into the modal; delete confirms via the branded dialog.
+  (function () {
+    var statusEl = document.getElementById("ax-ml-status");
+    function mlStatus(text) { if (statusEl) { statusEl.textContent = text; } }
+    var saveBtn = document.getElementById("ax-ml-savecontacts");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", function () {
+        var box = document.getElementById("ax-ml-contacts");
+        saveBtn.setAttribute("disabled", "disabled");
+        post("/admin/mail", { op: "contacts", contacts: box ? box.value : "" })
+          .then(function (data) {
+            saveBtn.removeAttribute("disabled");
+            if (!data || data.ok === false) { mlStatus((data && data.message) || "Could not save contacts."); return; }
+            mlStatus(data.message || "Contacts saved ✓ — click Sync now to pull their mail.");
+          })
+          .catch(function () {
+            saveBtn.removeAttribute("disabled");
+            mlStatus("Could not save contacts. Please try again.");
+          });
+      });
+    }
+    var syncBtn = document.getElementById("ax-ml-sync");
+    if (syncBtn) {
+      syncBtn.addEventListener("click", function () {
+        syncBtn.setAttribute("disabled", "disabled");
+        mlStatus("Syncing — pulling mail from every connected mailbox, then summarizing…");
+        post("/admin/mail", { op: "sync" })
+          .then(function (data) {
+            if (!data) { throw new Error("no data"); }
+            if (data.ok === false && !(data.new_messages > 0)) {
+              syncBtn.removeAttribute("disabled");
+              mlStatus("Sync problem: " + ((data.errors && data.errors.join("; ")) || data.message || "unknown error"));
+              return;
+            }
+            window.location.reload();
+          })
+          .catch(function () {
+            syncBtn.removeAttribute("disabled");
+            mlStatus("Sync failed (network error). Please try again.");
+          });
+      });
+    }
+    var digBtn = document.getElementById("ax-ml-redigest");
+    if (digBtn) {
+      digBtn.addEventListener("click", function () {
+        digBtn.setAttribute("disabled", "disabled");
+        post("/admin/mail", { op: "digest" })
+          .then(function (data) {
+            digBtn.removeAttribute("disabled");
+            if (!data || data.ok === false) { mlStatus((data && data.message) || "Could not rebuild the briefing."); return; }
+            var box = document.getElementById("ax-ml-digest");
+            if (box) { box.textContent = data.digest || ""; }
+          })
+          .catch(function () {
+            digBtn.removeAttribute("disabled");
+            mlStatus("Could not rebuild the briefing. Please try again.");
+          });
+      });
+    }
+    qsa("[data-mldelete]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var id = btn.getAttribute("data-mldelete");
+        axConfirm({ title: "Remove this thread?",
+                    message: "It disappears from the archive and the Assistant's knowledge. A later sync may re-pull it if it still matches this client's contacts.",
+                    confirmText: "Remove", danger: true }, function () {
+          post("/admin/mail", { op: "delete", thread_id: id })
+            .then(function (data) {
+              if (data && data.ok) {
+                var row = document.querySelector('[data-mlthread="' + aq(id) + '"]');
+                if (row && row.parentNode) { row.parentNode.removeChild(row); }
+              }
+            })
+            .catch(function () {});
+        });
+      });
+    });
+
+    // The reader modal: fetch + show one full thread, one block per message (textContent only).
+    var modal = document.getElementById("ax-ml-modal");
+    var mTitle = document.getElementById("ax-ml-mtitle");
+    var mMeta = document.getElementById("ax-ml-mmeta");
+    var mBody = document.getElementById("ax-ml-mbody");
+    var mClose = document.getElementById("ax-ml-mclose");
+    function closeModal() { if (modal) { modal.hidden = true; } }
+    function openThread(id) {
+      if (!modal) { return; }
+      mTitle.textContent = "Loading…";
+      mMeta.textContent = "";
+      while (mBody.firstChild) { mBody.removeChild(mBody.firstChild); }
+      modal.hidden = false;
+      fetch(base + "/mail/thread/" + encodeURIComponent(id), { credentials: "same-origin" })
+        .then(function (resp) {
+          if (!resp || !resp.ok) { throw new Error("request failed"); }
+          return resp.json();
+        })
+        .then(function (data) {
+          mTitle.textContent = data.subject || "Email thread";
+          var bits = [];
+          if (data.participants && data.participants.length) { bits.push(data.participants.join(", ")); }
+          if (data.mailbox) { bits.push("via " + data.mailbox); }
+          mMeta.textContent = bits.join(" · ");
+          (data.messages || []).forEach(function (m) {
+            var wrap = document.createElement("div");
+            wrap.className = "ax-ml-msg";
+            var head = document.createElement("div");
+            head.className = "ax-ml-msghead";
+            head.textContent = (m.from || "?") + " → " + (m.to || "?") +
+              (m.date ? " · " + m.date.slice(0, 16).replace("T", " ") : "");
+            var body = document.createElement("div");
+            body.className = "ax-ml-msgbody";
+            body.textContent = m.body || "(empty message)";
+            wrap.appendChild(head);
+            wrap.appendChild(body);
+            mBody.appendChild(wrap);
+          });
+          if (!(data.messages || []).length) { mBody.textContent = "No messages stored for this thread."; }
+        })
+        .catch(function () {
+          mTitle.textContent = "Could not load the thread";
+          mBody.textContent = "Please try again.";
+        });
+    }
+    qsa("[data-mlthread]").forEach(function (row) {
+      function go() { openThread(row.getAttribute("data-mlthread")); }
+      row.addEventListener("click", go);
+      row.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    });
+    if (mClose) { mClose.addEventListener("click", closeModal); }
+    if (modal) {
+      modal.addEventListener("click", function (e) { if (e.target === modal) { closeModal(); } });
+      document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !modal.hidden) { closeModal(); } });
     }
   })();
 

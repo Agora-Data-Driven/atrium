@@ -355,6 +355,235 @@ def write_assistant_index(client, index):
                   json.dumps(index, sort_keys=True).encode("utf-8"))
 
 
+# --- Mail (team-only tab: client email archive + AI digest) --------------------------------------
+# Two layers, mirroring the Watcher posture exactly:
+#   * The GLOBAL mailbox registry (which agency mailboxes are connected, agency-wide -- NOT
+#     per-client) is ONE private object 'workspace/mail/_mailboxes.json' in the same registry
+#     bucket. An imap entry carries its app password VERBATIM (it must be replayable to log in);
+#     the object is private, read only by the runtime SA, and the password is NEVER rendered back
+#     to any page (public_mailboxes strips it). Same storage posture as store.py's registry.
+#   * Per client: a SMALL thread index in ws["mail"]["threads"] (subject/participants/dates/
+#     summary -- never bodies) plus each thread's full message archive as its OWN object
+#     'workspace/mail/<c>/<thread_key>.json' (bodies run long; the rewrite-in-full workspace JSON
+#     stays small). ws["mail"] also holds `contacts` (the client's email addresses/domains that
+#     drive the Gmail query), the rolling AI `digest`, and last_sync/last_error stamps.
+MAIL_KINDS = ("dwd", "imap")
+_MAIL_THREAD_CAP = 300          # index entries per client; oldest drop off (their objects deleted)
+_MAIL_CONTACT_CAP = 40
+
+
+def mail_registry_object_name():
+    """The global connected-mailboxes object (the leading '_' can never collide with a client key)."""
+    return "%smail/_mailboxes.json" % _prefix()
+
+
+def mail_mailboxes():
+    """The connected-mailbox list (never None). Each: {id, email, kind, app_password?, host?,
+    added_at}. Passwords stay in this private object only -- use public_mailboxes for templates."""
+    raw = _read_object(mail_registry_object_name())
+    if raw is None:
+        return []
+    try:
+        return json.loads(raw.decode("utf-8")).get("mailboxes") or []
+    except (ValueError, AttributeError):
+        return []
+
+
+def _save_mail_mailboxes(boxes):
+    _write_object(mail_registry_object_name(),
+                  json.dumps({"mailboxes": boxes}, indent=2, sort_keys=True).encode("utf-8"))
+
+
+def add_mailbox(email, kind, app_password="", host=""):
+    """Connect (or re-save) a mailbox. Upserts by email so re-adding replaces the stored password.
+    Returns the entry. Raises ValueError on a bad email/kind (the route surfaces the message)."""
+    email = (email or "").strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise ValueError("That doesn't look like an email address.")
+    if kind not in MAIL_KINDS:
+        raise ValueError("Unknown mailbox kind.")
+    if kind == "imap" and not (app_password or "").strip():
+        raise ValueError("An IMAP mailbox needs its app password.")
+    boxes = mail_mailboxes()
+    entry = next((b for b in boxes if (b.get("email") or "").lower() == email), None)
+    if entry is None:
+        entry = {"id": _new_id("mb"), "email": email, "added_at": now_iso()}
+        boxes.append(entry)
+    entry["kind"] = kind
+    entry["host"] = (host or "").strip()
+    if kind == "imap":
+        entry["app_password"] = app_password.replace(" ", "").strip()
+    else:
+        entry.pop("app_password", None)
+    _save_mail_mailboxes(boxes)
+    return entry
+
+
+def delete_mailbox(mailbox_id):
+    """Disconnect a mailbox by id. Returns the removed entry, or None."""
+    boxes = mail_mailboxes()
+    for i, b in enumerate(boxes):
+        if b.get("id") == mailbox_id:
+            removed = boxes.pop(i)
+            _save_mail_mailboxes(boxes)
+            return removed
+    return None
+
+
+def find_mailbox(mailbox_id):
+    """The mailbox entry with id `mailbox_id` (WITH its password -- server-side use only), or None."""
+    for b in mail_mailboxes():
+        if b.get("id") == mailbox_id:
+            return b
+    return None
+
+
+def public_mailboxes():
+    """The mailbox list SAFE for templates: the app password is never included."""
+    out = []
+    for b in mail_mailboxes():
+        row = {k: b.get(k, "") for k in ("id", "email", "kind", "host", "added_at")}
+        row["has_password"] = bool(b.get("app_password"))
+        out.append(row)
+    return out
+
+
+def mail_state(ws):
+    """The client's mail block with every key present (never None) -- template-safe reads."""
+    m = dict((ws or {}).get("mail") or {})
+    m.setdefault("contacts", [])
+    m.setdefault("threads", [])
+    m.setdefault("digest", {})
+    m.setdefault("last_sync", "")
+    m.setdefault("last_error", "")
+    return m
+
+
+def mail_contacts(ws):
+    """The client's contact emails/domains from an already-loaded workspace (never None)."""
+    return [c for c in (mail_state(ws).get("contacts") or []) if isinstance(c, str) and c.strip()]
+
+
+def set_mail_contacts(client, contacts):
+    """Replace the client's contact list (accepts a list OR the textarea's comma/newline string).
+    Trimmed, lowercased, de-duped, capped. Returns the stored list."""
+    if isinstance(contacts, str):
+        contacts = re.split(r"[,\n;]", contacts)
+    cleaned, seen = [], set()
+    for c in contacts or []:
+        c = (c or "").strip().lower()
+        if c and c not in seen:
+            seen.add(c)
+            cleaned.append(c)
+        if len(cleaned) >= _MAIL_CONTACT_CAP:
+            break
+
+    def fn(ws):
+        ws.setdefault("mail", {})["contacts"] = cleaned
+        return cleaned
+    return _mutate(client, fn)
+
+
+def mail_threads(ws):
+    """The client's thread INDEX entries (small; bodies live in per-thread objects). Never None."""
+    return list(mail_state(ws).get("threads") or [])
+
+
+def mail_thread_object_name(client, key):
+    """One thread's archive object, e.g. 'workspace/mail/riverdance/mb_1a2b_18c9d4.json'."""
+    return "%smail/%s/%s.json" % (_prefix(), client, key)
+
+
+def read_mail_thread(client, key):
+    """The stored thread dict (subject/participants/messages/summary), or None."""
+    raw = _read_object(mail_thread_object_name(client, key))
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def write_mail_thread(client, key, thread):
+    """Persist one thread's full archive (its own object, NOT the workspace JSON)."""
+    _write_object(mail_thread_object_name(client, key),
+                  json.dumps(thread, indent=2, sort_keys=True).encode("utf-8"))
+
+
+def delete_mail_thread_object(client, key):
+    """Delete one thread's archive object (no error if absent)."""
+    _delete_object(mail_thread_object_name(client, key))
+
+
+def upsert_mail_thread_entry(client, entry):
+    """Insert-or-update one INDEX entry by id, newest-first by last_date, capped.
+
+    Returns the list of entry ids that fell off the cap -- the caller deletes their objects (object
+    I/O stays out of the _mutate closure)."""
+    def fn(ws):
+        threads = ws.setdefault("mail", {}).setdefault("threads", [])
+        existing = next((t for t in threads if t.get("id") == entry.get("id")), None)
+        if existing is not None:
+            keep_summary = existing.get("summary", "")
+            existing.update(entry)
+            if not entry.get("summary") and keep_summary:
+                existing["summary"] = keep_summary
+        else:
+            threads.append(dict(entry))
+        threads.sort(key=lambda t: t.get("last_date") or "", reverse=True)
+        dropped = [t.get("id") for t in threads[_MAIL_THREAD_CAP:] if t.get("id")]
+        del threads[_MAIL_THREAD_CAP:]
+        return dropped
+    return _mutate(client, fn)
+
+
+def set_mail_thread_summary(client, key, summary):
+    """Store a thread's AI summary on its index entry. Returns the entry, or None if it is gone."""
+    def fn(ws):
+        for t in ws.setdefault("mail", {}).setdefault("threads", []):
+            if t.get("id") == key:
+                t["summary"] = summary or ""
+                return t
+        return None
+    return _mutate(client, fn)
+
+
+def delete_mail_thread(client, key):
+    """Remove a thread: its index entry AND its archive object. Returns the removed entry or None."""
+    def fn(ws):
+        threads = ws.setdefault("mail", {}).setdefault("threads", [])
+        for i, t in enumerate(threads):
+            if t.get("id") == key:
+                return threads.pop(i)
+        return None
+    removed = _mutate(client, fn)
+    _delete_object(mail_thread_object_name(client, key))
+    return removed
+
+
+def set_mail_digest(client, body):
+    """Store the rolling AI digest (the Mail tab's briefing card). Returns the digest dict."""
+    def fn(ws):
+        m = ws.setdefault("mail", {})
+        m["digest"] = {"body": body or "", "updated": now_iso()}
+        return m["digest"]
+    return _mutate(client, fn)
+
+
+def mark_mail_sync(client, error=""):
+    """Stamp the last sync attempt (and its error, "" on success). Best-effort, never raises."""
+    def fn(ws):
+        m = ws.setdefault("mail", {})
+        m["last_sync"] = now_iso()
+        m["last_error"] = error or ""
+        return m
+    try:
+        return _mutate(client, fn)
+    except Exception:
+        return None
+
+
 # --- Uploaded creatives (binary objects in the SAME private bucket) -----------------------------
 # A creative the team uploads for a content piece is stored as its OWN object alongside the
 # workspace JSON (so a multi-KB image never bloats workspace/<c>.json, which is rewritten in full on
@@ -1465,6 +1694,29 @@ def add_email_summary(client, subject, summary, date=None, email_id=None):
             "summary": summary or "",
         }
         ws.setdefault("email_summaries", []).insert(0, item)
+        return item
+    return _mutate(client, fn)
+
+
+def upsert_email_summary(client, item_id, subject, summary, date=None):
+    """Insert-or-update an Email Summary entry BY ID on the client-visible Communications tab.
+
+    The Mail sync mirrors each thread's client-facing recap here under a stable 'mail_<key>' id, so
+    a thread that gains messages UPDATES its entry in place instead of stacking duplicates.
+    Hand-added entries (add_email_summary) are untouched. Returns the entry."""
+    def fn(ws):
+        items = ws.setdefault("email_summaries", [])
+        for it in items:
+            if it.get("id") == item_id:
+                if subject:
+                    it["subject"] = subject
+                it["summary"] = summary or ""
+                if date:
+                    it["date"] = date
+                return it
+        item = {"id": item_id, "subject": subject or "(no subject)",
+                "date": date or now_iso(), "summary": summary or ""}
+        items.insert(0, item)
         return item
     return _mutate(client, fn)
 

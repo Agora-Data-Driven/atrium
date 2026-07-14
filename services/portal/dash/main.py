@@ -890,8 +890,9 @@ ATRIUM_TABS = {"overview", "dashboard", "leadgen", "organic", "calendar", "conve
 # Team-only tabs: rendered ONLY for admins/super-admins (is_superadmin), never shown to clients. The
 # Website Health tab monitors the client's live site + the marketing tags installed on it; the
 # Watcher tab archives every video transcript from watched YouTube channels; the Assistant tab is
-# retrieval-augmented chat over EVERY workspace source (watcher, intel, campaigns, metrics, ...).
-ATRIUM_TEAM_TABS = {"website-health", "watcher", "assistant"}
+# retrieval-augmented chat over EVERY workspace source (watcher, intel, campaigns, metrics, ...);
+# the Mail tab archives + AI-summarizes the client's email correspondence (mailroom.py).
+ATRIUM_TEAM_TABS = {"website-health", "watcher", "assistant", "mail"}
 
 
 @app.template_filter("atrium_dt")
@@ -1016,6 +1017,9 @@ def atrium(client, tab):
         # Watcher (team-only tab): per-channel video cards with transcript PREVIEWS only -- the
         # full transcripts stay in each channel's own archive object, fetched on click.
         watcher=(_watcher_view(ws, client) if (is_superadmin() and not admin_preview) else []),
+        # Mail (team-only tab): the client's email archive index + digest; bodies stay in their
+        # per-thread objects, fetched on click (atrium_mail_thread).
+        mail=(_mail_view(ws) if (is_superadmin() and not admin_preview) else None),
         # Assistant (team-only): the model dropdown options + the saved choices ("" = automatic
         # model; depth quick|standard|deep) + the all-time spend tally that seeds the cost pill.
         assistant_models=intel_ai.available_models(),
@@ -2493,6 +2497,16 @@ def _assistant_archives(ws, client):
             for ch in workspace.watcher_channels(ws)]
 
 
+def _assistant_mail(ws, client, cap=150):
+    """The Mail thread archives loaded for the Assistant index (newest first, capped)."""
+    out = []
+    for t in workspace.mail_threads(ws)[:cap]:
+        full = workspace.read_mail_thread(client, t.get("id", ""))
+        if full:
+            out.append(full)
+    return out
+
+
 def _assistant_index(ws, client, force=False):
     """The client's knowledge index, rebuilt lazily whenever any source changed (or on `force`)."""
     import assistant_ai
@@ -2502,7 +2516,8 @@ def _assistant_index(ws, client, force=False):
     if index is not None and index.get("fingerprint") == fp:
         return index
     chunks = assistant_ai.build_chunks(ws, archives,
-                                       dash_data=assistant_ai.read_client_dash_data(client))
+                                       dash_data=assistant_ai.read_client_dash_data(client),
+                                       mail_threads=_assistant_mail(ws, client))
     index = assistant_ai.build_index(chunks, fp=fp)
     workspace.write_assistant_index(client, index)
     return index
@@ -2624,6 +2639,185 @@ def atrium_watcher_video(client, channel_id, video_id):
                            language=v.get("language", ""), fetched_at=v.get("fetched_at", ""),
                            published_text=v.get("published_text", ""))
     return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+
+
+# --- Mail (team-only tab: client email archive + AI digest; see mailroom.py) ----------------------
+def _mail_view(ws):
+    """The Mail pane's render model: contacts + digest + the display-ready thread index rows
+    (subjects/participants/summaries only -- bodies are fetched on click)."""
+    state = workspace.mail_state(ws)
+    rows = []
+    for t in state.get("threads") or []:
+        rows.append({
+            "id": t.get("id", ""),
+            "subject": t.get("subject") or "(no subject)",
+            "participants": ", ".join(t.get("participants") or []),
+            "last_date": t.get("last_date", ""),
+            "message_count": t.get("message_count", 0),
+            "mailbox": t.get("mailbox", ""),
+            "summary": t.get("summary", ""),
+            "awaiting_reply": bool(t.get("awaiting_reply")),
+            "avg_response_hours": t.get("avg_response_hours"),
+        })
+    # The responsiveness strip: computed numbers (mailroom.thread_stats per thread), the same
+    # facts the digest's REPLIES section and the Assistant's snapshot are judged against.
+    waiting = [r for r in rows if r["awaiting_reply"]]
+    hours = [r["avg_response_hours"] for r in rows
+             if isinstance(r.get("avg_response_hours"), (int, float))]
+    stats = {
+        "total": len(rows),
+        "awaiting": len(waiting),
+        "oldest_awaiting": min([r["last_date"] for r in waiting if r["last_date"]] or [""]),
+        "avg_response_hours": (round(sum(hours) / len(hours), 1) if hours else None),
+    }
+    return {
+        "contacts": ", ".join(state.get("contacts") or []),
+        "threads": rows,
+        "stats": stats,
+        "digest": state.get("digest") or {},
+        "last_sync": state.get("last_sync", ""),
+        "last_error": state.get("last_error", ""),
+        # Drives the pane's setup hints ("connect a mailbox first" vs "add contacts").
+        "mailbox_count": len(workspace.mail_mailboxes()),
+    }
+
+
+@app.route("/w/<client>/admin/mail", methods=["POST"])
+def atrium_admin_mail(client):
+    """The Mail tab's team actions. `op` is one of:
+
+    * contacts -- save the client's contact emails/domains (the textarea; drives the Gmail query).
+    * sync     -- pull + archive + summarize now across every connected mailbox (the same
+                  mailroom.sync_client the hourly job runs; per-run caps keep it inside the
+                  request window, and message-id dedup makes re-runs cheap).
+    * digest   -- rebuild the rolling AI digest from the stored thread summaries only (no pull).
+    * delete   -- remove one archived thread (index entry + its archive object).
+    """
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    ws = workspace.load_workspace(client)
+    if ws is None:
+        return Response('{"error":"no_workspace"}', status=404, mimetype="application/json")
+    import mailroom  # lazy: only the mail routes need it
+    op = request.form.get("op", "")
+
+    if op == "contacts":
+        contacts = workspace.set_mail_contacts(client, request.form.get("contacts", ""))
+        usable = mailroom.clean_contacts(contacts)
+        _audit(client, "saved mail contacts", "%d contact(s)" % len(contacts))
+        return jsonify(ok=True, contacts=contacts,
+                       message=("" if usable or not contacts else
+                                "None of those look like an email address or domain."))
+
+    if op == "sync":
+        result = mailroom.sync_client(client, ws=ws)
+        _audit(client, "synced client mail",
+               "%d new message(s), %d thread(s)" % (result["new_messages"], result["new_threads"]))
+        fresh = workspace.load_workspace(client) or ws
+        state = workspace.mail_state(fresh)
+        return jsonify(ok=result["ok"], new_messages=result["new_messages"],
+                       new_threads=result["new_threads"], summarized=result["summarized"],
+                       errors=result["errors"], last_sync=state.get("last_sync", ""),
+                       digest=(state.get("digest") or {}).get("body", ""))
+
+    if op == "digest":
+        model = mailroom._mail_model(ws)
+        if not model:
+            return jsonify(ok=False, message="No AI provider is configured on the server.")
+        entries = workspace.mail_threads(ws)
+        digest, err = mailroom.build_digest(ws.get("display_name") or client,
+                                           entries, model, stats=mailroom.stats_line(entries))
+        if err:
+            return jsonify(ok=False, message=err)
+        workspace.set_mail_digest(client, digest)
+        _audit(client, "rebuilt mail digest", "")
+        return jsonify(ok=True, digest=digest)
+
+    if op == "delete":
+        key = request.form.get("thread_id", "").strip()
+        removed = workspace.delete_mail_thread(client, key)
+        if removed is None:
+            return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+        try:
+            # Also retract the thread's mirrored recap from the client's Communications feed
+            # (a later sync may re-pull + re-mirror it if it still matches the contacts).
+            workspace.delete_communication(client, "email", "mail_" + key)
+        except Exception:
+            pass
+        _audit(client, "deleted mail thread", removed.get("subject", ""))
+        return jsonify(ok=True)
+
+    return Response('{"error":"bad_op"}', status=400, mimetype="application/json")
+
+
+@app.route("/w/<client>/mail/thread/<thread_id>", methods=["GET"])
+def atrium_mail_thread(client, thread_id):
+    """One thread's FULL message archive as JSON (team-only) -- the click-to-read behind the rows."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    t = workspace.read_mail_thread(client, thread_id)
+    if t is None:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    return jsonify(ok=True, subject=t.get("subject", ""),
+                   participants=t.get("participants") or [], mailbox=t.get("mailbox", ""),
+                   summary=t.get("summary", ""), last_date=t.get("last_date", ""),
+                   messages=t.get("messages") or [])
+
+
+@app.route("/admin/mail", methods=["POST"])
+def admin_mail():
+    """Manage the agency's connected mailboxes (console -> Mailboxes). THE super admin only --
+    these entries carry live credentials. `op`:
+
+    * add    -- connect (or re-save) a mailbox: `email` + `kind` (dwd = our Workspace domain via
+                delegation, nothing stored; imap = any other Google account via its app password).
+                Form post; redirects back to the console pane with a flash.
+    * delete -- disconnect a mailbox by `mailbox_id` (form post, same redirect).
+    * test   -- prove a mailbox connects right now (fetch/JSON; the pane's Test button).
+    """
+    if not authed():
+        return redirect(url_for("login", next="/admin/atrium"))
+    if not is_root_admin():
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    import mailroom  # lazy
+    op = request.form.get("op", "")
+
+    def back(msg, err=False):
+        from urllib.parse import quote  # lazy, matching the rest of the app
+        return redirect("/admin/atrium?section=mailboxes&msg=%s%s"
+                        % (quote(msg), "&err=1" if err else ""))
+
+    if op == "add":
+        email = request.form.get("email", "")
+        kind = request.form.get("kind", "")
+        if kind == "dwd" and not mailroom.dwd_configured():
+            return back("Workspace delegation isn't set up yet -- run enable_atrium_mail.ps1 "
+                        "and redeploy first, or connect it as IMAP.", err=True)
+        try:
+            entry = workspace.add_mailbox(email, kind,
+                                          app_password=request.form.get("app_password", ""))
+        except ValueError as exc:
+            return back(str(exc), err=True)
+        _audit("", "connected mailbox", "%s (%s)" % (entry["email"], kind))
+        return back("Mailbox %s connected. Use Test to prove the connection." % entry["email"])
+
+    if op == "delete":
+        removed = workspace.delete_mailbox(request.form.get("mailbox_id", ""))
+        if removed is None:
+            return back("That mailbox is already gone.", err=True)
+        _audit("", "disconnected mailbox", removed.get("email", ""))
+        return back("Mailbox %s disconnected." % removed.get("email", ""))
+
+    if op == "test":
+        mb = workspace.find_mailbox(request.form.get("mailbox_id", ""))
+        if mb is None:
+            return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+        ok, message = mailroom.test_mailbox(mb)
+        return jsonify(ok=ok, message=message)
+
+    return Response('{"error":"bad_op"}', status=400, mimetype="application/json")
 
 
 @app.route("/w/<client>/admin/calendar", methods=["POST"])
@@ -3147,6 +3341,10 @@ def admin_atrium():
         # Nav badge = every task on the board (matches the prototype's total count).
         task_open_total=sum(len(col["tasks"]) for col in task_cols),
         task_trash_count=len([t for t in trash if t.get("kind") == "task"]),
+        # Mailboxes pane: the connected-mailbox list (passwords stripped) + whether Workspace
+        # delegation is wired on this deploy (drives the pane's setup hints).
+        mailboxes=workspace.public_mailboxes(),
+        mail_dwd=bool(os.environ.get("MAIL_DWD_SA", "").strip()),
         msg=request.args.get("msg"), flash_err=(request.args.get("err") == "1"), **_brand_ctx())
 
 

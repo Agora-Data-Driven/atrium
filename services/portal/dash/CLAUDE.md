@@ -120,6 +120,33 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   `POST /admin/atrium/<c>/rename` (superadmin) updates the registry name
   (`store.set_client_name`) AND the workspace `display_name` — display-only, the key/resources
   never change; the console cards have a Rename button (prompt-driven).
+- **`mailroom.py` / `mail_refresh.py`** -- the team-only Mail tab: pull + archive + AI-summarize
+  each client's email correspondence. Mailboxes connect ONCE in the console (Mailboxes pane;
+  `POST /admin/mail` op add|delete|test, root-only): kind **dwd** = our Workspace domain via the
+  Gmail API + domain-wide delegation, keyless signJwt as the `mail-sync` SA
+  (`enable_atrium_mail.ps1` one-time; deploys auto-set `MAIL_DWD_SA` when the SA exists), or kind
+  **imap** = any other Google account via an app password (stdlib imaplib, Gmail `X-GM-RAW`, the
+  All-Mail folder -- so both connectors run the SAME Gmail query and normalize to the same thread
+  shape). Per client: `ws["mail"]["contacts"]` drives the query (only client mail is pulled);
+  thread archives are their own objects `workspace/mail/<c>/<key>.json`; the small index + digest +
+  sync stamps live in `ws["mail"]`; the global registry is `workspace/mail/_mailboxes.json`
+  (`public_mailboxes` strips passwords for templates). Machine mail is dropped per message
+  (`is_automated`: noreply/bounce senders, Auto-Submitted, Precedence bulk/junk/auto_reply;
+  List-Unsubscribe alone NEVER counts -- Google-Groups-safe; the query also excludes the
+  Promotions/Social categories). `thread_stats`/`stats_line` compute `awaiting_reply` + average
+  AGORA reply hours per thread (connected-mailbox addresses + dwd domains count as agency) -->
+  the tab's stats strip, per-row chips, the digest's REPLIES judgement, and the Assistant's
+  `mail:responsiveness` snapshot chunk. `summarize_thread` returns TWO voices in one call: the
+  internal summary (blunt, reply-quality included) + a `client_summary` that is mirrored onto the
+  client-visible Communications Email Summary feed (`workspace.upsert_email_summary`, stable
+  `mail_<key>` id, updated in place; thread delete retracts it). `build_digest(..., stats=...)`
+  writes STATUS/NEEDS ACTION/RECENT/REPLIES; both reuse
+  `intel_ai._call` (spend -> the Assistant tally); the Assistant's `build_chunks` indexes the
+  archive (`mail_threads`). Routes: `POST /w/<c>/admin/mail` (op contacts|sync|digest|delete) +
+  `GET /w/<c>/mail/thread/<key>`, gated `is_superadmin()`; nav = the Insights group. The hourly
+  job `mail-refresh` reuses THIS image (gated `MAIL_SYNC_ENABLED=1`; deploy
+  `deploy_mail_refresh.ps1`, rerun after any mailroom/mail_refresh change). Test:
+  `python _mail_localtest.py`.
 - **`intel_feed.py` / `intel_refresh.py`** — the DAILY Market Intelligence auto-refresh (opt-in,
   `INTEL_AUTO_ENABLED=1`). `intel_feed` parses Google News RSS + publisher feeds (keyless, stdlib
   `xml.etree` + lazy `requests`, degrades to `[]`); `intel_refresh.main()` is the Cloud Run **job**
@@ -157,6 +184,6 @@ they exist, so a default deploy stays unaffected (button off) until you create t
 `https://portal.agoradatadriven.com/auth/google/callback` on the OAuth client.
 **Test (off-cloud, what CI runs):** `python _workspace_localtest.py`, `python _accounts_localtest.py`,
 `python _google_oauth_localtest.py`, `python _atrium_smoketest.py`, `python _auth_smoketest.py`,
-`python _audit_localtest.py`, `python _watcher_localtest.py`, and `python _slashid_creative_test.py`
-from this dir.
+`python _audit_localtest.py`, `python _watcher_localtest.py`, `python _slashid_creative_test.py`, and
+`python _mail_localtest.py` from this dir.
 **Preview:** `run_local.ps1` (or `preview/Preview Portal (admin).cmd` at repo root).

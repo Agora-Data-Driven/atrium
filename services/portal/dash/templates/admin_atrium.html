@@ -519,6 +519,10 @@
             <span>Accounts</span>
             {% if pending %}<span class="count">{{ pending|length }}</span>{% endif %}
           </button>
+          <button type="button" class="nav-item" data-section="mailboxes">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>
+            <span>Mailboxes</span>
+          </button>
         </nav>
         <div class="side-foot">
           <button type="button" class="acct-btn" data-section="profile" title="Your profile">
@@ -773,6 +777,74 @@
             <div class="panel"><div class="empty">Only the super admin can create admin accounts.</div></div>
             {% endif %}
           </div>
+        </section>
+
+        <!-- ---------- MAILBOXES (the agency inboxes the Mail tab reads) ---------- -->
+        <section class="pane" data-pane="mailboxes">
+          <p class="eyebrow">Atrium Admin &middot; People &amp; access</p>
+          <h1 class="page">Mailboxes</h1>
+          <p class="lead">The agency mailboxes the per-client <b>Mail</b> tab reads. Connect each one
+            once here; every workspace then pulls only its own client's correspondence (matched by the
+            contact addresses set on that client's Mail tab), archives it, and keeps an AI briefing.</p>
+
+          {% if not is_root_admin %}
+          <div class="panel"><p class="meta">Only the super admin can connect or remove mailboxes
+            (they carry live credentials). You can still use the Mail tab in every workspace.</p></div>
+          {% endif %}
+
+          <div class="panel">
+            <h2 class="section" style="margin-top:0">Connected mailboxes</h2>
+            {% if mailboxes %}
+            {% for b in mailboxes %}
+            <div class="req">
+              <div>
+                <b>{{ b.email }}</b>
+                <span class="meta">&middot; {{ 'Workspace (delegated — nothing stored)' if b.kind == 'dwd' else 'App password (IMAP)' }}{% if b.added_at %} &middot; added {{ b.added_at[:10] }}{% endif %}</span>
+                <span class="meta" data-mbmsg="{{ b.id }}"></span>
+              </div>
+              {% if is_root_admin %}
+              <div style="display:flex;gap:8px;align-items:center">
+                <button type="button" class="btn-ghost small" data-mbtest="{{ b.id }}">Test</button>
+                <form method="post" action="/admin/mail" data-mbdelete data-mbemail="{{ b.email }}" style="margin:0">
+                  <input type="hidden" name="op" value="delete">
+                  <input type="hidden" name="mailbox_id" value="{{ b.id }}">
+                  <button type="submit" class="btn-ghost small">Remove</button>
+                </form>
+              </div>
+              {% endif %}
+            </div>
+            {% endfor %}
+            {% else %}
+            <p class="meta">No mailboxes connected yet &mdash; the Mail tab stays empty until one is.</p>
+            {% endif %}
+          </div>
+
+          {% if is_root_admin %}
+          <h2 class="section">Connect a mailbox</h2>
+          <form class="panel" method="post" action="/admin/mail">
+            <input type="hidden" name="op" value="add">
+            <label>Email address</label>
+            <input type="email" name="email" placeholder="info@agoradatadriven.com" required>
+            <label>How to connect</label>
+            <select name="kind" id="mb-kind">
+              <option value="dwd">Our Workspace domain &mdash; delegated, no password stored</option>
+              <option value="imap">Any other Google account &mdash; via an app password</option>
+            </select>
+            <div id="mb-pw" hidden>
+              <label>App password</label>
+              <input type="text" name="app_password" autocomplete="off" placeholder="16-character app password">
+              <p class="meta">On that account: turn on 2-Step Verification, then create an app password
+                at <b>myaccount.google.com/apppasswords</b> and paste it here. It is stored in the
+                private registry bucket and never shown again; re-adding the same email replaces it.</p>
+            </div>
+            {% if not mail_dwd %}
+            <p class="meta">Workspace delegation isn't wired on this deploy yet &mdash; run
+              <b>services/portal/dash/enable_atrium_mail.ps1</b> once and redeploy to enable the
+              no-password option for our own domain. App-password mailboxes work regardless.</p>
+            {% endif %}
+            <button class="btn violet" type="submit">Connect mailbox</button>
+          </form>
+          {% endif %}
         </section>
 
         <!-- ---------- ACTIVITY ---------- -->
@@ -1224,6 +1296,42 @@
       qsa(".subtab").forEach(function (t) {
         t.addEventListener("click", function () { showSub(t.getAttribute("data-subtab")); });
       });
+
+      // ---- Mailboxes: prove a connection (fetch/JSON), confirm disconnects, toggle the
+      //      app-password field with the connection kind. ----
+      qsa("[data-mbtest]").forEach(function (b) {
+        b.addEventListener("click", function () {
+          var id = b.getAttribute("data-mbtest");
+          var out = document.querySelector('[data-mbmsg="' + id + '"]');
+          b.setAttribute("disabled", "disabled");
+          if (out) { out.textContent = "· testing…"; }
+          var fd = new FormData();
+          fd.append("op", "test");
+          fd.append("mailbox_id", id);
+          fetch("/admin/mail", { method: "POST", body: fd, credentials: "same-origin" })
+            .then(function (r) { if (!r || !r.ok) { throw new Error("request failed"); } return r.json(); })
+            .then(function (data) {
+              b.removeAttribute("disabled");
+              if (out) { out.textContent = "· " + ((data && data.message) || "Test finished."); }
+            })
+            .catch(function () {
+              b.removeAttribute("disabled");
+              if (out) { out.textContent = "· test failed (network error)"; }
+            });
+        });
+      });
+      qsa("[data-mbdelete]").forEach(function (f) {
+        f.addEventListener("submit", function (e) {
+          var who = f.getAttribute("data-mbemail") || "this mailbox";
+          if (!window.confirm("Disconnect " + who + "? The Mail tab stops pulling from it (archived threads are kept).")) {
+            e.preventDefault();
+          }
+        });
+      });
+      var mbKind = document.getElementById("mb-kind");
+      var mbPw = document.getElementById("mb-pw");
+      function mbTogglePw() { if (mbPw && mbKind) { mbPw.hidden = mbKind.value !== "imap"; } }
+      if (mbKind) { mbKind.addEventListener("change", mbTogglePw); mbTogglePw(); }
 
       // ---- Decide the opening view + pane from what the server asked for. ----
       // Server sections that map into the merged Accounts page:

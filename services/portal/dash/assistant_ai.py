@@ -52,12 +52,14 @@ def _tokens(text):
 
 
 # --- 1. Flatten the workspace into chunks ---------------------------------------------------------
-def build_chunks(ws, archives, dash_data=None):
+def build_chunks(ws, archives, dash_data=None, mail_threads=None):
     """Every source in the workspace as a flat list of {id, kind, title, url, date, text} chunks.
 
     `archives` is [(channel_entry, videos), ...] -- the Watcher registry entries with their video
     lists (loaded by the caller so this stays I/O-free). `dash_data` is the optional client
-    dashboard JSON (None when the bucket isn't readable)."""
+    dashboard JSON (None when the bucket isn't readable). `mail_threads` is the optional list of
+    loaded Mail thread archives (subject + full messages), so the chat can answer over the
+    client's actual email correspondence too."""
     chunks = []
 
     def add(cid, kind, title, text, url="", date=""):
@@ -135,6 +137,36 @@ def build_chunks(ws, archives, dash_data=None):
             "Site: %s. Notes: %s. Last check: %s"
             % (wh.get("url", ""), wh.get("notes", ""), json.dumps(wh.get("last_check") or {})))
 
+    # Client email threads (the Mail tab's archive), chunked like transcripts so one long thread
+    # can yield several retrievable excerpts. The summary rides along for cheap high-level hits.
+    snapshot = []
+    for t in mail_threads or []:
+        head = "Email thread with %s" % (", ".join(t.get("participants") or [])[:200] or "the client")
+        st = t.get("stats") or {}
+        snapshot.append("%s | last message %s | awaiting AGORA reply: %s | avg AGORA reply time: %s"
+                        % (t.get("subject", "(no subject)"), (t.get("last_date") or "?")[:10],
+                           "YES" if st.get("awaiting_reply") else "no",
+                           ("%s hours" % st["avg_response_hours"])
+                           if isinstance(st.get("avg_response_hours"), (int, float)) else "n/a"))
+        body_lines = ["Subject: %s" % t.get("subject", "")]
+        if st.get("awaiting_reply"):
+            body_lines.append("Status: the last word is the client's -- an AGORA reply is due.")
+        if t.get("summary"):
+            body_lines.append("Summary: %s" % t.get("summary"))
+        for m in t.get("messages") or []:
+            body_lines.append("From %s on %s: %s" % (m.get("from", ""), (m.get("date") or "")[:10],
+                                                     m.get("body", "")))
+        words = "\n".join(body_lines).split()
+        for i in range(0, len(words), CHUNK_WORDS):
+            add("mail:%s:%d" % (t.get("id", ""), i // CHUNK_WORDS), "email",
+                "%s — %s" % (head, t.get("subject", "")),
+                " ".join(words[i:i + CHUNK_WORDS]), date=(t.get("last_date") or "")[:10])
+    # One computed responsiveness snapshot across ALL threads, so "how well are we handling this
+    # client's email?" retrieves real numbers (reply speed, threads left hanging) in one hit.
+    if snapshot:
+        add("mail:responsiveness", "email",
+            "Email responsiveness snapshot (reply speed, who owes whom)", "\n".join(snapshot))
+
     # The client dashboard KPI export (opt-in source; None when unreadable).
     if dash_data:
         kpis = dash_data.get("kpis")
@@ -161,6 +193,8 @@ def fingerprint(ws, archives):
         "calendar": len(ws.get("calendar") or []),
         "conversations": [(c.get("id"), len(c.get("messages") or []))
                           for c in ws.get("conversations") or []],
+        "mail": [(t.get("id"), t.get("message_count"), t.get("last_date"))
+                 for t in ((ws.get("mail") or {}).get("threads") or [])],
     }
     return hashlib.md5(json.dumps(desc, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 

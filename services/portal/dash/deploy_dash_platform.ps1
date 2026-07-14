@@ -145,6 +145,17 @@ if (Test-SecretExists "DEEPSEEK_API_KEY") {
     Write-Host "[..] DEEPSEEK_API_KEY absent -- DeepSeek models stay unavailable (Gemini still works)" -ForegroundColor Yellow
 }
 
+# Atrium Mail (OPT-IN, mailroom.py). App-password (imap) mailboxes need nothing from the deploy;
+# the Workspace-delegation (dwd) connector needs the one-time enable_atrium_mail.ps1, after which
+# the mail-sync SA exists and we ship its address so the app can mint delegated Gmail tokens.
+gcloud iam service-accounts describe "mail-sync@$PROJECT.iam.gserviceaccount.com" --project=$PROJECT 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    $ENV_VARS += ",MAIL_DWD_SA=mail-sync@$PROJECT.iam.gserviceaccount.com"
+    Write-Host "[OK] mail-sync SA found -- Workspace (dwd) mailboxes enabled on the portal" -ForegroundColor Green
+} else {
+    Write-Host "[..] mail-sync SA absent -- Mail tab runs imap mailboxes only (run enable_atrium_mail.ps1 for dwd)" -ForegroundColor Yellow
+}
+
 # Watcher egress proxy (OPT-IN). YouTube blocks datacenter IPs, so transcript fetching from Cloud
 # Run needs a residential proxy. Create the secret once with the full proxy URL, e.g. Webshare
 # rotating residential  http://USER-rotate:PASS@p.webshare.io:80 :

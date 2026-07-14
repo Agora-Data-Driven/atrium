@@ -91,3 +91,7 @@ jobs:
       - name: Slashed-id creative serve test (stubs GCS)
         working-directory: services/portal/dash
         run: python _slashid_creative_test.py
+
+      - name: Mail tab test (connectors, sync, routes; network + IMAP + LLM stubbed)
+        working-directory: services/portal/dash
+        run: python _mail_localtest.py
