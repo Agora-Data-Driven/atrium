@@ -394,9 +394,13 @@ def _save_mail_mailboxes(boxes):
                   json.dumps({"mailboxes": boxes}, indent=2, sort_keys=True).encode("utf-8"))
 
 
-def add_mailbox(email, kind, app_password="", host=""):
+def add_mailbox(email, kind, app_password="", host="", client=""):
     """Connect (or re-save) a mailbox. Upserts by email so re-adding replaces the stored password.
-    Returns the entry. Raises ValueError on a bad email/kind (the route surfaces the message)."""
+    Returns the entry. Raises ValueError on a bad email/kind (the route surfaces the message).
+
+    `client` assigns the mailbox to ONE client key: a dedicated inbox whose WHOLE contents are that
+    client's, so its sync ingests everything (no contact filter). "" = shared: routed to every
+    client by that client's contact list."""
     email = (email or "").strip().lower()
     if "@" not in email or "." not in email.split("@")[-1]:
         raise ValueError("That doesn't look like an email address.")
@@ -411,6 +415,7 @@ def add_mailbox(email, kind, app_password="", host=""):
         boxes.append(entry)
     entry["kind"] = kind
     entry["host"] = (host or "").strip()
+    entry["client"] = (client or "").strip()
     if kind == "imap":
         entry["app_password"] = app_password.replace(" ", "").strip()
     else:
@@ -442,7 +447,7 @@ def public_mailboxes():
     """The mailbox list SAFE for templates: the app password is never included."""
     out = []
     for b in mail_mailboxes():
-        row = {k: b.get(k, "") for k in ("id", "email", "kind", "host", "added_at")}
+        row = {k: b.get(k, "") for k in ("id", "email", "kind", "host", "added_at", "client")}
         row["has_password"] = bool(b.get("app_password"))
         out.append(row)
     return out

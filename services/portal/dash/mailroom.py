@@ -114,11 +114,20 @@ def clean_contacts(contacts):
     return out
 
 
+# The "pull everything" query for a mailbox ASSIGNED to one client (its whole inbox IS that
+# client's, so there is nothing to filter out at the source -- we classify inside instead). Only
+# chats are excluded; promotions/automated mail is KEPT and tiered as noise (so a security alert is
+# never dropped at ingest -- the flaw the old category/automated exclusions caused).
+EVERYTHING_QUERY = "-in:chats"
+
+
 def gmail_query(contacts, days=None):
     """The Gmail search covering all correspondence with `contacts` ("" when no usable contact).
 
     `{a b}` is Gmail's OR group; from:/to: accept an address or a bare domain. The SAME string works
     on the Gmail API (q=) and on IMAP (X-GM-RAW), which is what keeps the two connectors identical.
+    Promotions/social are NOT excluded here -- classification (classify_thread) tiers noise instead,
+    so nothing important is filtered away at ingest.
     """
     cleaned = clean_contacts(contacts)
     if not cleaned:
@@ -127,7 +136,7 @@ def gmail_query(contacts, days=None):
     for c in cleaned:
         terms.append("from:%s" % c)
         terms.append("to:%s" % c)
-    q = "{%s} -in:chats -category:promotions -category:social" % " ".join(terms)
+    q = "{%s} -in:chats" % " ".join(terms)
     if days:
         q += " newer_than:%dd" % int(days)
     return q
@@ -255,16 +264,14 @@ def _gmail_error(resp):
 def _normalize_api_thread(raw):
     """One Gmail-API thread -> the normalized shape (None when it holds nothing usable).
 
-    Machine-sent messages (robots, receipts, bulk -- see is_automated) are dropped per message;
-    a thread that is ALL machine mail returns None and never lands in the archive."""
+    We now KEEP machine mail and tier it later (classify_thread) instead of dropping it -- so a
+    security alert is never silently discarded. Only Gmail's SPAM folder is skipped (genuine junk,
+    already flagged by Google); promotions/automated mail is kept and classified as noise."""
     msgs = []
     for m in (raw.get("messages") or [])[:MAX_MESSAGES_PER_THREAD]:
         heads = {(h.get("name") or "").lower(): h.get("value") or ""
                  for h in ((m.get("payload") or {}).get("headers") or [])}
-        labels = m.get("labelIds") or []
-        if "SPAM" in labels or "CATEGORY_PROMOTIONS" in labels:
-            continue
-        if is_automated(heads.get("from", ""), heads):
+        if "SPAM" in (m.get("labelIds") or []):
             continue
         body = _api_body_text(m.get("payload") or {}) or (m.get("snippet") or "")
         msgs.append({
@@ -274,6 +281,9 @@ def _normalize_api_thread(raw):
             "date": _internal_date_iso(m.get("internalDate")),
             "subject": heads.get("subject", ""),
             "body": clean_body(body),
+            # Stamp machine-sent-ness now (the raw headers aren't kept) so classify_thread can
+            # tier the thread as noise later without re-reading the headers.
+            "automated": is_automated(heads.get("from", ""), heads),
         })
     if not msgs:
         return None
@@ -496,8 +506,9 @@ def _parse_rfc822(raw, fallback_id=""):
         msg = email.message_from_bytes(raw if isinstance(raw, bytes) else bytes(raw))
     except Exception:
         return None
-    if is_automated(_decode_header(msg.get("From")), dict(msg.items())):
-        return None  # machine-sent (robot address / auto-submitted / bulk) -- not a person
+    # We KEEP machine mail now and tier it later (classify_thread) rather than dropping it, so a
+    # security alert is never discarded. Stamp automated-ness while the headers are in hand.
+    automated = is_automated(_decode_header(msg.get("From")), dict(msg.items()))
     mid = (msg.get("Message-ID") or "").strip() or fallback_id
     date_iso = ""
     try:
@@ -517,6 +528,7 @@ def _parse_rfc822(raw, fallback_id=""):
         "date": date_iso,
         "subject": _decode_header(msg.get("Subject")),
         "body": clean_body(_rfc822_body_text(msg)),
+        "automated": automated,
     }
 
 
@@ -636,6 +648,63 @@ def is_automated(sender, headers):
     if h.get("x-autoreply") or h.get("x-autorespond"):
         return True
     return False
+
+
+# --- Triage: tier every thread by priority (rules-first, so it's free) -------------------------------
+# Instead of DROPPING machine mail (which silently binned security alerts), every thread is kept and
+# labelled with a tier. The Mail tab surfaces Security + Client, hides Noise by default, and the
+# hourly AI only summarizes the tiers that matter (never Noise) -- so cost stays low.
+#   security    -- account/security alerts (password, sign-in, app password, verification) -> ESCALATE
+#   client      -- real human mail involving the client (or any human mail in a client-owned mailbox)
+#   operations  -- real human mail NOT from the client (partners, vendors, leads)
+#   noise       -- newsletters, bulk, automated notifications
+MAIL_TIERS = ("security", "client", "operations", "noise")
+
+_SECURITY_FROM = re.compile(
+    r"@(?:accounts\.google\.com|google\.com|no-?reply@google|security[.@]|accounts\.)", re.I)
+_SECURITY_SUBJECT = re.compile(
+    r"\b(security alert|critical security|suspicious|unusual|new sign[- ]?in|was this you|"
+    r"verification code|2-step|two-step|app password|application-specific password|"
+    r"password (?:was )?(?:changed|reset)|account (?:access|recovery)|compromised|"
+    r"unauthori[sz]ed|login attempt|access token)\b", re.I)
+
+
+def _security_signal(msg):
+    """True iff one message looks like a security/account alert (sender OR subject)."""
+    frm = msg.get("from", "") or ""
+    if _SECURITY_FROM.search(frm) and (msg.get("automated") or "alert" in (msg.get("subject") or "").lower()):
+        return True
+    return bool(_SECURITY_SUBJECT.search(msg.get("subject", "") or ""))
+
+
+def classify_thread(thread, contact_set=None, contact_domains=None, client_owned=False):
+    """Tier one thread: 'security' | 'client' | 'operations' | 'noise'.
+
+    Rules only (no AI, no network). `contact_set`/`contact_domains` are the client's listed
+    addresses/domains; `client_owned` is True when the mailbox itself belongs to this client (a
+    dedicated inbox), in which case any human mail counts as client-queue traffic."""
+    contact_set = contact_set or set()
+    contact_domains = contact_domains or set()
+    msgs = thread.get("messages") or []
+    if any(_security_signal(m) for m in msgs):
+        return "security"
+    human = [m for m in msgs if not m.get("automated")]
+    if not human:
+        return "noise"
+    for m in human:
+        for addr in _EMAIL_RE.findall("%s %s" % (m.get("from", ""), m.get("to", ""))):
+            a = addr.lower()
+            if a in contact_set or a.split("@")[-1] in contact_domains:
+                return "client"
+    return "client" if client_owned else "operations"
+
+
+def _contact_sets(contacts):
+    """Split a contact list into (exact-address set, bare-domain set) for classify_thread."""
+    addrs, domains = set(), set()
+    for c in clean_contacts(contacts):
+        (addrs if "@" in c else domains).add(c)
+    return addrs, domains
 
 
 # --- Response stats: who owes whom, and how fast do WE reply -----------------------------------------
@@ -861,17 +930,27 @@ def sync_client(client, ws=None, mailboxes=None, days=None, poster=None, getter=
         return {"ok": False, "new_messages": 0, "new_threads": 0, "summarized": 0,
                 "errors": ["no workspace"]}
     contacts = workspace.mail_contacts(ws)
-    if not clean_contacts(contacts):
-        workspace.mark_mail_sync(client, error="no client contact emails set -- add them on the Mail tab")
-        return {"ok": False, "new_messages": 0, "new_threads": 0, "summarized": 0,
-                "errors": ["no client contact emails set"]}
     if mailboxes is None:
         mailboxes = workspace.mail_mailboxes()
-    active = [m for m in mailboxes if m.get("email")]
+    # This client's mailboxes = the ones ASSIGNED to it (dedicated inboxes -> ingest everything) +
+    # every SHARED/unassigned mailbox (routed by this client's contacts). A mailbox assigned to a
+    # DIFFERENT client is never touched here.
+    assigned = [m for m in mailboxes if m.get("email") and m.get("client") == client]
+    shared = [m for m in mailboxes if m.get("email") and not m.get("client")]
+    active = assigned + shared
     if not active:
         workspace.mark_mail_sync(client, error="no mailboxes connected -- add one in the operator console")
         return {"ok": False, "new_messages": 0, "new_threads": 0, "summarized": 0,
                 "errors": ["no mailboxes connected"]}
+    # Contacts are REQUIRED only to scope a shared mailbox. A dedicated (assigned) mailbox ingests
+    # its whole inbox, so a client with an assigned mailbox needs no contact list at all.
+    if shared and not clean_contacts(contacts):
+        if not assigned:
+            workspace.mark_mail_sync(client, error="no client contact emails set -- add them on the Mail tab")
+            return {"ok": False, "new_messages": 0, "new_threads": 0, "summarized": 0,
+                    "errors": ["no client contact emails set"]}
+        shared = []            # can't scope the shared boxes without contacts; use only the assigned one(s)
+        active = assigned
 
     # The look-back window: the WIDE first-sync window stays in force until a run drains it
     # completely (backlog 0 across every mailbox -> the `backfilled` flag latches); only then do
@@ -879,8 +958,11 @@ def sync_client(client, ws=None, mailboxes=None, days=None, poster=None, getter=
     # not just a first attempt.
     mail_prev = ws.get("mail") or {}
     backfilled = bool(mail_prev.get("backfilled"))
-    query = gmail_query(contacts, days=days or (sync_days() if backfilled else first_sync_days()))
-    changed = []   # (key, thread_dict) for every thread that gained messages this run
+    days_back = days or (sync_days() if backfilled else first_sync_days())
+    contact_query = gmail_query(contacts, days=days_back)
+    every_query = EVERYTHING_QUERY + (" newer_than:%dd" % int(days_back) if days_back else "")
+    contact_addrs, contact_domains = _contact_sets(contacts)
+    changed = []   # (key, thread_dict, tier) for every thread that gained messages this run
     backlog_total = 0
     # Who counts as "us" for the response stats: every connected mailbox address, plus the whole
     # domain of a Workspace (dwd) mailbox -- so a VA answering from info@ is agency-side.
@@ -889,6 +971,8 @@ def sync_client(client, ws=None, mailboxes=None, days=None, poster=None, getter=
                       for m in active if m.get("kind") == "dwd" and "@" in (m.get("email") or "")}
 
     for mb in active:
+        client_owned = bool(mb.get("client") == client)   # dedicated inbox -> ingest everything
+        query = every_query if client_owned else contact_query
         prefix = (mb.get("id") or "mb") + "_"
         already = {str(t.get("id", ""))[len(prefix):]
                    for t in (mail_prev.get("threads") or [])
@@ -916,12 +1000,15 @@ def sync_client(client, ws=None, mailboxes=None, days=None, poster=None, getter=
             merged["mailbox"] = mb.get("email", "")
             stats = thread_stats(merged, agency_addrs, agency_domains)
             merged["stats"] = stats
+            tier = classify_thread(merged, contact_addrs, contact_domains, client_owned=client_owned)
+            merged["tier"] = tier
             workspace.write_mail_thread(client, key, merged)
             entry = {"id": key, "subject": merged.get("subject", ""),
                      "participants": merged.get("participants") or [],
                      "last_date": merged.get("last_date", ""),
                      "message_count": len(merged.get("messages") or []),
                      "mailbox": mb.get("email", ""),
+                     "tier": tier,
                      "awaiting_reply": stats["awaiting_reply"],
                      "avg_response_hours": stats["avg_response_hours"],
                      "summary": (stored or {}).get("summary", "")}
@@ -931,16 +1018,21 @@ def sync_client(client, ws=None, mailboxes=None, days=None, poster=None, getter=
             result["new_messages"] += added
             if stored is None:
                 result["new_threads"] += 1
-            changed.append((key, merged))
+            changed.append((key, merged, tier))
 
     # Summarize what changed + refresh the digest (best-effort; archiving already succeeded).
     # One model call per thread yields BOTH voices: the internal summary (Mail tab + digest) and
     # the client-facing recap, which is mirrored onto the client-visible Communications tab's
     # Email Summary feed under a stable 'mail_<key>' id (re-summarizing UPDATES the entry).
+    # Summarize only the tiers worth spending on -- NEVER noise (newsletters/bulk); those stay
+    # archived and searchable but cost nothing. Only CLIENT-tier recaps mirror onto the
+    # client-visible Communications feed (a vendor/security/noise thread never shows to the client).
+    to_summarize = [(k, th) for (k, th, tier) in changed if tier != "noise"]
     model = _mail_model(ws) if summarize else ""
-    if changed and summarize and model:
+    if to_summarize and summarize and model:
         name = ws.get("display_name") or client
-        for key, thread in changed:
+        client_tiers = {k: tier for (k, _th, tier) in changed}
+        for key, thread in to_summarize:
             usage = {}
             summary, client_summary, err = summarize_thread(
                 name, thread, model, ai_fetcher=ai_fetcher,
@@ -951,7 +1043,7 @@ def sync_client(client, ws=None, mailboxes=None, days=None, poster=None, getter=
                 workspace.write_mail_thread(client, key, thread)
                 workspace.set_mail_thread_summary(client, key, summary)
                 result["summarized"] += 1
-                if client_summary:
+                if client_summary and client_tiers.get(key) == "client":
                     try:
                         workspace.upsert_email_summary(client, "mail_" + key,
                                                        thread.get("subject", ""), client_summary,
@@ -971,7 +1063,7 @@ def sync_client(client, ws=None, mailboxes=None, days=None, poster=None, getter=
             workspace.set_mail_digest(client, digest)
         elif err and "no summarized threads" not in err:
             result["errors"].append("digest: %s" % err)
-    elif changed and summarize and not model:
+    elif to_summarize and summarize and not model:
         result["errors"].append("no AI provider configured -- threads archived without summaries")
 
     workspace.mark_mail_sync(client, error="; ".join(dict.fromkeys(result["errors"]))[:400],

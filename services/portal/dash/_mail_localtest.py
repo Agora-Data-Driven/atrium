@@ -100,22 +100,31 @@ _GMAIL_THREAD = {"id": "18c9aa01", "messages": [
 ]}
 
 
-# An ALL-machine thread (noreply sender + bulk headers): must never land in the archive.
+# An ALL-machine thread (noreply sender + bulk headers): KEPT now, tiered "noise".
 _GMAIL_AUTOMATED = {"id": "18c9bb02", "messages": [
     _api_message("m9", "Riverdance Bookings <noreply@riverdanceresort.com>",
                  "info@agoradatadriven.com", "Your weekly booking report",
                  "Automated weekly report. Unsubscribe below.", 1751500000000,
-                 extra={"List-Unsubscribe": "<mailto:u@x.com>", "Precedence": "bulk"}),
+                 extra={"List-Unsubscribe": "<mailto:u@x.com>", "Precedence": "bulk"},
+                 labels=["CATEGORY_PROMOTIONS"]),
+]}
+# A security alert from Google: MUST be kept + tiered "security" (the old filter wrongly dropped it).
+_GMAIL_SECURITY = {"id": "18c9cc03", "messages": [
+    _api_message("m10", "Google <no-reply@accounts.google.com>", "info@agoradatadriven.com",
+                 "Security alert: app password created for Atrium",
+                 "An app password was created for your account.", 1751600000000),
 ]}
 
 
 def _gmail_getter(url, headers, params, timeout):
     if url.endswith("/threads"):
-        return _Resp({"threads": [{"id": "18c9aa01"}, {"id": "18c9bb02"}]})
+        return _Resp({"threads": [{"id": "18c9aa01"}, {"id": "18c9bb02"}, {"id": "18c9cc03"}]})
     if url.endswith("/threads/18c9aa01"):
         return _Resp(_GMAIL_THREAD)
     if url.endswith("/threads/18c9bb02"):
         return _Resp(_GMAIL_AUTOMATED)
+    if url.endswith("/threads/18c9cc03"):
+        return _Resp(_GMAIL_SECURITY)
     if url.endswith("/profile"):
         return _Resp({"emailAddress": "info@agoradatadriven.com", "threadsTotal": 42})
     return _Resp({"error": {"message": "unexpected url " + url}}, status=404)
@@ -229,13 +238,37 @@ def run():
                                          token_fetcher=lambda: "gcp-token")
     _check("dwd token mints via signJwt + exchange", tok == "delegated-token" and err == "")
     threads, err, backlog = mailroom.gmail_pull(tok, q, getter=_gmail_getter)
-    _check("gmail_pull normalizes the thread AND drops the all-machine thread",
-           err == "" and len(threads) == 1 and backlog == 0
-           and threads[0]["subject"] == "June budget" and len(threads[0]["messages"]) == 2)
+    _check("gmail_pull KEEPS every thread now (machine mail no longer dropped)",
+           err == "" and len(threads) == 3 and backlog == 0)
+    _by = {t["subject"]: t for t in threads}
+    _check("the human thread parsed with both messages",
+           _by["June budget"] and len(_by["June budget"]["messages"]) == 2)
+    _check("messages carry an `automated` flag",
+           _by["Your weekly booking report"]["messages"][0]["automated"] is True
+           and _by["June budget"]["messages"][0]["automated"] is False)
+
+    # classify_thread: the four tiers, rules-only.
+    ca, cd = mailroom._contact_sets(["maya@riverdanceresort.com", "riverdanceresort.com"])
+    _check("classify: security wins (Google app-password alert is NOT dropped, it escalates)",
+           mailroom.classify_thread(_by["Security alert: app password created for Atrium"], ca, cd)
+           == "security")
+    _check("classify: an all-automated newsletter is noise",
+           mailroom.classify_thread(_by["Your weekly booking report"], ca, cd) == "noise")
+    _check("classify: human mail matching a client contact is client",
+           mailroom.classify_thread(_by["June budget"], ca, cd) == "client")
+    _check("classify: human mail NOT from the client is operations (shared mailbox)",
+           mailroom.classify_thread(
+               {"messages": [{"from": "vendor@printco.com", "to": "info@agoradatadriven.com",
+                              "subject": "Quote", "automated": False}]}, ca, cd) == "operations")
+    _check("classify: in a client-OWNED mailbox, any human mail counts as client",
+           mailroom.classify_thread(
+               {"messages": [{"from": "lead@random.com", "to": "gab@meloyelo.nz",
+                              "subject": "Interested", "automated": False}]},
+               set(), set(), client_owned=True) == "client")
     # Backfill: with the real thread already 'known', a second pull refetches nothing new but the
     # listing still sees it (backlog stays 0 because it's known, not unfetched).
     threads2, err2, backlog2 = mailroom.gmail_pull(tok, q, getter=_gmail_getter,
-                                                   known={"18c9aa01"})
+                                                   known={"18c9aa01", "18c9bb02", "18c9cc03"})
     _check("gmail_pull skips known threads first (backfill drains, doesn't refetch)",
            err2 == "" and backlog2 == 0)
     _check("api reply lost its quoted tail", "old" not in threads[0]["messages"][1]["body"]
@@ -298,6 +331,11 @@ def run():
         print("  [OK] add_mailbox requires the imap app password")
     mb1 = workspace.add_mailbox("info@agoradatadriven.com", "dwd")
     mb2 = workspace.add_mailbox("projects@gmail.com", "imap", app_password="abcd efgh ijkl mnop")
+    mbC = workspace.add_mailbox("gab@meloyelo.nz", "imap", app_password="p" * 16, client="riverdance")
+    _check("a mailbox can be ASSIGNED to a client (dedicated inbox)",
+           workspace.find_mailbox(mbC["id"])["client"] == "riverdance"
+           and next(b for b in workspace.public_mailboxes() if b["id"] == mbC["id"])["client"] == "riverdance")
+    workspace.delete_mailbox(mbC["id"])
     _check("app password stored without spaces",
            workspace.find_mailbox(mb2["id"])["app_password"] == "abcdefghijklmnop")
     same = workspace.add_mailbox("projects@gmail.com", "imap", app_password="qqqqqqqqqqqqqqqq")
@@ -344,14 +382,15 @@ def run():
                                   poster=_dwd_poster, getter=_gmail_getter,
                                   token_fetcher=lambda: "gcp-token",
                                   imap_factory=lambda mb: _FakeImap(), ai_fetcher=_ai_fetcher)
-    _check("sync pulls both mailboxes and archives",
-           result["ok"] and result["new_threads"] == 2 and result["new_messages"] == 3)
+    _check("sync pulls every thread now (human + security + noise from dwd, human from imap)",
+           result["ok"] and result["new_threads"] == 4)
     ws = workspace.load_workspace(CLIENT)
     entries = workspace.mail_threads(ws)
-    _check("index holds both threads, newest first",
-           len(entries) == 2 and entries[0]["last_date"] >= entries[1]["last_date"])
-    _check("threads were AI-summarized", result["summarized"] == 2
-           and all("owes the updated plan" in e["summary"] for e in entries))
+    tiers = sorted(e.get("tier") for e in entries)
+    _check("entries carry tiers (security/client/operations-or-client/noise)",
+           "security" in tiers and "noise" in tiers and "client" in tiers)
+    _check("noise threads are NOT summarized (cost control)", result["summarized"] == 3
+           and all(not e.get("summary") for e in entries if e.get("tier") == "noise"))
     digest_body = (ws.get("mail") or {}).get("digest", {}).get("body", "")
     _check("digest written with a REPLIES judgement", "NEEDS ACTION" in digest_body
            and "REPLIES" in digest_body)
@@ -362,14 +401,17 @@ def run():
            and by_subject["June budget"]["awaiting_reply"] is False
            and by_subject["June budget"]["avg_response_hours"] == 25.0)
     mirrors = [e for e in (ws.get("email_summaries") or []) if str(e.get("id", "")).startswith("mail_")]
-    _check("client recaps mirrored onto the Communications tab's Email Summary feed",
-           len(mirrors) == 2 and all("Friendly recap" in e["summary"] for e in mirrors))
+    client_entries = [e for e in entries if e.get("tier") == "client"]
+    _check("ONLY client-tier recaps mirror to the Communications feed (not ops/security/noise)",
+           len(mirrors) == len(client_entries) and len(mirrors) >= 1
+           and all("Friendly recap" in e["summary"] for e in mirrors))
+    _n_mirrors = len(mirrors)
     workspace.upsert_email_summary(CLIENT, mirrors[0]["id"], mirrors[0]["subject"], "updated recap")
     ws2 = workspace.load_workspace(CLIENT)
     again_mirrors = [e for e in (ws2.get("email_summaries") or [])
                      if str(e.get("id", "")).startswith("mail_")]
     _check("re-mirroring UPDATES in place (no duplicates)",
-           len(again_mirrors) == 2 and any(e["summary"] == "updated recap" for e in again_mirrors))
+           len(again_mirrors) == _n_mirrors and any(e["summary"] == "updated recap" for e in again_mirrors))
     _check("AI spend folded into the assistant tally",
            workspace.assistant_usage(ws)["calls"] >= 3)
     again = mailroom.sync_client(CLIENT, mailboxes=workspace.mail_mailboxes(),
@@ -396,7 +438,8 @@ def run():
     _check("archive-only sync pulls mail but writes NO summaries/digest",
            ar["ok"] and ar["new_threads"] >= 1 and ar["summarized"] == 0
            and not (aws.get("mail") or {}).get("digest", {}).get("body")
-           and all(not t.get("summary") for t in workspace.mail_threads(aws)))
+           and all(not t.get("summary") for t in workspace.mail_threads(aws))
+           and all(t.get("tier") for t in workspace.mail_threads(aws)))
 
     # --- mail_refresh: the job wrapper -----------------------------------------------------------------
     os.environ["MAIL_SYNC_ENABLED"] = "1"
@@ -413,8 +456,8 @@ def run():
     mail_threads = [workspace.read_mail_thread(CLIENT, t["id"]) for t in workspace.mail_threads(ws)]
     chunks = assistant_ai.build_chunks(ws, [], mail_threads=[t for t in mail_threads if t])
     mail_chunks = [ch for ch in chunks if ch["kind"] == "email"]
-    _check("assistant chunks include the email threads",
-           len(mail_chunks) == 3 and any("June budget" in ch["title"] for ch in mail_chunks))
+    _check("assistant chunks include the email threads + the responsiveness snapshot",
+           len(mail_chunks) >= 3 and any("June budget" in ch["title"] for ch in mail_chunks))
     snap = next((ch for ch in mail_chunks if ch["id"] == "mail:responsiveness"), None)
     _check("assistant gets the computed responsiveness snapshot (the VA-accountability chunk)",
            snap is not None and "awaiting AGORA reply: YES" in snap["text"]
@@ -436,9 +479,12 @@ def run():
            'data-pane="mail"' in body and "maya@riverdanceresort.com" in body and "NEEDS ACTION" in body)
     _check("mail tab shows the responsiveness strip + awaiting chip",
            "ax-ml-statsrow" in body and "awaiting our reply" in body and "Awaiting our reply" in body)
+    _ws_cur = workspace.load_workspace(CLIENT)
+    _cur_mirror = next((e for e in (_ws_cur.get("email_summaries") or [])
+                        if str(e.get("id", "")).startswith("mail_")), None)
     conv = c.get("/w/%s/conversations" % CLIENT).get_data(as_text=True)
     _check("the client-facing Communications tab carries the mirrored recap",
-           "Friendly recap" in conv)
+           _cur_mirror is not None and _cur_mirror["summary"] in conv)
 
     import mailroom as _mr
     real_sync = _mr.sync_client
@@ -463,8 +509,8 @@ def run():
            r.status_code == 200 and len(r.get_json()["messages"]) >= 1)
     r = c.post("/w/%s/admin/mail" % CLIENT, data={"op": "delete", "thread_id": key})
     ws3 = workspace.load_workspace(CLIENT)
-    _check("op=delete removes the thread", r.get_json()["ok"] is True
-           and workspace.mail_threads(ws3) == [])
+    _check("op=delete removes that thread from the index", r.get_json()["ok"] is True
+           and key not in [t["id"] for t in workspace.mail_threads(ws3)])
     _check("op=delete also retracts the mirrored Communications entry",
            not any(e.get("id") == "mail_" + key for e in ws3.get("email_summaries") or []))
 

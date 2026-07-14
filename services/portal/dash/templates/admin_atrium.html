@@ -799,7 +799,8 @@
             <div class="req">
               <div>
                 <b>{{ b.email }}</b>
-                <span class="meta">&middot; {{ 'Workspace (delegated — nothing stored)' if b.kind == 'dwd' else 'App password (IMAP)' }}{% if b.added_at %} &middot; added {{ b.added_at[:10] }}{% endif %}</span>
+                <span class="meta">&middot; {{ 'Workspace (delegated — nothing stored)' if b.kind == 'dwd' else 'App password (IMAP)' }}
+                  &middot; {% if b.client %}<b>{{ b.client }}</b> only — whole inbox ingested{% else %}shared — routed to each client by contacts{% endif %}{% if b.added_at %} &middot; added {{ b.added_at[:10] }}{% endif %}</span>
                 <span class="meta" data-mbmsg="{{ b.id }}"></span>
               </div>
               {% if is_root_admin %}
@@ -830,6 +831,17 @@
               <option value="dwd">Our Workspace domain &mdash; delegated, no password stored</option>
               <option value="imap">Any other Google account &mdash; via an app password</option>
             </select>
+            <label>Whose mailbox is this?</label>
+            <select name="client" id="mb-client">
+              <option value="">Shared inbox &mdash; route to each client by their contact addresses</option>
+              {% for c in mail_client_options %}
+              <option value="{{ c.key }}">{{ c.name }} &mdash; a dedicated inbox; ingest its WHOLE contents into {{ c.name }}</option>
+              {% endfor %}
+            </select>
+            <p class="meta">Pick a client for a mailbox that belongs to just them (like one they gave
+              you access to) &mdash; the whole inbox is pulled, no contact list needed. Leave it
+              <b>Shared</b> for an agency mailbox that many clients email; then each client's Mail tab
+              pulls only the mail matching their own contact addresses.</p>
             <div id="mb-pw" hidden>
               <label>App password</label>
               <input type="text" name="app_password" autocomplete="off" placeholder="16-character app password">

@@ -1019,7 +1019,7 @@ def atrium(client, tab):
         watcher=(_watcher_view(ws, client) if (is_superadmin() and not admin_preview) else []),
         # Mail (team-only tab): the client's email archive index + digest; bodies stay in their
         # per-thread objects, fetched on click (atrium_mail_thread).
-        mail=(_mail_view(ws) if (is_superadmin() and not admin_preview) else None),
+        mail=(_mail_view(ws, client) if (is_superadmin() and not admin_preview) else None),
         # Assistant (team-only): the model dropdown options + the saved choices ("" = automatic
         # model; depth quick|standard|deep) + the all-time spend tally that seeds the cost pill.
         assistant_models=intel_ai.available_models(),
@@ -2642,7 +2642,7 @@ def atrium_watcher_video(client, channel_id, video_id):
 
 
 # --- Mail (team-only tab: client email archive + AI digest; see mailroom.py) ----------------------
-def _mail_view(ws):
+def _mail_view(ws, client):
     """The Mail pane's render model: contacts + digest + the display-ready thread index rows
     (subjects/participants/summaries only -- bodies are fetched on click)."""
     state = workspace.mail_state(ws)
@@ -2656,19 +2656,27 @@ def _mail_view(ws):
             "message_count": t.get("message_count", 0),
             "mailbox": t.get("mailbox", ""),
             "summary": t.get("summary", ""),
+            "tier": t.get("tier") or "client",   # older entries (pre-triage) default to client
             "awaiting_reply": bool(t.get("awaiting_reply")),
             "avg_response_hours": t.get("avg_response_hours"),
         })
     # The responsiveness strip: computed numbers (mailroom.thread_stats per thread), the same
     # facts the digest's REPLIES section and the Assistant's snapshot are judged against.
-    waiting = [r for r in rows if r["awaiting_reply"]]
-    hours = [r["avg_response_hours"] for r in rows
+    # Noise (newsletters/bulk) is excluded from the "awaiting reply" pressure -- you don't owe a
+    # newsletter a reply -- so the strip reflects real correspondence only.
+    real = [r for r in rows if r["tier"] != "noise"]
+    waiting = [r for r in real if r["awaiting_reply"]]
+    hours = [r["avg_response_hours"] for r in real
              if isinstance(r.get("avg_response_hours"), (int, float))]
+    tier_counts = {tier: sum(1 for r in rows if r["tier"] == tier)
+                   for tier in ("security", "client", "operations", "noise")}
     stats = {
-        "total": len(rows),
+        "total": len(real),
         "awaiting": len(waiting),
         "oldest_awaiting": min([r["last_date"] for r in waiting if r["last_date"]] or [""]),
         "avg_response_hours": (round(sum(hours) / len(hours), 1) if hours else None),
+        "security": tier_counts["security"],
+        "tier_counts": tier_counts,
     }
     return {
         "contacts": ", ".join(state.get("contacts") or []),
@@ -2678,6 +2686,9 @@ def _mail_view(ws):
         "last_sync": state.get("last_sync", ""),
         "last_error": state.get("last_error", ""),
         "backlog": int(state.get("backlog") or 0),
+        # Which connected mailboxes actually feed THIS client (assigned to it, or shared).
+        "mailboxes": [m for m in workspace.public_mailboxes()
+                      if m.get("client") == client or not m.get("client")],
         # Drives the pane's setup hints ("connect a mailbox first" vs "add contacts").
         "mailbox_count": len(workspace.mail_mailboxes()),
     }
@@ -2806,13 +2817,16 @@ def admin_mail():
         if kind == "dwd" and not mailroom.dwd_configured():
             return back("Workspace delegation isn't set up yet -- run enable_atrium_mail.ps1 "
                         "and redeploy first, or connect it as IMAP.", err=True)
+        assign = request.form.get("client", "").strip()   # "" = shared; else a client key
         try:
             entry = workspace.add_mailbox(email, kind,
-                                          app_password=request.form.get("app_password", ""))
+                                          app_password=request.form.get("app_password", ""),
+                                          client=assign)
         except ValueError as exc:
             return back(str(exc), err=True)
-        _audit("", "connected mailbox", "%s (%s)" % (entry["email"], kind))
-        return back("Mailbox %s connected. Use Test to prove the connection." % entry["email"])
+        scope = ("assigned to %s (whole inbox)" % assign) if assign else "shared (routed by contacts)"
+        _audit("", "connected mailbox", "%s (%s, %s)" % (entry["email"], kind, scope))
+        return back("Mailbox %s connected — %s. Use Test to prove the connection." % (entry["email"], scope))
 
     if op == "delete":
         removed = workspace.delete_mailbox(request.form.get("mailbox_id", ""))
@@ -3355,6 +3369,9 @@ def admin_atrium():
         # Mailboxes pane: the connected-mailbox list (passwords stripped) + whether Workspace
         # delegation is wired on this deploy (drives the pane's setup hints).
         mailboxes=workspace.public_mailboxes(),
+        # Client options for the mailbox "assign to a client" dropdown (real clients only, not the
+        # worked-example template); name_by_key already excludes nothing, so filter template here.
+        mail_client_options=[{"key": c["key"], "name": c["name"] or c["key"]} for c in clients],
         mail_dwd=bool(os.environ.get("MAIL_DWD_SA", "").strip()),
         msg=request.args.get("msg"), flash_err=(request.args.get("err") == "1"), **_brand_ctx())
 

@@ -207,18 +207,23 @@ auto-refresh (see those bullets below). Product name is one constant:
   full messages are their OWN object `workspace/mail/<c>/<key>.json` (key = mailbox id + Gmail
   thread id; quoted-reply tails stripped, message-id dedup makes re-runs cheap); `ws["mail"]`
   keeps only the small index (contacts, subjects/participants/summaries, the digest,
-  last_sync/last_error). **Machine mail never lands:** the
-  query excludes the Promotions/Social categories and `mailroom.is_automated` drops robot messages
-  per message (noreply/bounce senders, Auto-Submitted, Precedence bulk/junk/auto_reply,
-  autoresponders) -- deliberately CONSERVATIVE: List-Unsubscribe alone never counts, so human mail
-  relayed through a client's Google-Groups alias is kept. **Response stats are computed, not
+  last_sync/last_error). **Triage, not deletion (nothing important is ever dropped):** every thread is KEPT and tiered
+  by `mailroom.classify_thread` -- **security** (account/password/sign-in alerts -> shown first, can
+  bypass a VA), **client** (human mail involving the client, or ANY human mail in a client-owned
+  mailbox), **operations** (human mail not from the client -- vendors/partners/leads), **noise**
+  (newsletters/bulk/automated, via `is_automated`; List-Unsubscribe alone never counts, Google-
+  Groups-safe). Only Gmail's SPAM folder is skipped at ingest. The Mail tab defaults to hiding noise
+  and flags security; the hourly AI summarizes every tier EXCEPT noise (cost control). **Per-mailbox
+  scope:** a mailbox can be ASSIGNED to one client (a dedicated inbox they gave us) -> its WHOLE
+  contents are ingested, no contact list needed; an unassigned/**shared** mailbox is routed to each
+  client by that client's contact list. **Response stats are computed, not
   guessed** (`thread_stats`/`stats_line`): per thread `awaiting_reply` (is the last word the
   client's) + average AGORA reply hours (a sender matching a connected mailbox address, or a dwd
   mailbox's domain, counts as agency -- so a VA answering from info@ is "us"); shown as the Mail
   tab's stats strip + per-row chips. The intel brain (`intel_ai._call`; model = Assistant's ->
   intel's -> default) writes TWO voices per changed thread in ONE call
   (`summarize_thread` -> internal summary + `client_summary`): the internal one (blunt, includes
-  reply-quality observations) runs the Mail tab and the digest; the client one is MIRRORED onto
+  reply-quality observations) runs the Mail tab and the digest; the client one (for CLIENT-tier threads only) is MIRRORED onto
   the client-visible Communications tab's **Email Summary** feed (`workspace.upsert_email_summary`,
   stable id `mail_<key>` so re-summarizing updates in place; deleting the thread retracts the
   mirror -- safe by construction, the client was on every thread). The rolling digest is STATUS /

@@ -1379,6 +1379,19 @@
     .ax-ml-del:hover { color: var(--ax-bad); }
     .ax-ml-statsrow { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; font-size: 13.5px; }
     .ax-ml-statsrow .is-bad b { color: var(--ax-bad); }
+    .ax-ml-secbanner { display: flex; align-items: center; gap: 10px; font-size: 14px; border-left: 4px solid var(--ax-bad); }
+    .ax-ml-secbanner .ax-ic { color: var(--ax-bad); flex: 0 0 auto; }
+    .ax-ml-filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
+    .ax-ml-fbtn { border: 1px solid var(--ax-line); background: var(--ax-white); border-radius: 999px; padding: 5px 13px; font-size: 13px; cursor: pointer; color: var(--ax-sub); }
+    .ax-ml-fbtn:hover { border-color: #d6d8e0; color: var(--ax-ink); }
+    .ax-ml-fbtn.is-active { background: var(--ax-violet-bg); border-color: transparent; color: var(--ax-violet-d); font-weight: 600; }
+    .ax-ml-fn { opacity: .8; }
+    .ax-ml-tier { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 1px 7px; border-radius: 5px; vertical-align: middle; margin-right: 4px; }
+    .ax-ml-tier.t-security { background: #fdeaea; color: #b42318; }
+    .ax-ml-tier.t-client { background: var(--ax-green-bg); color: var(--ax-green-d); }
+    .ax-ml-tier.t-operations { background: var(--ax-violet-bg); color: var(--ax-violet-d); }
+    .ax-ml-tier.t-noise { background: var(--ax-canvas); color: var(--ax-sub); }
+    .ax-ml-row.ax-ml-hidden { display: none; }
     .ax-ml-mbody .ax-ml-msg { border-top: 1px solid var(--ax-line); padding: 12px 0; }
     .ax-ml-mbody .ax-ml-msg:first-child { border-top: 0; padding-top: 0; }
     .ax-ml-msghead { font-size: 12.5px; color: var(--ax-sub); margin-bottom: 6px; }
@@ -3283,17 +3296,29 @@
           </div>
 
           {% if mail.threads %}
+          {% if mail.stats.security %}
+          <div class="ax-panel ax-ml-secbanner">{{ ic('health') }}<span><b>{{ mail.stats.security }}</b> security / account alert{{ '' if mail.stats.security == 1 else 's' }} in this mailbox &mdash; review these first (they can bypass a VA).</span></div>
+          {% endif %}
           <div class="ax-panel ax-ml-statsrow">
-            <span><b>{{ mail.stats.total }}</b> conversation{{ '' if mail.stats.total == 1 else 's' }}</span>
+            <span><b>{{ mail.stats.total }}</b> real conversation{{ '' if mail.stats.total == 1 else 's' }}</span>
             <span class="{{ 'is-bad' if mail.stats.awaiting else '' }}"><b>{{ mail.stats.awaiting }}</b> awaiting our reply{% if mail.stats.awaiting and mail.stats.oldest_awaiting %} (oldest {{ mail.stats.oldest_awaiting|atrium_date }}){% endif %}</span>
             {% if mail.stats.avg_response_hours is not none %}<span>avg reply time <b>{{ mail.stats.avg_response_hours }}h</b></span>{% endif %}
             <span class="ax-ml-meta">Ask the Assistant &ldquo;how well are we handling {{ ws.display_name }}'s emails?&rdquo; &mdash; it judges against these numbers and the actual replies.</span>
           </div>
-          <div class="ax-ml-list">
+          {% set tc = mail.stats.tier_counts %}
+          <div class="ax-ml-filters" id="ax-ml-filters" role="tablist">
+            <button type="button" class="ax-ml-fbtn is-active" data-mlfilter="active">Needs attention{% if tc.security or tc.client or tc.operations %} <span class="ax-ml-fn">{{ tc.security + tc.client + tc.operations }}</span>{% endif %}</button>
+            <button type="button" class="ax-ml-fbtn" data-mlfilter="security">Security{% if tc.security %} <span class="ax-ml-fn">{{ tc.security }}</span>{% endif %}</button>
+            <button type="button" class="ax-ml-fbtn" data-mlfilter="client">Client{% if tc.client %} <span class="ax-ml-fn">{{ tc.client }}</span>{% endif %}</button>
+            <button type="button" class="ax-ml-fbtn" data-mlfilter="operations">Operations{% if tc.operations %} <span class="ax-ml-fn">{{ tc.operations }}</span>{% endif %}</button>
+            <button type="button" class="ax-ml-fbtn" data-mlfilter="noise">Noise{% if tc.noise %} <span class="ax-ml-fn">{{ tc.noise }}</span>{% endif %}</button>
+            <button type="button" class="ax-ml-fbtn" data-mlfilter="all">All</button>
+          </div>
+          <div class="ax-ml-list" id="ax-ml-list">
             {% for t in mail.threads %}
-            <div class="ax-panel ax-ml-row" data-mlthread="{{ t.id }}" role="button" tabindex="0" title="Read the full thread">
+            <div class="ax-panel ax-ml-row" data-mlthread="{{ t.id }}" data-mltier="{{ t.tier }}" role="button" tabindex="0" title="Read the full thread">
               <div class="ax-ml-rowhead">
-                <div class="ax-ml-sub">{{ t.subject }}{% if t.awaiting_reply %} <span class="ax-wt-chip bad">Awaiting our reply</span>{% endif %}</div>
+                <div class="ax-ml-sub"><span class="ax-ml-tier t-{{ t.tier }}">{{ {'security':'Security','client':'Client','operations':'Ops','noise':'Noise'}[t.tier] }}</span> {{ t.subject }}{% if t.awaiting_reply and t.tier != 'noise' %} <span class="ax-wt-chip bad">Awaiting our reply</span>{% endif %}</div>
                 <div class="ax-ml-meta">{{ t.last_date|atrium_date }} &middot; {{ t.message_count }} message{{ '' if t.message_count == 1 else 's' }}</div>
               </div>
               <div class="ax-ml-meta">{{ t.participants }}{% if t.mailbox %} &middot; via {{ t.mailbox }}{% endif %}</div>
@@ -4372,6 +4397,27 @@
       modal.addEventListener("click", function (e) { if (e.target === modal) { closeModal(); } });
       document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !modal.hidden) { closeModal(); } });
     }
+
+    // Tier filter: "Needs attention" (default) shows Security + Client + Operations and hides
+    // Noise; the other buttons show one tier; "All" shows everything. Pure client-side show/hide.
+    var rows = qsa("[data-mlthread]");
+    function applyMlFilter(mode) {
+      rows.forEach(function (r) {
+        var tier = r.getAttribute("data-mltier") || "client";
+        var show = (mode === "all") ? true
+                 : (mode === "active") ? (tier !== "noise")
+                 : (tier === mode);
+        r.classList.toggle("ax-ml-hidden", !show);
+      });
+    }
+    qsa("[data-mlfilter]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        qsa("[data-mlfilter]").forEach(function (b) { b.classList.remove("is-active"); });
+        btn.classList.add("is-active");
+        applyMlFilter(btn.getAttribute("data-mlfilter"));
+      });
+    });
+    applyMlFilter("active");   // default view hides Noise
   })();
 
   // ---- Assistant spend (the cost pill): session + all-time, mastery-engine style ----------------
