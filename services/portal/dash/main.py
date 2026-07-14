@@ -2744,17 +2744,15 @@ def atrium_admin_mail(client):
                        digest=(state.get("digest") or {}).get("body", ""))
 
     if op == "digest":
-        model = mailroom._mail_model(ws)
-        if not model:
-            return jsonify(ok=False, message="No AI provider is configured on the server.")
-        entries = workspace.mail_threads(ws)
-        digest, err = mailroom.build_digest(ws.get("display_name") or client,
-                                           entries, model, stats=mailroom.stats_line(entries))
-        if err:
-            return jsonify(ok=False, message=err)
-        workspace.set_mail_digest(client, digest)
-        _audit(client, "rebuilt mail digest", "")
-        return jsonify(ok=True, digest=digest)
+        # Refresh briefing = the ON-DEMAND AI pass: summarize the archived threads that still lack a
+        # summary (Sync-now is archive-only), then rebuild the digest. Capped per click, so a big
+        # backlog is drained over a few clicks (the JS reports how many remain).
+        result = mailroom.refresh_briefing(client, ws=ws)
+        if not result["ok"]:
+            return jsonify(ok=False, message=result.get("error") or "Nothing to summarize yet.")
+        _audit(client, "refreshed mail briefing", "%d summarized" % result["summarized"])
+        return jsonify(ok=True, digest=result["digest"], summarized=result["summarized"],
+                       remaining=result["remaining"])
 
     if op == "delete":
         key = request.form.get("thread_id", "").strip()

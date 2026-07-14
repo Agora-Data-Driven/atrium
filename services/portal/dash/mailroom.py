@@ -1080,6 +1080,63 @@ def sync_client(client, ws=None, mailboxes=None, days=None, poster=None, getter=
     return result
 
 
+def refresh_briefing(client, ws=None, limit=40, ai_fetcher=None, token_fetcher=None):
+    """The on-demand AI pass behind the Mail tab's 'Refresh briefing' button.
+
+    Sync-now is archive-only (fast, free), so summaries don't exist until either the hourly job or
+    THIS runs. Summarize archived-but-unsummarized non-noise threads (up to `limit` per click so one
+    web request stays well inside the timeout), mirror CLIENT-tier recaps onto the Communications
+    feed, then rebuild the digest. Returns {ok, summarized, remaining, digest, error}; never raises."""
+    import workspace
+    if ws is None:
+        ws = workspace.load_workspace(client)
+    if ws is None:
+        return {"ok": False, "summarized": 0, "remaining": 0, "digest": "", "error": "no workspace"}
+    model = _mail_model(ws)
+    if not model:
+        return {"ok": False, "summarized": 0, "remaining": 0, "digest": "",
+                "error": "No AI provider is configured on the server."}
+    name = ws.get("display_name") or client
+    entries = workspace.mail_threads(ws)
+    pending = [e for e in entries if e.get("tier") != "noise" and not e.get("summary") and e.get("id")]
+    summarized = 0
+    for e in pending[:limit]:
+        key = e["id"]
+        thread = workspace.read_mail_thread(client, key)
+        if not thread:
+            continue
+        usage = {}
+        summary, client_summary, err = summarize_thread(
+            name, thread, model, ai_fetcher=ai_fetcher, token_fetcher=token_fetcher, usage_out=usage)
+        _tally(client, model, usage)
+        if summary:
+            thread["summary"] = summary
+            workspace.write_mail_thread(client, key, thread)
+            workspace.set_mail_thread_summary(client, key, summary)
+            summarized += 1
+            if client_summary and e.get("tier") == "client":
+                try:
+                    workspace.upsert_email_summary(client, "mail_" + key, thread.get("subject", ""),
+                                                   client_summary, date=thread.get("last_date", ""))
+                except Exception:
+                    pass
+    remaining = max(0, len(pending) - summarized)
+    fresh = workspace.load_workspace(client) or ws
+    fresh_entries = (fresh.get("mail") or {}).get("threads") or []
+    usage = {}
+    digest, err = build_digest(name, fresh_entries, model, ai_fetcher=ai_fetcher,
+                               token_fetcher=token_fetcher, usage_out=usage,
+                               stats=stats_line(fresh_entries))
+    _tally(client, model, usage)
+    if digest:
+        workspace.set_mail_digest(client, digest)
+    # "ok" if we produced anything useful; a bare "no summarized threads yet" (all noise) is a soft
+    # no-op, not an error the UI should alarm on.
+    ok = bool(digest) or summarized > 0
+    return {"ok": ok, "summarized": summarized, "remaining": remaining, "digest": digest or "",
+            "error": "" if ok else (err or "nothing to summarize yet")}
+
+
 def _merge_thread(stored, fresh):
     """Merge freshly-pulled messages into the stored thread object. Returns (merged, added_count)."""
     if stored is None:

@@ -4310,17 +4310,33 @@
     if (digBtn) {
       digBtn.addEventListener("click", function () {
         digBtn.setAttribute("disabled", "disabled");
-        post("/admin/mail", { op: "digest" })
-          .then(function (data) {
-            digBtn.removeAttribute("disabled");
-            if (!data || data.ok === false) { mlStatus((data && data.message) || "Could not rebuild the briefing."); return; }
-            var box = document.getElementById("ax-ml-digest");
-            if (box) { box.textContent = data.digest || ""; }
-          })
-          .catch(function () {
-            digBtn.removeAttribute("disabled");
-            mlStatus("Could not rebuild the briefing. Please try again.");
-          });
+        // Refresh briefing does the AI work: it summarizes archived threads (Sync is archive-only),
+        // in capped batches. Loop until the backlog is drained, then reload so the per-thread
+        // summaries and the briefing all render.
+        function step() {
+          mlStatus("Reading the emails and writing the briefing…");
+          post("/admin/mail", { op: "digest" })
+            .then(function (data) {
+              if (!data || data.ok === false) {
+                digBtn.removeAttribute("disabled");
+                mlStatus((data && data.message) || "Could not build the briefing.");
+                return;
+              }
+              var box = document.getElementById("ax-ml-digest");
+              if (box && data.digest) { box.textContent = data.digest; }
+              if (data.remaining > 0) {
+                mlStatus("Summarized " + data.summarized + " — " + data.remaining + " more to go…");
+                step();
+              } else {
+                window.location.reload();
+              }
+            })
+            .catch(function () {
+              digBtn.removeAttribute("disabled");
+              mlStatus("Briefing failed (network error). Please try again.");
+            });
+        }
+        step();
       });
     }
     qsa("[data-mldelete]").forEach(function (btn) {

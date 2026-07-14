@@ -441,6 +441,16 @@ def run():
            and all(not t.get("summary") for t in workspace.mail_threads(aws))
            and all(t.get("tier") for t in workspace.mail_threads(aws)))
 
+    # Refresh briefing = the on-demand AI pass over the archive-only client: it summarizes the
+    # archived non-noise threads and builds the digest (nothing was summarized during the fast sync).
+    rb = mailroom.refresh_briefing("archivetest", ai_fetcher=_ai_fetcher)
+    aws2 = workspace.load_workspace("archivetest")
+    _check("refresh_briefing summarizes archived threads on demand + builds a digest",
+           rb["ok"] and rb["summarized"] >= 1 and "NEEDS ACTION" in (rb["digest"] or "")
+           and any(t.get("summary") for t in workspace.mail_threads(aws2)))
+    _check("refresh_briefing leaves noise unsummarized",
+           all(not t.get("summary") for t in workspace.mail_threads(aws2) if t.get("tier") == "noise"))
+
     # --- mail_refresh: the job wrapper -----------------------------------------------------------------
     os.environ["MAIL_SYNC_ENABLED"] = "1"
     import store
