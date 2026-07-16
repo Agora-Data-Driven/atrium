@@ -5128,6 +5128,7 @@
     function askNow() {
       var q = input.value.replace(/^\s+|\s+$/g, "");
       if (!q || busy) { return; }
+      if (!convId) { convId = newConvId(); }   // start a new server-saved conversation
       setBusy(true); input.value = "";
       addMsg("user", q);
       history.push({ role: "user", text: q }); saveHistory();
@@ -5138,12 +5139,86 @@
     input.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askNow(); }
     });
+
+    // ---- Conversation history: browse/reopen/delete past chats (server-side, team-shared) --------
+    function hideHistory() {
+      if (histPanel) { histPanel.setAttribute("hidden", "hidden"); }
+      log.style.display = "";
+      var ir = input.parentNode; if (ir) { ir.style.display = ""; }
+      if (histBtn) { histBtn.classList.remove("is-on"); }
+    }
+    function loadConversation(id) {
+      post("/admin/assistant", { op: "history_get", conv_id: id })
+        .then(function (data) {
+          if (!data || data.ok === false || !data.conversation) { return; }
+          convId = data.conversation.id || id;
+          history = (data.conversation.turns || []).slice();
+          log.innerHTML = "";
+          replayTurns(history);
+          saveHistory(); hideHistory();
+          log.scrollTop = log.scrollHeight;
+        }).catch(function () {});
+    }
+    function renderHistoryList(convs) {
+      if (!histPanel) { return; }
+      histPanel.innerHTML = "";
+      var head = document.createElement("div"); head.className = "ax-as-histhead";
+      var t = document.createElement("b"); t.textContent = "Conversation history";
+      var back = document.createElement("button"); back.type = "button"; back.className = "ax-as-histback";
+      back.textContent = "← Back to chat"; back.addEventListener("click", hideHistory);
+      head.appendChild(t); head.appendChild(back); histPanel.appendChild(head);
+      if (!convs || !convs.length) {
+        var empty = document.createElement("div"); empty.className = "ax-as-histempty";
+        empty.textContent = "No saved conversations yet. Ask something and it will appear here.";
+        histPanel.appendChild(empty); return;
+      }
+      convs.forEach(function (cv) {
+        var item = document.createElement("div"); item.className = "ax-as-histitem";
+        var main = document.createElement("div"); main.className = "ax-as-histitem-main";
+        var ti = document.createElement("div"); ti.className = "ax-as-histitem-t";
+        ti.textContent = cv.title || "Conversation";
+        var me = document.createElement("div"); me.className = "ax-as-histitem-m";
+        me.textContent = (cv.turn_count || 0) + " message" + (cv.turn_count === 1 ? "" : "s");
+        main.appendChild(ti); main.appendChild(me);
+        var del = document.createElement("button"); del.type = "button"; del.className = "ax-as-histitem-del";
+        del.setAttribute("title", "Delete this conversation"); del.textContent = "×";
+        item.appendChild(main); item.appendChild(del);
+        main.addEventListener("click", function () { loadConversation(cv.id); });
+        del.addEventListener("click", function (e) {
+          e.stopPropagation();
+          post("/admin/assistant", { op: "history_delete", conv_id: cv.id })
+            .then(function (data) { renderHistoryList((data && data.conversations) || []); })
+            .catch(function () {});
+        });
+        histPanel.appendChild(item);
+      });
+    }
+    function openHistory() {
+      if (!histPanel) { return; }
+      log.style.display = "none";
+      var ir = input.parentNode; if (ir) { ir.style.display = "none"; }
+      histPanel.removeAttribute("hidden");
+      if (histBtn) { histBtn.classList.add("is-on"); }
+      histPanel.innerHTML = "";
+      var loading = document.createElement("div"); loading.className = "ax-as-histempty";
+      loading.textContent = "Loading…"; histPanel.appendChild(loading);
+      post("/admin/assistant", { op: "history_list" })
+        .then(function (data) { renderHistoryList((data && data.conversations) || []); })
+        .catch(function () { renderHistoryList([]); });
+    }
+    if (histBtn) {
+      histBtn.addEventListener("click", function () {
+        if (histPanel && histPanel.hasAttribute("hidden")) { openHistory(); } else { hideHistory(); }
+      });
+    }
+
     return {
       say: function (text, extraClass) { addMsg("bot", text, extraClass); },
       reset: function () {
         if (activeAbort) { try { activeAbort.abort(); } catch (e) {} }
-        activeAbort = null; setBusy(false); history = [];
+        activeAbort = null; setBusy(false); history = []; convId = null;
         var s = store(); if (s) { try { s.removeItem(storeKey); } catch (e) {} }
+        hideHistory();
         log.innerHTML = "";
         if (greeting) { addMsg("bot", greeting); }
       }
@@ -5154,7 +5229,7 @@
   (function () {
     var tabChat = wireAssistantChat({
       log: "ax-as-log", input: "ax-as-input", send: "ax-as-send",
-      from: "ax-as-from", to: "ax-as-to"
+      from: "ax-as-from", to: "ax-as-to", hist: "ax-as-hist", histpanel: "ax-as-histpanel"
     });
     var newTab = document.getElementById("ax-as-new");
     if (newTab && tabChat) {
@@ -5191,7 +5266,8 @@
     var panel = document.getElementById("ax-aspanel");
     if (!fab || !panel) { return; }
     var input = document.getElementById("ax-asfab-input");
-    var chat = wireAssistantChat({ log: "ax-asfab-log", input: "ax-asfab-input", send: "ax-asfab-send" });
+    var chat = wireAssistantChat({ log: "ax-asfab-log", input: "ax-asfab-input", send: "ax-asfab-send",
+      hist: "ax-asfab-hist", histpanel: "ax-asfab-histpanel" });
     function setOpen(open) {
       if (open) {
         panel.removeAttribute("hidden");
