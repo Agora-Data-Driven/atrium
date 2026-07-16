@@ -176,6 +176,176 @@ def run():
     except KeyError:
         _check("unknown intel section raises", True)
 
+    # 8h. Task tracker: the full add / edit / move / sub-task / comment / delete round-trip.
+    task = workspace.add_task(CLIENT, {
+        "title": "Park & Porch — lead-gen funnel", "department": "acquisition",
+        "lead_id": "zhen@100.digital", "support_ids": ["ehjay@agoradatadriven.com", "zhen@100.digital"],
+        "priority": "High", "labels": ["Paid Media"], "campaign": "Park & Porch | Leads",
+        "content_type": "Funnel", "due_date": "2026-07-20", "client_facing": True,
+        "client_note": "Funnel is live.", "deliverable_url": "https://drive.google.com/x",
+        "internal_notes": "Watch CPL.",
+    }, actor="info@agoradatadriven.com")
+    _check("task created with id + default stage",
+           task["id"].startswith("tk_") and task["stage"] == "in_process")
+    _check("task lead never duplicated into support", task["support_ids"] == ["ehjay@agoradatadriven.com"])
+    _check("task history stamped created", task["history"][0]["field"] == "created")
+    try:
+        workspace.add_task(CLIENT, {"title": "bad", "stage": "not_a_stage"})
+        _check("unknown task stage raises", False)
+    except KeyError:
+        _check("unknown task stage raises", True)
+
+    workspace.update_task(CLIENT, task["id"],
+                          {"priority": "Urgent", "support_ids": ["zhen@100.digital", "ian@100.digital"]})
+    t2 = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
+    _check("task edit patched priority", t2["priority"] == "Urgent")
+    _check("task edit re-enforced lead-not-in-support", t2["support_ids"] == ["ian@100.digital"])
+
+    # Two-level breakdown: a sub-task with no main task grows a group named after the content
+    # type; explicit main tasks carry their own owner and their own subs.
+    _task, sub1 = workspace.add_subtask(CLIENT, task["id"], "Propose funnel", "zhen@100.digital")
+    _task, sub2 = workspace.add_subtask(CLIENT, task["id"], "Create info pack")
+    _task, mt_qa = workspace.add_maintask(CLIENT, task["id"], "QA", "ian@100.digital")
+    _task, sub3 = workspace.add_subtask(CLIENT, task["id"], "QA events fire",
+                                        "ian@100.digital", maintask_id=mt_qa["id"])
+    workspace.set_subtask_done(CLIENT, task["id"], sub1["id"], True)
+    workspace.set_subtask_owner(CLIENT, task["id"], sub2["id"], "ehjay@agoradatadriven.com")
+    t3 = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
+    mains = t3["maintasks"]
+    _check("auto main task named after the content type",
+           len(mains) == 2 and mains[0]["text"] == "Funnel" and mains[1]["text"] == "QA")
+    _check("main task carries its own owner", mains[1]["assignee_id"] == "ian@100.digital")
+    _check("sub-tasks persisted with done + owner across groups",
+           mains[0]["subs"][0]["done"] is True
+           and mains[0]["subs"][1]["assignee_id"] == "ehjay@agoradatadriven.com"
+           and mains[1]["subs"][0]["id"] == sub3["id"])
+    _check("task_subtasks flattens every group",
+           [s["id"] for s in workspace.task_subtasks(t3)] == [sub1["id"], sub2["id"], sub3["id"]])
+    workspace.set_maintask_owner(CLIENT, task["id"], mt_qa["id"], "ehjay@agoradatadriven.com")
+    t3b = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
+    _check("main-task owner reassigned", t3b["maintasks"][1]["assignee_id"] == "ehjay@agoradatadriven.com")
+
+    # Legacy flat subtasks migrate in place the first time the task is touched.
+    legacy = {"id": "tk_legacy", "title": "Old shape", "stage": "in_process", "lead_id": "zhen@100.digital",
+              "content_type": "Report", "subtasks": [{"id": "st_a", "text": "Old sub", "done": True,
+                                                      "assignee_id": ""}]}
+    workspace.normalize_task(legacy)
+    _check("legacy flat subtasks migrate into one main task",
+           "subtasks" not in legacy and len(legacy["maintasks"]) == 1
+           and legacy["maintasks"][0]["text"] == "Report"
+           and legacy["maintasks"][0]["assignee_id"] == "zhen@100.digital"
+           and legacy["maintasks"][0]["subs"][0]["id"] == "st_a")
+    _check("normalize is idempotent",
+           workspace.normalize_task(legacy)["maintasks"][0]["subs"][0]["text"] == "Old sub")
+
+    # Every service has a start date: created-without-one defaults to today; legacy tasks
+    # backfill theirs from the creation day.
+    dated = workspace.add_task(CLIENT, {"title": "No start given"})
+    _check("new task defaults start_date to its creation day",
+           dated["start_date"] == dated["created_at"][:10])
+    old = workspace.normalize_task({"id": "tk_old", "title": "Pre-start-date task",
+                                    "created_at": "2026-07-01T09:00:00Z"})
+    _check("legacy task backfills start_date from created_at", old["start_date"] == "2026-07-01")
+
+    # On hold <-> ongoing: a plain boolean + internal reason, with a hold/resume history entry.
+    workspace.set_task_hold(CLIENT, task["id"], True, "Client asked to pause", actor="info@agoradatadriven.com")
+    th = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
+    _check("task put on hold with reason",
+           th["on_hold"] is True and th["hold_reason"] == "Client asked to pause"
+           and th["history"][-1]["field"] == "hold" and th["history"][-1]["new"] == "on hold")
+    workspace.set_task_hold(CLIENT, task["id"], False, actor="info@agoradatadriven.com")
+    th2 = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
+    _check("task resumed clears the reason",
+           th2["on_hold"] is False and th2["hold_reason"] == "" and th2["history"][-1]["new"] == "resumed")
+
+    # A client change request blocks closing until the team resolves it (and open sub-tasks block too).
+    _task, chg = workspace.add_task_comment(CLIENT, task["id"], "client", "Daniela",
+                                            "Please swap the hero image.", kind="changes")
+    _check("change request recorded unresolved", chg["resolved"] is False)
+    _check("open-changes flag derives from the thread",
+           len(workspace.task_open_changes(t3)) == 0 and
+           len(workspace.task_open_changes(workspace._find_task(workspace.load_workspace(CLIENT), task["id"]))) == 1)
+    try:
+        workspace.move_task_stage(CLIENT, task["id"], "closed")
+        _check("close blocked while sub-task + change request open", False)
+    except ValueError as exc:
+        _check("close blocked while sub-task + change request open",
+               "Create info pack" in str(exc) and "change request" in str(exc))
+    workspace.move_task_stage(CLIENT, task["id"], "launched", actor="info@agoradatadriven.com")
+    t4 = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
+    _check("stage move recorded in history",
+           t4["stage"] == "launched" and t4["history"][-1]["old"] == "in_process"
+           and t4["history"][-1]["new"] == "launched")
+    workspace.resolve_task_comment(CLIENT, task["id"], chg["id"])
+    workspace.set_subtask_done(CLIENT, task["id"], sub2["id"], True)
+    workspace.set_subtask_done(CLIENT, task["id"], sub3["id"], True)
+    workspace.move_task_stage(CLIENT, task["id"], "closed")
+    _check("close allowed once sub-tasks done + changes resolved",
+           workspace._find_task(workspace.load_workspace(CLIENT), task["id"])["stage"] == "closed")
+
+    workspace.delete_subtask(CLIENT, task["id"], sub2["id"])
+    _check("sub-task deleted",
+           len(workspace.task_subtasks(
+               workspace._find_task(workspace.load_workspace(CLIENT), task["id"]))) == 2)
+    workspace.delete_maintask(CLIENT, task["id"], mt_qa["id"])
+    t5 = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
+    _check("main task deleted with its sub-tasks",
+           len(t5["maintasks"]) == 1 and len(workspace.task_subtasks(t5)) == 1)
+    removed = workspace.delete_task(CLIENT, task["id"])
+    _check("delete_task returns the payload for the Trash", removed["id"] == task["id"])
+    _check("task gone after delete",
+           workspace._find_task(workspace.load_workspace(CLIENT), task["id"]) is None)
+    workspace.insert_task(CLIENT, removed)
+    workspace.insert_task(CLIENT, removed)   # double-restore must not duplicate
+    _check("insert_task restores once (idempotent)",
+           len([t for t in workspace.load_workspace(CLIENT)["tasks"] if t["id"] == task["id"]]) == 1)
+
+    # 8b. Communications: the unified multi-channel timeline (+ audience + legacy migration).
+    m = workspace.add_communication(CLIENT, "meeting", "Kickoff call", "Walked the funnel.",
+                                    people="Daniela, Mike", audience="client")
+    s = workspace.add_communication(CLIENT, "slack", "Internal: reallocate spend",
+                                    "Pull 15% off cold prospecting.", audience="team")
+    _check("add_communication cleans channel + audience",
+           m["channel"] == "meeting" and m["audience"] == "client"
+           and s["channel"] == "slack" and s["audience"] == "team")
+    _check("an unknown channel falls back to 'note'",
+           workspace.add_communication(CLIENT, "carrier-pigeon", "x", "y")["channel"] == "note")
+    items = workspace.communications_list(workspace.load_workspace(CLIENT))
+    _check("communications_list returns the entries newest-first-ish (contains both)",
+           any(i["id"] == m["id"] for i in items) and any(i["id"] == s["id"] for i in items))
+    workspace.update_communication(CLIENT, m["id"], {"audience": "team", "title": "Kickoff (edited)"})
+    edited = next(i for i in workspace.communications_list(workspace.load_workspace(CLIENT))
+                  if i["id"] == m["id"])
+    _check("update_communication edits channel-safe fields", edited["audience"] == "team"
+           and edited["title"] == "Kickoff (edited)")
+    workspace.delete_communication(CLIENT, s["id"])
+    _check("delete_communication removes by id",
+           not any(i["id"] == s["id"]
+                   for i in workspace.communications_list(workspace.load_workspace(CLIENT))))
+    # upsert_email_summary mirrors an email thread recap (channel email, audience client, thread_key).
+    workspace.upsert_email_summary(CLIENT, "mail_abc", "Re: booking", "Client recap here.")
+    mir = next(i for i in workspace.communications_list(workspace.load_workspace(CLIENT))
+               if i["id"] == "mail_abc")
+    _check("upsert_email_summary mirrors as a client email card with a thread_key",
+           mir["channel"] == "email" and mir["audience"] == "client"
+           and mir["origin"] == "mail" and mir["thread_key"] == "abc")
+    # Legacy split lists migrate in place the first time communications is touched.
+    legacy = {"display_name": "Legacy Co",
+              "email_summaries": [{"id": "em1", "subject": "Old email", "summary": "E", "date": "2026-06-01"}],
+              "meeting_summaries": [{"id": "mt1", "title": "Old meeting", "summary": "M",
+                                     "attendees": "A, B", "date": "2026-06-02"}]}
+    workspace.save_workspace("legacyco", legacy)
+    workspace.add_communication("legacyco", "note", "trigger", "migration")  # touches the list
+    lw = workspace.load_workspace("legacyco")
+    lc = {i["id"]: i for i in lw.get("communications", [])}
+    _check("legacy email_summaries migrated to channel email/audience client",
+           lc.get("em1", {}).get("channel") == "email" and lc["em1"]["title"] == "Old email"
+           and lc["em1"]["audience"] == "client")
+    _check("legacy meeting_summaries migrated to channel meeting (attendees -> people)",
+           lc.get("mt1", {}).get("channel") == "meeting" and lc["mt1"]["people"] == "A, B")
+    _check("legacy split lists are removed after migration",
+           "email_summaries" not in lw and "meeting_summaries" not in lw)
+
     # 9. Everything survived a reload from disk.
     reloaded = workspace.load_workspace(CLIENT)
     _camp, rvr016 = workspace._find_content(reloaded, "RVR-016")

@@ -18,8 +18,8 @@
     /* Agora Data Driven brand: light, clean -- white space + bold black type + green CTA + purple
        accent (mirrors assets/brand.json). */
     :root {
-      --ag-green:#4CAC4C; --ag-green-d:#3E8C3B; --ag-purple:#2575FC; --ag-purple-d:#1856C9;
-      --ag-ink:#0C1022; --ag-charcoal:#353535; --ag-muted:#6B7280; --ag-line:#E7E8EE;
+      --ag-green:#4FA84A; --ag-green-d:#3F8B3B; --ag-purple:#6A6AEA; --ag-purple-d:#5A54DD;
+      --ag-ink:#121212; --ag-charcoal:#353535; --ag-muted:#6B7280; --ag-line:#E7E8EE;
       --ag-canvas:#FFFFFF; --ag-link:#CC3366; --ag-white:#fff; --ag-danger:#E5413E;
     }
     * { box-sizing: border-box; }
@@ -29,9 +29,9 @@
       font-family: "Roboto", "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", sans-serif;
       color: var(--ag-ink);
       background:
-        radial-gradient(760px 460px at 8% -10%, rgba(79,171,74,0.18), transparent 60%),
-        radial-gradient(720px 480px at 112% 116%, rgba(37,117,252,0.20), transparent 58%),
-        radial-gradient(900px 620px at 50% 122%, rgba(126,108,246,0.06), transparent 60%),
+        radial-gradient(760px 460px at 8% -10%, rgba(79,168,74,0.18), transparent 60%),
+        radial-gradient(720px 480px at 112% 116%, rgba(106,106,234,0.20), transparent 58%),
+        radial-gradient(900px 620px at 50% 122%, rgba(106,106,234,0.06), transparent 60%),
         var(--ag-canvas);
       display: flex;
       align-items: center;
@@ -52,14 +52,14 @@
     }
     /* Green->purple brand ribbon across the top of the card. */
     .card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
-      background: linear-gradient(90deg, #4CAC4C 0%, #4CAC4C 45%, #2575FC 100%); }
+      background: linear-gradient(90deg, #4FA84A 0%, #4FA84A 45%, #6A6AEA 100%); }
     .brand { margin-bottom: 22px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
     .brand svg { display: block; height: 38px; width: auto; }
     /* "Agora Atrium" product lockup -- the green->purple gradient pill from the brand kit. */
     .brand-atrium { display: inline-block; font-size: 12px; font-weight: 800; color: #fff;
-      background: linear-gradient(120deg, #4CAC4C 0%, #4CAC4C 40%, #2575FC 100%);
+      background: linear-gradient(120deg, #4FA84A 0%, #4FA84A 40%, #6A6AEA 100%);
       padding: 4px 13px; border-radius: 999px; text-transform: uppercase; letter-spacing: 1.2px;
-      box-shadow: 0 6px 16px rgba(24,86,201,.28); }
+      box-shadow: 0 6px 16px rgba(90,84,221,.28); }
     h1 { font-size: 21px; margin: 0 0 6px; font-weight: 800; letter-spacing: -.4px; }
     .sub { color: var(--ag-muted); font-size: 13.5px; margin: 0 0 24px; }
     label {
@@ -78,7 +78,7 @@
       outline: none;
       transition: border-color .12s, box-shadow .12s;
     }
-    input:focus { border-color: var(--ag-green); box-shadow: 0 0 0 3px rgba(79,171,74,.14); }
+    input:focus { border-color: var(--ag-green); box-shadow: 0 0 0 3px rgba(79,168,74,.14); }
     button.primary {
       width: 100%;
       padding: 13px 14px;
@@ -89,7 +89,7 @@
       font-weight: 700;
       font-size: 14px;
       cursor: pointer;
-      box-shadow: 0 8px 18px rgba(79,171,74,.28);
+      box-shadow: 0 8px 18px rgba(79,168,74,.28);
       transition: background .12s, box-shadow .12s;
     }
     button.primary:hover { background: var(--ag-green-d); }
@@ -102,6 +102,16 @@
       font-size: 13px;
       margin-bottom: 18px;
     }
+    /* "or" divider + Google button (shown only when Google sign-in is configured). */
+    .divider { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--ag-muted);
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 700; }
+    .divider::before, .divider::after { content: ""; height: 1px; background: var(--ag-line); flex: 1 1 auto; }
+    .gbtn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%;
+      padding: 12px 14px; border: 1px solid var(--ag-line); border-radius: 11px; background: var(--ag-white);
+      color: var(--ag-ink); font-weight: 700; font-size: 14px; cursor: pointer; text-decoration: none;
+      transition: border-color .12s, box-shadow .12s, background .12s; }
+    .gbtn:hover { border-color: #d0d3dd; box-shadow: 0 4px 14px rgba(16,24,40,.08); }
+    .gbtn svg { width: 18px; height: 18px; flex: 0 0 auto; }
     .foot {
       margin-top: 22px;
       text-align: center;
@@ -136,6 +146,16 @@
 
       <button class="primary" type="submit">Sign in</button>
     </form>
+
+    {% if google_enabled %}
+    <div class="divider">or</div>
+    <!-- Central Google sign-in: the portal runs the OAuth flow and mints the shared SSO cookie, so a
+         Google login is trusted by every dashboard + the website editor exactly like a password. -->
+    <a class="gbtn" href="/auth/google/login?next={{ next|default('/', true)|urlencode }}">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Sign in with Google
+    </a>
+    {% endif %}
 
     <p class="foot">New client? <a href="/signup">Request access</a> &middot; or email
       <a href="mailto:info@agoradatadriven.com">info@agoradatadriven.com</a></p>

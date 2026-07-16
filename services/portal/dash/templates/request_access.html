@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agora Data Driven &middot; Request access</title>
+  {% if favicon %}<link rel="icon" href="{{ favicon }}">{% endif %}
+  <style>
+    /* Mirrors login.html: Agora light brand. */
+    :root {
+      --ag-green:#4FA84A; --ag-green-d:#3F8B3B; --ag-purple:#6A6AEA; --ag-purple-d:#5A54DD;
+      --ag-ink:#121212; --ag-charcoal:#353535; --ag-muted:#6B7280; --ag-line:#E7E8EE;
+      --ag-canvas:#FFFFFF; --ag-link:#CC3366; --ag-white:#fff;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: "Roboto", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      color: var(--ag-ink);
+      background:
+        radial-gradient(760px 460px at 8% -10%, rgba(79,168,74,0.18), transparent 60%),
+        radial-gradient(720px 480px at 112% 116%, rgba(106,106,234,0.20), transparent 58%),
+        var(--ag-canvas);
+      display: flex; align-items: center; justify-content: center; padding: 24px;
+      -webkit-font-smoothing: antialiased; }
+    .card { width: 100%; max-width: 420px; background: var(--ag-white); border: 1px solid var(--ag-line);
+      border-radius: 8px; padding: 34px 30px; position: relative; overflow: hidden;
+      box-shadow: 0 1px 2px rgba(16,24,40,.04), 0 18px 50px rgba(16,24,40,.10); }
+    .card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+      background: linear-gradient(90deg, #4FA84A 0%, #4FA84A 45%, #6A6AEA 100%); }
+    .brand { margin-bottom: 20px; }
+    .brand svg { display: block; height: 36px; width: auto; }
+    h1 { font-size: 20px; margin: 0 0 6px; font-weight: 800; letter-spacing: -.4px; }
+    .sub { color: var(--ag-muted); font-size: 13.5px; margin: 0 0 20px; line-height: 1.5; }
+    .who { display: inline-block; font-weight: 700; color: var(--ag-ink); background: #F3F5F9;
+      border: 1px solid var(--ag-line); border-radius: 999px; padding: 5px 12px; font-size: 13px; margin-bottom: 18px; }
+    label { display: block; font-size: 11px; color: var(--ag-muted); margin: 0 0 6px;
+      text-transform: uppercase; letter-spacing: 0.7px; font-weight: 700; }
+    textarea { width: 100%; padding: 12px 13px; margin-bottom: 16px; border: 1px solid var(--ag-line);
+      border-radius: 11px; font: inherit; font-size: 14px; outline: none; min-height: 84px; resize: vertical; }
+    textarea:focus { border-color: var(--ag-green); box-shadow: 0 0 0 3px rgba(79,168,74,.14); }
+    button.primary { width: 100%; padding: 13px 14px; border: 0; border-radius: 11px; background: var(--ag-green);
+      color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; box-shadow: 0 8px 18px rgba(79,168,74,.28); }
+    button.primary:hover { background: var(--ag-green-d); }
+    .ok { background: #EEF6ED; border: 1px solid #BEE0BC; color: var(--ag-green-d);
+      padding: 14px 16px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
+    .error { background: #FDECEC; border: 1px solid rgba(229,65,62,0.35); color: #9b2c2a;
+      padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-bottom: 16px; }
+    .foot { margin-top: 22px; text-align: center; color: var(--ag-muted); font-size: 12px; }
+    .foot a { color: var(--ag-link); text-decoration: none; font-weight: 600; }
+    .foot a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">{{ agora_logo|safe }}</div>
+
+    {% if sent %}
+      {% if already %}
+      <h1>You already have access</h1>
+      <div class="ok">Your account <b>{{ email }}</b> is active. Head back and
+        <a href="/auth/google/login" style="color:inherit;font-weight:800">sign in with Google</a>.</div>
+      {% else %}
+      <h1>Request sent</h1>
+      <div class="ok">Thanks &mdash; we've let the Agora team know that <b>{{ email }}</b> would like
+        access. Once an admin approves you, sign in with Google and you're in. You can close this tab.</div>
+      {% endif %}
+    {% else %}
+      <h1>Request access</h1>
+      {% if pending %}
+      <p class="sub">You've already requested access with this Google account &mdash; an admin just
+        needs to approve it. Sending again bumps your request to the top.</p>
+      {% else %}
+      <p class="sub">There's no Agora account for this Google address yet. Send a request and an admin
+        will approve it &mdash; then you can sign in with Google.</p>
+      {% endif %}
+      <div class="who">{{ email }}</div>
+
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+      <form method="post" action="/auth/request-access">
+        <input type="hidden" name="email" value="{{ email }}">
+        <label for="message">Anything to tell the team? (optional)</label>
+        <textarea id="message" name="message" placeholder="e.g. I'm the marketing lead at Acme Co."></textarea>
+        <button class="primary" type="submit">Send request</button>
+      </form>
+    {% endif %}
+
+    <p class="foot"><a href="/login">&larr; Back to sign in</a> &middot; or email
+      <a href="mailto:info@agoradatadriven.com">info@agoradatadriven.com</a></p>
+  </main>
+</body>
+</html>

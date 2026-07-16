@@ -10,6 +10,7 @@ Run with a Flask-capable interpreter:
 """
 
 import io
+import json
 import os
 import shutil
 import sys
@@ -104,12 +105,44 @@ def run():
     # Every client tab renders.
     body = c.get("/w/%s/" % CLIENT).get_data(as_text=True)
     _check("overview renders", "Riverdance RV Resort" in body and "Agora Atrium" in body)
+    # An unclosed <style>/<script> swallows the ENTIRE body into <head> (blank page in a browser)
+    # while every string-presence check still passes -- so check the tags actually balance.
+    for tag in ("style", "script"):
+        _check("every <%s> is closed (page can render)" % tag,
+               body.count("<" + tag) == body.count("</" + tag + ">"))
     _check("greeting present", "Good <span" in body)
     _check("leadgen content present in DOM", "Summer Paid Ads Push" in body)
     _check("organic content present in DOM", "June Nurture &amp; SEO" in body or "June Nurture" in body)
     _check("AI summary present", "AI summary" in body)
     for tab in ("dashboard", "leadgen", "organic", "calendar", "conversations", "settings"):
         _check("tab '%s' returns 200" % tab, c.get("/w/%s/%s" % (CLIENT, tab)).status_code == 200)
+
+    # Communications: the unified timeline + the client/team no-leak guarantee (server-side filter).
+    r = c.post("/w/%s/admin/communication" % CLIENT,
+               data={"op": "add", "channel": "slack", "audience": "team",
+                     "title": "Internal spend note", "summary": "TEAMSECRET reallocate budget"})
+    _check("admin adds a team-only communication", r.status_code == 200 and r.get_json().get("ok"))
+    r = c.post("/w/%s/admin/communication" % CLIENT,
+               data={"op": "add", "channel": "meeting", "audience": "client",
+                     "title": "Client kickoff", "summary": "CLIENTVISIBLE kickoff recap"})
+    _check("admin adds a client-visible communication", r.get_json().get("ok"))
+    admin_conv = c.get("/w/%s/conversations" % CLIENT).get_data(as_text=True)
+    _check("admin sees BOTH cards with audience pills + channel badges",
+           "TEAMSECRET" in admin_conv and "CLIENTVISIBLE" in admin_conv
+           and "Team only" in admin_conv and "Client sees" in admin_conv
+           and "ch-slack" in admin_conv and "ch-meeting" in admin_conv)
+    with c.session_transaction() as s:
+        s.update({"ok": True, "user": "owner@riverdanceresort.com", "clients": [CLIENT]})
+    client_conv = c.get("/w/%s/conversations" % CLIENT).get_data(as_text=True)
+    # "ax-cm-audseg"/"data-commaddform" also appear as JS string literals, so assert on rendered
+    # signals: the team summary text is absent, and none of the admin-only affordances rendered.
+    _check("the client sees ONLY their card -- a team-only summary never reaches the client HTML",
+           "CLIENTVISIBLE" in client_conv and "TEAMSECRET" not in client_conv
+           and 'data-admin="1"' not in client_conv
+           and "+ Add a communication" not in client_conv
+           and "Client sees" not in client_conv)
+    with c.session_transaction() as s:
+        s.update(SUPER)
 
     # Approve an awaiting piece -> persists + confirmation shows on reload.
     r = c.post("/w/%s/approve" % CLIENT, data={"content_id": "RVR-016", "note": "Ship it."})
@@ -176,12 +209,13 @@ def run():
         _check("old console POST /%s removed" % path,
                c.post("/admin/atrium/%s/%s" % (CLIENT, path), data={}).status_code in (404, 405))
 
-    # The console landing renders the welcome, links each card straight to the workspace, and hides
-    # the worked-example `template` client.
+    # The console landing opens on the Home hub (the "Your Agora suite" welcome), links each client
+    # card straight to the workspace, and hides the worked-example `template` client.
     store.add_client(CLIENT, "Riverdance RV Resort")
     store.add_client("template", "Template")
     landing = c.get("/admin/atrium").get_data(as_text=True)
-    _check("console landing renders welcome", "Welcome to the Atrium" in landing)
+    _check("console landing renders the suite hub welcome",
+           "Welcome back" in landing and "Atrium Admin" in landing)
     _check("console card opens the workspace directly", ('href="/w/%s/"' % CLIENT) in landing)
     _check("template client hidden from console", '<div class="name">Template</div>' not in landing)
     store.remove_client("template")
@@ -454,6 +488,66 @@ def run():
            and new_eid not in [e["id"] for e in
                                workspace.load_workspace(CLIENT)["intel"]["business_research"]])
 
+    # ---- Market Intelligence AI brain (model dropdown + tunable prompts + keywords) --------------
+    _check("super-admin sees the AI Research Brain panel",
+           "AI Research Brain" in intel_page and 'id="ax-intel-model"' in intel_page)
+    _check("ai_settings rejects an unknown model",
+           c.post("/w/%s/admin/intel" % CLIENT,
+                  data={"op": "ai_settings", "model": "gpt-9"}).status_code == 400)
+    _check("ai_settings rejects a model whose key isn't configured",
+           c.post("/w/%s/admin/intel" % CLIENT,
+                  data={"op": "ai_settings", "model": "gemini-2.5-pro"}).status_code == 400)
+    r = c.post("/w/%s/admin/intel" % CLIENT,
+               data={"op": "ai_settings", "model": "", "business_prompt": "Watch RV rentals.",
+                     "media_prompt": ""})
+    _check("ai_settings (off) ok + prompt persisted",
+           r.status_code == 200
+           and workspace.load_workspace(CLIENT)["intel_ai"]["business_prompt"] == "Watch RV rentals.")
+    r = c.post("/w/%s/admin/intel" % CLIENT,
+               data={"op": "topics", "topics": "RV rentals, campgrounds"})
+    _check("intel topics saved",
+           r.status_code == 200
+           and workspace.get_intel_topics(workspace.load_workspace(CLIENT)) == ["RV rentals", "campgrounds"])
+    # "Write these for me" (op=suggest): no provider configured -> a friendly reason, never a 500.
+    _check("suggest button renders in the AI panel", 'id="ax-intel-suggest"' in intel_page)
+    r = c.post("/w/%s/admin/intel" % CLIENT, data={"op": "suggest"})
+    _check("suggest with no provider -> ok:false + reason",
+           r.status_code == 200 and r.get_json().get("ok") is False
+           and "model" in r.get_json().get("message", "").lower())
+    # With the AI stubbed, the route returns the three drafts (fields only -- nothing saved).
+    import intel_ai   # noqa: E402
+    _real_suggest = intel_ai.suggest_config
+    intel_ai.suggest_config = lambda name, context="", model=None: (
+        {"topics": "boutique RV rentals, roadtrip travellers", "business_prompt": "Watch RV demand.",
+         "media_prompt": "Watch travel-ad platforms."}, "")
+    try:
+        r = c.post("/w/%s/admin/intel" % CLIENT, data={"op": "suggest"})
+        j = r.get_json()
+        _check("suggest returns the three drafted fields",
+               r.status_code == 200 and j.get("ok") is True
+               and j.get("topics") == "boutique RV rentals, roadtrip travellers"
+               and j.get("business_prompt") and j.get("media_prompt"))
+        _check("suggest does NOT save (keywords unchanged until Save settings)",
+               workspace.get_intel_topics(workspace.load_workspace(CLIENT)) == ["RV rentals", "campgrounds"])
+    finally:
+        intel_ai.suggest_config = _real_suggest
+    # Bulk favourite + delete on selected entries.
+    bid = workspace.add_intel_entry(CLIENT, "media_buying", {"title": "Bulk fav me"})["id"]
+    r = c.post("/w/%s/admin/intel" % CLIENT,
+               data={"op": "bulk", "action": "favourite", "section": "media_buying", "entry_ids": bid})
+    _check("bulk favourite ok + pinned",
+           r.status_code == 200
+           and [e for e in workspace.load_workspace(CLIENT)["intel"]["media_buying"]
+                if e["id"] == bid][0].get("favourite") is True)
+    r = c.post("/w/%s/admin/intel" % CLIENT,
+               data={"op": "bulk", "action": "delete", "section": "media_buying", "entry_ids": bid})
+    _check("bulk delete ok",
+           r.status_code == 200
+           and bid not in [e["id"] for e in workspace.load_workspace(CLIENT)["intel"]["media_buying"]])
+    _check("bulk rejects a bad action",
+           c.post("/w/%s/admin/intel" % CLIENT,
+                  data={"op": "bulk", "action": "nuke", "section": "media_buying", "entry_ids": "x"}).status_code == 400)
+
     # ---- Website Health (team-only tab: admins see it, THE super admin edits) --------------------
     import atrium_health   # noqa: E402
     # Pure tag detection: GTM container + GA4 + Meta pixel are recognised straight from page markup.
@@ -583,6 +677,202 @@ def run():
         s.update({"ok": True, "user": "x@y.com", "clients": ["someoneelse"]})
     _check("non-grantee forbidden", c.get("/w/%s/" % CLIENT).status_code == 403)
     _check("non-grantee creative forbidden", c.get("/w/%s/creative/RVR-014" % CLIENT).status_code == 403)
+
+    # ---- Task tracker: internal board + client Progress tab (TASK_TRACKER_INTEGRATION.md). ----
+    with c.session_transaction() as s:
+        s.update(SUPER)
+    # Team creates a client-facing task (with internal-only fields) + a purely internal one.
+    rt = c.post("/w/%s/admin/task" % CLIENT, data={
+        "op": "add", "title": "Park & Porch funnel", "department": "acquisition",
+        "lead_id": "zhen@100.digital",
+        "priority": "High", "start_date": "2026-07-10", "due_date": "2026-07-20",
+        "service_charge": "4200", "client_facing": "1",
+        "client_note": "Funnel is live.", "deliverable_url": "https://drive.google.com/x",
+        "internal_notes": "INTERNAL-ONLY-MARKER-XYZ",
+    })
+    _check("team adds a task", rt.status_code == 200 and rt.get_json().get("ok") is True)
+    task_id = rt.get_json()["task_id"]
+    made = workspace._find_task(workspace.load_workspace(CLIENT), task_id)
+    _check("new service always starts In Process", made["stage"] == "in_process")
+    _forced = c.post("/w/%s/admin/task" % CLIENT,
+                     data={"op": "add", "title": "Stage-forced check",
+                           "department": "lifecycle", "stage": "launched"})
+    _forced_task = workspace._find_task(workspace.load_workspace(CLIENT), _forced.get_json()["task_id"])
+    _check("a submitted stage on create is ignored (always In Process)",
+           _forced_task["stage"] == "in_process")
+    _check("label auto-derived from the department", made["labels"] == ["Paid Media"])
+    _check("start date + service charge stored",
+           made["start_date"] == "2026-07-10" and made["service_charge"] == "4200")
+    _check("support people assigned after creation (edit patches them)",
+           made["support_ids"] == [] and
+           c.post("/w/%s/admin/task" % CLIENT,
+                  data={"op": "edit", "task_id": task_id, "title": "Park & Porch funnel",
+                        "department": "acquisition", "lead_id": "zhen@100.digital",
+                        "priority": "High", "client_facing": "1", "has_support": "1",
+                        "support_ids": "ehjay@agoradatadriven.com"}).get_json().get("ok") is True
+           and workspace._find_task(workspace.load_workspace(CLIENT),
+                                    task_id)["support_ids"] == ["ehjay@agoradatadriven.com"])
+    _check("internal-only task created",
+           c.post("/w/%s/admin/task" % CLIENT,
+                  data={"op": "add", "title": "HIDDEN-INTERNAL-TASK"}).get_json().get("ok") is True)
+    # Main tasks + sub-tasks + a team comment (the two-level breakdown, via the routes).
+    _check("main task added",
+           c.post("/w/%s/admin/task/maintask" % CLIENT,
+                  data={"op": "add", "task_id": task_id, "text": "SECRET-PHASE-BUILD",
+                        "assignee_id": "zhen@100.digital"}).get_json().get("ok") is True)
+    main_id = workspace._find_task(workspace.load_workspace(CLIENT), task_id)["maintasks"][0]["id"]
+    _check("sub-task added under the main task",
+           c.post("/w/%s/admin/task/subtask" % CLIENT,
+                  data={"op": "add", "task_id": task_id, "maintask_id": main_id,
+                        "text": "Create info pack",
+                        "assignee_id": "ehjay@agoradatadriven.com"}).get_json().get("ok") is True)
+    sub_id = workspace.task_subtasks(
+        workspace._find_task(workspace.load_workspace(CLIENT), task_id))[0]["id"]
+    _check("sub-task toggled done",
+           c.post("/w/%s/admin/task/subtask" % CLIENT,
+                  data={"op": "toggle", "task_id": task_id, "subtask_id": sub_id,
+                        "done": "1"}).get_json().get("ok") is True)
+    _check("main-task owner reassigned via the route",
+           c.post("/w/%s/admin/task/maintask" % CLIENT,
+                  data={"op": "assign", "task_id": task_id, "maintask_id": main_id,
+                        "assignee_id": "ehjay@agoradatadriven.com"}).get_json().get("ok") is True)
+    _check("main task renamed via the route",
+           c.post("/w/%s/admin/task/maintask" % CLIENT,
+                  data={"op": "rename", "task_id": task_id, "maintask_id": main_id,
+                        "text": "SECRET-PHASE-RENAMED"}).get_json().get("ok") is True
+           and workspace._find_task(workspace.load_workspace(CLIENT),
+                                    task_id)["maintasks"][0]["text"] == "SECRET-PHASE-RENAMED")
+    # On hold <-> ongoing via the route (reason is internal-only).
+    _check("service put on hold via the route",
+           c.post("/w/%s/admin/task/hold" % CLIENT,
+                  data={"task_id": task_id, "on_hold": "1",
+                        "hold_reason": "HOLD-REASON-INTERNAL-XYZ"}).get_json().get("on_hold") is True)
+    _check("hold shows on the console card",
+           "tk-hold" in c.get("/admin/atrium").get_data(as_text=True))
+    # Reopen-after-action: a console form that carries back_task/back_tab redirects with
+    # ?task=&tab= so the page script reopens the same overlay on the same tab.
+    back = c.post("/w/%s/admin/task/subtask" % CLIENT,
+                  data={"redirect": "console", "op": "toggle", "task_id": task_id,
+                        "subtask_id": "nope", "back_task": "%s:%s" % (CLIENT, task_id),
+                        "back_tab": "tasks"})
+    _check("console redirect carries the reopen params",
+           back.status_code == 302 and ("task=%s:%s" % (CLIENT, task_id)) in back.headers["Location"]
+           and "tab=tasks" in back.headers["Location"])
+    _check("team comments on the task",
+           c.post("/w/%s/admin/task/comment" % CLIENT,
+                  data={"op": "add", "task_id": task_id,
+                        "body": "First draft is up."}).get_json().get("ok") is True)
+    # The console renders the board with the task; a console-posted form redirects back to it.
+    console = c.get("/admin/atrium").get_data(as_text=True)
+    _check("console shows the Task Board nav + the task",
+           'data-section="tasks"' in console and "Park &amp; Porch funnel" in console)
+    _check("console has the Delivery Calendar tab + pane",
+           'data-section="calendar"' in console and 'data-pane="calendar"' in console)
+    _check("client creation = page-head button + overlay (inline panel gone)",
+           'id="nc-new-btn"' in console and "data-ncnew" in console
+           and "Add a new client" not in console)
+    _check("scheduled (dated) service becomes a calendar event",
+           '<div class="cal-ev" data-date="2026-07-20"' in console
+           and 'data-open="%s:%s"' % (CLIENT, task_id) in console)
+    _check("console form posts redirect back to the Tasks pane",
+           c.post("/w/%s/admin/task/move" % CLIENT,
+                  data={"redirect": "console", "task_id": task_id,
+                        "stage": "for_launch"}).status_code == 302)
+
+    # The CLIENT sees the Progress tab: their client-facing task, client-safe fields ONLY.
+    with c.session_transaction() as s:
+        s.update({"ok": True, "user": "owner@riverdanceresort.com", "clients": [CLIENT]})
+    pg = c.get("/w/%s/progress" % CLIENT).get_data(as_text=True)
+    _check("client Progress tab renders the client-facing task",
+           'data-pane="progress"' in pg and "Park &amp; Porch funnel" in pg)
+    _check("internal notes never reach the client HTML", "INTERNAL-ONLY-MARKER-XYZ" not in pg)
+    _check("lead/support identities never reach the client HTML", "zhen@100.digital" not in pg)
+    _check("main-task owner identities never reach the client HTML",
+           "ehjay@agoradatadriven.com" not in pg)
+    _check("phases (main-task names) DO reach the client", "SECRET-PHASE-RENAMED" in pg)
+    _check("campaign chip carries the discipline tint (dept=acquisition -> lb-paid)",
+           "ax-pg-chip lb-paid" in pg)
+    _check("the service charge never reaches the client HTML", "4200" not in pg and "$4,200" not in pg)
+    _check("client sees a plain 'Paused' for a held service", "Paused" in pg)
+    _check("the hold reason never reaches the client HTML", "HOLD-REASON-INTERNAL-XYZ" not in pg)
+    _check("internal-only tasks never reach the client HTML", "HIDDEN-INTERNAL-TASK" not in pg)
+    for path in ("task", "task/move", "task/delete", "task/subtask", "task/maintask", "task/comment"):
+        _check("admin task route /%s forbidden for the client" % path,
+               c.post("/w/%s/admin/%s" % (CLIENT, path), data={}).status_code == 403)
+    # The client's ONE write: comment + request changes.
+    _check("client comments on a task",
+           c.post("/w/%s/task-comment" % CLIENT,
+                  data={"task_id": task_id, "body": "Looks great!"}).get_json().get("ok") is True)
+    rchg = c.post("/w/%s/task-comment" % CLIENT,
+                  data={"task_id": task_id, "body": "Please swap the hero.", "kind": "changes"})
+    _check("client raises a task change request", rchg.get_json().get("open_changes") == 1)
+    chg_id = rchg.get_json()["comment"]["id"]
+    hidden_id = next(t["id"] for t in workspace.load_workspace(CLIENT)["tasks"]
+                     if t["title"] == "HIDDEN-INTERNAL-TASK")
+    _check("client cannot comment on an internal-only task (404)",
+           c.post("/w/%s/task-comment" % CLIENT,
+                  data={"task_id": hidden_id, "body": "hi"}).status_code == 404)
+
+    # Back to the team: the open change request blocks closing, resolving unblocks it.
+    with c.session_transaction() as s:
+        s.update(SUPER)
+    blocked = c.post("/w/%s/admin/task/move" % CLIENT, data={"task_id": task_id, "stage": "closed"})
+    _check("close is blocked while a change request is open",
+           blocked.get_json().get("ok") is False and "change request" in blocked.get_json()["error"])
+    _check("team resolves the change request",
+           c.post("/w/%s/admin/task/comment" % CLIENT,
+                  data={"op": "resolve", "task_id": task_id,
+                        "comment_id": chg_id}).get_json().get("open_changes") == 0)
+    _check("close allowed once resolved",
+           c.post("/w/%s/admin/task/move" % CLIENT,
+                  data={"task_id": task_id, "stage": "closed"}).get_json().get("ok") is True)
+
+    # Delete -> Bin -> restore round-trip.
+    _check("task delete is a soft-delete",
+           c.post("/w/%s/admin/task/delete" % CLIENT,
+                  data={"task_id": task_id}).get_json().get("ok") is True)
+    _check("task gone from the workspace",
+           workspace._find_task(workspace.load_workspace(CLIENT), task_id) is None)
+    import audit as _audit_mod
+    entry = next(t for t in _audit_mod.trash_list() if t.get("kind") == "task")
+    _check("deleted task is in the Bin", entry["payload"]["id"] == task_id)
+    _check("task restore returns it to the board",
+           c.post("/admin/atrium/restore", data={"entry_id": entry["id"]}).status_code == 302
+           and workspace._find_task(workspace.load_workspace(CLIENT), task_id) is not None)
+
+    # ---- Task board Export / Import (JSON backup + non-destructive restore, super-admin). ----
+    with c.session_transaction() as s:
+        s.update(SUPER)
+    ex = c.get("/admin/atrium/tasks/export")
+    _check("task export returns a JSON attachment",
+           ex.status_code == 200 and "attachment" in ex.headers.get("Content-Disposition", ""))
+    exported = ex.get_json()
+    _check("export payload carries this client's tasks",
+           CLIENT in exported.get("clients", {}) and exported["clients"][CLIENT]["tasks"])
+    with c.session_transaction() as s:
+        s.update({"ok": True, "user": "owner@riverdanceresort.com", "clients": [CLIENT]})
+    _check("client cannot export (super-admin only)",
+           c.get("/admin/atrium/tasks/export").status_code == 403)
+    _check("client cannot import (super-admin only)",
+           c.post("/admin/atrium/tasks/import").status_code == 403)
+    # Import an edited copy: change one task's title (update-by-id) + add a brand-new task.
+    with c.session_transaction() as s:
+        s.update(SUPER)
+    imp = dict(exported)
+    imp_tasks = list(exported["clients"][CLIENT]["tasks"])
+    imp_tasks[0] = dict(imp_tasks[0], title="Imported title change")
+    imp_tasks.append({"id": "tk_imported_new", "title": "Imported new task", "stage": "in_process"})
+    imp = {"version": 1, "clients": {CLIENT: {"name": "Riverdance", "tasks": imp_tasks},
+                                     "ghostclient": {"tasks": [{"id": "x", "title": "skip me"}]}}}
+    ri = c.post("/admin/atrium/tasks/import",
+                data={"file": (io.BytesIO(json.dumps(imp).encode()), "backup.json", "application/json")},
+                content_type="multipart/form-data")
+    _check("import redirects back to the Tasks pane", ri.status_code == 302)
+    after = {t["id"]: t for t in workspace.load_workspace(CLIENT)["tasks"]}
+    _check("import UPDATED an existing task by id", after[imp_tasks[0]["id"]]["title"] == "Imported title change")
+    _check("import ADDED the new task", "tk_imported_new" in after)
+    _check("import skipped a client that no longer exists",
+           workspace.load_workspace("ghostclient") is None)
 
     print("[smoketest] PASS")
     return 0

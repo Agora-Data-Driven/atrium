@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Riverdance RV · Agora Atrium</title>
+  <style>
+    /* ==========================================================================
+       Agora Atrium — CLIENT workspace (prototype) with a NEW "Progress" tab.
+       Design ported from the real client workspace (services/portal/dash/
+       templates/atrium.html): Roboto, --ax-* tokens (green #4CAC4C + blue
+       #2575FC), 5px radius, gradient "AGORA ATRIUM" text, blurred top bar.
+       Progress is READ-ONLY (only the client's client-safe deliverables) EXCEPT
+       the client can post comments / request changes — mirroring the real
+       Atrium comment thread. Self-contained, no build.
+       ========================================================================== */
+    .atrium{
+      --ax-green:#4CAC4C; --ax-green-d:#3E8C3B; --ax-green-bg:#EAF6E9;
+      --ax-violet:#2575FC; --ax-violet-d:#1856C9; --ax-violet-bg:#E7F0FE;
+      --ax-ink:#0C1022; --ax-charcoal:#353535; --ax-sub:#6B7280; --ax-line:#E9EAEE; --ax-canvas:#FFFFFF; --ax-white:#fff;
+      --ax-ok:#4CAC4C; --ax-warn:#F2820C; --ax-bad:#E5413E;
+      --ax-radius:5px; --ax-pill:999px;
+      --ax-shadow:0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.06);
+      --ax-shadow-lg:0 2px 6px rgba(16,24,40,.05), 0 18px 42px rgba(16,24,40,.12);
+      --ax-grad-green:linear-gradient(135deg,#5BC257 0%,#3E8C3B 100%);
+      --ax-grad-brand:linear-gradient(120deg,#4CAC4C 0%,#4CAC4C 42%,#2575FC 100%);
+      /* stage tones (client labels) */
+      --s-proc:#2575FC; --s-proc-bg:#E7F0FE; --s-proc-tx:#1856C9;
+      --s-rev:#F2820C;  --s-rev-bg:#FDF0E1;  --s-rev-tx:#B4610A;
+      --s-live:#4CAC4C; --s-live-bg:#EAF6E9; --s-live-tx:#3E8C3B;
+      --s-done:#8A93A3; --s-done-bg:#EEF0F3; --s-done-tx:#5B6472;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0}
+    .atrium{
+      font-family:"Roboto","Segoe UI","Helvetica Neue",Arial,"Noto Sans",sans-serif;
+      -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;
+      color:var(--ax-charcoal);min-height:100vh;line-height:1.55;
+      background:
+        radial-gradient(820px 460px at 6% -8%, rgba(79,171,74,.07), transparent 60%),
+        radial-gradient(760px 520px at 100% -2%, rgba(37,117,252,.08), transparent 58%),
+        var(--ax-canvas);
+      background-attachment:fixed;
+    }
+    .atrium a{color:inherit;text-decoration:none}
+    .atrium h1,.atrium h2,.atrium h3{margin:0}
+    .atrium button{font-family:inherit;cursor:pointer}
+    .tnum{font-variant-numeric:tabular-nums}
+    .atrium :focus-visible{outline:2px solid var(--ax-green);outline-offset:2px;border-radius:3px}
+
+    .ax-app{display:grid;grid-template-columns:256px 1fr;min-height:100vh}
+
+    /* ---- sidebar ---- */
+    .ax-side{background:linear-gradient(180deg,#FFFFFF 0%,#FCFCFE 100%);border-right:1px solid var(--ax-line);
+      display:flex;flex-direction:column;gap:14px;padding:22px 16px;position:sticky;top:0;height:100vh}
+    .ax-brand{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;padding:4px 6px 18px;position:relative}
+    .ax-brand::after{content:"";position:absolute;left:6px;right:6px;bottom:0;height:1px;background:linear-gradient(90deg,transparent,var(--ax-line),transparent)}
+    .ax-co{display:flex;align-items:center;justify-content:center;gap:10px}
+    .ax-logo{height:44px;width:auto;max-width:200px;display:block}
+    .ax-badge{font-size:14px;font-weight:800;letter-spacing:1.7px;text-transform:uppercase;
+      background:var(--ax-grad-brand);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+    .ax-nav{display:flex;flex-direction:column;gap:3px}
+    .ax-nav a,.ax-navbtn{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:11px;color:var(--ax-sub);
+      font-size:14px;font-weight:600;transition:background .12s,color .12s;border:0;background:transparent;width:100%;text-align:left;cursor:pointer;font-family:inherit}
+    .ax-nav a:hover,.ax-navbtn:hover{background:var(--ax-canvas);color:var(--ax-ink)}
+    .ax-navbtn.is-active{background:var(--ax-green-bg);color:var(--ax-green-d)}
+    .ax-navbtn.is-active .ax-ic{color:var(--ax-green-d)}
+    .ax-ic{width:20px;height:20px;flex:0 0 auto;display:block}
+    .ax-navbtn .lbl{flex:1 1 auto}
+    .ax-count{margin-left:auto;font-size:11px;font-weight:800;min-width:20px;text-align:center;background:var(--ax-violet-d);color:#fff;border-radius:var(--ax-pill);padding:1px 6px}
+    .ax-chev{width:14px;height:14px;flex:0 0 auto;color:var(--ax-sub)}
+    .ax-new{font-size:9px;font-weight:800;letter-spacing:.06em;color:var(--ax-green-d);background:var(--ax-green-bg);border-radius:5px;padding:2px 6px}
+    .ax-side-card{margin-top:auto;background:linear-gradient(165deg,#FFFFFF 0%,var(--ax-canvas) 100%);border:1px solid var(--ax-line);
+      border-radius:var(--ax-radius);padding:16px 14px 14px;display:flex;flex-direction:column;align-items:center;gap:11px;text-align:center;box-shadow:var(--ax-shadow)}
+    .ax-side-card .crest{width:120px;height:66px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:24px}
+    .ax-clientlogo{width:124px;max-width:100%}
+    .ax-clientlogo img{display:block;width:100%;height:auto;mix-blend-mode:multiply}
+    .ax-side-card .ax-name{font-size:13.5px;font-weight:800;letter-spacing:-.2px;color:var(--ax-ink)}
+    .ax-side-card .ax-sub{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--ax-violet-d)}
+
+    /* ---- main ---- */
+    .ax-main{display:flex;flex-direction:column;min-width:0}
+    .ax-top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 28px;border-bottom:1px solid var(--ax-line);
+      background:rgba(255,255,255,.72);position:sticky;top:0;z-index:20;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+    .ax-top::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ax-grad-brand);opacity:.85}
+    .ax-top .title{font-size:18px;font-weight:800;color:var(--ax-ink);letter-spacing:-.2px}
+    .ax-top-r{display:flex;align-items:center;gap:12px}
+    .ax-clock{font-size:12.5px;color:var(--ax-sub);font-weight:600}
+    .ax-iconbtn{width:36px;height:36px;border-radius:50%;border:1px solid var(--ax-line);background:var(--ax-white);display:flex;align-items:center;justify-content:center;color:var(--ax-charcoal)}
+    .ax-iconbtn svg{width:16px;height:16px}
+    .ax-av{width:36px;height:36px;border-radius:50%;background:var(--ax-violet-d);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
+    .ax-back{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--ax-line);background:var(--ax-white);border-radius:var(--ax-pill);padding:8px 14px;font-size:12.5px;font-weight:700;color:var(--ax-charcoal)}
+    .ax-back svg{width:15px;height:15px}
+    .ax-preview{display:inline-flex;align-items:center;gap:8px;background:var(--ax-canvas);border:1px dashed var(--ax-line);border-radius:var(--ax-pill);padding:4px 6px 4px 12px;font-size:11px;color:var(--ax-sub);font-weight:700}
+    .ax-preview select{border:1px solid var(--ax-line);border-radius:var(--ax-pill);padding:4px 9px;font-size:12px;font-weight:700;background:var(--ax-white);color:var(--ax-ink);outline:none;font-family:inherit}
+
+    .ax-content{padding:26px 30px 96px;max-width:1180px}
+    .ax-eyebrow{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--ax-green-d);margin:0 0 8px}
+    h1.ax-h1{font-size:26px;font-weight:900;letter-spacing:-.4px;color:var(--ax-ink);margin:0 0 7px}
+    p.ax-lead{color:var(--ax-sub);font-size:14.5px;margin:0;max-width:64ch}
+    .ax-ro{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--ax-green-d);background:var(--ax-green-bg);border-radius:var(--ax-pill);padding:5px 12px;margin-top:12px}
+    .ax-ro svg{width:14px;height:14px}
+
+    .ax-ph{margin-top:22px;border:1px dashed var(--ax-line);border-radius:var(--ax-radius);background:var(--ax-white);padding:44px 26px;color:var(--ax-sub);text-align:center;box-shadow:var(--ax-shadow)}
+    .ax-ph svg{width:40px;height:40px;margin:0 auto 12px;color:var(--ax-green)}
+    .ax-ph h3{font-size:17px;color:var(--ax-ink);margin-bottom:6px}
+
+    /* ---- summary tiles ---- */
+    .ax-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0}
+    .ax-tile{background:var(--ax-white);border:1px solid var(--ax-line);border-radius:var(--ax-radius);padding:15px 17px;box-shadow:var(--ax-shadow)}
+    .ax-tile .n{font-size:26px;font-weight:900;color:var(--ax-ink);line-height:1}
+    .ax-tile .l{font-size:12px;font-weight:700;color:var(--ax-sub);margin-top:6px;display:flex;align-items:center;gap:7px}
+    .ax-tile .l .dot{width:9px;height:9px;border-radius:50%}
+    .ax-tile.hi{border-color:#BBD4FB;background:linear-gradient(180deg,var(--ax-violet-bg),var(--ax-white) 62%)}
+
+    /* ---- board ---- */
+    .ax-board{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;align-items:start}
+    .ax-colhead{display:flex;align-items:center;gap:9px;padding:2px 4px 12px}
+    .ax-colhead .dot{width:9px;height:9px;border-radius:50%}
+    .ax-colhead .t{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ax-ink)}
+    .ax-colhead .c{margin-left:auto;font-size:11px;font-weight:800;color:var(--ax-sub);background:var(--ax-white);border:1px solid var(--ax-line);border-radius:var(--ax-pill);padding:1px 9px}
+    .ax-collist{display:flex;flex-direction:column;gap:11px;min-height:40px}
+    .ax-colempty{border:1px dashed var(--ax-line);border-radius:var(--ax-radius);color:var(--ax-sub);font-size:12px;padding:16px 10px;text-align:center}
+    .ax-pcard{background:var(--ax-white);border:1px solid var(--ax-line);border-radius:var(--ax-radius);padding:15px;box-shadow:var(--ax-shadow);cursor:pointer;transition:transform .18s ease,box-shadow .18s,border-color .18s}
+    .ax-pcard:hover{transform:translateY(-3px);box-shadow:var(--ax-shadow-lg);border-color:#d4d6df}
+    .ax-chip{display:inline-flex;align-items:center;font-size:10px;font-weight:800;border-radius:var(--ax-pill);padding:2px 9px;letter-spacing:.03em;text-transform:uppercase;background:var(--ax-violet-bg);color:var(--ax-violet-d)}
+    /* Discipline tint on the campaign chip — same color language as the admin board. */
+    .ax-chip.lb-paid{background:#ECECFB;color:#5A54DD}
+    .ax-chip.lb-organic{background:var(--ax-green-bg);color:var(--ax-green-d)}
+    .ax-chip.lb-web{background:var(--ax-violet-bg);color:var(--ax-violet-d)}
+    .ax-chip.lb-other{background:#EEF0F3;color:#5B6472}
+    .ax-ptitle{font-weight:800;font-size:14px;color:var(--ax-ink);line-height:1.4;margin:9px 0 0}
+    .ax-ptype{font-size:12px;color:var(--ax-sub);margin-top:3px}
+    .ax-prog{margin-top:12px}
+    .ax-prog .bar{height:6px;border-radius:var(--ax-pill);background:var(--ax-line);overflow:hidden}
+    .ax-prog .bar i{display:block;height:100%;background:var(--ax-grad-green);border-radius:var(--ax-pill)}
+    .ax-prog .meta{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ax-sub);margin-top:6px;font-weight:600}
+    .ax-pfoot{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:11px;border-top:1px solid var(--ax-line);flex-wrap:wrap}
+    .ax-target{font-size:11.5px;font-weight:700;color:var(--ax-charcoal)}
+    .ax-target.soon{color:var(--s-rev-tx)}
+    .ax-upd{font-size:11px;color:var(--ax-sub);margin-left:auto}
+    .ax-tag{font-size:10px;font-weight:800;border-radius:var(--ax-pill);padding:2px 9px;text-transform:uppercase;letter-spacing:.03em}
+    .ax-tag.review{color:var(--ax-violet-d);background:var(--ax-violet-bg)}
+    .ax-tag.changes{color:var(--ax-bad);background:#FDECEC}
+    .ax-tag.cmt{color:var(--ax-sub);background:var(--ax-canvas);border:1px solid var(--ax-line)}
+    .ax-tag.cmt svg{width:11px;height:11px;vertical-align:-2px;margin-right:2px}
+
+    /* ---- read-only detail modal ---- */
+    .ax-veil{position:fixed;inset:0;background:rgba(12,16,34,.45);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto}
+    .ax-veil[hidden]{display:none}
+    .ax-modal{width:100%;max-width:580px;background:var(--ax-white);border:1px solid var(--ax-line);border-radius:12px;box-shadow:var(--ax-shadow-lg);animation:axrise .22s ease}
+    @keyframes axrise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+    .ax-mhead{display:flex;align-items:flex-start;gap:12px;padding:20px 22px 16px;border-bottom:1px solid var(--ax-line)}
+    .ax-meyebrow{font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--ax-sub);display:flex;align-items:center;gap:8px}
+    .ax-mx{margin-left:auto;border:0;background:transparent;color:var(--ax-sub);font-size:22px;line-height:1;padding:2px 8px;border-radius:8px}
+    .ax-mx:hover{color:var(--ax-ink);background:var(--ax-canvas)}
+    .ax-mbody{padding:20px 22px 24px}
+    .ax-mtitle{font-size:20px;font-weight:900;color:var(--ax-ink);margin:5px 0 12px;line-height:1.3}
+    .ax-stage{font-size:10px;font-weight:800;border-radius:var(--ax-pill);padding:3px 10px;letter-spacing:.03em}
+    .ax-stage.proc{background:var(--s-proc-bg);color:var(--s-proc-tx)} .ax-stage.rev{background:var(--s-rev-bg);color:var(--s-rev-tx)}
+    .ax-stage.live{background:var(--s-live-bg);color:var(--s-live-tx)} .ax-stage.done{background:var(--s-done-bg);color:var(--s-done-tx)}
+    .ax-kv{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px;margin:6px 0 4px}
+    .ax-kv .k{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--ax-sub)}
+    .ax-kv .v{font-size:13.5px;color:var(--ax-ink);font-weight:700;margin-top:2px}
+    .ax-sl{font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--ax-sub);margin:18px 0 9px}
+    .ax-note{background:var(--ax-green-bg);border:1px solid #cdeccf;border-radius:10px;padding:11px 13px;font-size:13.5px;color:var(--ax-green-d);line-height:1.5}
+    .ax-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+    .ax-steps li{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--ax-charcoal)}
+    .ax-steps li.done span{color:var(--ax-sub)}
+    .ax-stepic{width:18px;height:18px;flex:0 0 auto;border-radius:50%;border:1.5px solid var(--ax-line);display:flex;align-items:center;justify-content:center}
+    .ax-stepic.done{background:var(--ax-green);border-color:var(--ax-green);color:#fff}
+    .ax-stepic svg{width:11px;height:11px}
+    .ax-deliv{display:inline-flex;align-items:center;gap:7px;margin-top:12px;background:var(--ax-grad-green);color:#fff;font-size:13px;font-weight:800;border-radius:8px;padding:9px 15px}
+    /* start → launch timeline */
+    .ax-timeline{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:4px 0 6px}
+    .ax-timeline .tl-type{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--ax-violet-d);background:var(--ax-violet-bg);border-radius:var(--ax-pill);padding:3px 10px}
+    .ax-timeline .tl-seg{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:var(--ax-charcoal)}
+    .ax-timeline .tl-seg svg{width:13px;height:13px;opacity:.65}
+    .ax-timeline .tl-seg b{font-weight:800;color:var(--ax-ink)}
+    .ax-timeline .tl-seg.soon b{color:var(--s-rev-tx)}
+    .ax-timeline .tl-arrow{color:var(--ax-sub);font-weight:800}
+    /* phases (main task → steps) */
+    .ax-phase{border:1px solid var(--ax-line);border-radius:10px;padding:10px 12px;margin-bottom:9px}
+    .ax-phase-h{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+    .ax-phase-ic{width:17px;height:17px;flex:0 0 auto;border-radius:50%;border:1.5px solid var(--ax-line);display:flex;align-items:center;justify-content:center;color:#fff}
+    .ax-phase-ic.done{background:var(--ax-green);border-color:var(--ax-green)}
+    .ax-phase-ic svg{width:10px;height:10px}
+    .ax-phase-n{font-size:13.5px;font-weight:800;color:var(--ax-ink)}
+    .ax-phase-c{margin-left:auto;font-size:11px;font-weight:800;color:var(--ax-sub);background:var(--ax-canvas);border:1px solid var(--ax-line);border-radius:var(--ax-pill);padding:1px 8px}
+    .ax-phase .ax-steps{gap:6px}
+
+    /* ---- comment thread (client can comment / request changes) ---- */
+    .ax-comments{margin-top:20px;border-top:1px dashed var(--ax-line);padding-top:14px}
+    .ax-comlist{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;max-height:300px;overflow-y:auto;padding-right:4px}
+    .ax-com{display:flex;flex-direction:column;max-width:86%;padding:8px 11px;border-radius:11px;font-size:13px}
+    .ax-com.client{align-self:flex-end;background:var(--ax-green-bg)}
+    .ax-com.agora{align-self:flex-start;background:var(--ax-violet-bg)}
+    .ax-com.changes{align-self:stretch;max-width:100%;background:#FDECEC;border:1px solid #F3C9C8}
+    .ax-com-flag{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ax-bad);background:var(--ax-white);border:1px solid #F3C9C8;padding:2px 8px;border-radius:var(--ax-pill);margin-bottom:5px}
+    .ax-com .who{font-size:10.5px;font-weight:800;opacity:.75;margin-bottom:2px}
+    .ax-com .when{font-size:10px;opacity:.6;margin-top:4px}
+    .ax-comempty{font-size:12.5px;color:var(--ax-sub);padding:2px 2px 10px}
+    .ax-comform{display:flex;gap:8px;align-items:flex-end}
+    .ax-comform textarea{flex:1;resize:vertical;min-height:44px;font:inherit;font-size:13px;padding:9px 11px;border:1px solid var(--ax-line);border-radius:10px;outline:none;font-family:inherit}
+    .ax-comform textarea:focus{border-color:var(--ax-violet)}
+    .ax-comsend{display:flex;flex-direction:column;gap:6px;flex:0 0 auto}
+    .ax-btn{border:1px solid var(--ax-line);background:var(--ax-white);color:var(--ax-charcoal);border-radius:8px;padding:9px 13px;font-size:12.5px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;font-family:inherit}
+    .ax-btn:hover{border-color:#d4d6df}
+    .ax-btn.blue{background:linear-gradient(135deg,var(--ax-violet),var(--ax-violet-d));color:#fff;border-color:transparent}
+    .ax-btn.blue:hover{filter:brightness(1.05)}
+    .ax-btn.green{background:linear-gradient(135deg,var(--ax-green-d),#234F20);color:#fff;border-color:transparent}
+    .ax-btn.green:hover{filter:brightness(1.06)}
+    .ax-mfoot{display:flex;align-items:center;gap:10px;padding:14px 22px;border-top:1px solid var(--ax-line)}
+    .ax-mfoot .hint{font-size:12px;color:var(--ax-sub)}
+    .ax-mfoot .close{margin-left:auto;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:800;background:var(--ax-white);border:1px solid var(--ax-line);color:var(--ax-charcoal)}
+    .ax-mfoot .close:hover{border-color:#d4d6df}
+
+    .ax-empty{background:var(--ax-white);border:1px dashed var(--ax-line);border-radius:var(--ax-radius);padding:48px 24px;text-align:center;color:var(--ax-sub);box-shadow:var(--ax-shadow)}
+    .ax-empty h3{font-size:17px;margin-bottom:6px;color:var(--ax-ink)}
+
+    .ax-fab{position:fixed;right:26px;bottom:26px;width:60px;height:60px;border-radius:50%;background:var(--ax-grad-green);color:#fff;border:0;display:flex;align-items:center;justify-content:center;box-shadow:0 16px 40px -10px rgba(76,172,76,.6);z-index:40}
+    .ax-fab svg{width:26px;height:26px}
+
+    /* ---- toast ---- */
+    .ax-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ax-ink);color:#fff;padding:11px 18px;border-radius:var(--ax-pill);font-size:13px;font-weight:600;z-index:200;opacity:0;transition:opacity .25s;pointer-events:none;box-shadow:var(--ax-shadow-lg)}
+    .ax-toast.show{opacity:1}
+
+    @media (max-width:980px){ .ax-summary{grid-template-columns:repeat(2,1fr)} .ax-board{grid-template-columns:1fr 1fr} }
+    @media (max-width:760px){
+      .ax-app{grid-template-columns:1fr} .ax-side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--ax-line)}
+      .ax-nav{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:6px} .ax-side-card{display:none}
+      .ax-navbtn .lbl{white-space:nowrap} .ax-board{grid-template-columns:1fr}
+    }
+    @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  </style>
+</head>
+<body class="atrium">
+  <div class="ax-app">
+    <!-- ===================== CLIENT SIDEBAR ===================== -->
+    <aside class="ax-side">
+      <div class="ax-brand">
+        <div class="ax-co"><img class="ax-logo" src="assets/logo.svg" alt="Agora Data Driven"></div>
+        <div class="ax-badge">Agora Atrium</div>
+      </div>
+      <nav class="ax-nav" id="nav"></nav>
+      <div class="ax-side-card">
+        <div id="crest"></div>
+        <div><div class="ax-name" id="client-name">Riverdance RV</div><div class="ax-sub">Client Workspace</div></div>
+      </div>
+    </aside>
+
+    <!-- ===================== MAIN ===================== -->
+    <div class="ax-main">
+      <div class="ax-top">
+        <span class="title" id="top-title">Progress</span>
+        <div class="ax-top-r">
+          <span class="ax-preview">Preview as <select id="who" aria-label="Preview as client"></select></span>
+          <span class="ax-clock">9:31 PM</span>
+          <button class="ax-iconbtn" title="Notifications" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></button>
+          <span class="ax-av" id="top-av">IN</span>
+          <button class="ax-back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Back</button>
+        </div>
+      </div>
+      <div class="ax-content" id="content"></div>
+    </div>
+  </div>
+
+  <button class="ax-fab" title="Ask your team" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></button>
+
+  <div class="ax-veil" id="veil" hidden></div>
+  <div class="ax-toast" id="toast"></div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var ICONS = {
+        dashboard: '<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/>',
+        campaigns: '<path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 0 1-5.8-1.6"/>',
+        insights: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/>',
+        calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+        comms: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+        progress: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>'
+      };
+      var NAV = [
+        { key: "dashboard", label: "Dashboard", icon: "dashboard" },
+        { key: "campaigns", label: "Campaigns", icon: "campaigns", badge: 37, chev: true },
+        { key: "insights",  label: "Insights",  icon: "insights", chev: true },
+        { key: "calendar",  label: "Content Calendar", icon: "calendar" },
+        { key: "comms",     label: "Communications", icon: "comms" },
+        { key: "progress",  label: "Progress", icon: "progress", isNew: true }
+      ];
+      var STAGES = [
+        { key: "in_process", name: "In progress", tone: "proc", dot: "var(--s-proc)" },
+        { key: "for_launch", name: "In review",   tone: "rev",  dot: "var(--s-rev)" },
+        { key: "launched",   name: "Live",        tone: "live", dot: "var(--s-live)" },
+        { key: "closed",     name: "Completed",   tone: "done", dot: "var(--s-done)" }
+      ];
+      var CLIENTS = [
+        { id: 1, name: "Riverdance RV",        color: "#2575FC", logo: "assets/clients/riverdance.svg" },
+        { id: 2, name: "The Contract Shop",    color: "#C2410C", logo: null },
+        { id: 3, name: "Honey Tribe",          color: "#F2820C", logo: "assets/clients/honeytribe.svg" },
+        { id: 4, name: "Melo Yelo",            color: "#4CAC4C", logo: "assets/clients/meloyelo.svg" },
+        { id: 5, name: "Rooming House Expert", color: "#1856C9", logo: "assets/clients/rhe.svg" },
+        { id: 6, name: "ASL Logistics",        color: "#0d9488", logo: null },
+        { id: 7, name: "Agora Data Driven",    color: "#3E8C3B", logo: null }
+      ];
+      function days(n) { var d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+
+      // Client-SAFE deliverables. `comments`: who = "agora" | "client", kind "changes" flags a change request.
+      // Work is grouped into client-friendly `phases` (main task → steps), mirroring the
+      // admin board's two-level breakdown but WITHOUT internal owners/notes/priority/charge.
+      var ITEMS = [
+        { client_id: 1, title: "Park & Porch — lead-gen funnel", stage: "launched", campaign: "Park & Porch", type: "Lead-gen funnel",
+          start: days(-14), target: days(-1), link: "https://drive.google.com/…", note: "Your funnel is live — first leads are coming through. We're watching cost-per-lead this week before scaling.",
+          phases: [
+            { name: "Build", steps: [["Funnel proposed", true], ["Info pack built", true]] },
+            { name: "Launch", steps: [["Aligned with launch", true], ["Launched", true]] }
+          ], updated: "2 hours ago",
+          comments: [{ who: "agora", body: "Funnel's live and the first leads are in — we'll report back on CPL Friday.", when: "2 hours ago" }] },
+        { client_id: 1, title: "Direct booking email series", stage: "in_process", campaign: "Direct Booking (Campspot)", type: "Email sequence",
+          start: days(-4), target: days(3), link: "", note: "",
+          phases: [
+            { name: "Plan", steps: [["Sequence mapped", true]] },
+            { name: "Create", steps: [["Copy drafted", false], ["Design + build", false]] }
+          ], updated: "yesterday", comments: [] },
+        { client_id: 1, title: "Booking-flow tracking", stage: "in_process", campaign: "Direct Booking (Campspot)", type: "Website tracking",
+          start: days(-6), target: days(7), link: "", note: "Waiting on write access to your tag manager — we'll confirm once it's granted.",
+          phases: [
+            { name: "Access", steps: [["Reviewed setup", true], ["Get tag-manager access", false]] },
+            { name: "Verify", steps: [["Verify tracking", false]] }
+          ], updated: "3 days ago", comments: [] },
+
+        { client_id: 2, title: "July reporting refresh", stage: "for_launch", campaign: "Ads Manager", type: "Report", review: true,
+          start: days(-5), target: days(1), link: "", note: "Your July report is ready for a look — we'll walk you through it on the next call.",
+          phases: [
+            { name: "Update", steps: [["July numbers pulled", true], ["Visuals refreshed", true]] },
+            { name: "Review", steps: [["Final check", false]] }
+          ], updated: "5 hours ago",
+          comments: [{ who: "agora", body: "July report is ready for your review — anything you'd like added before the call?", when: "5 hours ago" }] },
+        { client_id: 2, title: "Get Clients (5 Unexpected Ways) — 6 statics", stage: "in_process", campaign: "Get Clients", type: "Ad creative",
+          start: days(-2), target: days(6), link: "", note: "",
+          phases: [
+            { name: "Concepting", steps: [["Concepts", false]] },
+            { name: "Design", steps: [["Design 6 statics", false]] },
+            { name: "Review", steps: [["Review", false]] }
+          ], updated: "yesterday", comments: [] },
+        { client_id: 2, title: "July performance recap", stage: "closed", campaign: "Ads Manager", type: "Report",
+          start: days(-24), target: days(-8), link: "https://drive.google.com/…", note: "Signed off and filed — thank you!",
+          phases: [
+            { name: "Delivery", steps: [["Delivered", true], ["Your sign-off", true]] }
+          ], updated: "1 week ago",
+          comments: [{ who: "agora", body: "Recap delivered.", when: "1 week ago" }, { who: "client", body: "Looks great, approved!", when: "1 week ago" }] },
+
+        { client_id: 3, title: "New Arrivals — social video", stage: "for_launch", campaign: "New Arrivals", type: "Video", review: true,
+          start: days(-9), target: days(2), link: "https://drive.google.com/…", note: "First New Arrivals video is in your workspace for approval — let us know if you'd like any tweaks.",
+          phases: [
+            { name: "Produce", steps: [["Video drafted", true], ["Story timeline", true]] },
+            { name: "Approval", steps: [["Sent for approval", true], ["Your approval", false]] }
+          ], updated: "3 days ago",
+          comments: [{ who: "agora", body: "First New Arrivals cut is up for your approval. Happy to adjust the opening if you'd like.", when: "3 days ago" }] },
+        { client_id: 3, title: "Ambassador program research", stage: "in_process", campaign: "Onboarding", type: "Research",
+          start: days(-3), target: days(9), link: "", note: "",
+          phases: [
+            { name: "Scoping", steps: [["Scope the program", false], ["Benchmark rates", false]] },
+            { name: "Recommend", steps: [["Recommend approach", false]] }
+          ], updated: "6 hours ago", comments: [] },
+
+        { client_id: 4, title: "Q Card campaign", stage: "in_process", campaign: "Finance Page", type: "Campaign",
+          start: days(-1), target: days(13), link: "", note: "On hold until Jul 24 at your request — we'll pick this back up right after.",
+          phases: [
+            { name: "Assets", steps: [["Landing page", false], ["Statics", false]] },
+            { name: "Funnel", steps: [["Funnel mapped", false]] }
+          ], updated: "yesterday", comments: [] },
+        { client_id: 4, title: "Finance page ads", stage: "in_process", campaign: "Finance Page", type: "Paid ads",
+          start: days(-2), target: days(5), link: "", note: "",
+          phases: [
+            { name: "Build ads", steps: [["2 Meta ads", false], ["1 Google ad", false]] }
+          ], updated: "2 days ago", comments: [] },
+
+        { client_id: 5, title: "6 blogs — Negative Gearing", stage: "in_process", campaign: "Negative Gearing", type: "Blog batch",
+          start: days(-5), target: days(5), link: "https://drive.google.com/…", note: "Anchor blog is drafted and in review — supporting pieces are next.",
+          phases: [
+            { name: "Writing", steps: [["Anchor blog", true], ["5 supporting blogs", false]] },
+            { name: "Production", steps: [["Graphics", false]] },
+            { name: "Publish", steps: [["Publish", false]] }
+          ], updated: "8 hours ago",
+          comments: [{ who: "agora", body: "Anchor blog is drafted — take a look when you have a moment.", when: "8 hours ago" }] },
+        { client_id: 5, title: "3 reel ads — Rent to Rent", stage: "in_process", campaign: "Rent to Rent", type: "Reel ads",
+          start: days(-2), target: days(5), link: "", note: "",
+          phases: [
+            { name: "Scripts", steps: [["Scripts", false]] },
+            { name: "Edit", steps: [["Edits", false], ["Export", false]] }
+          ], updated: "2 days ago", comments: [] },
+
+        { client_id: 6, title: "SEO audit", stage: "in_process", campaign: "Onboarding", type: "SEO audit",
+          start: days(-1), target: days(4), link: "", note: "First draft is in internal review — you'll get the prioritized recommendations shortly.",
+          phases: [
+            { name: "Audit", steps: [["Technical crawl", true], ["Recommendations", false]] },
+            { name: "Review", steps: [["Final review", false]] }
+          ], updated: "yesterday", comments: [] }
+      ];
+
+      var $ = function (s) { return document.querySelector(s); };
+      var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+      function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+      function client(id) { for (var i = 0; i < CLIENTS.length; i++) { if (CLIENTS[i].id === id) return CLIENTS[i]; } return null; }
+      function stage(k) { for (var i = 0; i < STAGES.length; i++) { if (STAGES[i].key === k) return STAGES[i]; } return STAGES[0]; }
+      function fmt(iso) { if (!iso) return ""; var d = new Date(iso + "T00:00:00"); return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
+      function isSoon(iso) { if (!iso) return false; var t = new Date(); t.setHours(0,0,0,0); var d = new Date(iso + "T00:00:00"); return (d - t) >= 0 && (d - t) < 3 * 864e5; }
+      function initials(name) { var p = name.trim().split(/\s+/); return (p[0][0] + (p[1] ? p[1][0] : "")).toUpperCase(); }
+      function hasOpenChanges(it) { return (it.comments || []).some(function (c) { return c.kind === "changes"; }); }
+      var CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+      var COMMENT_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
+      var CAL_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>';
+      function svgIc(name, cls) { return '<svg class="' + (cls || "ax-ic") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + ICONS[name] + '</svg>'; }
+
+      var current = 1;
+      var pane = "progress";
+
+      CLIENTS.forEach(function (c) { var o = document.createElement("option"); o.value = c.id; o.textContent = c.name; $("#who").appendChild(o); });
+      $("#who").value = String(current);
+      $("#who").onchange = function (e) { current = Number(e.target.value); renderChrome(); renderPane(); };
+
+      var toastTimer = null;
+      function toast(msg) { var t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2400); }
+
+      function renderNav() {
+        $("#nav").innerHTML = NAV.map(function (n) {
+          return '<button type="button" class="ax-navbtn' + (n.key === pane ? " is-active" : "") + '" data-pane="' + n.key + '">' +
+            svgIc(n.icon) + '<span class="lbl">' + esc(n.label) + '</span>' +
+            (n.badge ? '<span class="ax-count tnum">' + n.badge + '</span>' : "") +
+            (n.isNew ? '<span class="ax-new">NEW</span>' : "") +
+            (n.chev ? '<svg class="ax-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>' : "") +
+          '</button>';
+        }).join("");
+        $$(".ax-navbtn").forEach(function (b) { b.onclick = function () { pane = b.dataset.pane; renderNav(); renderTop(); renderPane(); }; });
+      }
+      function renderTop() { var n = NAV.filter(function (x) { return x.key === pane; })[0]; $("#top-title").textContent = n ? n.label : ""; }
+      function renderChrome() {
+        var c = client(current);
+        var crest = $("#crest");
+        if (c.logo) {
+          crest.className = ""; crest.removeAttribute("style");
+          crest.innerHTML = '<span class="ax-clientlogo"><img src="' + c.logo + '" alt="' + esc(c.name) + ' logo"></span>';
+        } else {
+          crest.className = "crest"; crest.style.background = c.color; crest.textContent = initials(c.name);
+        }
+        $("#client-name").textContent = c.name;
+        $("#top-av").textContent = initials(c.name);
+        renderNav(); renderTop();
+      }
+
+      function itemsFor(cid) { return ITEMS.filter(function (it) { return it.client_id === cid; }); }
+      // Two-level work: phases[] each with steps[]. Progress is across ALL steps.
+      function phasesOf(it) { return it.phases || (it.steps ? [{ name: "Steps", steps: it.steps }] : []); }
+      function allSteps(it) { var out = []; phasesOf(it).forEach(function (ph) { (ph.steps || []).forEach(function (s) { out.push(s); }); }); return out; }
+      function progress(it) { var s = allSteps(it); var d = s.filter(function (x) { return x[1]; }).length; return { done: d, total: s.length, pct: s.length ? Math.round(100 * d / s.length) : 0 }; }
+      // Sort within a column by soonest launch date (undated sink to the bottom).
+      function launchVal(it) { return it.target ? new Date(it.target + "T00:00:00").getTime() : 8.64e15; }
+      // Discipline tint (demo stand-in: the real app derives it from the department). Same color
+      // language as the admin board — purple = paid, green = organic, blue = website.
+      function discOf(it) {
+        var t = (it.type || "").toLowerCase();
+        if (/blog|video|email|social|content|organic/.test(t)) return "lb-organic";
+        if (/website|tracking|seo|report|research|audit/.test(t)) return "lb-web";
+        if (/ad|funnel|campaign|paid|reel|creative/.test(t)) return "lb-paid";
+        return "lb-other";
+      }
+      // The discipline word shown in the chip (matches the real client card since campaign-as-title
+      // merged the campaign into the title — the chip now carries the discipline).
+      var DISC_LABEL = { "lb-paid": "Paid Media", "lb-organic": "Organic", "lb-web": "Website", "lb-other": "" };
+      function discLabel(it) { return DISC_LABEL[discOf(it)] || it.campaign; }
+
+      function renderPane() {
+        if (pane === "progress") { renderProgress(); return; }
+        var titles = { dashboard: "Dashboard", campaigns: "Campaigns", insights: "Insights", calendar: "Content Calendar", comms: "Communications" };
+        var subs = {
+          dashboard: "Your live campaign data, updated automatically.",
+          campaigns: "Everything we're running for you — paid media and organic content.",
+          insights: "Market intelligence and research curated for your business.",
+          calendar: "What's scheduled and what's publishing next.",
+          comms: "Your message thread with the Agora team."
+        };
+        var n = NAV.filter(function (x) { return x.key === pane; })[0];
+        $("#content").innerHTML =
+          '<p class="ax-eyebrow">Your workspace</p><h1 class="ax-h1">' + esc(titles[pane]) + '</h1>' +
+          '<p class="ax-lead">' + esc(subs[pane]) + '</p>' +
+          '<div class="ax-ph">' + svgIc(n.icon, "ic").replace('class="ic"', 'style="width:40px;height:40px"') +
+            '<h3>This tab already exists in the client workspace</h3><div>The prototype focus is the new <b>Progress</b> tab — click it in the sidebar to see the read-only task board.</div></div>';
+      }
+
+      function renderProgress() {
+        var items = itemsFor(current);
+        var counts = { in_process: 0, for_launch: 0, launched: 0, closed: 0 };
+        items.forEach(function (it) { counts[it.stage] = (counts[it.stage] || 0) + 1; });
+        var reviewCount = items.filter(function (it) { return it.review && !hasOpenChanges(it); }).length;
+        var summary = '<div class="ax-summary">' + STAGES.map(function (st) {
+          var hi = st.key === "for_launch" && reviewCount ? " hi" : "";
+          return '<div class="ax-tile' + hi + '"><div class="n tnum">' + (counts[st.key] || 0) + '</div><div class="l"><span class="dot" style="background:' + st.dot + '"></span>' + esc(st.name) + '</div></div>';
+        }).join("") + '</div>';
+
+        var boardOrEmpty;
+        if (!items.length) {
+          boardOrEmpty = '<div class="ax-empty"><h3>Nothing to show yet</h3><div>When your Agora team starts work, your deliverables will appear here.</div></div>';
+        } else {
+          boardOrEmpty = '<div class="ax-board">' + STAGES.map(function (st) {
+            var list = items.filter(function (it) { return it.stage === st.key; }).sort(function (a, b) { return launchVal(a) - launchVal(b); });
+            var body = list.length ? list.map(card).join("") : '<div class="ax-colempty">—</div>';
+            return '<div><div class="ax-colhead"><span class="dot" style="background:' + st.dot + '"></span><span class="t">' + esc(st.name) + '</span><span class="c tnum">' + list.length + '</span></div><div class="ax-collist">' + body + '</div></div>';
+          }).join("") + '</div>';
+        }
+        $("#content").innerHTML =
+          '<p class="ax-eyebrow">Your workspace</p><h1 class="ax-h1">Progress</h1>' +
+          '<p class="ax-lead">Everything we\'re building for you and exactly where each piece stands — updated live by your Agora team.</p>' +
+          '<span class="ax-ro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Read-only — but you can comment on any item.</span>' +
+          summary + boardOrEmpty;
+        $$(".ax-pcard").forEach(function (el) { el.onclick = function () { openDetail(Number(el.dataset.i)); }; });
+      }
+
+      function card(it) {
+        var i = ITEMS.indexOf(it);
+        var p = progress(it);
+        var changed = hasOpenChanges(it);
+        var cmtN = (it.comments || []).length;
+        var tag = changed ? '<span class="ax-tag changes">Changes requested</span>'
+          : (it.review ? '<span class="ax-tag review">Ready for your review</span>'
+            : (it.target ? '<span class="ax-target' + (isSoon(it.target) ? " soon" : "") + '">' + ((it.stage === "launched" || it.stage === "closed") ? "Live " : "Launching ") + fmt(it.target) + '</span>' : ""));
+        return '<div class="ax-pcard" data-i="' + i + '">' +
+          '<span class="ax-chip ' + discOf(it) + '">' + esc(discLabel(it)) + '</span>' +
+          '<div class="ax-ptitle">' + esc(it.title) + '</div>' +
+          '<div class="ax-ptype">' + esc(it.type) + '</div>' +
+          '<div class="ax-prog"><div class="bar"><i style="width:' + p.pct + '%"></i></div><div class="meta"><span>' + p.done + ' of ' + p.total + ' steps</span><span>' + p.pct + '%</span></div></div>' +
+          '<div class="ax-pfoot">' + tag +
+            (cmtN ? '<span class="ax-tag cmt">' + COMMENT_IC + cmtN + '</span>' : "") +
+            '<span class="ax-upd">Updated ' + esc(it.updated) + '</span>' +
+          '</div></div>';
+      }
+
+      function commentBubble(c, clientName) {
+        var who = c.who === "client" ? clientName : "Agora team";
+        return '<div class="ax-com ' + (c.who === "client" ? "client" : "agora") + (c.kind === "changes" ? " changes" : "") + '">' +
+          (c.kind === "changes" ? '<span class="ax-com-flag">&#9873; Change request</span>' : "") +
+          '<span class="who">' + esc(who) + '</span><div>' + esc(c.body) + '</div><span class="when">' + esc(c.when) + '</span></div>';
+      }
+
+      function openDetail(i) {
+        var it = ITEMS[i]; var st = stage(it.stage); var p = progress(it); var cn = client(current).name;
+        var coms = (it.comments || []).length
+          ? '<div class="ax-comlist" id="comlist">' + it.comments.map(function (c) { return commentBubble(c, cn); }).join("") + '</div>'
+          : '<div class="ax-comempty" id="comlist">No comments yet — start the conversation below.</div>';
+        $("#veil").innerHTML =
+          '<div class="ax-modal" role="dialog" aria-modal="true">' +
+            '<div class="ax-mhead"><div><div class="ax-meyebrow"><span class="ax-chip ' + discOf(it) + '">' + esc(discLabel(it)) + '</span> <span class="ax-stage ' + st.tone + '">' + esc(st.name) + '</span></div><h2 class="ax-mtitle">' + esc(it.title) + '</h2></div><button class="ax-mx" id="x" aria-label="Close">&times;</button></div>' +
+            '<div class="ax-mbody">' +
+              '<div class="ax-timeline">' +
+                '<span class="tl-type">' + esc(it.type) + '</span>' +
+                (it.start ? '<span class="tl-seg">' + CAL_IC + 'Started <b>' + fmt(it.start) + '</b></span>' : "") +
+                (it.target ? '<span class="tl-arrow">→</span><span class="tl-seg' + (isSoon(it.target) ? " soon" : "") + '">' + CAL_IC + ((it.stage === "launched" || it.stage === "closed") ? "Went live " : "Going live ") + '<b>' + fmt(it.target) + '</b></span>' : "") +
+              '</div>' +
+              (it.note ? '<div class="ax-sl">Update from your team</div><div class="ax-note">' + esc(it.note) + '</div>' : "") +
+              '<div class="ax-sl">Progress · ' + p.done + ' of ' + p.total + ' steps</div>' +
+              phasesOf(it).map(function (ph) {
+                var pd = ph.steps.filter(function (s) { return s[1]; }).length;
+                var pdone = ph.steps.length > 0 && pd === ph.steps.length;
+                return '<div class="ax-phase">' +
+                  '<div class="ax-phase-h"><span class="ax-phase-ic' + (pdone ? " done" : "") + '">' + (pdone ? CHECK : "") + '</span><span class="ax-phase-n">' + esc(ph.name) + '</span><span class="ax-phase-c tnum">' + pd + '/' + ph.steps.length + '</span></div>' +
+                  '<ul class="ax-steps">' + ph.steps.map(function (s) { return '<li class="' + (s[1] ? "done" : "") + '"><span class="ax-stepic' + (s[1] ? " done" : "") + '">' + (s[1] ? CHECK : "") + '</span><span>' + esc(s[0]) + '</span></li>'; }).join("") + '</ul>' +
+                '</div>';
+              }).join("") +
+              (it.link ? '<a class="ax-deliv" href="' + esc(it.link) + '" target="_blank" rel="noopener">View deliverable →</a>' : "") +
+              '<div class="ax-comments"><div class="ax-sl" style="margin-top:0">Comments</div>' + coms +
+                '<div class="ax-comform"><textarea id="c-input" placeholder="Write a comment to your team…"></textarea>' +
+                  '<div class="ax-comsend"><button class="ax-btn green" id="c-changes" type="button">Request changes</button><button class="ax-btn blue" id="c-comment" type="button">Comment</button></div>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="ax-mfoot"><span class="hint">Your comments go straight to your Agora team.</span><button class="close" id="done" type="button">Close</button></div>' +
+          '</div>';
+        var veil = $("#veil"); veil.hidden = false; document.body.style.overflow = "hidden";
+        veil.onclick = function (e) { if (e.target === veil) closeDetail(); };
+        $("#x").onclick = closeDetail; $("#done").onclick = closeDetail;
+
+        function post(kind) {
+          var val = $("#c-input").value.trim();
+          if (!val) { $("#c-input").focus(); return; }
+          it.comments = it.comments || [];
+          it.comments.push({ who: "client", body: val, when: "just now", kind: kind === "changes" ? "changes" : undefined });
+          if (kind === "changes") { it.review = false; }
+          openDetail(i);          // re-render modal with the new comment
+          renderProgress();       // refresh the card (comment count / "Changes requested")
+          toast(kind === "changes" ? "Change request sent to your team" : "Comment sent");
+        }
+        $("#c-comment").onclick = function () { post("comment"); };
+        $("#c-changes").onclick = function () { post("changes"); };
+        $("#c-input").addEventListener("keydown", function (e) { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) post("comment"); });
+      }
+      function closeDetail() { var v = $("#veil"); v.hidden = true; v.innerHTML = ""; document.body.style.overflow = ""; }
+      document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeDetail(); });
+
+      renderChrome();
+      renderPane();
+    })();
+  </script>
+</body>
+</html>

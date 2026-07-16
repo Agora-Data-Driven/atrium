@@ -7,8 +7,9 @@ Windsor.ai connector API** on each scheduled run and assembles the private `rive
 consumed by the gated dash service — the "live and accurate" path.
 
 Shape written to the bucket (matched BY NAME to dash/dashboard.html's DATA.*):
-  { client, location, dates[], rows[] (per ad-per-day), creatives[] (with inlined image),
-    campaign{}, source{}, logo, agora_logo }
+  { client, location, dates[], rows[] (per ad-per-day, incl. `camp` = campaign name for the
+    dash's campaign filter/table), creatives[] (with inlined image), campaign{}, source{},
+    logo, agora_logo }
 
 Secrets/config:
   WINDSOR_API_KEY  — Windsor connector key (Secret Manager `riverdance-windsor-key`, mounted as env).
@@ -44,6 +45,9 @@ FIELDS = ",".join([
     "datasource", "date", "frequency", "impressions", "link_clicks", "reach", "source",
     "spend", "unique_actions_link_click", "action_values_omni_purchase",
     "actions_offsite_conversion_fb_pixel_purchase",
+    # "Book Nightly_Initiated" custom conversion (booking-engine checkout started; its
+    # conversion_values_* twin is always 0 — the pixel event carries no value, so not pulled).
+    "actions_book_nightly_initiated",
     "thumbnail_url", "image_url", "creative_id", "ad_id", "title", "body",
 ])
 WINDSOR_SECRET = "riverdance-windsor-key"   # Secret Manager id (fallback when env not set)
@@ -148,11 +152,13 @@ def build(rows_in):
     for r in rows_in:
         rows.append({
             "date": r.get("date"), "ad": r.get("ad_name"),
+            "camp": r.get("campaign") or "",
             "spend": round(_num(r.get("spend")), 4),
             "imps": int(_num(r.get("impressions"))), "clicks": int(_num(r.get("clicks"))),
             "lclk": int(_num(r.get("link_clicks"))), "reach": int(_num(r.get("reach"))),
             "pur": _num(r.get("actions_offsite_conversion_fb_pixel_purchase")),
             "rev": round(_num(r.get("action_values_omni_purchase")), 2),
+            "book_init": _num(r.get("actions_book_nightly_initiated")),
         })
     dates = sorted({r["date"] for r in rows if r["date"]})
 

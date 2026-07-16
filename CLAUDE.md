@@ -114,12 +114,179 @@ auto-refresh (see those bullets below). Product name is one constant:
   stays out of scope). It degrades gracefully (a dead site is recorded in the result, never a 500).
   Routes: `POST /w/<c>/admin/website-health/{save,check}` (root-only). State lives under
   `ws["website_health"]` via `workspace.set_website_url`/`set_website_notes`/`save_website_check`.
+- **Watcher is a TEAM-ONLY tab (creator/competitor transcript archive):** paste a channel link and
+  Watcher lists EVERY video, then pulls each video's raw transcript (AI summaries are a later step).
+  Rendered/gated exactly like Website Health (`ATRIUM_TEAM_TABS`, never shown to clients), but
+  editing is any-admin (`is_superadmin()`), not root-only. `dash/watcher.py` does the fetching with
+  NO YouTube API key: channel page scrape → the public web `youtubei/v1/browse` endpoint pages the
+  uploads playlist (handles BOTH the classic `playlistVideoRenderer` and the 2025+ `lockupViewModel`
+  shapes, and captures each video's relative upload age → `published_text` +
+  `watcher.published_estimate` ISO date) → `youtube-transcript-api` (pinned in dash requirements,
+  imported LAZILY so tests/CI run without it) per video. **Classification:** each channel carries
+  `platform` (youtube-only today; the field exists so other source types can join), `industry`
+  (auto-labeled on add from the video titles via `intel_ai.classify_text` — the intel brain's
+  default model — and hand-editable), and `kind` creator|competitor. State: the small channel
+  registry lives in `ws["watcher"]["channels"]` (counts + classification only); each channel's full
+  archive is its OWN object `workspace/watcher/<c>/<channel_id>.json` (transcripts run to MBs —
+  same posture as creatives). Routes: `POST /w/<c>/admin/watcher` (`op`
+  add|add_video|fetch|refresh|meta|label|delete — fetch pulls MISSING transcripts in short batches of 8 and
+  the page JS loops it with a progress bar; **a YouTube rate-limit stops the batch and reports
+  `blocked` WITHOUT marking any video failed**, so the next fetch resumes exactly where it stopped;
+  **add_video scrapes ONE pasted video link** (resolve title via keyless oEmbed → fetch transcript
+  inline → save under the per-client "Saved videos" pseudo-channel, marked `loose`, created by
+  `workspace.ensure_loose_channel`; a rate-limit saves it pending + reports `blocked`, so the card's
+  Fetch missing / Safe pull can finish it — the loose channel is fetched/safe-pulled/indexed like
+  any other, only its Check-new/Auto-label actions are hidden since it has no real channel_id);
+  refresh also backfills upload dates; meta hand-edits industry/kind; label re-runs the AI label)
+  and `GET /w/<c>/watcher/video/<channel_id>/<video_id>` (the click-to-expand full transcript; the
+  page itself only inlines previews). **UI = a filterable creator grid:** three creator cards per
+  row (collapsed = classification chips + the 4 most recent videos; expand = the full uniform video
+  grid + per-channel title search), with a top bar filtering by creator search / platform /
+  industry / creator-vs-competition and sorting by newest upload / recently added / name. Every
+  failure degrades to a friendly message (`ok:false`); permanent no-transcript videos are recorded
+  and skipped. ⚠️ YouTube blocks datacenter IPs, so Cloud Run fetches usually need the OPT-IN
+  egress proxy: create Secret `watcher-proxy-url` (full proxy URL, e.g. Webshare rotating
+  residential) and redeploy — `deploy_dash_platform.ps1` mounts it as `WATCHER_PROXY_URL` only when
+  it exists. **Safe pull (the no-proxy path):** each card's "Safe pull" button (`op=safe_pull`)
+  queues the channel in `ws["watcher"]["safe_pull"]`; the operator machine's scheduled task
+  ("Agora Watcher Safe Pull", installed by `dash/install_safe_pull_task.ps1` →
+  `dash/safe_pull_agent.vbs`, every 5 min, hidden, single-instance) runs
+  `dash/safe_scrape_local.py --queue` from a residential IP with 12–20s pacing + a 5→60 min
+  rate-limit ladder, syncing transcripts back to the bucket as it goes and clearing each queue
+  entry on completion (no args = full sweep of every client; a %TEMP% PID lock keeps every mode
+  single-instance). Off-cloud test: `dash/_watcher_localtest.py` (in CI; stubs GCS + the YouTube
+  fetchers).
+- **Assistant is a TEAM-ONLY tab (RAG chat over the WHOLE workspace):** grounded Q&A across every
+  source the portal holds for a client — campaigns + content (incl. comments), workspace metrics,
+  Market Intelligence, the calendar, client conversations, website health, every Watcher
+  transcript, and (opt-in) the client's dashboard `<c>.json` KPI export. `dash/assistant_ai.py`:
+  `build_chunks` flattens the sources, `build_index` stores a pure-Python BM25 index as ONE private
+  object `workspace/assistant/<c>/index.json` (rebuilt lazily via `fingerprint` whenever data
+  moves). **Retrieval is HYBRID** (production-RAG shape): BM25 (keyword) **and** a semantic leg
+  (`embed_index` embeds every chunk once via Vertex `text-embedding-005` — same SA/auth as the
+  Gemini brain, NO new API/IAM — and packs unit vectors compactly into the same index object) are
+  each ranked per query and fused with **Reciprocal Rank Fusion** (`_rrf`, rank-only so the
+  incompatible BM25/cosine scales never fight); the fused pool is then optionally sorted by a
+  **cross-encoder reranker** (Vertex Ranking API `semantic-ranker-fast-004`) — "retrieve wide, keep
+  few". A **metadata pre-filter** (`_infer_kinds`) scopes retrieval to one source kind ONLY for an
+  unambiguous single-source question (relaxed if it would empty the set), on top of the date range
+  (dated sources only). Both the semantic leg and the reranker are gated + graceful: with them off
+  (or on any call failure) retrieval is exactly the old BM25 path. Embeddings are ON by default when
+  Vertex is wired (`ASSISTANT_EMBED_ENABLED=1`, `VERTEX_EMBED_LOCATION` = the project region so
+  private chunk text stays in-region); reranking is opt-in
+  (`ASSISTANT_RERANK_ENABLED=1`, needs `enable_assistant_reranking.ps1` — enables
+  discoveryengine.googleapis.com + grants the web SA `roles/discoveryengine.user`; the deploy
+  auto-detects the API and flips the flag). `intel_ai.embed_texts`/`embed_query`/`rerank` are the
+  transport (injected into `ask` as `query_embedder`/`reranker`, so tests run with no network).
+  `ask` answers with the intel brain's provider plumbing (`intel_ai._call`, the
+  client's configured model or the default; prompts for `{"answer": ...}` JSON, parsed leniently —
+  `_parse_answer` also SALVAGES nearly-JSON (trailing junk, truncation, raw newlines) so the chat
+  never displays a raw JSON envelope; the UI renders answers as markdown via `mdToHtml`).
+  The admin's **Detail control** (`assistant_ai.DEPTHS` quick|standard|deep, saved via
+  `op=settings` → `ws["assistant"]["depth"]`, dropdown beside the model picker in both surfaces)
+  shapes the pipeline: deep first has the model PLAN extra BM25 queries (`plan_queries`, so a
+  comparative question retrieves each entity's actual positions), retrieves wider (30 excerpts),
+  turns provider thinking ON (`intel_ai._call(..., think=True)` — Gemini gets a 4096 thinking
+  budget, DeepSeek gets `thinking:{type:enabled}`; quick/standard pin the fast no-thinking path),
+  and asks for a structured analysis; quick trims to a few sentences. Every depth's prompt allows
+  cross-source synthesis (differing recommendations count as disagreement).
+  Answers cite sources; the UI shows them as chips. Routes: `POST /w/<c>/admin/assistant` (`op`
+  ask|reindex, gated `is_superadmin()`); tab gated like the other team tabs. The dashboard-data
+  source needs a one-time grant: `services/portal/dash/enable_assistant_dash_data.ps1` gives the
+  portal SA objectViewer on each client dash bucket (run 2026-07-12; re-run for new clients) —
+  without it that source is silently skipped. `VERTEX_ACCESS_TOKEN` env (dev-only) lets the same
+  Vertex code paths run off-cloud with a `gcloud auth print-access-token` token. Off-cloud test:
+  `dash/_assistant_localtest.py` (in CI). The Watcher tab also gained a Looker-style upload-date
+  range control (presets + custom from/to) that filters videos and creators client-side.
+  The same chat is ALSO a **floating bubble** (team-only FAB bottom-right, Mastery-Engine style,
+  brand-green 72px since 2026-07-13 — and the PRIMARY surface now that the nav tab is gone)
+  reachable from every tab: one `wireAssistantChat` wiring in `atrium.html` serves both surfaces
+  (the tab keeps the date-range + reindex controls), the conversation is persistent **chat
+  history** (localStorage, per client + surface, last 40 turns, per-browser; replayed on the next
+  visit, "New chat" on either surface clears it), and the bubble hides on the Assistant tab itself
+  (CSS on the root's `data-tab`, which `showTab` keeps current). The Assistant has its **own model choice** (dropdown in the tab bar +
+  the bubble's gear strip; `op=settings` → `ws["assistant"]["model"]`, "" = automatic: the intel
+  brain's model, else the deploy default) and an on-screen **spend tally** (mastery-style cost
+  pill above the FAB: session + all-time + by-model detail). Both provider calls in `intel_ai`
+  accept a `usage_out` dict that captures token counts; `intel_ai.PRICING`/`cost_of` price them
+  (approximate, editable) and `workspace.add_assistant_usage` persists the all-time tally in
+  `ws["assistant"]["usage"]`; each `op=ask` response carries `usage` + `totals`.
+- **Communications is ONE unified, channel-tagged, date-filterable timeline** (`conversations` tab,
+  rebuilt 2026-07-15): every conversation -- email, Upwork, Slack, meeting, call, note -- is a single
+  card in a date-sorted feed, each with a coloured **channel badge** and an **audience** (`client`
+  or `team`). State is ONE list `ws["communications"]` (`{id,channel,audience,title,summary,date,
+  people,origin,thread_key}`); the legacy split lists `email_summaries[]`/`meeting_summaries[]`
+  migrate into it in place via `workspace._ensure_communications` (called by every read/mutation;
+  `add_communication`/`update_communication`/`delete_communication`/`upsert_email_summary` are the
+  writers, `add_email_summary`/`add_meeting_summary` kept as thin wrappers). **Client/team split is
+  enforced SERVER-SIDE:** `main._communications_view(ws, client, is_admin, mailview)` filters a
+  client render to `audience=="client"` BEFORE the template (team cards never reach the client HTML,
+  same posture as `_progress_tasks`); admins additionally get the non-client email threads projected
+  from Mail as team-only cards, plus an All/Client-sees/Team-only toggle + per-card visibility pill.
+  Channel chips + counts, the date range, and the audience toggle all filter client-side in
+  `atrium.html`. Route `POST /w/<c>/admin/communication` (op add|edit|delete, `channel`+`audience`).
+- **Mail is FOLDED INTO Communications (team-only machinery; client email archive + AI digest,
+  `mailroom.py`):** there is no standalone Mail tab anymore -- its contacts editor, Sync/Refresh
+  buttons, the AI briefing, and the response-stats strip live in the Communications tab's collapsible
+  **Email intelligence** panel (admin-only), and email threads appear as email-channel cards in the
+  timeline (client-tier via the mirror below; other tiers as team-only cards with a "Read full
+  thread" reader). `/w/<c>/mail` now renders Communications; the `POST /w/<c>/admin/mail` +
+  `GET /w/<c>/mail/thread/<key>` routes are unchanged (invoked from within Communications). Connect
+  the agency's mailboxes ONCE in the console (`/admin/atrium` -> **Mailboxes**; add/remove/test is
+  root-admin only -- entries carry live credentials); the Email intelligence panel then lists that
+  client's contact emails/domains and the sync pulls ONLY correspondence with those contacts (the
+  Gmail query is BUILT from the contact list -- from:/to: each address or bare domain -- so
+  unrelated mail never leaves the mailbox). Two connector kinds: **dwd** -- our own Workspace
+  mailboxes via the Gmail API + domain-wide delegation, KEYLESS (the runtime SA signJwt's as the
+  dedicated `mail-sync` SA; one-time `enable_atrium_mail.ps1` + a 2-minute Workspace-admin grant,
+  nothing stored per mailbox) -- and **imap** -- ANY other Google account the team holds an app
+  password for (stdlib `imaplib` + `email`, Gmail's `X-GM-RAW` runs the SAME query, All Mail covers
+  sent + received). State mirrors Watcher exactly: the global mailbox registry is ONE private
+  object `workspace/mail/_mailboxes.json` (an imap app password lives there verbatim, is required
+  to log in, and is NEVER rendered back -- `workspace.public_mailboxes` strips it); each thread's
+  full messages are their OWN object `workspace/mail/<c>/<key>.json` (key = mailbox id + Gmail
+  thread id; quoted-reply tails stripped, message-id dedup makes re-runs cheap); `ws["mail"]`
+  keeps only the small index (contacts, subjects/participants/summaries, the digest,
+  last_sync/last_error). **Triage, not deletion (nothing important is ever dropped):** every thread is KEPT and tiered
+  by `mailroom.classify_thread` -- **security** (account/password/sign-in alerts -> shown first, can
+  bypass a VA), **client** (human mail involving the client, or ANY human mail in a client-owned
+  mailbox), **operations** (human mail not from the client -- vendors/partners/leads), **noise**
+  (newsletters/bulk/automated, via `is_automated`; List-Unsubscribe alone never counts, Google-
+  Groups-safe). Only Gmail's SPAM folder is skipped at ingest. The Email intelligence panel defaults to hiding noise
+  and flags security; the hourly AI summarizes every tier EXCEPT noise (cost control). **Per-mailbox
+  scope:** a mailbox can be ASSIGNED to one client (a dedicated inbox they gave us) -> its WHOLE
+  contents are ingested, no contact list needed; an unassigned/**shared** mailbox is routed to each
+  client by that client's contact list. **Response stats are computed, not
+  guessed** (`thread_stats`/`stats_line`): per thread `awaiting_reply` (is the last word the
+  client's) + average AGORA reply hours (a sender matching a connected mailbox address, or a dwd
+  mailbox's domain, counts as agency -- so a VA answering from info@ is "us"); shown as the Mail
+  tab's stats strip + per-row chips. The intel brain (`intel_ai._call`; model = Assistant's ->
+  intel's -> default) writes TWO voices per changed thread in ONE call
+  (`summarize_thread` -> internal summary + `client_summary`): the internal one (blunt, includes
+  reply-quality observations) runs the Email intelligence panel and the digest; the client one (for CLIENT-tier threads only) is MIRRORED into
+  the client-visible Communications timeline as an **email-channel card** (`workspace.upsert_email_summary`,
+  stable id `mail_<key>` so re-summarizing updates in place; deleting the thread retracts the
+  mirror -- safe by construction, the client was on every thread). The rolling digest is STATUS /
+  NEEDS ACTION / RECENT / **REPLIES** -- the REPLIES section judges reply speed + quality against
+  the computed `stats_line` numbers, explicitly treating AGORA replies as possibly written by an
+  assistant (the VA-accountability view). AI spend folds into the Assistant cost tally, and the
+  **Assistant indexes the email archive too** (`build_chunks` `mail_threads`, kind `email`, plus a
+  computed `mail:responsiveness` snapshot chunk -- so "how well are we handling this client's
+  email?" retrieves real numbers). Routes: `POST /w/<c>/admin/mail`
+  (op contacts|sync|digest|delete, gated `is_superadmin()`), `GET /w/<c>/mail/thread/<key>` (the
+  click-to-read full thread), `POST /admin/mail` (op add|delete|test, gated `is_root_admin()`).
+  **Auto-pull:** Cloud Run job `mail-refresh` (`mail_refresh.py`, Cloud Scheduler
+  `mail-refresh-hourly`, gated `MAIL_SYNC_ENABLED=1`, REUSES the platform-dash image + web SA --
+  `deploy_mail_refresh.ps1`; rerun after any mailroom/mail_refresh change, image-pinned). First
+  sync backfills `MAIL_FIRST_SYNC_DAYS` (90); later runs re-query a short `MAIL_SYNC_DAYS` (7)
+  overlap. A default deploy stays infra-free: imap mailboxes work immediately; only the dwd
+  connector needs the enable script. Off-cloud test: `dash/_mail_localtest.py` (in CI).
 - **Content with a date mirrors onto the Content Calendar (linked event):** when an admin gives a
   content piece a `date` (in the add/edit-content form), `workspace.add_content`/`update_content`
   mirror it into `calendar[]` as a linked event carrying `content_id` + `tab` (paid→`leadgen`,
   organic→`organic`); the piece is the source of truth (editing date/title/channel OVERWRITES the
   event, clearing the date or deleting the piece removes it), while the calendar keeps its own
-  mark-as-done `status`. The calendar day-popup shows linked events with a "Lead Generation /
+  mark-as-done `status`. The calendar day-popup shows linked events with a "Paid Media /
   Organic Content" source tag and a **→** arrow that jumps to the piece on its tab. Done/colour
   logic (`atrium_view._event_done`/`_event_overdue`): a content-linked event is green only once
   **explicitly marked done**, **red (overdue)** if past its date and unmarked, green-ahead if a
@@ -185,38 +352,131 @@ auto-refresh (see those bullets below). Product name is one constant:
   `section`, gated `is_superadmin()`); clients read only. `atrium_view.intel_sections(ws)` decorates
   the two lists with their display label/lede/icon for the template. No new infra (one more workspace
   JSON key, mirrors Client Communications).
-  - **Daily auto-refresh with REAL news (opt-in, infra-light):** a Cloud Run job `intel-refresh`
-    (`dash/intel_refresh.py`) runs once a day and fills both sections with real headlines + real
-    publisher links + real dates pulled from **Google News RSS + fixed publisher feeds**
-    (`dash/intel_feed.py` — keyless, stdlib `xml.etree` parsing + lazy `requests`, NO new dependency
-    and NO API key; degrades to `[]` on any feed error, never 500s). **Media Buying News** is
-    universal (ad-platform queries + Search Engine Land PPC); **Business Research** is per-client,
-    keyed off `ws["intel_topics"]` — an admin-editable keyword list set IN PLACE via `POST
-    /w/<c>/admin/intel` `op=topics` (a blank list falls back to a generic marketing set).
-    `workspace.replace_auto_intel` swaps only `auto:True` entries each run, so **hand-added entries
-    are preserved**; editing an auto entry (`update_intel_entry`) **pins** it (drops the `auto` flag)
-    so the correction survives the next refresh. **Gated:** the job is a logged no-op unless
-    `INTEL_AUTO_ENABLED=1`. It REUSES the platform-dash image + web SA (writes the SAME
-    `workspace/<c>.json` objects), so the ONLY new infra is one Cloud Scheduler job. Stand it up /
-    redeploy with `services/portal/dash/deploy_intel_refresh.ps1` (`-Disable` ships it OFF, `-Run`
-    fires once now; **rerun it after any `intel_feed`/`intel_refresh` change** — the job is pinned to
-    an image tag, like the ingest jobs). Off-cloud test: `dash/_intel_feed_localtest.py` (injects a
-    fetcher, no network).
+  - **Daily AI auto-refresh — GROUNDED web research (an AI 'brain', LIVE):** a Cloud Run job
+    `intel-refresh` (`dash/intel_refresh.py`, Cloud Scheduler `intel-refresh-daily` 07:00 SGT) runs
+    **grounded research** (`intel_ai.research`): the selected **Vertex Gemini** model, with the live
+    **Google Search grounding** tool (`tools:[{googleSearch:{}}]`), PLANS the angles that matter to
+    THIS client → SEARCHES the whole web → CURATES the strongest items, each with a REAL source URL
+    (from `groundingMetadata.groundingChunks[].web.uri`) and a **`relevance`** ("why this matters for
+    <client>") line. Same engine as Gemini chat — broad + on-topic, NOT a Google-News re-rank.
+    `research` returns `(entries, error)`; **NO fallback** — a failure shows the reason and adds
+    nothing. **Grounding is Gemini-only** (`intel_ai.model_supports_grounding`): a non-Gemini model
+    (DeepSeek) reports "can't do live web research — pick a Gemini model" and adds nothing. (The old
+    retrieve-then-curate `intel_ai.curate` + `intel_feed` RSS scrape is LEGACY — kept as a helper +
+    for tests, no longer wired into the refresh.) Vertex Gemini (`gemini-2.5-flash`/`-pro`) is
+    GCP-billed via the runtime SA's metadata token, gated `VERTEX_GEMINI_ENABLED=1` +
+    `VERTEX_PROJECT`/`VERTEX_LOCATION` (grounding works at `global`); ⚠️ grounded search bills extra
+    per prompt, and we do NOT set `responseMimeType` (JSON mode is unreliable with the search tool —
+    we prompt for JSON and parse leniently). Per-client config `ws["intel_ai"]` = `{model,
+    business_prompt, media_prompt, window, count, show_thinking}` (admin-set in the **AI Research
+    Brain** panel; `intel_ai.window_of`/`count_of`/`window_label` validate the recency `7d…12m` +
+    target 1–25; keywords `ws["intel_topics"]` are SEEDS the model expands, not literal queries).
+    **Business Research is keyed ENTIRELY off `ws["intel_topics"]` with NO fallback** — no keywords ⇒
+    empty section + "set keywords" reason, never filler. **Media Buying News** is universal (runs for
+    every client). The two sections research **concurrently** (writes stay serial). Intel entries gain
+    a `relevance` field (`workspace._INTEL_FIELDS`), rendered as "Why this matters for <client>" under
+    each summary. **`show_thinking`** (admin toggle, default off) captures the model's reasoning + the
+    **search plan** (`groundingMetadata.webSearchQueries`) + grounded **sources** + Google **Search
+    Suggestions** (`searchEntryPoint.renderedContent`) + raw output into `ws["intel_ai"]["last_trace"]`
+    (per section), shown in the panel — a debugging aid; it enables Gemini `includeThoughts` (slower).
+    ⚠️ Google's grounding ToS asks that Search Suggestions be shown to end-users; currently rendered
+    only in the admin trace panel (client-facing display is a TODO). Each run is **ADDITIVE**:
+    `workspace.add_auto_intel` de-dupes new stories and APPENDS them (list grows, never wiped;
+    plain-auto capped 60/section, manual + favourited always kept). Team edits via `POST
+    /w/<c>/admin/intel` ops: `ai_settings` (model/prompts/window/count/show_thinking), `topics`,
+    `suggest` (the panel's "Write these for me" — `intel_ai.suggest_config` AI-drafts the keywords +
+    both focus prompts from what the workspace knows about the client — campaigns/website/watcher
+    industries via `main._intel_client_context` — grounded on a live Google lookup when the model is
+    Gemini; returns the drafts WITHOUT saving, the panel fills the fields for review + Save), `refresh-now`,
+    `bulk` (mass delete / favourite — favourite stars + pins), plus add/edit/delete. **Gated:** the
+    job no-ops unless `INTEL_AUTO_ENABLED=1`; it REUSES the platform-dash image + web SA. New infra:
+    the scheduler job (impersonates the **web SA**, not the cloudscheduler service agent — owners
+    can't actAs that agent) + `roles/aiplatform.user` on the web SA + the optional `DEEPSEEK_API_KEY`
+    secret. Redeploy `services/portal/dash/deploy_intel_refresh.ps1` (`-Disable` OFF, `-Run` fires
+    now; **rerun after any `intel_feed`/`intel_refresh`/`intel_ai` change** — image-pinned) AND
+    `deploy_dash_platform.ps1` (the web service's Refresh-now runs `refresh_client` in-process).
+    Off-cloud tests: `dash/_intel_feed_localtest.py` + `dash/_intel_ai_localtest.py` (inject fetchers).
+- **Task tracker = the internal Delivery board + the client Progress tab, ONE data source**
+  (spec: `TASK_TRACKER_INTEGRATION.md`, extended 2026-07-14 with the two-level breakdown +
+  dates/charge): `ws["tasks"]` per client — a task ("service") is a deliverable travelling
+  `in_process → for_launch → launched → closed` (stage KEYS are canonical, never rename;
+  the client sees friendlier labels In progress / In review / Live / Completed). `workspace.py` is
+  the only writer (`add_task`/`update_task`/`move_task_stage`/`delete_task`/`insert_task` +
+  main-task, sub-task and comment helpers). Work is a **two-level breakdown**: `maintasks[]`, each
+  a named group with its own owner and its own `subs[]` (sub-tasks that each carry their own
+  owner); a legacy flat `subtasks[]` is migrated in place by `workspace.normalize_task` (called by
+  `_find_task`, so every mutation persists it) and `task_subtasks()` flattens for counts/guards.
+  Each task also carries a **lead + support people** (`lead_id` / `support_ids`, roster = active
+  admin accounts from `store.py`; the lead is never duplicated into support; support is assigned
+  AFTER creation — the picker renders only on the Edit form, guarded by a `has_support` form
+  field), **`start_date` + `due_date`** (the LAUNCH date — key canonical, UI label "Launch date"),
+  an internal-only **`service_charge`**, and a single **label AUTO-derived from the department**
+  (`main.TASK_DEPT_LABEL`: Acquisition→Paid Media, Lifecycle→Organic, rest→Website — no manual
+  label picker; the form's one name field is LABELED "Campaign" but stores as `title`). A move to
+  `closed` is BLOCKED while any sub-task is open or a client change request is unresolved (the
+  route surfaces the blocker list verbatim). The **team board** is a console pane (Delivery → Task
+  Board in `admin_atrium.html`): cross-client stage columns collected in `admin_atrium()` from the
+  already-loaded workspaces (no extra reads), columns sorted **Urgent-first then launch date**,
+  drag-to-move, client/department/person/priority filters, and per-task detail/edit/new overlays
+  SERVER-RENDERED into a hidden store (no JSON-in-JS; plain forms post with `redirect=console`).
+  The detail overlay is **tabbed** — a persistent summary (stage pill + glance chips: priority /
+  start / launch / charge / progress) above **Details | Tasks | Comments** panels (`data-tktab`
+  buttons, wired in the console script); the New/Edit form tucks optional fields into a
+  collapsible **"Additional details"** `<details>` (auto-open when an edited task uses them).
+  Team routes: `POST /w/<c>/admin/task{,/move,/delete,/maintask,/subtask,/comment}` gated
+  `is_superadmin()` (`/maintask` op=add|assign|delete; `/subtask` op=add takes a `maintask_id`);
+  deletes soft-delete to the Bin (`kind:"task"`, restored via `workspace.insert_task`) and every
+  mutation `_audit`s. The **client Progress tab** (`progress` in ATRIUM_TABS, pane in
+  `atrium.html`) renders `main._progress_tasks(ws)` — SERVER-FILTERED to `client_facing` tasks and
+  client-safe fields only (lead/support/main-task/sub-task owners, priority, `service_charge`,
+  `internal_notes`, and the account manager NEVER reach the client's HTML); the two-level
+  breakdown reaches the client as **phases** (name + steps, no owners), the detail modal shows a
+  **Started → Going live timeline**, cards say **"Launching <date>"** ("Live" once launched), and
+  columns sort by soonest launch. The ONE client write is
+  `POST /w/<c>/task-comment` (comment / request-changes — a `kind:"changes"` comment flags the
+  task on BOTH surfaces; resolving is team-only, `op=resolve`, which also notifies via the
+  `notify.py` task functions).
+- **Nav labels vs tab keys:** the sidebar was regrouped 2026-07-13 — the `leadgen` tab is LABELED
+  **"Paid Media"** (the key `leadgen` stays in every route/data shape, never rename it), Paid Media +
+  Organic Content sit under an expandable **Campaigns** parent (head badge = combined awaiting
+  count), and Market Intelligence + the team-only Website Health/Watcher sit under an **Insights**
+  parent. Group heads are expand/collapse buttons only (auto-open when a child tab is active); the
+  collapsed icon rail and the phone strip flatten the groups away. The **Assistant nav tab was
+  removed** — the floating bubble (FAB) is the chat surface; the `/w/<c>/assistant` route + pane
+  still exist (reachable by URL, keeps the date-range + reindex controls).
 - **Routes (all behind existing session auth):** client `GET /w/<c>/` + `/w/<c>/<tab>` (overview,
   dashboard, leadgen, organic, calendar, conversations, intel, settings) gated `authed()`+`can_open(<c>)`;
   client POSTs `/w/<c>/{approve,request-changes,save-note,comment,send-message,save-notify,logo}` +
-  creative GET above; team-only POSTs `/w/<c>/resolve-comment` + `/w/<c>/admin/*` gated `is_superadmin()`. The team console is the
-  **landing page only** (`GET /admin/atrium`, gated `is_superadmin()`): a welcome banner + one card
-  per client (the worked-example `template` client is filtered out). **Clicking a card opens that
+  creative GET above; team-only POSTs `/w/<c>/resolve-comment` + `/w/<c>/admin/*` gated `is_superadmin()`. The team console
+  (`GET /admin/atrium`, gated `is_superadmin()`) is a **Home hub + focused console** (Concept B —
+  `ATRIUM_CONSOLE_REDESIGN_PLAN.md`): a fresh visit lands on the branded hub (suite cards: Atrium
+  Admin · Skill Mastery · Website Editor · Sentinel); **Atrium Admin** opens the console — grouped
+  rail *Workspaces* (Clients · Activity · Bin) / *People & access* (Accounts with subtabs Requests ·
+  People · Add new) — all client-side view state, so `?section=`/flash redirects still land on the
+  right pane. The Clients pane shows one card per client (the worked-example `template` client is
+  filtered out) with an attention chip (purple **"N awaiting approval"**, attention-first sort, or
+  green **"All caught up"**). **Clicking a card opens that
   client's workspace `/w/<c>/` directly** (where all editing happens in place). Each card also carries
   an **Upload logo** control (POST `/admin/atrium/<c>/logo` — embeds the image inline as a
   `brand.client_logo` `<img>` data-URI, ≤512 KB; same posture as seeded logos) and a confirmed
   **Delete** control (POST `/admin/atrium/<c>/delete` — `store.remove_client` +
-  `workspace.delete_workspace`). **Add a new client** (`POST /admin/atrium/new`) asks ONLY for a
+  `workspace.delete_workspace`) and a **Rename** control (POST `/admin/atrium/<c>/rename` —
+  display name only, updates the registry `name` + workspace `display_name`; the key `<c>` and
+  every derived resource never change). **Add a new client** (`POST /admin/atrium/new`) asks ONLY for a
   display name (key auto-derives, password auto-generates) and on success redirects STRAIGHT to the
-  new client's blank `/w/<c>/`. The console nav is just **Log out** (no Portal/Admin links). The
+  new client's blank `/w/<c>/`. The
   portal landing (`/`) shows **Open dashboard** per client; the workspace `/w/<c>/` stays reachable
   directly and from the console.
+- **Auth foundation (central Google sign-in + impersonation):** the portal is the ONE app that runs
+  Google OAuth (`google_oauth.py`, `/auth/google/{login,callback}`) and, on a verified email, mints
+  the SAME session + shared `ag_sso` cookie as a password login — so the website editor and every
+  dashboard trust a Google login identically. OPT-IN: off unless `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`
+  are set. An unknown email files a **passwordless pending request** (`/auth/request-access`) an admin
+  approves in the console's Access-requests tab via `POST /admin/accounts/grant-google` (assign to a
+  new/existing client OR a role). `/admin/atrium` IS the admin landing (`/` redirects here; the legacy
+  `/admin` + `/superadmin` pages now just redirect here too). THE super admin (`info@…` / role
+  `superadmin`) can **act as any user** (`/admin/impersonate`; a site-wide "Stop acting as" banner is
+  injected by the `after_request` hook). Full details + OAuth/secret setup: `services/portal/dash/CLAUDE.md`.
 - **Strategy doc → AI strategy (optional, opt-in):** an admin attaches a Google Doc to a campaign and
   clicks "Generate strategy". `dash/atrium_docs.py` reads it (public-export fetch by default, or the
   **Google Drive API** when `ATRIUM_DOCS_ENABLED=1`) and `feedback_ai.summarize_strategy_sections`
@@ -244,10 +504,13 @@ auto-refresh (see those bullets below). Product name is one constant:
   older than **30 days** are purged automatically whenever the trash is read/written (lazy purge —
   the no-infra equivalent of a scheduled job, since the app is request-driven). Both lists are
   best-effort (swallow storage errors) so logging/trashing can never break the action.
-- **Theme/JS:** the official brand **light** theme — Data Green `#4FAB4A` + Accent Purple `#9484FB`
-  (deep companion `#5C4BD0` for white-text fills), on a white canvas with bold black type. The whole
-  front-door (login, portal, team console) shares it; Atrium scopes every selector under `.atrium` so
-  it stays self-contained. The logo is `ws.brand.agora_logo` (seeded) in Atrium and `dash/brand.py`
+- **Theme/JS:** the official brand **light** theme, standardized 2026-07 on the WEBSITE design system —
+  Data Green `#4FA84A` + Accent Purple `#6A6AEA` (deep companion `#5A54DD` for white-text fills), on a
+  white canvas with bold black type; green = primary action, purple = informational. The whole
+  front-door (login, portal, team console) shares it (`dash/brand.py` + `assets/brand.json` are the
+  palette source); the Atrium **client workspace** keeps its original design by decision (2026-07-10),
+  scoping every selector under `.atrium` so it stays self-contained. The logo is `ws.brand.agora_logo`
+  (seeded) in Atrium and `dash/brand.py`
   elsewhere. Inline JS is esprima-4.x-safe and reads state from the DOM (no Jinja in any script block).
 - **Ships via the SAME deploy as the portal:** `services/portal/dash/deploy_dash_platform.ps1` (build
   as yourself → `gcloud run deploy platform-dash --no-invoker-iam-check`). Validate templates with
@@ -278,9 +541,14 @@ fields (reach, link clicks, pixel-purchase bookings, revenue) and the creative i
 the shared `raw_windsor` mirror, and Meta rejects revenue on a breakdown query — so this client's
 export job pulls the Windsor connector API **directly** each run (main per-ad/day pull + separate
 age×gender + region breakdown pulls) and writes `riverdance.json` itself. There is no `sql/`, no
-dataset, and no freshness watermark; refresh is operator-driven (the Atrium console **Sync all
-dashboards** button → `services/portal/dash/sync_dash.py`, which triggers every `<c>-export` Cloud
-Run job via the Run Admin API — no scheduler). The dash service runs OPEN (no login) so it embeds in
+dataset, and no freshness watermark; refresh is **automatic** — the `sync-refresh` Cloud Run job
+(`services/portal/dash/sync_refresh.py` → `sync_dash.trigger_all`) runs on a Cloud Scheduler tick
+(every 6h, `sync-refresh-6h`) and triggers every `<c>-export` job via the Run Admin API. This
+REPLACED the console's manual "Sync all dashboards" button (removed 2026-07: a browser refresh must
+never trigger paid Windsor/Meta pulls); the console now shows a read-only "Last synced: Xh ago" from
+the same `sync_state.json`. Deploy/schedule it with `services/portal/dash/deploy_sync_refresh.ps1`
+(gated `SYNC_AUTO_ENABLED=1`, reuses the platform-dash image + web SA; `-Run` fires once now,
+`-Disable` turns it off). The dash service runs OPEN (no login) so it embeds in
 the gated Atrium. Stand it up with `clients/client_riverdance/deploy_riverdance.ps1`. Treat it as the
 pattern for any connector whose data isn't (yet) flowing through `raw_windsor`.
 
@@ -301,6 +569,9 @@ that fails). Use the per-stage scripts (all resolve paths from `$PSScriptRoot`, 
 - **Portal / Atrium change** → `services/portal/dash/deploy_dash_platform.ps1` (fast redeploy) or
   `services/portal/deploy.ps1` (full standup). **Ingest jobs** → `tools/deploy_ingest_jobs.ps1`.
   **Status dashboard** → `services/status-dashboard/deploy_status.ps1`.
+  **Automatic dashboard sync** → `services/portal/dash/deploy_sync_refresh.ps1` (the `sync-refresh`
+  Cloud Run job + 6-hourly scheduler that replaced the manual "Sync all dashboards" button; rerun
+  after any `sync_refresh`/`sync_dash` change, image-pinned).
 
 `FORCE_REBUILD=1` is mandatory for view-only / code / seed changes: they do **not** advance the
 upstream watermark, so without it the freshness gate no-ops and keeps serving stale JSON.

@@ -206,6 +206,434 @@ def save_website_check(client, result):
     return _mutate(client, fn)
 
 
+# --- Watcher (team-only tab: watched YouTube channels + their transcript archives) ---------------
+# The channel REGISTRY is small and lives in the workspace JSON: ws["watcher"]["channels"] =
+# [{id, url, title, channel_id, video_count, transcript_count, failed_count, last_fetch, added_at}].
+# Each channel's full video list + transcripts is its OWN private object (a big channel's archive
+# runs to megabytes; keeping it out of workspace/<c>.json keeps the rewrite-in-full document small,
+# mirroring the uploaded-creatives posture):
+#     workspace/watcher/<c>/<channel_id>.json  ->  {"videos": [{id, title, url, transcript, ...}]}
+def watcher_channels(ws):
+    """The watched-channel registry list (never None)."""
+    return list(((ws or {}).get("watcher") or {}).get("channels") or [])
+
+
+def find_watcher_channel(ws, channel_id):
+    """The registry entry with id `channel_id`, or None."""
+    for ch in watcher_channels(ws):
+        if ch.get("id") == channel_id:
+            return ch
+    return None
+
+
+def watcher_object_name(client, channel_id):
+    """Object name for one channel's archive, e.g. 'workspace/watcher/riverdance/wch_1a2b3c4d.json'."""
+    return "%swatcher/%s/%s.json" % (_prefix(), client, channel_id)
+
+
+def read_watcher_videos(client, channel_id):
+    """The channel's stored video list (with transcripts), or [] when nothing is stored yet."""
+    raw = _read_object(watcher_object_name(client, channel_id))
+    if raw is None:
+        return []
+    try:
+        return json.loads(raw.decode("utf-8")).get("videos") or []
+    except (ValueError, AttributeError):
+        return []
+
+
+def write_watcher_videos(client, channel_id, videos):
+    """Persist the channel's full video list (its own object, NOT the workspace JSON)."""
+    body = json.dumps({"videos": videos}, indent=2, sort_keys=True).encode("utf-8")
+    _write_object(watcher_object_name(client, channel_id), body)
+
+
+def add_watcher_channel(client, fields):
+    """Append a watched channel to the registry (newest first). Returns the stored entry."""
+    entry = {
+        "id": _new_id("wch"),
+        "url": fields.get("url", ""),
+        "title": fields.get("title", ""),
+        "channel_id": fields.get("channel_id", ""),
+        # Classification: platform is fixed per source type (YouTube-only today, the field exists
+        # so Website/podcast/etc. can join later); industry is the auto/AI label (hand-editable);
+        # kind separates the creators we learn from ("creator") from rivals ("competitor").
+        "platform": fields.get("platform", "youtube"),
+        "industry": fields.get("industry", ""),
+        "kind": fields.get("kind", "creator"),
+        "video_count": int(fields.get("video_count", 0) or 0),
+        "transcript_count": 0,
+        "failed_count": 0,
+        "last_fetch": "",
+        "added_at": now_iso(),
+    }
+
+    def fn(ws):
+        ws.setdefault("watcher", {}).setdefault("channels", []).insert(0, entry)
+        return entry
+    return _mutate(client, fn)
+
+
+# The single-video scraper has no parent channel, so its videos are archived under ONE per-client
+# pseudo-channel (marked `loose`). It renders as a normal creator card and the Assistant indexes it
+# like any other channel; only the channel-specific actions (Check new / Auto-label) are hidden for
+# it in the UI. `list_videos`/`refresh` never run against it (its channel_id is "").
+LOOSE_CHANNEL_TITLE = "Saved videos"
+
+
+def ensure_loose_channel(client):
+    """Find (or create, newest-first) the per-client 'Saved videos' pseudo-channel. Returns it."""
+    def fn(ws):
+        channels = ws.setdefault("watcher", {}).setdefault("channels", [])
+        for ch in channels:
+            if ch.get("loose"):
+                return ch
+        entry = {
+            "id": _new_id("wch"),
+            "url": "", "title": LOOSE_CHANNEL_TITLE, "channel_id": "",
+            "platform": "youtube", "industry": "", "kind": "creator", "loose": True,
+            "video_count": 0, "transcript_count": 0, "failed_count": 0,
+            "last_fetch": "", "added_at": now_iso(),
+        }
+        channels.insert(0, entry)
+        return entry
+    return _mutate(client, fn)
+
+
+def update_watcher_channel(client, channel_id, fields):
+    """Merge `fields` into a registry entry (counts / last_fetch / title). Returns the entry."""
+    def fn(ws):
+        # watcher_channels copies the list but not the dicts, so this is the live entry.
+        ch = find_watcher_channel(ws, channel_id)
+        if ch is None:
+            raise KeyError("no watcher channel '%s'" % channel_id)
+        ch.update(fields)
+        return ch
+    return _mutate(client, fn)
+
+
+def delete_watcher_channel(client, channel_id):
+    """Remove a channel from the registry AND delete its archive object. Returns the removed entry
+    (or None if it wasn't there)."""
+    def fn(ws):
+        channels = (ws.get("watcher") or {}).get("channels") or []
+        for i, ch in enumerate(channels):
+            if ch.get("id") == channel_id:
+                return channels.pop(i)
+        return None
+    removed = _mutate(client, fn)
+    _delete_object(watcher_object_name(client, channel_id))
+    return removed
+
+
+def watcher_safe_pull_queue(ws):
+    """Channel ids queued for the local safe scraper (never None).
+
+    The Safe-pull button can't fetch from Cloud Run (YouTube blocks datacenter IPs regardless of
+    pacing), so it queues the channel here and the operator's machine works through the queue with
+    slow, polite pacing (safe_scrape_local.py --queue, run by a scheduled task)."""
+    return list(((ws or {}).get("watcher") or {}).get("safe_pull") or [])
+
+
+def queue_watcher_safe_pull(client, channel_id):
+    """Add a channel to the safe-pull queue (idempotent). Returns the queue."""
+    def fn(ws):
+        w = ws.setdefault("watcher", {})
+        queue = w.setdefault("safe_pull", [])
+        if channel_id not in queue:
+            queue.append(channel_id)
+        return list(queue)
+    return _mutate(client, fn)
+
+
+def clear_watcher_safe_pull(client, channel_id):
+    """Drop a channel from the safe-pull queue (the scraper finished it, or the channel is gone)."""
+    def fn(ws):
+        w = ws.setdefault("watcher", {})
+        w["safe_pull"] = [c for c in (w.get("safe_pull") or []) if c != channel_id]
+        return list(w["safe_pull"])
+    return _mutate(client, fn)
+
+
+# --- Assistant (team-only tab: the workspace knowledge index) ------------------------------------
+# The Assistant's retrieval index (chunks + BM25 stats over every workspace source) is ONE private
+# object per client, rebuilt lazily when its fingerprint stops matching the live data. Like the
+# watcher archives it stays OUT of workspace/<c>.json (it can run to many MB).
+def assistant_index_name(client):
+    """Object name for a client's assistant index, e.g. 'workspace/assistant/riverdance/index.json'."""
+    return "%sassistant/%s/index.json" % (_prefix(), client)
+
+
+def read_assistant_index(client):
+    """The stored assistant index dict, or None when it hasn't been built yet (or is corrupt)."""
+    raw = _read_object(assistant_index_name(client))
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def write_assistant_index(client, index):
+    """Persist the assistant index (its own object, NOT the workspace JSON)."""
+    _write_object(assistant_index_name(client),
+                  json.dumps(index, sort_keys=True).encode("utf-8"))
+
+
+# --- Mail (team-only tab: client email archive + AI digest) --------------------------------------
+# Two layers, mirroring the Watcher posture exactly:
+#   * The GLOBAL mailbox registry (which agency mailboxes are connected, agency-wide -- NOT
+#     per-client) is ONE private object 'workspace/mail/_mailboxes.json' in the same registry
+#     bucket. An imap entry carries its app password VERBATIM (it must be replayable to log in);
+#     the object is private, read only by the runtime SA, and the password is NEVER rendered back
+#     to any page (public_mailboxes strips it). Same storage posture as store.py's registry.
+#   * Per client: a SMALL thread index in ws["mail"]["threads"] (subject/participants/dates/
+#     summary -- never bodies) plus each thread's full message archive as its OWN object
+#     'workspace/mail/<c>/<thread_key>.json' (bodies run long; the rewrite-in-full workspace JSON
+#     stays small). ws["mail"] also holds `contacts` (the client's email addresses/domains that
+#     drive the Gmail query), the rolling AI `digest`, and last_sync/last_error stamps.
+MAIL_KINDS = ("dwd", "imap")
+_MAIL_THREAD_CAP = 300          # index entries per client; oldest drop off (their objects deleted)
+_MAIL_CONTACT_CAP = 40
+
+
+def mail_registry_object_name():
+    """The global connected-mailboxes object (the leading '_' can never collide with a client key)."""
+    return "%smail/_mailboxes.json" % _prefix()
+
+
+def mail_mailboxes():
+    """The connected-mailbox list (never None). Each: {id, email, kind, app_password?, host?,
+    added_at}. Passwords stay in this private object only -- use public_mailboxes for templates."""
+    raw = _read_object(mail_registry_object_name())
+    if raw is None:
+        return []
+    try:
+        return json.loads(raw.decode("utf-8")).get("mailboxes") or []
+    except (ValueError, AttributeError):
+        return []
+
+
+def _save_mail_mailboxes(boxes):
+    _write_object(mail_registry_object_name(),
+                  json.dumps({"mailboxes": boxes}, indent=2, sort_keys=True).encode("utf-8"))
+
+
+def add_mailbox(email, kind, app_password="", host="", client=""):
+    """Connect (or re-save) a mailbox. Upserts by email so re-adding replaces the stored password.
+    Returns the entry. Raises ValueError on a bad email/kind (the route surfaces the message).
+
+    `client` assigns the mailbox to ONE client key: a dedicated inbox whose WHOLE contents are that
+    client's, so its sync ingests everything (no contact filter). "" = shared: routed to every
+    client by that client's contact list."""
+    email = (email or "").strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise ValueError("That doesn't look like an email address.")
+    if kind not in MAIL_KINDS:
+        raise ValueError("Unknown mailbox kind.")
+    if kind == "imap" and not (app_password or "").strip():
+        raise ValueError("An IMAP mailbox needs its app password.")
+    boxes = mail_mailboxes()
+    entry = next((b for b in boxes if (b.get("email") or "").lower() == email), None)
+    if entry is None:
+        entry = {"id": _new_id("mb"), "email": email, "added_at": now_iso()}
+        boxes.append(entry)
+    entry["kind"] = kind
+    entry["host"] = (host or "").strip()
+    entry["client"] = (client or "").strip()
+    if kind == "imap":
+        entry["app_password"] = app_password.replace(" ", "").strip()
+    else:
+        entry.pop("app_password", None)
+    _save_mail_mailboxes(boxes)
+    return entry
+
+
+def delete_mailbox(mailbox_id):
+    """Disconnect a mailbox by id. Returns the removed entry, or None."""
+    boxes = mail_mailboxes()
+    for i, b in enumerate(boxes):
+        if b.get("id") == mailbox_id:
+            removed = boxes.pop(i)
+            _save_mail_mailboxes(boxes)
+            return removed
+    return None
+
+
+def find_mailbox(mailbox_id):
+    """The mailbox entry with id `mailbox_id` (WITH its password -- server-side use only), or None."""
+    for b in mail_mailboxes():
+        if b.get("id") == mailbox_id:
+            return b
+    return None
+
+
+def public_mailboxes():
+    """The mailbox list SAFE for templates: the app password is never included."""
+    out = []
+    for b in mail_mailboxes():
+        row = {k: b.get(k, "") for k in ("id", "email", "kind", "host", "added_at", "client")}
+        row["has_password"] = bool(b.get("app_password"))
+        out.append(row)
+    return out
+
+
+def mail_state(ws):
+    """The client's mail block with every key present (never None) -- template-safe reads."""
+    m = dict((ws or {}).get("mail") or {})
+    m.setdefault("contacts", [])
+    m.setdefault("threads", [])
+    m.setdefault("digest", {})
+    m.setdefault("last_sync", "")
+    m.setdefault("last_error", "")
+    m.setdefault("backlog", 0)
+    m.setdefault("backfilled", False)
+    return m
+
+
+def mail_contacts(ws):
+    """The client's contact emails/domains from an already-loaded workspace (never None)."""
+    return [c for c in (mail_state(ws).get("contacts") or []) if isinstance(c, str) and c.strip()]
+
+
+def set_mail_contacts(client, contacts):
+    """Replace the client's contact list (accepts a list OR the textarea's comma/newline string).
+    Trimmed, lowercased, de-duped, capped. Returns the stored list."""
+    if isinstance(contacts, str):
+        contacts = re.split(r"[,\n;]", contacts)
+    cleaned, seen = [], set()
+    for c in contacts or []:
+        c = (c or "").strip().lower()
+        if c and c not in seen:
+            seen.add(c)
+            cleaned.append(c)
+        if len(cleaned) >= _MAIL_CONTACT_CAP:
+            break
+
+    def fn(ws):
+        ws.setdefault("mail", {})["contacts"] = cleaned
+        return cleaned
+    return _mutate(client, fn)
+
+
+def mail_threads(ws):
+    """The client's thread INDEX entries (small; bodies live in per-thread objects). Never None."""
+    return list(mail_state(ws).get("threads") or [])
+
+
+def mail_thread_object_name(client, key):
+    """One thread's archive object, e.g. 'workspace/mail/riverdance/mb_1a2b_18c9d4.json'."""
+    return "%smail/%s/%s.json" % (_prefix(), client, key)
+
+
+def read_mail_thread(client, key):
+    """The stored thread dict (subject/participants/messages/summary), or None."""
+    raw = _read_object(mail_thread_object_name(client, key))
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def write_mail_thread(client, key, thread):
+    """Persist one thread's full archive (its own object, NOT the workspace JSON)."""
+    _write_object(mail_thread_object_name(client, key),
+                  json.dumps(thread, indent=2, sort_keys=True).encode("utf-8"))
+
+
+def delete_mail_thread_object(client, key):
+    """Delete one thread's archive object (no error if absent)."""
+    _delete_object(mail_thread_object_name(client, key))
+
+
+def upsert_mail_thread_entry(client, entry):
+    """Insert-or-update one INDEX entry by id, newest-first by last_date, capped.
+
+    Returns the list of entry ids that fell off the cap -- the caller deletes their objects (object
+    I/O stays out of the _mutate closure)."""
+    def fn(ws):
+        threads = ws.setdefault("mail", {}).setdefault("threads", [])
+        existing = next((t for t in threads if t.get("id") == entry.get("id")), None)
+        if existing is not None:
+            keep_summary = existing.get("summary", "")
+            existing.update(entry)
+            if not entry.get("summary") and keep_summary:
+                existing["summary"] = keep_summary
+        else:
+            threads.append(dict(entry))
+        threads.sort(key=lambda t: t.get("last_date") or "", reverse=True)
+        dropped = [t.get("id") for t in threads[_MAIL_THREAD_CAP:] if t.get("id")]
+        del threads[_MAIL_THREAD_CAP:]
+        return dropped
+    return _mutate(client, fn)
+
+
+def set_mail_thread_summary(client, key, summary):
+    """Store a thread's AI summary on its index entry. Returns the entry, or None if it is gone."""
+    def fn(ws):
+        for t in ws.setdefault("mail", {}).setdefault("threads", []):
+            if t.get("id") == key:
+                t["summary"] = summary or ""
+                return t
+        return None
+    return _mutate(client, fn)
+
+
+def delete_mail_thread(client, key):
+    """Remove a thread: its index entry AND its archive object. Returns the removed entry or None."""
+    def fn(ws):
+        threads = ws.setdefault("mail", {}).setdefault("threads", [])
+        for i, t in enumerate(threads):
+            if t.get("id") == key:
+                return threads.pop(i)
+        return None
+    removed = _mutate(client, fn)
+    _delete_object(mail_thread_object_name(client, key))
+    return removed
+
+
+def set_mail_digest(client, body):
+    """Store the rolling AI digest (the Mail tab's briefing card). Returns the digest dict."""
+    def fn(ws):
+        m = ws.setdefault("mail", {})
+        m["digest"] = {"body": body or "", "updated": now_iso()}
+        return m["digest"]
+    return _mutate(client, fn)
+
+
+def mark_mail_sync(client, error="", backlog=None):
+    """Stamp the last sync attempt: its error ("" on success) and, when given, the remaining
+    backfill `backlog` (older conversations found but not yet fetched -- the Mail tab shows it).
+    Best-effort, never raises."""
+    def fn(ws):
+        m = ws.setdefault("mail", {})
+        m["last_sync"] = now_iso()
+        m["last_error"] = error or ""
+        if backlog is not None:
+            try:
+                m["backlog"] = max(0, int(backlog))
+            except (TypeError, ValueError):
+                pass
+        return m
+    try:
+        return _mutate(client, fn)
+    except Exception:
+        return None
+
+
+def set_mail_backfilled(client):
+    """Latch the one-way backfill-complete flag: the wide first-sync window came back fully
+    drained, so future syncs use the short overlap window. Returns the mail block."""
+    def fn(ws):
+        m = ws.setdefault("mail", {})
+        m["backfilled"] = True
+        return m
+    return _mutate(client, fn)
+
+
 # --- Uploaded creatives (binary objects in the SAME private bucket) -----------------------------
 # A creative the team uploads for a content piece is stored as its OWN object alongside the
 # workspace JSON (so a multi-KB image never bloats workspace/<c>.json, which is rewritten in full on
@@ -820,6 +1248,33 @@ def insert_content(client, campaign_id, content):
     return _mutate(client, fn)
 
 
+def move_content(client, content_id, target_campaign_id):
+    """Reassign a content piece to a different campaign, preserving the piece verbatim.
+
+    Detaches the piece from whichever campaign currently holds it and appends it to
+    `target_campaign_id` (keeping its id/status/comments/creative/date). The mirrored Content
+    Calendar event is re-synced against the DESTINATION campaign, so a cross-channel move re-tags
+    the event's kind/tab (paid<->organic) to match the new campaign. Returns (target_campaign,
+    content). No-op (returns the piece where it is) when it already lives in the target. Raises
+    KeyError if the piece or the target campaign doesn't exist.
+    """
+    def fn(ws):
+        target = _find_campaign(ws, target_campaign_id)
+        if target is None:
+            raise KeyError("no campaign '%s'" % target_campaign_id)
+        src, item = _find_content(ws, content_id)
+        if item is None:
+            raise KeyError("no content '%s'" % content_id)
+        if src is not None and src.get("id") == target_campaign_id:
+            return target, item
+        if src is not None:
+            src["content"] = [it for it in src.get("content", []) if it.get("id") != content_id]
+        target.setdefault("content", []).append(item)
+        _sync_content_calendar(ws, target, item)
+        return target, item
+    return _mutate(client, fn)
+
+
 def add_content_comment(client, content_id, sender, sender_name, body, created_at=None,
                         kind="comment", set_status=None):
     """Append a threaded comment to a content piece. Returns (content, comment).
@@ -988,59 +1443,581 @@ def set_calendar_status(client, index, status):
     return _mutate(client, fn)
 
 
-# --- Client Communications: email + meeting summaries (team-written, client-read) ---------------
-def add_email_summary(client, subject, summary, date=None, email_id=None):
-    """Add an email summary (newest first) to the Client Communications tab. Returns it."""
+# --- Task tracker: the internal delivery board + the client Progress tab -------------------------
+# One more additive key, ws["tasks"] = [task, ...] (no new infra -- see TASK_TRACKER_INTEGRATION.md).
+# A task is a deliverable travelling across four stages. The INTERNAL board (operator console) sees
+# everything; the client Progress tab sees only client_facing tasks, and only their client-safe
+# fields (never lead/support/owners, priority, internal_notes, or account_manager_id).
+#
+# Task shape (spec §3.2, extended 2026-07 with the two-level work breakdown + dates/charge):
+#   id, title, stage, department, lead_id, support_ids[], priority, labels[], campaign,
+#   content_type, start_date, due_date (the LAUNCH date -- key canonical, label "Launch date"),
+#   service_charge (internal only),
+#   maintasks[] ({id, text, assignee_id, subs[] ({id, text, done, assignee_id})}),
+#   comments[] (the content-comment shape incl. kind:"changes" + resolved), history[],
+#   client_facing, client_note, deliverable_url,        <- client-safe
+#   internal_notes, account_manager_id                  <- internal only
+# LEGACY: tasks written before the two-level model carry a flat subtasks[] -- normalize_task()
+# migrates that into one maintask in place (called by _find_task, so every mutation persists it).
+TASK_STAGES = ("in_process", "for_launch", "launched", "closed")
+TASK_PRIORITIES = ("Low", "Medium", "High", "Urgent")
+# The fields update_task will patch (id/comments/maintasks/history have their own helpers).
+_TASK_FIELDS = ("title", "department", "lead_id", "support_ids", "priority", "labels", "campaign",
+                "content_type", "start_date", "due_date", "service_charge",
+                "on_hold", "hold_reason",
+                "client_facing", "client_note", "deliverable_url",
+                "internal_notes", "account_manager_id")
+
+
+def tasks_of(ws):
+    """The workspace's task list (never None), each task normalized to the two-level shape."""
+    return [normalize_task(t) for t in (ws or {}).get("tasks") or []]
+
+
+def normalize_task(task):
+    """Migrate a task IN PLACE to the two-level model: maintasks[] each owning subs[].
+
+    A legacy flat subtasks[] becomes one maintask (named after the content type, owned by the
+    lead) so no data is lost; the old key is dropped. Tasks created before start_date existed
+    get one backfilled from their creation day. Idempotent -- a normalized task passes
+    through untouched."""
+    if task is None:
+        return None
+    if not task.get("start_date") and task.get("created_at"):
+        task["start_date"] = str(task["created_at"])[:10]
+    if not isinstance(task.get("maintasks"), list):
+        legacy = task.pop("subtasks", None) or []
+        task["maintasks"] = [{
+            "id": _new_id("mt"),
+            "text": task.get("content_type") or "Deliverable",
+            "assignee_id": task.get("lead_id") or "",
+            "subs": legacy,
+        }] if legacy else []
+    else:
+        task.pop("subtasks", None)
+        for m in task["maintasks"]:
+            if not isinstance(m.get("subs"), list):
+                m["subs"] = []
+    return task
+
+
+def task_subtasks(task):
+    """Every sub-task across the task's main tasks, flattened (for counts + the close-guard)."""
+    out = []
+    for m in (task or {}).get("maintasks") or []:
+        out.extend(m.get("subs") or [])
+    return out
+
+
+def _find_task(ws, task_id):
+    """The task dict with id `task_id` (normalized in place), or None."""
+    for t in ws.get("tasks", []):
+        if t.get("id") == task_id:
+            return normalize_task(t)
+    return None
+
+
+def task_open_changes(task):
+    """The task's UNRESOLVED "Request changes" comments (the client-flag is derived, not stored)."""
+    return [c for c in (task or {}).get("comments", [])
+            if c.get("kind") == "changes" and not c.get("resolved")]
+
+
+def _clean_support(lead_id, support_ids):
+    """Support people minus the lead (the lead is never double-counted as their own support)."""
+    seen, out = set(), []
+    for s in support_ids or []:
+        s = (s or "").strip() if isinstance(s, str) else s
+        if s and s != lead_id and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def _task_history(task, actor, field, old, new):
+    """Append one activity entry to a task's history (stage moves, edits)."""
+    task.setdefault("history", []).append({
+        "actor": actor or "", "field": field, "old": old or "", "new": new or "", "at": now_iso(),
+    })
+
+
+def add_task(client, fields, actor=""):
+    """Create a task on the client's board. Returns the stored task dict.
+
+    `fields` is a dict of the task fields; the stage defaults to in_process and is validated,
+    support_ids never contains lead_id, and a "created" history entry is stamped."""
+    f = dict(fields or {})
+    stage = f.get("stage") or "in_process"
+    if stage not in TASK_STAGES:
+        raise KeyError("no task stage '%s'" % stage)
+    lead = (f.get("lead_id") or "").strip()
+    task = {
+        "id": f.get("id") or _new_id("tk"),
+        "title": f.get("title") or "(untitled task)",
+        "stage": stage,
+        "department": f.get("department") or "",
+        "lead_id": lead,
+        "support_ids": _clean_support(lead, f.get("support_ids")),
+        "priority": f.get("priority") if f.get("priority") in TASK_PRIORITIES else "Medium",
+        "labels": list(f.get("labels") or []),
+        "campaign": f.get("campaign") or "",
+        "content_type": f.get("content_type") or "",
+        # Every service has a start date: work starts when it's created unless told otherwise.
+        "start_date": f.get("start_date") or now_iso()[:10],
+        "due_date": f.get("due_date") or "",
+        "service_charge": f.get("service_charge") or "",
+        "on_hold": bool(f.get("on_hold")),
+        "hold_reason": f.get("hold_reason") or "",
+        "maintasks": [],
+        "comments": [],
+        "history": [],
+        "client_facing": bool(f.get("client_facing")),
+        "client_note": f.get("client_note") or "",
+        "deliverable_url": f.get("deliverable_url") or "",
+        "internal_notes": f.get("internal_notes") or "",
+        "account_manager_id": f.get("account_manager_id") or lead,
+        "created_at": now_iso(),
+    }
+    _task_history(task, actor, "created", "", task["title"])
+
+    def fn(ws):
+        ws.setdefault("tasks", []).append(task)
+        return task
+    return _mutate(client, fn)
+
+
+def update_task(client, task_id, fields, actor=""):
+    """Patch a task's editable fields (never id/stage/subtasks/comments -- those have their own
+    helpers). Enforces priority + the lead-never-in-support rule. Returns the task."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        f = dict(fields or {})
+        if "priority" in f and f["priority"] not in TASK_PRIORITIES:
+            f.pop("priority")
+        for k in _TASK_FIELDS:
+            if k in f:
+                task[k] = f[k]
+        task["lead_id"] = (task.get("lead_id") or "").strip()
+        task["support_ids"] = _clean_support(task["lead_id"], task.get("support_ids"))
+        task["client_facing"] = bool(task.get("client_facing"))
+        _task_history(task, actor, "edited", "", "task updated")
+        return task
+    return _mutate(client, fn)
+
+
+def move_task_stage(client, task_id, stage, actor=""):
+    """Move a task to `stage`, guarded: a move to `closed` is BLOCKED while any sub-task is still
+    open or any client change request is unresolved (raises ValueError listing what to resolve).
+    Records the move in the task's history. Returns the task; no-op if already there."""
+    if stage not in TASK_STAGES:
+        raise KeyError("no task stage '%s'" % stage)
+
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        if task.get("stage") == stage:
+            return task
+        if stage == "closed":
+            blockers = ["sub-task: %s" % s.get("text", "")
+                        for s in task_subtasks(task) if not s.get("done")]
+            blockers += ["open change request: %s" % (c.get("body", "")[:60])
+                         for c in task_open_changes(task)]
+            if blockers:
+                raise ValueError("Can't close this task yet -- resolve first: " + "; ".join(blockers))
+        _task_history(task, actor, "stage", task.get("stage", ""), stage)
+        task["stage"] = stage
+        return task
+    return _mutate(client, fn)
+
+
+def delete_task(client, task_id):
+    """Remove a task from the board. Returns the removed task dict (so the route can Trash it)."""
+    def fn(ws):
+        tasks = ws.get("tasks", [])
+        for i, t in enumerate(tasks):
+            if t.get("id") == task_id:
+                return tasks.pop(i)
+        raise KeyError("no task '%s'" % task_id)
+    return _mutate(client, fn)
+
+
+def insert_task(client, task):
+    """Re-insert a previously-removed task verbatim (Trash restore). Idempotent on the task id."""
+    def fn(ws):
+        t = dict(task or {})
+        tasks = ws.setdefault("tasks", [])
+        if any(x.get("id") == t.get("id") for x in tasks):
+            return t  # already present -- don't duplicate on a double-restore
+        tasks.append(t)
+        return t
+    return _mutate(client, fn)
+
+
+def upsert_tasks(client, tasks):
+    """Merge a list of tasks into the client's board BY ID (used by the JSON import/restore).
+
+    Non-destructive: an incoming task whose id already exists REPLACES that task in place; a new id
+    is appended. Nothing is ever removed. Returns (added, updated) counts."""
+    def fn(ws):
+        board = ws.setdefault("tasks", [])
+        index = {t.get("id"): i for i, t in enumerate(board) if t.get("id")}
+        added = updated = 0
+        for raw in tasks or []:
+            t = dict(raw or {})
+            tid = t.get("id")
+            if tid and tid in index:
+                board[index[tid]] = t
+                updated += 1
+            else:
+                board.append(t)
+                if tid:
+                    index[tid] = len(board) - 1
+                added += 1
+        return added, updated
+    return _mutate(client, fn)
+
+
+def add_task_comment(client, task_id, sender, sender_name, body, kind="comment"):
+    """Append a threaded comment to a task. Returns (task, comment).
+
+    Mirrors add_content_comment: `sender` is "client" or "agora"; kind "changes" is a client
+    "Request changes" (flagged bubble, carries `resolved`) -- the task-level flag is DERIVED from
+    unresolved changes-comments (task_open_changes), not stored."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        comment = {
+            "id": _new_id("cm"),
+            "sender": sender,
+            "sender_name": sender_name or "",
+            "body": body or "",
+            "created_at": now_iso(),
+            "kind": kind or "comment",
+        }
+        if (kind or "comment") == "changes":
+            comment["resolved"] = False
+        task.setdefault("comments", []).append(comment)
+        return task, comment
+    return _mutate(client, fn)
+
+
+def resolve_task_comment(client, task_id, comment_id):
+    """Mark a task's "Request changes" comment resolved (TEAM action). Returns
+    (task, comment, open_changes_left). Raises KeyError if the task or comment is gone."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        target = next((c for c in task.get("comments", []) if c.get("id") == comment_id), None)
+        if target is None:
+            raise KeyError("no comment '%s'" % comment_id)
+        target["resolved"] = True
+        return task, target, len(task_open_changes(task))
+    return _mutate(client, fn)
+
+
+def add_maintask(client, task_id, text, assignee_id=""):
+    """Append a main task (a named group of sub-tasks with its own owner). Returns (task, maintask)."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        main = {"id": _new_id("mt"), "text": text or "", "assignee_id": assignee_id or "", "subs": []}
+        task.setdefault("maintasks", []).append(main)
+        return task, main
+    return _mutate(client, fn)
+
+
+def _find_maintask(task, maintask_id):
+    for m in (task or {}).get("maintasks", []):
+        if m.get("id") == maintask_id:
+            return m
+    return None
+
+
+def set_maintask_owner(client, task_id, maintask_id, assignee_id):
+    """Assign (or clear, with "") the owner of one main task. Returns (task, maintask)."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        main = _find_maintask(task, maintask_id)
+        if main is None:
+            raise KeyError("no maintask '%s'" % maintask_id)
+        main["assignee_id"] = assignee_id or ""
+        return task, main
+    return _mutate(client, fn)
+
+
+def rename_maintask(client, task_id, maintask_id, text):
+    """Rename one main task (its sub-tasks stay put). Returns (task, maintask)."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        main = _find_maintask(task, maintask_id)
+        if main is None:
+            raise KeyError("no maintask '%s'" % maintask_id)
+        main["text"] = text or main.get("text") or ""
+        return task, main
+    return _mutate(client, fn)
+
+
+def set_task_hold(client, task_id, on_hold, reason="", actor=""):
+    """Put a task on hold or resume it (ongoing). `on_hold` is a plain boolean -- no dates. The
+    reason is internal (never shown to the client). Stamps a hold/resume history entry. Returns
+    the task."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        held = bool(on_hold)
+        task["on_hold"] = held
+        task["hold_reason"] = (reason or "") if held else ""
+        _task_history(task, actor, "hold", "", "on hold" if held else "resumed")
+        return task
+    return _mutate(client, fn)
+
+
+def delete_maintask(client, task_id, maintask_id):
+    """Remove one main task (and its sub-tasks) from a task. Returns the task."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        task["maintasks"] = [m for m in task.get("maintasks", []) if m.get("id") != maintask_id]
+        return task
+    return _mutate(client, fn)
+
+
+def add_subtask(client, task_id, text, assignee_id=None, maintask_id=""):
+    """Append a sub-task ({id, text, done, assignee_id}) under a main task. Returns (task, subtask).
+
+    `maintask_id` picks the group; without one the sub-task lands in the LAST main task, and a
+    task with no main tasks yet grows a "Deliverable" group first (so legacy callers still work)."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        mains = task.setdefault("maintasks", [])
+        main = _find_maintask(task, maintask_id) if maintask_id else None
+        if main is None:
+            if maintask_id:
+                raise KeyError("no maintask '%s'" % maintask_id)
+            if not mains:
+                mains.append({"id": _new_id("mt"), "text": task.get("content_type") or "Deliverable",
+                              "assignee_id": task.get("lead_id") or "", "subs": []})
+            main = mains[-1]
+        sub = {"id": _new_id("st"), "text": text or "", "done": False,
+               "assignee_id": assignee_id or ""}
+        main.setdefault("subs", []).append(sub)
+        return task, sub
+    return _mutate(client, fn)
+
+
+def _find_subtask(task, subtask_id):
+    """The sub-task with `subtask_id`, searched across every main task (ids are unique)."""
+    for s in task_subtasks(task):
+        if s.get("id") == subtask_id:
+            return s
+    return None
+
+
+def set_subtask_done(client, task_id, subtask_id, done):
+    """Check / uncheck one sub-task. Returns (task, subtask)."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        sub = _find_subtask(task, subtask_id)
+        if sub is None:
+            raise KeyError("no subtask '%s'" % subtask_id)
+        sub["done"] = bool(done)
+        return task, sub
+    return _mutate(client, fn)
+
+
+def set_subtask_owner(client, task_id, subtask_id, assignee_id):
+    """Assign (or clear, with "") the owner of one sub-task. Returns (task, subtask)."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        sub = _find_subtask(task, subtask_id)
+        if sub is None:
+            raise KeyError("no subtask '%s'" % subtask_id)
+        sub["assignee_id"] = assignee_id or ""
+        return task, sub
+    return _mutate(client, fn)
+
+
+def delete_subtask(client, task_id, subtask_id):
+    """Remove one sub-task from whichever main task holds it. Returns the task."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        for m in task.get("maintasks", []):
+            m["subs"] = [s for s in m.get("subs", []) if s.get("id") != subtask_id]
+        return task
+    return _mutate(client, fn)
+
+
+# --- Client Communications: ONE multi-channel timeline (team-written, client-read) --------------
+# All conversations -- email, Upwork, Slack, meetings, calls, notes -- live in a single list
+# ws["communications"], newest first. Each entry:
+#   {id, channel, audience, title, summary, date, people, origin, thread_key}
+# * channel  -- one of COMM_CHANNELS (the coloured badge on the card).
+# * audience -- "client" (the client sees it) or "team" (internal only; server-filtered out of the
+#               client render, exactly like a client_facing:false task never reaches _progress_tasks).
+# * people   -- "who was involved" (meeting attendees / call participants / email participants).
+# * origin   -- "manual" (hand-added) or "mail" (mirrored from the Mail sync's client recap).
+# * thread_key -- for an email card, the Mail thread key so "Read full thread" can open the archive.
+# Email thread recaps are mirrored here by the Mail sync (upsert_email_summary, stable "mail_<key>"
+# id, audience "client"). The two legacy split lists (email_summaries / meeting_summaries) migrate
+# into this one list the first time it is touched -- no data is lost.
+COMM_CHANNELS = ("email", "upwork", "slack", "meeting", "call", "note")
+
+
+def _clean_channel(channel):
+    channel = (channel or "").strip().lower()
+    return channel if channel in COMM_CHANNELS else "note"
+
+
+def _clean_audience(audience):
+    return "team" if (audience or "").strip().lower() == "team" else "client"
+
+
+def _ensure_communications(ws):
+    """Return ws["communications"], migrating the legacy email_summaries / meeting_summaries lists
+    into it the first time (in place). Idempotent -- safe to call on every read and mutation."""
+    if isinstance(ws.get("communications"), list):
+        return ws["communications"]
+    items = []
+    for e in (ws.get("email_summaries") or []):
+        eid = str(e.get("id") or _new_id("cm"))
+        is_mail = eid.startswith("mail_")
+        items.append({
+            "id": eid, "channel": "email", "audience": "client",
+            "title": e.get("subject") or "(no subject)", "summary": e.get("summary") or "",
+            "date": e.get("date") or "", "people": "",
+            "origin": "mail" if is_mail else "manual",
+            "thread_key": eid[5:] if is_mail else "",
+        })
+    for m in (ws.get("meeting_summaries") or []):
+        items.append({
+            "id": str(m.get("id") or _new_id("cm")), "channel": "meeting", "audience": "client",
+            "title": m.get("title") or "(untitled meeting)", "summary": m.get("summary") or "",
+            "date": m.get("date") or "", "people": m.get("attendees") or "",
+            "origin": "manual", "thread_key": "",
+        })
+    items.sort(key=lambda it: it.get("date") or "", reverse=True)
+    ws["communications"] = items
+    ws.pop("email_summaries", None)
+    ws.pop("meeting_summaries", None)
+    return items
+
+
+def communications_list(ws):
+    """The normalized communications list from an already-loaded workspace (never None). Migrates the
+    legacy lists in memory; the migration persists on the next mutation."""
+    return list(_ensure_communications(ws))
+
+
+def add_communication(client, channel, title, summary, date=None, people="",
+                      audience="client", origin="manual", thread_key="", item_id=None):
+    """Add a communication entry (newest first) to the unified timeline. Returns it."""
     def fn(ws):
         item = {
-            "id": email_id or _new_id("em"),
-            "subject": subject or "(no subject)",
-            "date": date or now_iso(),
+            "id": item_id or _new_id("cm"),
+            "channel": _clean_channel(channel),
+            "audience": _clean_audience(audience),
+            "title": title or "",
             "summary": summary or "",
+            "date": date or now_iso(),
+            "people": people or "",
+            "origin": origin or "manual",
+            "thread_key": thread_key or "",
         }
-        ws.setdefault("email_summaries", []).insert(0, item)
+        _ensure_communications(ws).insert(0, item)
         return item
     return _mutate(client, fn)
 
 
-def add_meeting_summary(client, title, summary, attendees="", date=None, meeting_id=None):
-    """Add a meeting summary / notes (newest first) to the Client Communications tab. Returns it."""
+def upsert_email_summary(client, item_id, subject, summary, date=None):
+    """Insert-or-update the Mail sync's mirrored email recap in the unified timeline, BY ID.
+
+    Each thread's client-facing recap is mirrored under a stable 'mail_<key>' id (channel "email",
+    audience "client"), so a thread that gains messages UPDATES its card in place instead of stacking
+    duplicates. Hand-added entries are untouched. Returns the entry."""
+    key = str(item_id)[5:] if str(item_id).startswith("mail_") else ""
     def fn(ws):
-        item = {
-            "id": meeting_id or _new_id("mt"),
-            "title": title or "(untitled meeting)",
-            "date": date or now_iso(),
-            "attendees": attendees or "",
-            "summary": summary or "",
-        }
-        ws.setdefault("meeting_summaries", []).insert(0, item)
+        items = _ensure_communications(ws)
+        for it in items:
+            if it.get("id") == item_id:
+                if subject:
+                    it["title"] = subject
+                it["summary"] = summary or ""
+                if date:
+                    it["date"] = date
+                it["channel"] = "email"
+                it["audience"] = "client"
+                it["origin"] = "mail"
+                if key:
+                    it["thread_key"] = key
+                return it
+        item = {"id": item_id, "channel": "email", "audience": "client",
+                "title": subject or "(no subject)", "summary": summary or "",
+                "date": date or now_iso(), "people": "", "origin": "mail", "thread_key": key}
+        items.insert(0, item)
         return item
     return _mutate(client, fn)
 
 
-def delete_communication(client, kind, item_id):
-    """Delete an email ('email') or meeting ('meeting') summary by id. Returns the remaining list."""
-    key = "email_summaries" if kind == "email" else "meeting_summaries"
+def delete_communication(client, item_id):
+    """Delete a communication entry by id. Returns the remaining list."""
     def fn(ws):
-        ws[key] = [it for it in ws.get(key, []) if it.get("id") != item_id]
-        return ws[key]
+        items = _ensure_communications(ws)
+        ws["communications"] = [it for it in items if it.get("id") != item_id]
+        return ws["communications"]
     return _mutate(client, fn)
 
 
-def update_communication(client, kind, item_id, fields):
-    """Edit an email/meeting summary's fields in place by id. Email accepts subject/summary; meeting
-    accepts title/attendees/summary. Returns the updated item, or None if not found."""
-    key = "email_summaries" if kind == "email" else "meeting_summaries"
-    allowed = ("subject", "summary") if kind == "email" else ("title", "attendees", "summary")
+def update_communication(client, item_id, fields):
+    """Edit a communication entry's fields in place by id (channel/audience/title/summary/date/
+    people). Returns the updated item, or None if not found."""
+    allowed = ("channel", "audience", "title", "summary", "date", "people")
     def fn(ws):
-        for it in ws.get(key, []):
+        for it in _ensure_communications(ws):
             if it.get("id") == item_id:
                 for k in allowed:
                     if k in (fields or {}):
-                        it[k] = fields[k]
+                        if k == "channel":
+                            it[k] = _clean_channel(fields[k])
+                        elif k == "audience":
+                            it[k] = _clean_audience(fields[k])
+                        else:
+                            it[k] = fields[k]
                 return it
         return None
     return _mutate(client, fn)
+
+
+# Back-compat wrappers (kept so the Mail sync + any older callers/tests keep working).
+def add_email_summary(client, subject, summary, date=None, email_id=None):
+    """Add a hand-written email summary. Thin wrapper over add_communication (channel 'email')."""
+    return add_communication(client, "email", subject, summary, date=date,
+                             audience="client", origin="manual", item_id=email_id)
+
+
+def add_meeting_summary(client, title, summary, attendees="", date=None, meeting_id=None):
+    """Add a meeting summary / notes. Thin wrapper over add_communication (channel 'meeting')."""
+    return add_communication(client, "meeting", title, summary, date=date, people=attendees,
+                             audience="client", origin="manual", item_id=meeting_id)
 
 
 # --- Market Intelligence: the weekly briefing (team-written, client-read) -----------------------
@@ -1050,7 +2027,7 @@ def update_communication(client, kind, item_id, fields):
 # Report" shape (a sub-heading + headline + paragraph + a source tag/link). Same load-modify-save
 # posture as the Client Communications summaries above; no new infra.
 INTEL_SECTIONS = ("business_research", "media_buying")
-_INTEL_FIELDS = ("heading", "title", "body", "source", "link", "date")
+_INTEL_FIELDS = ("heading", "title", "body", "relevance", "source", "link", "date")
 
 
 def _intel_key(section):
@@ -1109,6 +2086,41 @@ def delete_intel_entry(client, section, entry_id):
         lst = ws.setdefault("intel", {}).setdefault(key, [])
         ws["intel"][key] = [it for it in lst if it.get("id") != entry_id]
         return ws["intel"][key]
+    return _mutate(client, fn)
+
+
+# Valid bulk actions on a set of intel entries (team-only, in-place).
+INTEL_BULK_ACTIONS = ("delete", "favourite", "unfavourite")
+
+
+def bulk_intel(client, section, action, entry_ids):
+    """Apply a bulk `action` to the intel entries whose ids are in `entry_ids`. Returns the list.
+
+    * delete       -- remove them.
+    * favourite    -- star them (`favourite: True`) AND pin them (drop the `auto` flag) so the daily
+                      refresh never sweeps a favourited story away.
+    * unfavourite  -- clear the star (leaves it pinned; a hand-touched entry stays non-auto).
+    Unknown ids are ignored; an unknown action raises ValueError."""
+    key = _intel_key(section)
+    if key is None:
+        raise KeyError("no intel section '%s'" % section)
+    if action not in INTEL_BULK_ACTIONS:
+        raise ValueError("bad intel bulk action '%s'" % action)
+    ids = set(i for i in (entry_ids or []) if i)
+
+    def fn(ws):
+        lst = ws.setdefault("intel", {}).setdefault(key, [])
+        if action == "delete":
+            ws["intel"][key] = [it for it in lst if it.get("id") not in ids]
+            return ws["intel"][key]
+        for it in lst:
+            if it.get("id") in ids:
+                if action == "favourite":
+                    it["favourite"] = True
+                    it.pop("auto", None)   # pin: survives the next replace_auto_intel
+                else:
+                    it.pop("favourite", None)
+        return lst
     return _mutate(client, fn)
 
 
@@ -1174,3 +2186,190 @@ def replace_auto_intel(client, section, entries):
         ws["intel"][key] = fresh + kept  # the view re-sorts by date, so order here is immaterial
         return ws["intel"][key]
     return _mutate(client, fn)
+
+
+# How many auto (non-favourite) entries a section keeps. The daily refresh ADDS to the list rather
+# than wiping it, so this caps unbounded growth -- the oldest plain-auto entries drop off. Manual
+# and favourited entries are never dropped.
+_MAX_AUTO_PER_SECTION = 60
+
+
+def add_auto_intel(client, section, entries, cap=_MAX_AUTO_PER_SECTION):
+    """ADD freshly-curated `entries` to a section, de-duped against what's already there.
+
+    Unlike replace_auto_intel (which swapped the whole auto set each run), this GROWS the list: an
+    article whose link/title already exists in the section is skipped, genuinely new ones are added
+    (stored `auto:True`, newest-first). Manual and favourited entries are always kept; only plain
+    `auto` entries are capped (oldest by date drop past `cap`). Returns the section's entry list."""
+    key = _intel_key(section)
+    if key is None:
+        raise KeyError("no intel section '%s'" % section)
+
+    def _keys(it):
+        return ((it.get("link") or "").strip().lower(), (it.get("title") or "").strip().lower())
+
+    def fn(ws):
+        existing = ws.setdefault("intel", {}).setdefault(key, [])
+        seen_links, seen_titles = set(), set()
+        for it in existing:
+            lnk, ttl = _keys(it)
+            if lnk:
+                seen_links.add(lnk)
+            if ttl:
+                seen_titles.add(ttl)
+        added = []
+        for e in entries or []:
+            item = {}
+            for f in _INTEL_FIELDS:
+                item[f] = (e or {}).get(f, "") or ""
+            lnk, ttl = _keys(item)
+            if (lnk and lnk in seen_links) or (ttl and ttl in seen_titles):
+                continue  # already have this story -- don't duplicate it
+            item["id"] = _new_id("intel")
+            item["auto"] = True
+            added.append(item)
+            if lnk:
+                seen_links.add(lnk)
+            if ttl:
+                seen_titles.add(ttl)
+        combined = added + existing            # newest additions first (view re-sorts anyway)
+        # Cap ONLY plain-auto entries; keep every manual/favourited one untouched.
+        protected = [x for x in combined if not x.get("auto") or x.get("favourite")]
+        autos = [x for x in combined if x.get("auto") and not x.get("favourite")]
+        autos.sort(key=lambda e: (e.get("date") or ""), reverse=True)
+        ws["intel"][key] = protected + autos[:max(0, int(cap))]
+        return ws["intel"][key]
+    return _mutate(client, fn)
+
+
+# --- Market Intelligence: the AI 'brain' config (which model + the tunable prompts) --------------
+# ws["intel_ai"] holds the per-client research settings the team edits in place (see intel_ai.py):
+#   * model           -- the selected model id ("" -> feature off; the refresh keeps the plain-RSS
+#                        fill). Validated against intel_ai.MODELS by the route before it is stored.
+#   * business_prompt / media_prompt -- the admin-tunable editorial guidance for each section
+#                        (blank -> intel_ai's module default is used at refresh time).
+#   * backfilled      -- set True after the first 12-month backfill run, so daily runs use the short
+#                        recent window instead of re-pulling a year every day.
+#   * show_thinking   -- "1" if the admin wants the model's reasoning + considered-articles captured
+#                        and shown (slower; a debugging aid). Blank/"" = off (fast).
+#   * last_run / last_model / last_error -- best-effort run metadata surfaced to the admin.
+#   * last_trace      -- best-effort per-section diagnostics from the last run (candidates, reasoning,
+#                        raw output), written by mark_intel_run and shown when show_thinking is on.
+# It is one more additive workspace key (no new infra), mirroring intel_topics above.
+_INTEL_AI_FIELDS = ("model", "business_prompt", "media_prompt", "window", "count", "show_thinking")
+
+
+def get_intel_ai(ws):
+    """The client's AI research settings from an already-loaded workspace dict (never None).
+
+    Always returns a dict with at least the editable fields present (blank if unset) so callers and
+    templates can read them without guarding."""
+    cfg = dict((ws or {}).get("intel_ai") or {})
+    for f in _INTEL_AI_FIELDS:
+        cfg.setdefault(f, "")
+    return cfg
+
+
+def set_intel_ai(client, fields):
+    """Merge `fields` into the client's intel_ai config (only recognised keys). Returns the config.
+
+    Used by the admin 'AI research settings' save. `model` is stored verbatim (the route validates
+    it against intel_ai.MODELS first); the prompts are trimmed. Unknown keys are ignored."""
+    def fn(ws):
+        cfg = ws.setdefault("intel_ai", {})
+        for f in _INTEL_AI_FIELDS:
+            if f in (fields or {}):
+                val = fields.get(f)
+                cfg[f] = ("" if val is None else str(val)).strip()
+        return cfg
+    return _mutate(client, fn)
+
+
+# --- Assistant (team-only chat): its own model choice + a running spend tally --------------------
+def set_assistant_model(client, model_id):
+    """Persist the Assistant's model choice ("" = automatic: intel brain's model, else the default).
+    Stored verbatim -- the route validates against intel_ai.MODELS first. Returns the config."""
+    def fn(ws):
+        cfg = ws.setdefault("assistant", {})
+        cfg["model"] = (model_id or "").strip()
+        return cfg
+    return _mutate(client, fn)
+
+
+def set_assistant_depth(client, depth):
+    """Persist the Assistant's answer depth ('quick'|'standard'|'deep'). Stored verbatim -- the
+    route validates against assistant_ai.DEPTHS first. Returns the config."""
+    def fn(ws):
+        cfg = ws.setdefault("assistant", {})
+        cfg["depth"] = (depth or "").strip()
+        return cfg
+    return _mutate(client, fn)
+
+
+def _blank_usage():
+    return {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "calls": 0, "by_model": {}}
+
+
+def assistant_usage(ws):
+    """The workspace's all-time Assistant spend tally (always fully-shaped, never None)."""
+    u = ((ws or {}).get("assistant") or {}).get("usage") or {}
+    out = _blank_usage()
+    for k in ("input_tokens", "output_tokens", "calls"):
+        try:
+            out[k] = int(u.get(k) or 0)
+        except (TypeError, ValueError):
+            pass
+    try:
+        out["cost_usd"] = float(u.get("cost_usd") or 0.0)
+    except (TypeError, ValueError):
+        pass
+    out["by_model"] = dict(u.get("by_model") or {})
+    return out
+
+
+def add_assistant_usage(client, model_id, input_tokens, output_tokens, cost_usd):
+    """Accumulate one Assistant call into the client's all-time spend tally (mirrors mastery-engine's
+    per-user tally). Returns the updated tally so the response can carry the fresh totals."""
+    def fn(ws):
+        cfg = ws.setdefault("assistant", {})
+        tally = cfg.setdefault("usage", _blank_usage())
+        tally["input_tokens"] = int(tally.get("input_tokens") or 0) + int(input_tokens or 0)
+        tally["output_tokens"] = int(tally.get("output_tokens") or 0) + int(output_tokens or 0)
+        tally["cost_usd"] = float(tally.get("cost_usd") or 0.0) + float(cost_usd or 0.0)
+        tally["calls"] = int(tally.get("calls") or 0) + 1
+        key = model_id or "unknown"
+        by = tally.setdefault("by_model", {})
+        m = by.setdefault(key, {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "calls": 0})
+        m["input_tokens"] = int(m.get("input_tokens") or 0) + int(input_tokens or 0)
+        m["output_tokens"] = int(m.get("output_tokens") or 0) + int(output_tokens or 0)
+        m["cost_usd"] = float(m.get("cost_usd") or 0.0) + float(cost_usd or 0.0)
+        m["calls"] = int(m.get("calls") or 0) + 1
+        return assistant_usage(ws)
+    return _mutate(client, fn)
+
+
+def mark_intel_run(client, model, error="", backfilled=None, traces=None):
+    """Record run metadata after a refresh attempt (best-effort; never raises out of the job).
+
+    `model` is the model id that ran (or ""); `error` is a short message on failure ("" on success);
+    `backfilled=True` latches the 12-month-backfill-done flag so daily runs stay on the short window;
+    `traces` (a {section: diagnostics} dict) is stored as `last_trace` for the show-reasoning panel."""
+    def fn(ws):
+        cfg = ws.setdefault("intel_ai", {})
+        cfg["last_run"] = now_iso()
+        cfg["last_model"] = model or ""
+        cfg["last_error"] = error or ""
+        if backfilled is not None:
+            cfg["backfilled"] = bool(backfilled)
+        if traces is not None:
+            cfg["last_trace"] = traces
+        return cfg
+    try:
+        return _mutate(client, fn)
+    except Exception:
+        return None
+
+
+def intel_backfilled(ws):
+    """True iff this client has already had its first 12-month backfill run."""
+    return bool((ws or {}).get("intel_ai", {}).get("backfilled"))

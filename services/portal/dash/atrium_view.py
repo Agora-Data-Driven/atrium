@@ -14,6 +14,8 @@ import calendar as _calendar
 import datetime
 import json
 
+import intel_ai
+
 # The agency and ALL its infrastructure live in Singapore (asia-southeast1). The calendar's notion of
 # "today" must be the client's business day in SGT (UTC+8, no DST), not UTC -- a UTC "today" lags the
 # local day by up to 8 hours, so during SGT mornings it highlights yesterday. Fixed offset is exact
@@ -691,10 +693,48 @@ def intel_sections(ws):
     for sec in _INTEL_SECTIONS:
         meta = dict(sec)
         entries = list(intel.get(sec["key"], []) or [])
+        # Newest first, then float favourited ("starred") stories to the top. Two stable sorts:
+        # date-desc first, then favourite-first keeps date order within each group.
         entries.sort(key=lambda e: (e.get("date") or ""), reverse=True)
+        entries.sort(key=lambda e: 0 if e.get("favourite") else 1)
         meta["entries"] = entries
         out.append(meta)
     return out
+
+
+def intel_ai_settings(ws):
+    """The team-only 'AI research' panel context for the Market Intelligence tab. Pure (env-only).
+
+    Returns the model dropdown options (each flagged available/not), the client's current selection
+    and per-section prompts, the module defaults (shown as placeholders / for 'reset'), and the last
+    run metadata. `any_available` gates whether the AI panel offers a working brain at all."""
+    # Read straight off ws to keep this a pure function (workspace.get_intel_ai does the same merge,
+    # but importing workspace here would pull GCS into a pure-view module).
+    raw = dict((ws or {}).get("intel_ai") or {})
+    models = intel_ai.available_models()
+    selected = (raw.get("model") or "").strip()
+    return {
+        "models": models,
+        "any_available": any(m["available"] for m in models),
+        "selected": selected,
+        "selected_ok": intel_ai.model_available(selected) if selected else False,
+        "business_prompt": (raw.get("business_prompt") or "").strip(),
+        "media_prompt": (raw.get("media_prompt") or "").strip(),
+        "default_business_prompt": intel_ai.default_prompt("business_research"),
+        "default_media_prompt": intel_ai.default_prompt("media_buying"),
+        # Admin-choosable search look-back + article target (per section, per run).
+        "windows": [dict(w) for w in intel_ai.WINDOWS],
+        "window": intel_ai.window_of(raw),
+        "count": intel_ai.count_of(raw),
+        "last_run": (raw.get("last_run") or "").strip(),
+        "last_model": (raw.get("last_model") or "").strip(),
+        "last_error": (raw.get("last_error") or "").strip(),
+        "backfilled": bool(raw.get("backfilled")),
+        # "Show AI reasoning" toggle + the last run's per-section diagnostics (candidates, reasoning,
+        # raw output) -- surfaced only when the toggle is on.
+        "show_thinking": str(raw.get("show_thinking") or "").strip() in ("1", "true", "True"),
+        "last_trace": raw.get("last_trace") if isinstance(raw.get("last_trace"), dict) else {},
+    }
 
 
 # --- The full view context ----------------------------------------------------------------------
@@ -732,4 +772,6 @@ def build(ws, client, user, active_tab, now=None):
         "intel": intel_sections(ws),
         # The per-client research keywords the daily auto-refresh searches (team-edited in place).
         "intel_topics": ", ".join(ws.get("intel_topics") or []),
+        # The team-only 'AI research' panel: model dropdown, tunable prompts, last-run status.
+        "intel_ai": intel_ai_settings(ws),
     }

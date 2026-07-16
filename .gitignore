@@ -17,6 +17,14 @@ id_ed25519
 chunks/
 *.log
 clients/*/data/
+# Raw source exports (e.g. the client_agora Telegram dump — 900+ MB, far over GitHub's
+# 100 MB push limit; the pipeline derives its sqlite from it, so it lives on disk only)
+clients/client_agora/raw_files/*.json
+# Automated Telegram pull (telegram_pull.py): per-machine session/state/increments.
+# The .session file is a FULL Telegram account login — never commit it.
+clients/client_agora/raw_files/pulled/
+*.session
+*.session-journal
 # Python
 __pycache__/
 *.pyc
@@ -35,3 +43,4 @@ desktop.ini
 _run/
 # Claude Code harness / session state
 .claude/
+ATRIUM_ANALYSIS.md

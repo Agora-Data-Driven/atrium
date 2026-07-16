@@ -81,31 +81,73 @@ $SCHED_AGENT = "service-$PNUM@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
 Write-Host "[OK] project number = $PNUM ; scheduler agent = $SCHED_AGENT"
 
 # =============================================================================
+# Step 2.5 -- The AI 'brain'. The refresh job picks a per-client model (intel_ai.py)
+#             and curates real news with it. There is NO news-feed fallback: a client
+#             with no model (or a failing model) is simply left as-is. Two providers:
+#               * Gemini via VERTEX AI -- GCP-billed (no key). Enable the API + grant the
+#                 runtime SA aiplatform.user, then set VERTEX_GEMINI_ENABLED=1.
+#               * DeepSeek via its API-key secret (mounted if present).
+# =============================================================================
+Write-Host "[..] Enabling Vertex AI + granting $WEB_SA aiplatform.user" -ForegroundColor Cyan
+gcloud services enable aiplatform.googleapis.com --project=$PROJECT *> $null
+gcloud projects add-iam-policy-binding $PROJECT `
+    --member "serviceAccount:$WEB_SA" --role "roles/aiplatform.user" *> $null
+Write-Host "[OK] Vertex Gemini available (project $PROJECT, location $REGION)"
+
+$secretPairs = @()
+gcloud secrets describe "DEEPSEEK_API_KEY" --project $PROJECT *> $null
+if ($LASTEXITCODE -eq 0) {
+    gcloud secrets add-iam-policy-binding "DEEPSEEK_API_KEY" `
+        --project $PROJECT `
+        --member "serviceAccount:$WEB_SA" `
+        --role "roles/secretmanager.secretAccessor" *> $null
+    Must "grant secretAccessor on DEEPSEEK_API_KEY"
+    $secretPairs += "DEEPSEEK_API_KEY=DEEPSEEK_API_KEY:latest"
+    Write-Host "[OK] will mount DEEPSEEK_API_KEY"
+} else {
+    Write-Host "[..] DEEPSEEK_API_KEY not found -- DeepSeek models unavailable (Gemini still works)" -ForegroundColor Yellow
+}
+
+# =============================================================================
 # Step 3 -- Deploy the Cloud Run JOB AS YOURSELF, overriding the image entrypoint to
 #           run the refresh script. INTEL_AUTO_ENABLED gates the feature; the web SA
 #           already has objectAdmin on the registry bucket, so no new IAM is needed
 #           for the job to read clients + write workspaces.
 # =============================================================================
 Write-Host "[..] Deploying Cloud Run job $JOB (INTEL_AUTO_ENABLED=$ENABLED)" -ForegroundColor Cyan
-gcloud run jobs deploy $JOB `
-    --image $IMG `
-    --region $REGION `
-    --project $PROJECT `
-    --service-account $WEB_SA `
-    --command python `
-    --args intel_refresh.py `
-    --memory 512Mi `
-    --cpu 1 `
-    --max-retries 1 `
-    --task-timeout 900 `
-    --set-env-vars "REGISTRY_BUCKET=$BUCKET,REGISTRY_OBJECT=platform.json,WORKSPACE_BUCKET=$BUCKET,INTEL_AUTO_ENABLED=$ENABLED"
+$deployArgs = @(
+    "run", "jobs", "deploy", $JOB,
+    "--image", $IMG,
+    "--region", $REGION,
+    "--project", $PROJECT,
+    "--service-account", $WEB_SA,
+    "--command", "python",
+    "--args", "intel_refresh.py",
+    "--memory", "512Mi",
+    "--cpu", "1",
+    "--max-retries", "1",
+    "--task-timeout", "900",
+    "--set-env-vars", "REGISTRY_BUCKET=$BUCKET,REGISTRY_OBJECT=platform.json,WORKSPACE_BUCKET=$BUCKET,INTEL_AUTO_ENABLED=$ENABLED,VERTEX_GEMINI_ENABLED=1,VERTEX_PROJECT=$PROJECT,VERTEX_LOCATION=global"
+)
+if ($secretPairs.Count -gt 0) {
+    $deployArgs += @("--set-secrets", ($secretPairs -join ","))
+}
+gcloud @deployArgs
 Must "deploy Cloud Run job $JOB"
 Write-Host "[OK] deployed $JOB"
 
 # =============================================================================
-# Step 4 -- Scheduler-agent IAM: tokenCreator on the web SA (mint a token AS it) +
-#           run.invoker on the job. Both idempotent (add-if-missing).
+# Step 4 -- Scheduler IAM. The scheduler POSTs the job's :run URI authenticated AS the
+#           WEB SA (NOT the cloudscheduler service agent -- creating/updating a job that
+#           impersonates the service agent needs actAs ON that agent, which a normal
+#           project owner lacks, so that path fails PERMISSION_DENIED). So instead:
+#             * the scheduler agent may MINT a token as the web SA (tokenCreator),
+#             * the web SA may RUN the job (run.invoker),
+#             * the deploying user may actAs the web SA (serviceAccountUser).
+#           All idempotent.
 # =============================================================================
+$DEPLOYER = (gcloud config get-value account 2>$null); $DEPLOYER = ($DEPLOYER | Out-String).Trim()
+
 Write-Host "[..] Granting scheduler agent tokenCreator on $WEB_SA" -ForegroundColor Cyan
 gcloud iam service-accounts add-iam-policy-binding $WEB_SA `
     --project $PROJECT `
@@ -113,13 +155,21 @@ gcloud iam service-accounts add-iam-policy-binding $WEB_SA `
     --role "roles/iam.serviceAccountTokenCreator"
 Must "grant serviceAccountTokenCreator to scheduler agent on $WEB_SA"
 
-Write-Host "[..] Granting run.invoker to scheduler agent on $JOB" -ForegroundColor Cyan
+Write-Host "[..] Granting run.invoker to the web SA on $JOB" -ForegroundColor Cyan
 gcloud run jobs add-iam-policy-binding $JOB `
     --region $REGION `
     --project $PROJECT `
-    --member "serviceAccount:$SCHED_AGENT" `
+    --member "serviceAccount:$WEB_SA" `
     --role "roles/run.invoker"
 Must "grant run.invoker on $JOB"
+
+if ($DEPLOYER) {
+    Write-Host "[..] Granting $DEPLOYER actAs on $WEB_SA (needed to create the scheduler job)" -ForegroundColor Cyan
+    gcloud iam service-accounts add-iam-policy-binding $WEB_SA `
+        --project $PROJECT `
+        --member "user:$DEPLOYER" `
+        --role "roles/iam.serviceAccountUser" *> $null
+}
 
 # =============================================================================
 # Step 5 -- Create-or-update the daily Cloud Scheduler HTTP job (POSTs the Run :run URI).
@@ -134,7 +184,7 @@ if ($LASTEXITCODE -eq 0) {
         --location $REGION --project $PROJECT `
         --schedule "$CRON" --time-zone "Asia/Singapore" `
         --uri $run_uri --http-method POST `
-        --oauth-service-account-email $SCHED_AGENT
+        --oauth-service-account-email $WEB_SA
     Must "update scheduler job $sched"
 } else {
     Write-Host "[..] Creating scheduler job $sched ($CRON SGT)" -ForegroundColor Cyan
@@ -142,7 +192,7 @@ if ($LASTEXITCODE -eq 0) {
         --location $REGION --project $PROJECT `
         --schedule "$CRON" --time-zone "Asia/Singapore" `
         --uri $run_uri --http-method POST `
-        --oauth-service-account-email $SCHED_AGENT
+        --oauth-service-account-email $WEB_SA
     Must "create scheduler job $sched"
 }
 Write-Host "[OK] scheduled $sched"

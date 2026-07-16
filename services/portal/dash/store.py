@@ -390,6 +390,76 @@ def ensure_super_admin_account(email, password, name=None, registry=None):
     return ensure_admin_account(email, password, name=name, role="superadmin", registry=registry)
 
 
+def upsert_google_account(email, name=None, role="client", clients=None, status="active",
+                          message=None, requested_name=None, registry=None):
+    """Create (or update-in-place) a PASSWORDLESS Google-sign-in account. Returns the account dict.
+
+    Google accounts carry no password: they authenticate through the OAuth flow (main.py resolves the
+    verified email to this account). Because they never get a `pw_hash`, `verify_portal_login` always
+    skips them, so a Google account can NEVER be logged into via the password form -- exactly right.
+
+    Idempotent by email: if an account already exists (e.g. a `pending` access request, or a re-grant),
+    it is UPDATED in place -- role / clients / status set to the new values -- instead of duplicated.
+    This is what lets one 'grant access' action both create a fresh Gmail account AND approve/activate
+    a pending request. `role` and `status` are coerced so callers can't store garbage. `message` (an
+    optional note the requester left) and `requested_name` are stored when provided.
+    """
+    reg = registry if registry is not None else load_registry()
+    reg.setdefault("accounts", [])
+    norm = _norm_email(email)
+    if not norm:
+        raise ValueError("email is required")
+    role = role if role in ("superadmin", "admin", "client") else "client"
+    status = status if status in ("active", "pending") else "active"
+    acct = get_account(norm, reg)
+    if acct is None:
+        acct = {"email": norm, "created_at": _now_iso(), "auth": "google"}
+        reg["accounts"].append(acct)
+    # Only mark auth=google when there's no existing password (don't strip a real password account).
+    acct.setdefault("auth", "google" if not acct.get("pw_hash") else acct.get("auth", "password"))
+    if name:
+        acct["name"] = name
+    elif not acct.get("name"):
+        acct["name"] = norm.split("@")[0]
+    acct["role"] = role
+    if clients is not None:
+        acct["clients"] = list(clients)
+    elif "clients" not in acct:
+        acct["clients"] = []
+    acct["status"] = status
+    if requested_name:
+        acct["requested_name"] = requested_name
+    if message is not None:
+        if message:
+            acct["message"] = message
+        else:
+            acct.pop("message", None)
+    save_registry(reg)
+    return acct
+
+
+def resolve_google_login(email, super_admin_email=None, registry=None):
+    """Client keys a VERIFIED Google `email` may open, or None if there's no active account for it.
+
+    Returns ["*"] for THE super admin (its email, passed in from main so the constant stays in one
+    place) or for any active account whose clients include "*"; a concrete key list for an active
+    client account; and None when there is no ACTIVE account (an unknown or still-`pending` email),
+    so the caller can route to the request-access flow. Password is irrelevant here -- Google already
+    verified the identity.
+    """
+    norm = _norm_email(email)
+    if not norm:
+        return None
+    sa = _norm_email(super_admin_email)
+    if sa and norm == sa:
+        return ["*"]
+    acct = get_account(norm, registry)
+    if acct is None or acct.get("status") != "active":
+        return None
+    clients = acct.get("clients") or []
+    return ["*"] if "*" in clients else list(clients)
+
+
 # --- Login verification (resolve ORDER: super-admin -> accounts -> registry hash -> bootstrap) ---
 def verify_portal_login(user, password, registry=None):
     """Verify a portal login and return the list of client keys the bearer may open.
