@@ -471,7 +471,13 @@ _DEPTH_STYLE = {
 }
 
 
-def _system_prompt(client_name, depth=DEFAULT_DEPTH):
+def _system_prompt(client_name, depth=DEFAULT_DEPTH, as_json=True):
+    """The grounded-answer contract. `as_json` picks the OUTPUT shape: True = the `{"answer": ...}`
+    envelope the synchronous path parses; False = PLAIN markdown for the STREAMING path (a JSON
+    wrapper can't be streamed to the user without showing braces)."""
+    tail = (" Answer with JSON only: {\"answer\": \"<your answer>\"}" if as_json else
+            " Answer in clear GitHub-flavored markdown (headings, bold, and lists are welcome). Do "
+            "NOT wrap your answer in JSON or code fences — just write the answer.")
     return (
         "You are the AGORA team's Atrium assistant for the client \"%s\". You answer questions "
         "using ONLY the numbered context excerpts provided — the client's campaigns, metrics, "
@@ -486,8 +492,18 @@ def _system_prompt(client_name, depth=DEFAULT_DEPTH):
         "excerpts truly contain nothing relevant, say so plainly — never invent facts. "
         % client_name
         + _DEPTH_STYLE.get(depth, _DEPTH_STYLE[DEFAULT_DEPTH])
-        + " Answer with JSON only: {\"answer\": \"<your answer>\"}"
+        + tail
     )
+
+
+def _steer_note(steer):
+    """A short prompt suffix carrying the team's mid-flight steer (from the plan checkpoint or a
+    pause). Empty when there is none."""
+    steer = (steer or "").strip()
+    if not steer:
+        return ""
+    return ("\n\nIMPORTANT — the AGORA team reviewed your approach and added this guidance. Follow "
+            "it, and let it override your earlier direction where they conflict:\n%s" % steer[:1000])
 
 
 _PLAN_SYSTEM = (
@@ -715,6 +731,82 @@ def ask(client_name, index, question, history=None, date_from="", date_to="", mo
     if not answer:
         return "", sources, "The model returned an empty answer — try again."
     return answer, sources, ""
+
+
+# --- Streaming ask + plan checkpoint --------------------------------------------------------------
+# The chat UI streams: it shows the model's reasoning live and lets the team PAUSE mid-thinking to
+# steer. `plan_stage` is the optional pre-answer checkpoint (Claude-style "plan mode"): it does the
+# retrieval + (deep) query planning and returns what the assistant WILL look at, so the team can
+# approve or redirect BEFORE a single answer token is written. `ask_stream` then streams the answer
+# (reasoning first, then the reply), honouring any `steer` the team added at the checkpoint or a pause.
+def _build_queries(question, depth, history, plan_caller):
+    """The retrieval queries for `question`: just the question, plus (deep) the planned sub-queries."""
+    queries = [question]
+    if depth == "deep" and plan_caller is not None:
+        queries += [q for q in plan_queries(question, history or [], plan_caller)
+                    if q.lower() != question.lower()]
+    return queries
+
+
+def _sources_of(hits):
+    """The de-duplicated citation list (by title) for a set of retrieved chunks."""
+    sources, seen = [], set()
+    for c in hits:
+        key = c["title"]
+        if key not in seen:
+            seen.add(key)
+            sources.append({"title": c["title"], "kind": c["kind"],
+                            "date": c.get("date", ""), "url": c.get("url", "")})
+    return sources
+
+
+def plan_stage(index, question, history=None, depth=DEFAULT_DEPTH, date_from="", date_to="",
+               query_embedder=None, reranker=None, plan_caller=None):
+    """The plan-mode checkpoint. Returns (queries, sources): the sub-questions the assistant will
+    search and the sources it retrieved -- shown to the team to approve or steer BEFORE answering.
+    Never raises; an empty `sources` means nothing matched (the UI says so)."""
+    depth = depth if depth in DEPTHS else DEFAULT_DEPTH
+    queries = _build_queries(question, depth, history, plan_caller)
+    hits = _retrieve(index, question, queries, depth, date_from, date_to, query_embedder, reranker)
+    return queries, _sources_of(hits)
+
+
+def ask_stream(client_name, index, question, history=None, date_from="", date_to="",
+               depth=DEFAULT_DEPTH, steer="", query_embedder=None, reranker=None,
+               plan_caller=None, stream_caller=None):
+    """Stream an answer to `question`. A GENERATOR yielding event dicts (mirrors intel_ai.stream_call):
+      {"type":"sources","sources":[...]}         -- retrieved citations (emitted first)
+      {"type":"thinking","text":<delta>}         -- reasoning delta (the live think panel)
+      {"type":"answer","text":<delta>}           -- answer delta (plain markdown)
+      {"type":"usage", ...}                       -- token counts (from the provider, near the end)
+      {"type":"error","message":<reason>}        -- a short reason; the stream then ends
+
+    `steer` (from the plan checkpoint or a pause-and-restart) is injected so the answer follows the
+    team's redirection. `stream_caller(system, user) -> iterator of intel_ai stream events` is the
+    injected model seam (tests pass a fake); `plan_caller(system,user)->(text,err)` powers deep's
+    query planning. Retrieval reuses the hybrid pipeline (query_embedder/reranker optional)."""
+    depth = depth if depth in DEPTHS else DEFAULT_DEPTH
+    queries = _build_queries(question, depth, history, plan_caller)
+    hits = _retrieve(index, question, queries, depth, date_from, date_to, query_embedder, reranker)
+    if not hits:
+        yield {"type": "error", "message": ("Nothing in this workspace matches that question — try "
+                                            "rephrasing, or fetch more data first.")}
+        return
+    yield {"type": "sources", "sources": _sources_of(hits)}
+    if stream_caller is None:
+        yield {"type": "error", "message": "no streaming model configured"}
+        return
+    system = _system_prompt(client_name, depth, as_json=False)
+    user = _user_prompt(question, hits, history or []) + _steer_note(steer)
+    got_answer = False
+    for ev in stream_caller(system, user):
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") == "answer" and ev.get("text"):
+            got_answer = True
+        yield ev
+    if not got_answer:
+        yield {"type": "error", "message": "The model returned an empty answer — try again."}
 
 
 # --- Optional source: the client's dashboard data export ------------------------------------------

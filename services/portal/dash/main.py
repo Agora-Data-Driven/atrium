@@ -39,6 +39,7 @@ from flask import (
     render_template,
     request,
     session,
+    stream_with_context,
     url_for,
 )
 
@@ -2737,6 +2738,115 @@ def atrium_admin_assistant(client):
         return jsonify(ok=True, answer=answer, sources=sources, usage=usage, totals=totals)
 
     return Response('{"error":"bad_op"}', status=400, mimetype="application/json")
+
+
+# The Gemini reasoning-token budget per depth (bigger = more visible "thinking", a bit slower/pricier).
+_ASSISTANT_THINK_BUDGET = {"quick": 512, "standard": 1024, "deep": 4096}
+
+
+def _sse(event, payload):
+    """One Server-Sent-Events frame: an event name + a JSON data line."""
+    return "event: %s\ndata: %s\n\n" % (event, json.dumps(payload))
+
+
+@app.route("/w/<client>/admin/assistant/stream", methods=["POST"])
+def atrium_admin_assistant_stream(client):
+    """The Assistant chat, STREAMED (team-only). Server-Sent Events so the UI shows the model's
+    reasoning live and the team can PAUSE mid-thinking (the browser aborts the stream) to steer.
+
+    Form fields: `question`, optional `history` (JSON of recent turns), `date_from`/`date_to`,
+    `stage` ('plan' = the plan-mode checkpoint: retrieve + plan, return the sub-questions + sources
+    WITHOUT answering; 'answer' = stream the reasoning then the reply), and `steer` (guidance the
+    team added at the checkpoint or a pause -- injected so the answer follows it).
+
+    Events: `plan` {queries}, `sources` {sources}, `thinking` {text}, `answer` {text},
+    `usage` {usage,totals}, `error` {message}, `done` {}. Every failure degrades to an `error`
+    event -- the generator never raises out."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    ws = workspace.load_workspace(client)
+    if ws is None:
+        return Response('{"error":"no_workspace"}', status=404, mimetype="application/json")
+    import assistant_ai
+
+    question = request.form.get("question", "").strip()
+    stage = request.form.get("stage", "answer")
+    steer = request.form.get("steer", "").strip()
+    date_from = request.form.get("date_from", "").strip()
+    date_to = request.form.get("date_to", "").strip()
+    try:
+        history = json.loads(request.form.get("history", "") or "[]")
+    except ValueError:
+        history = []
+    if not isinstance(history, list):
+        history = []
+    name = ws.get("display_name") or client
+    depth = _assistant_depth(ws)
+    mid = _assistant_model(ws) or intel_ai.default_model()
+    meta = intel_ai.model_meta(mid)
+    index = _assistant_index(ws, client)
+    q_emb = _assistant_query_embedder(index)
+    reranker = _assistant_reranker()
+
+    def plan_caller(system, user):
+        if not meta or not intel_ai.model_available(mid):
+            return "", "no AI provider configured"
+        text, err, _t = intel_ai._call(meta, system, user, None, 8192, think=False)
+        return text, err
+
+    def stream_caller(system, user):
+        if not meta or not intel_ai.model_available(mid):
+            yield {"type": "error", "message": "no AI provider configured — pick a model."}
+            return
+        for ev in intel_ai.stream_call(
+                meta, system, user, show_thinking=True,
+                think_budget=_ASSISTANT_THINK_BUDGET.get(depth, 1024),
+                think=(depth == "deep")):
+            yield ev
+
+    def generate():
+        usage = {}
+        try:
+            if not question:
+                yield _sse("error", {"message": "Ask a question first."})
+                return
+            if stage == "plan":
+                queries, sources = assistant_ai.plan_stage(
+                    index, question, history, depth, date_from, date_to, q_emb, reranker, plan_caller)
+                yield _sse("plan", {"queries": queries})
+                yield _sse("sources", {"sources": sources})
+                yield _sse("done", {"stage": "plan", "empty": not sources})
+                return
+            for ev in assistant_ai.ask_stream(
+                    name, index, question, history=history, date_from=date_from, date_to=date_to,
+                    depth=depth, steer=steer, query_embedder=q_emb, reranker=reranker,
+                    plan_caller=plan_caller, stream_caller=stream_caller):
+                t = ev.get("type")
+                if t == "usage":                       # capture (provider sends cumulative totals)
+                    usage["input_tokens"] = ev.get("input_tokens", 0)
+                    usage["output_tokens"] = ev.get("output_tokens", 0)
+                    continue
+                yield _sse(t, ev)
+            # Spend accounting (best-effort) -> emit a priced usage frame so the cost pill updates.
+            usage["model"] = mid
+            cost = intel_ai.cost_of(mid, usage.get("input_tokens", 0), usage.get("output_tokens", 0))
+            usage["cost_usd"] = cost
+            try:
+                totals = workspace.add_assistant_usage(
+                    client, mid, usage.get("input_tokens", 0), usage.get("output_tokens", 0), cost)
+            except Exception:
+                totals = workspace.assistant_usage(ws)
+            _audit(client, "asked the assistant (streamed)", question[:80])
+            yield _sse("usage", {"usage": usage, "totals": totals})
+            yield _sse("done", {})
+        except Exception:                              # never leak a stack trace into the stream
+            yield _sse("error", {"message": "Something went wrong while answering — please retry."})
+
+    resp = Response(stream_with_context(generate()), mimetype="text/event-stream")
+    resp.headers["Cache-Control"] = "no-cache"
+    resp.headers["X-Accel-Buffering"] = "no"          # ask any proxy NOT to buffer the stream
+    return resp
 
 
 @app.route("/w/<client>/watcher/video/<channel_id>/<video_id>", methods=["GET"])
