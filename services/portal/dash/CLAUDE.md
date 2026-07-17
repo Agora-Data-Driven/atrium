@@ -72,8 +72,10 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   Channels are classified: `platform` / `industry` (auto-labeled via `intel_ai.classify_text`,
   hand-editable) / `kind` creator|competitor. Registry in `ws["watcher"]`; each channel's
   transcripts in its own `workspace/watcher/<c>/<id>.json` object. `POST /w/<c>/admin/watcher`
-  (op add|add_video|fetch|safe_pull|refresh|meta|label|delete; fetch = MISSING-only batches of 8, page JS
-  loops it; a rate-limit reports `blocked` and never marks videos failed) +
+  (op add|add_video|fetch|safe_pull|refresh|meta|label|delete; fetch = MISSING-only batches (parallel
+  `FETCH_WORKERS`/`FETCH_BATCH` waves behind a proxy, else serial), page JS loops it and AUTO-RETRIES
+  with backoff on a `blocked` rate-limit / network error instead of stopping (button toggles to Stop);
+  a rate-limit reports `blocked` and never marks videos failed) +
   `GET /w/<c>/watcher/video/<id>/<vid>` (full transcript behind the click-to-expand cards) +
   `GET /w/<c>/watcher/safe-pull-status` (live Safe-pull progress the tab polls; see Safe pull below).
   **Single-video scraper (`op=add_video`):** paste ONE video link → `watcher.resolve_video`

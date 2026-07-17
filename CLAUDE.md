@@ -129,9 +129,11 @@ auto-refresh (see those bullets below). Product name is one constant:
   registry lives in `ws["watcher"]["channels"]` (counts + classification only); each channel's full
   archive is its OWN object `workspace/watcher/<c>/<channel_id>.json` (transcripts run to MBs —
   same posture as creatives). Routes: `POST /w/<c>/admin/watcher` (`op`
-  add|add_video|fetch|refresh|meta|label|delete — fetch pulls MISSING transcripts in short batches of 8 and
-  the page JS loops it with a progress bar; **a YouTube rate-limit stops the batch and reports
-  `blocked` WITHOUT marking any video failed**, so the next fetch resumes exactly where it stopped;
+  add|add_video|fetch|refresh|meta|label|delete — fetch pulls MISSING transcripts in batches
+  (parallel `FETCH_WORKERS` waves behind a rotating proxy, else the serial politely-paced path) and
+  the page JS loops it with a progress bar; **a YouTube rate-limit reports `blocked` WITHOUT marking
+  any video failed** and the loop AUTO-RETRIES with backoff (~20s→2min, resets on progress) instead
+  of stopping, so the archive fills without re-clicking (the button toggles to Stop to cancel);
   **add_video scrapes ONE pasted video link** (resolve title via keyless oEmbed, falling back to a
   watch-page og:title scrape when oEmbed 401s → fetch transcript
   inline → save under the per-client "Saved videos" pseudo-channel, marked `loose`, created by
