@@ -215,6 +215,23 @@ def run():
     _check("generic question stays unfiltered",
            assistant_ai._infer_kinds("what should we focus on next quarter") is None)
 
+    # --- Titles are searchable + a named creator survives a 'campaign' question (the 2026-07 bug) --
+    # The creator/channel name lives only in a chunk's TITLE, never in the transcript body, so it
+    # must be indexed for a name query to retrieve that creator's videos.
+    _check("a video is retrievable by its creator NAME (title is indexed, not just the body)",
+           any(h["kind"] == "video" for h in assistant_ai.search(index, "Carson Reed")))
+    # "what would <creator> say about <campaign>" contains 'campaign' -> _infer_kinds alone would
+    # scope to {content,campaign} and drop every transcript. The creator name must reopen video.
+    _named_kinds = assistant_ai._infer_kinds("what would Carson Reed say about the summer campaign")
+    _check("'campaign' question alone would exclude videos",
+           _named_kinds is not None and "video" not in _named_kinds)
+    _cross = assistant_ai.ask(
+        "Riverdance", index, "what would Carson Reed say about the summer campaign",
+        caller=lambda system, user: ('{"answer": "ok"}', ""))
+    _check("a creator named beside 'campaign' still retrieves that creator's videos",
+           _cross[2] == "" and any(s["kind"] == "video" and "Carson Reed" in s["title"]
+                                   for s in _cross[1]))
+
     # --- Reranker seam: it gets {id,title,content} records and ITS order drives the cited sources --
     seen_rr = {}
 

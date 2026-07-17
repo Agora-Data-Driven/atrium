@@ -58,12 +58,27 @@ _STOP = frozenset(
 CHUNK_WORDS = 1000          # transcript chunk size (words)
 TOP_K = 18                  # excerpts handed to the model per question
 MAX_CONTEXT_CHARS = 90000   # hard cap on packed context (stays well inside Gemini's window)
+INDEX_VERSION = 3           # bump to force a one-time rebuild when the index SHAPE changes
+                            # (v3: titles are indexed/embedded, so retrieval finds entities by name)
 
 
 def _tokens(text):
     """Lowercase word tokens minus stopwords (the BM25 vocabulary)."""
     return [t for t in re.findall(r"[a-z0-9']+", (text or "").lower())
             if len(t) > 1 and t not in _STOP]
+
+
+def _searchable(chunk):
+    """What BM25/embeddings actually index for a chunk: its TITLE plus its body.
+
+    The title carries the ENTITY NAME a user searches by -- the creator/channel name ("Fuel Your
+    Wander"), the video title, the campaign name, the email subject -- and that name is usually
+    ABSENT from the body (a transcript rarely says the channel's own name). Indexing the title too
+    is what lets "what would Fuel Your Wander say about ..." retrieve that creator's transcripts;
+    without it the name is invisible to retrieval and the Assistant reports it has no such content."""
+    title = (chunk.get("title") or "").strip()
+    text = chunk.get("text") or ""
+    return (title + "\n" + text) if title else text
 
 
 # --- 1. Flatten the workspace into chunks ---------------------------------------------------------
@@ -223,12 +238,12 @@ def build_index(chunks, fp=""):
     df = {}
     lengths = []
     for c in chunks:
-        toks = _tokens(c["text"])
+        toks = _tokens(_searchable(c))
         lengths.append(len(toks))
         for t in set(toks):
             df[t] = df.get(t, 0) + 1
     from workspace import now_iso
-    return {"v": 2, "fingerprint": fp, "built_at": now_iso(), "chunks": chunks, "df": df,
+    return {"v": INDEX_VERSION, "fingerprint": fp, "built_at": now_iso(), "chunks": chunks, "df": df,
             "n_docs": len(chunks),
             "avgdl": (sum(lengths) / len(lengths)) if lengths else 0.0}
 
@@ -268,7 +283,7 @@ def embed_index(index, embedder):
     if not chunks or embedder is None:
         return index
     try:
-        vectors, _err = embedder([c.get("text", "") for c in chunks])
+        vectors, _err = embedder([_searchable(c) for c in chunks])
     except Exception:
         vectors = None
     if not vectors:
@@ -320,6 +335,29 @@ def _infer_kinds(question):
     return matched[0] if len(matched) == 1 else None
 
 
+def _creator_names(chunks):
+    """The lowercased channel/creator names present in the index (the part of a video chunk's title
+    before the ' — <video title>' separator). Cheap; derived from the chunks already in hand."""
+    names = set()
+    for c in chunks:
+        if c.get("kind") == "video":
+            name = (c.get("title") or "").split(" — ", 1)[0].strip().lower()
+            if name:
+                names.add(name)
+    return names
+
+
+def _question_names_creator(question, chunks):
+    """True if `question` mentions a creator/channel this workspace actually watches.
+
+    This is why "what would Fuel Your Wander say about the Colorado Escape Campaign" must NOT be
+    scoped to campaign-only: it names a creator, so it is inherently cross-source. `_infer_kinds`
+    can't know that (it only matches the literal word "creator"), but the watched channels' names
+    are right here in the index."""
+    ql = (question or "").lower()
+    return any(name in ql for name in _creator_names(chunks))
+
+
 def _passes(chunk, date_from, date_to, kinds):
     """Metadata gate: an optional kind scope + a date range (dated chunks only; undated always pass)."""
     if kinds is not None and chunk.get("kind") not in kinds:
@@ -353,7 +391,7 @@ class _Retriever:
             return
         self._tf, self._dl = [], []
         for c in self.chunks:
-            toks = _tokens(c.get("text", ""))
+            toks = _tokens(_searchable(c))
             tf = {}
             for t in toks:
                 tf[t] = tf.get(t, 0) + 1
@@ -633,6 +671,11 @@ def _retrieve(index, question, queries, depth, date_from, date_to, query_embedde
     pool_cap, final = _DEPTH_RETRIEVE.get(depth, _DEPTH_RETRIEVE[DEFAULT_DEPTH])
 
     kinds = _infer_kinds(question)
+    # A named creator makes the question cross-source: keep the watched-video chunks in scope so
+    # "what would <creator> say about <campaign>" retrieves the creator's transcripts, not just the
+    # campaign (a lone 'campaign' keyword otherwise filters every transcript out before scoring).
+    if kinds is not None and "video" not in kinds and _question_names_creator(question, chunks):
+        kinds = set(kinds) | {"video"}
     allowed = [i for i, c in enumerate(chunks) if _passes(c, date_from, date_to, kinds)]
     if not allowed and kinds is not None:                 # scope too tight -> drop the kind filter
         allowed = [i for i, c in enumerate(chunks) if _passes(c, date_from, date_to, None)]

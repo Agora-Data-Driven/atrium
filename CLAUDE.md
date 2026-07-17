@@ -174,8 +174,14 @@ auto-refresh (see those bullets below). Product name is one constant:
   each ranked per query and fused with **Reciprocal Rank Fusion** (`_rrf`, rank-only so the
   incompatible BM25/cosine scales never fight); the fused pool is then optionally sorted by a
   **cross-encoder reranker** (Vertex Ranking API `semantic-ranker-fast-004`) — "retrieve wide, keep
-  few". A **metadata pre-filter** (`_infer_kinds`) scopes retrieval to one source kind ONLY for an
-  unambiguous single-source question (relaxed if it would empty the set), on top of the date range
+  few". Every chunk is indexed AND embedded by its **title + body** (`_searchable`), so the entity
+  name a user searches by (creator/channel name, campaign name, email subject) is retrievable even
+  though it never appears in the body — the transcript never says its own channel name (this fixed
+  the 2026-07 "no Fuel Your Wander content" miss; the index is `INDEX_VERSION`-stamped so the shape
+  change forces a one-time rebuild). A **metadata pre-filter** (`_infer_kinds`) scopes retrieval to
+  one source kind ONLY for an unambiguous single-source question (relaxed if it would empty the set,
+  or if the question NAMES a watched creator — `_question_names_creator` keeps `video` in scope so
+  "what would <creator> say about <campaign>" stays cross-source), on top of the date range
   (dated sources only). Both the semantic leg and the reranker are gated + graceful: with them off
   (or on any call failure) retrieval is exactly the old BM25 path. Embeddings are ON by default when
   Vertex is wired (`ASSISTANT_EMBED_ENABLED=1`, `VERTEX_EMBED_LOCATION` = the project region so
