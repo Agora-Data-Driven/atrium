@@ -421,9 +421,11 @@ def _snippet_text(snippet):
 # ONLY behind a rotating proxy: each concurrent request then egresses from a DIFFERENT residential
 # IP, so YouTube sees one request per IP, not a burst from one address. The route enables this only
 # when WATCHER_PROXY_URL is set; a proxyless deploy keeps the original serial, politely-paced path.
-# Both knobs are env-tunable to a proxy plan's concurrent-connection limit.
-FETCH_WORKERS = max(1, int(os.environ.get("WATCHER_FETCH_WORKERS") or "8"))
-FETCH_BATCH = max(1, int(os.environ.get("WATCHER_FETCH_BATCH") or "40"))
+# Both knobs are env-tunable to a proxy plan's concurrent-connection limit -- raise WATCHER_FETCH_WORKERS
+# if the plan allows more threads (throughput scales ~linearly with it), lower it if the proxy caps
+# concurrent connections. The default (16) suits a typical Webshare rotating-residential plan.
+FETCH_WORKERS = max(1, int(os.environ.get("WATCHER_FETCH_WORKERS") or "16"))
+FETCH_BATCH = max(1, int(os.environ.get("WATCHER_FETCH_BATCH") or "64"))
 
 
 def proxied():

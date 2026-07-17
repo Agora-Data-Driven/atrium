@@ -4168,49 +4168,87 @@
 
     // Fetch MISSING transcripts: loop batches until nothing is pending. retry=1 on the first call
     // clears non-permanent errors, so "missing" = everything except stored transcripts and videos
-    // permanently without one. A blocked response stops politely; progress is already saved.
+    // permanently without one. The loop is SELF-HEALING: a rate-limit (`blocked`) or a network
+    // hiccup no longer stops it -- it backs off (grows to ~2 min, resets on progress) and keeps
+    // going on its own, so the archive fills up without any re-clicking. The button toggles to
+    // "Stop" while running so the operator can cancel; progress is saved server-side every batch.
     qsa("[data-wtfetch]").forEach(function (btn) {
+      var chan = btn.getAttribute("data-wtfetch");
+      var wrap = document.querySelector('[data-wtprogress="' + aq(chan) + '"]');
+      var bar = wrap ? wrap.querySelector(".ax-wt-bar span") : null;
+      var ptext = wrap ? wrap.querySelector(".ax-wt-ptext") : null;
+      var label = btn.textContent;   // "Fetch missing"
+      var running = false, timer = null, backoff = 0;
+
+      function say(msg) { if (ptext) { ptext.textContent = msg; } }
+      function setBar(done, total) {
+        if (bar && total > 0) { bar.style.width = Math.round((done / total) * 100) + "%"; }
+      }
+      function stopLoop(msg) {
+        running = false;
+        if (timer) { clearInterval(timer); timer = null; }
+        btn.textContent = label;
+        say(msg);
+      }
+      // Wait `secs` (live countdown) then auto-run the next batch; cancellable via Stop.
+      function waitThen(secs, prefix) {
+        if (timer) { clearInterval(timer); }
+        var left = secs;
+        function tick() {
+          if (!running) { return; }
+          if (left <= 0) { clearInterval(timer); timer = null; step(false); return; }
+          say(prefix + " — auto-retrying in " + left + "s (click Stop to cancel)…");
+          left -= 1;
+        }
+        tick();
+        timer = setInterval(tick, 1000);
+      }
+      function step(first) {
+        if (!running) { return; }
+        post("/admin/watcher", { op: "fetch", channel_id: chan, retry: first ? "1" : "0" })
+          .then(function (data) {
+            if (!running) { return; }
+            if (!data || data.ok === false) {   // hard server error (bad channel etc.) -- stop
+              stopLoop((data && data.message) || "Could not fetch transcripts.");
+              return;
+            }
+            setBar(data.done, data.total);
+            if (data.remaining <= 0) { window.location.reload(); return; }
+            if (data.blocked) {   // whole batch rate-limited: back off, keep going automatically
+              backoff = Math.min(backoff ? backoff * 2 : 20, 120);
+              waitThen(backoff, "Rate-limited at " + data.done + " of " + data.total);
+              return;
+            }
+            if (data.fetched > 0) {   // progress made -- reset backoff and press straight on
+              backoff = 0;
+              say("Fetched " + data.done + " of " + data.total + " transcripts…");
+              step(false);
+              return;
+            }
+            // No progress, not rate-limited (stray thread errors): short back off, keep trying.
+            backoff = Math.min(backoff ? backoff * 2 : 10, 60);
+            waitThen(backoff, "Stalled at " + data.done + " of " + data.total);
+          })
+          .catch(function () {
+            if (!running) { return; }
+            backoff = Math.min(backoff ? backoff * 2 : 10, 60);
+            waitThen(backoff, "Network hiccup");
+          });
+      }
       btn.addEventListener("click", function () {
-        var chan = btn.getAttribute("data-wtfetch");
-        var wrap = document.querySelector('[data-wtprogress="' + aq(chan) + '"]');
-        var bar = wrap ? wrap.querySelector(".ax-wt-bar span") : null;
-        var ptext = wrap ? wrap.querySelector(".ax-wt-ptext") : null;
-        btn.setAttribute("disabled", "disabled");
+        if (running) {   // acting as a Stop button
+          stopLoop("Stopped — progress saved. Click Fetch missing to resume.");
+          return;
+        }
+        running = true;
+        backoff = 0;
+        btn.textContent = "Stop";
         if (wrap) {
           wrap.hidden = false;
           var barbox = wrap.querySelector(".ax-wt-bar");
           if (barbox) { barbox.hidden = false; }
         }
-        if (ptext) { ptext.textContent = "Fetching missing transcripts…"; }
-        function step(first) {
-          post("/admin/watcher", { op: "fetch", channel_id: chan, retry: first ? "1" : "0" })
-            .then(function (data) {
-              if (!data || data.ok === false) {
-                btn.removeAttribute("disabled");
-                if (ptext) { ptext.textContent = (data && data.message) || "Could not fetch transcripts."; }
-                return;
-              }
-              if (bar && data.total > 0) { bar.style.width = Math.round((data.done / data.total) * 100) + "%"; }
-              if (data.blocked) {
-                if (ptext) {
-                  ptext.textContent = "YouTube is rate-limiting right now — progress saved at " + data.done +
-                    " of " + data.total + ". Click Fetch missing again later; it resumes right here.";
-                }
-                btn.removeAttribute("disabled");
-                return;
-              }
-              if (ptext) { ptext.textContent = "Fetched " + data.done + " of " + data.total + " transcripts…"; }
-              if (data.remaining > 0 && data.fetched > 0) {
-                step(false);
-              } else {
-                window.location.reload();
-              }
-            })
-            .catch(function () {
-              btn.removeAttribute("disabled");
-              if (ptext) { ptext.textContent = "Fetching stopped (network error) — click Fetch missing to resume."; }
-            });
-        }
+        say("Fetching missing transcripts…");
         step(true);
       });
     });
