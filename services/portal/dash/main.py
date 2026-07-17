@@ -2763,7 +2763,8 @@ def _assistant_index(ws, client, force=False):
     fp = assistant_ai.fingerprint(ws, archives)
     want_emb = intel_ai.embeddings_configured()
     index = None if force else workspace.read_assistant_index(client)
-    if index is not None and index.get("fingerprint") == fp:
+    if index is not None and index.get("fingerprint") == fp \
+            and index.get("v") == assistant_ai.INDEX_VERSION:
         if not want_emb or assistant_ai.has_embeddings(index):
             return index
         # Data unchanged, embeddings newly enabled: add the semantic leg without rebuilding chunks.

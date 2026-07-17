@@ -108,13 +108,20 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
 - **`assistant_ai.py`** — the team-only Assistant tab: RAG chat over EVERY workspace source
   (watcher transcripts, intel, campaigns/content, metrics, calendar, conversations, health, plus
   the opt-in client dashboard export — grant via `enable_assistant_dash_data.ps1`). Index stored as
-  `workspace/assistant/<c>/index.json` (lazy rebuild on `fingerprint` change). **HYBRID retrieval:**
+  `workspace/assistant/<c>/index.json` (lazy rebuild on `fingerprint` change OR an `INDEX_VERSION`
+  bump — the index shape is versioned so a chunking/indexing change forces a one-time rebuild).
+  **Each chunk is indexed + embedded by its TITLE + body** (`_searchable`), so the ENTITY NAME a
+  user searches by — the creator/channel name, campaign name, email subject — is retrievable even
+  though it never appears in the body (a transcript never says its own channel name; that was the
+  2026-07 "no Fuel Your Wander content" miss). **HYBRID retrieval:**
   BM25 (pure-Python, precomputed once per ask — the old per-query re-tokenisation is gone) + a
   SEMANTIC leg (`embed_index` → Vertex `text-embedding-005`, unit vectors packed as base64 float16
   into the same object; same SA auth as the Gemini brain, NO new API/IAM) are fused with **RRF**
   (`_rrf`, rank-only), the pool optionally **reranked** by a cross-encoder (Vertex Ranking API,
   `intel_ai.rerank` → `semantic-ranker-fast-004`), and a **metadata pre-filter** (`_infer_kinds`,
-  single-source questions only) + date range narrow first. Transport lives in `intel_ai`
+  single-source questions only — but a question that NAMES a watched creator, `_question_names_creator`,
+  keeps `video` in scope so "what would <creator> say about <campaign>" stays cross-source instead of
+  being scoped campaign-only) + date range narrow first. Transport lives in `intel_ai`
   (`embed_texts`/`embed_query`/`rerank`, gated by `embeddings_configured()`/`reranking_configured()`)
   and is INJECTED into `ask` as `query_embedder`/`reranker` — omit them (default deploy / tests) and
   it is exactly the old BM25 path. Gates: `ASSISTANT_EMBED_ENABLED=1` + `VERTEX_EMBED_LOCATION`
