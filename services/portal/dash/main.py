@@ -3775,7 +3775,10 @@ def atrium_admin_task_delete(client):
 
 @app.route("/w/<client>/admin/task/subtask", methods=["POST"])
 def atrium_admin_task_subtask(client):
-    """Sub-task ops on a task (op=add|toggle|assign|delete; TEAM only)."""
+    """Sub-task ops on a task (op=add|toggle|edit|assign|delete; TEAM only).
+
+    op=edit inline-renames the sub-task and/or edits its INTERNAL "done when" (dod) -- each patched
+    only when the form carried it, so a partial autosubmit never wipes the other field."""
     gate = _atrium_admin_json_gate(client)
     if gate:
         return gate
@@ -3794,6 +3797,12 @@ def atrium_admin_task_subtask(client):
             msg = "Sub-task added."
         elif op == "toggle":
             workspace.set_subtask_done(client, task_id, subtask_id, _bool_field("done"))
+            msg = "Sub-task updated."
+        elif op == "edit":
+            # Inline rename + edit the internal "done when" (only the fields the form carried).
+            text = request.form.get("text") if "text" in request.form else None
+            dod = request.form.get("dod") if "dod" in request.form else None
+            workspace.edit_subtask(client, task_id, subtask_id, text=text, dod=dod)
             msg = "Sub-task updated."
         elif op == "assign":
             workspace.set_subtask_owner(client, task_id, subtask_id,
