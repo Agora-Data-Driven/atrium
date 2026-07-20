@@ -297,8 +297,16 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   collapsible `<details class="tk-extra">`. Team routes
   `POST /w/<c>/admin/task{,/move,/delete,/maintask,/subtask,/comment}` (`is_superadmin()`;
   `/maintask` op=add|assign|rename|delete — rename = the overlay's edit-in-place title input
-  (`.tk-main-rename`); `/subtask` op=add takes `maintask_id`; delete →
-  Bin `kind:"task"` → `workspace.insert_task` on restore). Overlay forms carry
+  (`.tk-main-rename`); `/subtask` op=add|toggle|edit|assign|delete — **op=edit inline-renames a
+  sub-task + edits its INTERNAL `dod` "done when"** (`workspace.edit_subtask`, each field patched
+  only when the form carried it; the `.tk-sub-name`/`.tk-sub-dod` inputs autosubmit on blur like the
+  main-task rename), op=add takes `maintask_id`; delete →
+  Bin `kind:"task"` → `workspace.insert_task` on restore). **Detail-overlay chrome is now sticky**
+  (2026-07-20): `.tkd` is a capped flex column (`max-height: calc(100vh - 72px)`) with only
+  `.tkd-body` scrolling, so `.tkd-head`, the `.tkd-tabs` bar (sticky, full-bleed), and the `.tkd-foot`
+  (Archive / Edit / advance-stage) stay visible on a long task; **Edit is ALSO in the header**
+  (`.tkd-headedit`, same `data-tkedit-open`) so it's reachable without scrolling to the footer.
+  Overlay forms carry
   `back_task`/`back_tab` and `_task_reply` forwards them as `?task=<c>:<id>&tab=` so the console
   script REOPENS the same detail overlay on the same tab after the redirect (params scrubbed via
   replaceState; the Delete form deliberately carries none). The filter bar has a client-side

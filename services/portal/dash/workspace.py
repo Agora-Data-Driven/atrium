@@ -1722,8 +1722,9 @@ def update_task(client, task_id, fields, actor=""):
 
 def move_task_stage(client, task_id, stage, actor=""):
     """Move a task to `stage`, guarded: a move to `closed` is BLOCKED while any sub-task is still
-    open or any client change request is unresolved (raises ValueError listing what to resolve).
-    Records the move in the task's history. Returns the task; no-op if already there."""
+    open, any client change request is unresolved, OR the service has no sub-tasks at all (nothing
+    was tracked as done). Raises ValueError listing what to resolve. Records the move in the task's
+    history. Returns the task; no-op if already there."""
     if stage not in TASK_STAGES:
         raise KeyError("no task stage '%s'" % stage)
 
@@ -1734,6 +1735,10 @@ def move_task_stage(client, task_id, stage, actor=""):
         if task.get("stage") == stage:
             return task
         if stage == "closed":
+            # A service with no steps at all can't be "complete" -- nothing was tracked as done.
+            if not task_subtasks(task):
+                raise ValueError("Can't complete a service with no sub-tasks yet -- "
+                                 "add at least one step (or a template) first.")
             blockers = ["sub-task: %s" % s.get("text", "")
                         for s in task_subtasks(task) if not s.get("done")]
             blockers += ["open change request: %s" % (c.get("body", "")[:60])
@@ -1951,6 +1956,25 @@ def set_subtask_done(client, task_id, subtask_id, done):
         if sub is None:
             raise KeyError("no subtask '%s'" % subtask_id)
         sub["done"] = bool(done)
+        return task, sub
+    return _mutate(client, fn)
+
+
+def edit_subtask(client, task_id, subtask_id, text=None, dod=None):
+    """Edit a sub-task's text and/or its INTERNAL "done when" (dod). Each field is patched only when
+    passed (None = leave unchanged); an empty string clears the dod. `text` is never blanked -- a
+    blank rename keeps the existing text (mirrors rename_maintask). Returns (task, subtask)."""
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        sub = _find_subtask(task, subtask_id)
+        if sub is None:
+            raise KeyError("no subtask '%s'" % subtask_id)
+        if text is not None and text.strip():
+            sub["text"] = text.strip()
+        if dod is not None:
+            sub["dod"] = dod.strip()
         return task, sub
     return _mutate(client, fn)
 

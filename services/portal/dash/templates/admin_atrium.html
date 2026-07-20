@@ -473,15 +473,19 @@
       display: flex; align-items: flex-start; justify-content: center; }
     .tk-veil[hidden] { display: none; }
     .tkd { width: 100%; max-width: 920px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
-      box-shadow: var(--shadow-pop); animation: rise .25s cubic-bezier(.22,1,.36,1); }
+      box-shadow: var(--shadow-pop); animation: rise .25s cubic-bezier(.22,1,.36,1);
+      /* Cap to the viewport so the head + footer stay put and only the BODY scrolls -- Edit/Move and
+         the tab bar are always reachable even on a long task (was: whole modal grew, buttons off-screen). */
+      display: flex; flex-direction: column; max-height: calc(100vh - 72px); }
     .tkd.narrow { max-width: 720px; }   /* the tabbed detail view (sandbox design); forms stay wide */
-    .tkd-head { display: flex; align-items: flex-start; gap: 12px; padding: 18px 22px 14px; border-bottom: 1px solid var(--line); }
+    .tkd-head { display: flex; align-items: flex-start; gap: 12px; padding: 18px 22px 14px; border-bottom: 1px solid var(--line); flex: none; }
     .tkd-eyebrow { font-family: var(--font-display); font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
       color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .tkd-title { font-size: 19px; font-weight: 700; color: var(--ink); margin-top: 5px; line-height: 1.3; letter-spacing: -.01em; }
-    .tkd-x { margin-left: auto; border: 0; background: transparent; color: var(--muted); font-size: 22px; line-height: 1; padding: 2px 8px; border-radius: 8px; cursor: pointer; }
+    .tkd-headedit { margin-left: auto; flex: none; align-self: center; }
+    .tkd-x { border: 0; background: transparent; color: var(--muted); font-size: 22px; line-height: 1; padding: 2px 8px; border-radius: 8px; cursor: pointer; flex: none; align-self: center; }
     .tkd-x:hover { color: var(--danger); background: var(--danger-bg); }
-    .tkd-body { padding: 18px 22px 22px; }
+    .tkd-body { padding: 18px 22px 22px; flex: 1 1 auto; overflow-y: auto; }
     .tkd-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 22px; }
     .tk-stagepill { font-size: 10px; font-weight: 800; border-radius: 999px; padding: 2px 9px; letter-spacing: .03em; text-transform: uppercase; }
     .tk-stagepill.in_process { background: #eaf1fb; color: #1c4f9c; } .tk-stagepill.for_launch { background: #fdf3e3; color: #8a6003; }
@@ -502,15 +506,32 @@
     .tk-nudge { display: flex; align-items: center; gap: 8px; background: var(--tint); border: 1px solid var(--brand-200); color: var(--brand-700);
       border-radius: var(--r-md); padding: 8px 11px; font-size: 12px; font-weight: 700; margin-top: 10px; }
     .tk-nudge form { margin: 0; }
-    .tk-subrow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 5px 2px; font-size: 13px; }
+    /* align-items:flex-start so the checkbox sits beside the sub-task's NAME line (the row can be two
+       lines tall once the "done when" caption shows) — it no longer floats between text + caption. */
+    .tk-subrow { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; padding: 7px 2px; font-size: 13px; }
     .tk-subrow form { margin: 0; display: flex; align-items: center; gap: 6px; }
-    .tk-subrow input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--brand-600); cursor: pointer; }
+    .tk-subrow input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--brand-600); cursor: pointer; margin-top: 3px; }
     .tk-subrow .txt { flex: 1 1 auto; min-width: 0; color: var(--body); }
     .tk-subrow.done .txt { color: var(--muted); text-decoration: line-through; }
     /* "Done when" -- internal definition of done; wraps to its own line under the step text. */
     .tk-dod { display: block; flex-basis: 100%; font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 2px; line-height: 1.4; }
     .tk-subrow.done .tk-dod { text-decoration: none; }
     .tk-dod-in { max-width: 190px; }
+    /* Inline sub-task editing: the step text + its "done when" read as ONE stacked unit (a name line
+       + a smaller muted caption), NOT two boxes -- so the single checkbox clearly belongs to the one
+       sub-task. Borderless text with a faint dashed underline (only on hover/focus) signals editable,
+       matching the main-task rename. The element+attribute selectors beat the global input rule. */
+    .tk-sub-edit { flex: 1 1 auto; min-width: 120px; flex-direction: column; gap: 0; align-items: stretch !important; }
+    .tk-sub-edit input.tk-sub-name, .tk-sub-edit input.tk-sub-dod {
+      width: 100%; border: 1px solid transparent; background: transparent; font: inherit;
+      padding: 2px 6px; border-radius: 6px; cursor: text; }
+    .tk-sub-edit input.tk-sub-name { font-size: 13px; color: var(--body); }
+    .tk-sub-edit input.tk-sub-dod { font-size: 11px; font-weight: 600; color: var(--muted); }
+    .tk-sub-edit input.tk-sub-dod::placeholder { color: var(--line); font-weight: 600; }
+    .tk-sub-edit input.tk-sub-name:hover, .tk-sub-edit input.tk-sub-dod:hover { border-bottom: 1px dashed var(--brand-300); }
+    .tk-sub-edit input.tk-sub-name:focus, .tk-sub-edit input.tk-sub-dod:focus {
+      border: 1px solid var(--brand-500); background: var(--surface); outline: none; box-shadow: 0 0 0 3px rgba(79,168,74,.14); }
+    .tk-subrow.done .tk-sub-edit input.tk-sub-name { color: var(--muted); text-decoration: line-through; }
     .tk-subrow select { max-width: 118px; padding: 3px 5px; border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 11px; background: var(--surface); color: var(--body); }
     .tk-subrow .rm { border: 0; background: transparent; color: #c2c7c2; font-size: 15px; cursor: pointer; padding: 1px 6px; border-radius: 6px; }
     .tk-subrow .rm:hover { color: var(--danger); background: var(--danger-bg); }
@@ -556,7 +577,7 @@
       transform: rotate(-45deg); transition: transform .15s; margin-left: 2px; opacity: .7; }
     details.tk-disc[open] > summary::after { transform: rotate(45deg); }
     details.tk-disc > summary:hover { color: var(--brand-700); }
-    .tkd-foot { display: flex; align-items: center; gap: 9px; padding: 13px 22px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+    .tkd-foot { display: flex; align-items: center; gap: 9px; padding: 13px 22px; border-top: 1px solid var(--line); flex-wrap: wrap; flex: none; }
     .tkd-foot form { margin: 0; }
     .tkd-foot .spacer { margin-left: auto; }
     /* New / edit forms */
@@ -619,7 +640,10 @@
     .tk-holdform input[type=text] { flex: 1; min-width: 140px; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 12.5px; }
     .tk-holdform .btn, .tk-holdform .btn-ghost { margin: 0; }
     /* Detail overlay: Details / Tasks / Comments tabs (summary above stays persistent) */
-    .tkd-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 2px 0 0; }
+    /* The tab bar sticks to the top of the scrolling body (full-bleed so scrolled content never
+       peeks beside it), so you can switch Details / Tasks / Comments at any scroll depth. */
+    .tkd-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line);
+      position: sticky; top: 0; z-index: 3; background: var(--surface); margin: 0 -22px; padding: 6px 22px 0; }
     .tkd-tab { appearance: none; border: 0; background: transparent; font: inherit; font-weight: 700; font-size: 12.5px; color: var(--muted);
       padding: 9px 13px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 6px; }
     .tkd-tab:hover { color: var(--ink); }
@@ -1481,6 +1505,9 @@
                   <span class="tkd-status"><span class="pdot" style="background: {{ {'in_process':'#2f6ecc','for_launch':'#c77d16','launched':'#4fa84a','closed':'#8b8f8c'}[t.stage] }}"></span>{{ col.name }}</span>
                   <span class="tkd-eyebrow">Service &middot; {{ t.client_name }}</span>
                 </div>
+                {#- Edit + Close live in the always-visible header (the footer Edit can scroll off on a
+                    long Tasks list). Edit opens the same edit overlay as the footer button. -#}
+                <button type="button" class="btn-ghost small tkd-headedit" data-tkedit-open="{{ t.client_key }}:{{ t.id }}">Edit</button>
                 <button type="button" class="tkd-x" data-tkclose aria-label="Close">&times;</button>
               </div>
               <div class="tkd-body">
@@ -1592,7 +1619,15 @@
                         {{ tk_back(t, 'tasks') }}
                         <input type="checkbox" name="done" value="1" {{ 'checked' if s.done else '' }} aria-label="Done">
                       </form>
-                      <span class="txt">{{ s.text }}{% if s.dod %}<span class="tk-dod" title="Definition of done — internal, never shown to the client">Done when: {{ s.dod }}</span>{% endif %}</span>
+                      {#- Text + "done when" are inline-editable: edit and blur to save (like the
+                          main-task rename). The dod is INTERNAL — never rendered on the client Progress. -#}
+                      <form method="post" action="/w/{{ t.client_key }}/admin/task/subtask" data-autosubmit class="tk-sub-edit">
+                        <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="edit">
+                        <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="subtask_id" value="{{ s.id }}">
+                        {{ tk_back(t, 'tasks') }}
+                        <input type="text" name="text" value="{{ s.text }}" class="tk-sub-name" aria-label="Sub-task (edit to rename)" title="Click to edit">
+                        <input type="text" name="dod" value="{{ s.dod|default('', true) }}" class="tk-sub-dod" placeholder="Done when… (internal)" aria-label="Done when (internal)" title="Definition of done — internal, never shown to the client">
+                      </form>
                       <form method="post" action="/w/{{ t.client_key }}/admin/task/subtask" data-autosubmit>
                         <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="assign">
                         <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="subtask_id" value="{{ s.id }}">
@@ -2527,6 +2562,17 @@
         deptSel.addEventListener("change", fillTypes);
         typeSel.addEventListener("change", renderService);
         if (adAdd) { adAdd.addEventListener("click", function () { addAdRow(adPick.value); }); }
+        // Fresh form on every open: form.reset() clears the campaign name / dates / client, then
+        // fillTypes() rebuilds the service picker + wipes any params / ad-production rows left over
+        // from a previous (possibly cancelled) New Service -- so you never create a service carrying
+        // a stale breakdown. Runs alongside the tk-new-btn -> tkOpen handler.
+        var newBtnEl = document.getElementById("tk-new-btn");
+        if (newBtnEl) {
+          newBtnEl.addEventListener("click", function () {
+            try { form.reset(); } catch (e) { /* reset is best-effort */ }
+            fillTypes();
+          });
+        }
         fillTypes();
       })();
 
@@ -2630,6 +2676,41 @@
         var chip = document.querySelector('[data-subs="' + key + '"]');
         if (chip) { chip.textContent = done + "/" + boxes.length; }
       }
+      // A ticked sub-task must restyle the whole overlay live (strike-through, per-phase count +
+      // ✓, the progress bar, the Tasks-tab badge, the "x/y sub-tasks" header) -- otherwise the UI
+      // lies until a reload. Recomputed from the DOM so it always matches what's actually checked.
+      var TK_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+      function tkCountDone(rows) {
+        var d = 0;
+        rows.forEach(function (r) { var b = r.querySelector('input[name="done"]'); if (b && b.checked) { d += 1; } });
+        return d;
+      }
+      function tkAfterToggle(f) {
+        var store = f.closest ? f.closest("[data-tkd]") : null;
+        if (!store) { return; }
+        var row = f.closest(".tk-subrow");
+        var box = f.querySelector('input[name="done"]');
+        if (row && box) { row.classList.toggle("done", box.checked); }
+        qsa(".tk-main", store).forEach(function (m) {
+          var rows = qsa(".tk-subrow", m);
+          var done = tkCountDone(rows);
+          var allDone = rows.length > 0 && done === rows.length;
+          var cnt = m.querySelector(".tk-main-count");
+          if (cnt) { cnt.textContent = done + "/" + rows.length; }
+          m.classList.toggle("done", allDone);
+          var chk = m.querySelector(".tk-main-check");
+          if (chk) { chk.innerHTML = allDone ? TK_CHECK : ""; }
+        });
+        var all = qsa(".tk-subrow", store);
+        var tdone = tkCountDone(all), ttot = all.length;
+        var pct = ttot ? Math.round(100 * tdone / ttot) : 0;
+        var bar = store.querySelector(".tk-progress i");
+        if (bar) { bar.style.width = pct + "%"; }
+        var badge = store.querySelector('.tkd-tab[data-tktab="tasks"] .tcount');
+        if (badge) { badge.textContent = tdone + "/" + ttot; }
+        var sl = store.querySelector('[data-tkpanel="tasks"] .tkd-sl');
+        if (sl && ttot) { sl.textContent = "Main tasks · " + tdone + "/" + ttot + " sub-tasks"; }
+      }
       function tkAjaxSubmit(f) {
         var fd = new FormData(f);
         fd.delete("redirect");                    // no redirect -> route returns JSON, page stays put
@@ -2639,6 +2720,7 @@
           .then(function (j) {
             if (!j || !j.ok) { throw new Error((j && j.error) || "Save failed"); }
             tkRefreshCounts(f);
+            if (f.querySelector('input[name="done"]')) { tkAfterToggle(f); }  // a sub-task toggle
             tkToast("Saved");
           })
           .catch(function () {

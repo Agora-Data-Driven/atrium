@@ -378,6 +378,26 @@ def run():
            [s for m in mts for s in m["subs"]]))
     _t, sub = workspace.add_subtask(CLIENT, seeded["id"], "Extra QA pass", dod="Signed off by the lead")
     _check("add_subtask persists a dod", sub.get("dod") == "Signed off by the lead")
+    _t, edited = workspace.edit_subtask(CLIENT, seeded["id"], sub["id"], text="Final QA pass", dod="Lead + client sign-off")
+    _check("edit_subtask renames the step", edited["text"] == "Final QA pass")
+    _check("edit_subtask edits the done-when", edited["dod"] == "Lead + client sign-off")
+    _t, edited = workspace.edit_subtask(CLIENT, seeded["id"], sub["id"], text="   ")
+    _check("edit_subtask keeps text on a blank rename", edited["text"] == "Final QA pass")
+    _t, edited = workspace.edit_subtask(CLIENT, seeded["id"], sub["id"], dod="")
+    _check("edit_subtask can clear the done-when", edited["dod"] == "" and edited["text"] == "Final QA pass")
+
+    # 11. A service with NO sub-tasks can't be completed (nothing was tracked as done).
+    empty = workspace.add_task(CLIENT, {"title": "Empty custom service", "department": "development"})
+    _blocked = False
+    try:
+        workspace.move_task_stage(CLIENT, empty["id"], "closed")
+    except ValueError as exc:
+        _blocked = "no sub-tasks" in str(exc)
+    _check("closing an empty (no sub-task) service is blocked", _blocked)
+    # It can still move forward through the earlier stages (only 'closed' is guarded).
+    workspace.move_task_stage(CLIENT, empty["id"], "for_launch")
+    _check("an empty service can still advance to for_launch",
+           workspace._find_task(workspace.load_workspace(CLIENT), empty["id"])["stage"] == "for_launch")
 
     print("[localtest] PASS")
     return 0

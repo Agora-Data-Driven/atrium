@@ -757,6 +757,14 @@ def run():
            c.post("/w/%s/admin/task/subtask" % CLIENT,
                   data={"op": "toggle", "task_id": task_id, "subtask_id": sub_id,
                         "done": "1"}).get_json().get("ok") is True)
+    _check("sub-task inline edit renames + sets a done-when via the route",
+           c.post("/w/%s/admin/task/subtask" % CLIENT,
+                  data={"op": "edit", "task_id": task_id, "subtask_id": sub_id,
+                        "text": "Create the info pack", "dod": "PDF filed on the card"}).get_json().get("ok") is True)
+    _edited = workspace._find_subtask(
+        workspace._find_task(workspace.load_workspace(CLIENT), task_id), sub_id)
+    _check("sub-task edit persisted text + dod",
+           _edited["text"] == "Create the info pack" and _edited["dod"] == "PDF filed on the card")
     _check("main-task owner reassigned via the route",
            c.post("/w/%s/admin/task/maintask" % CLIENT,
                   data={"op": "assign", "task_id": task_id, "maintask_id": main_id,
