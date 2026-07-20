@@ -247,6 +247,20 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   are open). Work is TWO-LEVEL: `maintasks[]` (named groups, each with an `assignee_id` + its own
   `subs[]` of owner-carrying sub-tasks); legacy flat `subtasks[]` migrates in place via
   `normalize_task` (called by `_find_task`) and `task_subtasks()` flattens for counts/guards.
+  **Service templates auto-build the breakdown (`service_templates.py`):** the New-Service form's
+  **Service type** picker (a department filter — **Acquisition = ONE type, "Google / Meta
+  Campaign"**, whose creative work is chosen from the Video/Static/Carousel **ad-production picker**;
+  Lifecycle/Data/Dev are fixed recipes, some with qty/platform/tool params) drives
+  `build_maintasks(key, params, added, id_factory=workspace._new_id)`, which seeds the whole
+  `maintasks[]` (per-unit `{n}` steps multiplied by their qty) + sets `content_type` +
+  auto-derives the department/label. `_task_template_seed()` in `main.py` reads `service_key` /
+  `p_<param>` / `ad_type`+`ad_qty` and injects it — **ONLY on op=add** (edits never regenerate).
+  "Custom (blank)" = the old empty-card path. The catalog reaches the page as hidden DOM
+  (`#svc-catalog`/`#adprod-catalog`, no Jinja in `<script>`); passed via `task_services` /
+  `task_adprod`. Templates are a SEED, not a lock — the maintasks are ordinary data afterwards.
+  Each sub-task carries an optional **`dod`** ("done when") — an INTERNAL definition of done shown
+  in the team subrow only; `_progress_tasks` strips steps to text+done so it NEVER reaches the
+  client. `add_subtask(..., dod=)` + the manual add-sub form's "Done when…" input persist it.
   Tasks also carry `start_date` + `due_date` (LAUNCH date — UI says "Launch date"), an
   internal-only `service_charge`, a boolean **`on_hold`** + internal `hold_reason`
   (`workspace.set_task_hold`, ongoing = not held; `POST /w/<c>/admin/task/hold`; a held
@@ -256,7 +270,27 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   so op=add never clears). Team board = the console's Delivery → Task Board pane in
   `admin_atrium.html` (tasks collected in `admin_atrium()` from the workspaces it already loads;
   columns sort Urgent-first, active-before-held, then launch date; filter+sort persist in
-  localStorage `agora.tkprefs`; overlays server-rendered into `#tk-store`, forms post
+  localStorage `agora.tkprefs`. **Board-scaling controls (all client-side, in `agora.tkprefs`):** a
+  **text search** (`#tk-f-search`, matches title/client/lead — folded into `applyFilters`); a
+  **density toggle** (DENSITY segment Comfortable/Compact → `.tk-board.tk-compact`, trims padding/type
+  + hides the card foot for ~2× density); and **Cap columns** (`#tk-f-cap`, ON by default →
+  `applyCap`: shows the first `TK_CAP`=8 MATCHING cards/column + a "Show all N" button, Closed caps
+  harder at `TK_CAP_CLOSED`=3; overflow hidden via `.tk-card.tk-capped`, "Show all" per-column +
+  session-only so a reload re-caps). `applyCap` runs after filter/sort (order-dependent). **Two-row
+  control area (2026-07-20):** a **filter row** (`.tk-filters`: Search + Client/Department/Person +
+  Clear) and a separate **display row** (`.tk-display`) with labelled **segmented toggles** — **VIEW**
+  (`#tk-view-seg` Flat board / Swimlanes) + **DENSITY** (`#tk-dens-seg` Comfortable / Compact) — plus
+  the **Sort** select, the **Cap** checkbox, and an **"N shown"** count (`#tk-shown-n`). The **Priority
+  filter was removed** (Urgent auto-floats + Sort-by-priority covers it). Everything runs through ONE
+  `refresh()` (filter → then flat-board sort+caps OR swimlanes); prefs (`view`/`dens`/`sort`/`cap` +
+  filters) persist in `agora.tkprefs` (search text excluded); `segGet`/`segSet`/`segWire` drive the
+  segmented controls. **Swimlanes (`#tk-swim`, VIEW=Swimlanes)** is built CLIENT-SIDE from the same
+  `.tk-card` nodes' `data-*` (grouped per client → the 4 stage columns as chips); it respects the
+  active filters/search (skips hidden cards) and chips reuse the board's detail overlay via
+  `data-open`+`tkOpen` — no server render. `[data-flatonly]` controls (Density/Cap) hide in Swimlanes.
+  The main-task rename input (`.tk-main-rename`) carries a faint dashed underline at rest so it reads
+  as editable (was fully transparent → looked like static text).
+  Overlays server-rendered into `#tk-store`, forms post
   `redirect=console` + `back_task`/`back_tab` so the overlay REOPENS on the same tab after the
   reload). The detail overlay is TABBED: persistent glance chips (priority/hold/start/launch/charge/progress) above
   Details | Tasks | Comments panels (`data-tktab`); the New/Edit form's optional fields live in a

@@ -1563,7 +1563,8 @@ def set_calendar_status(client, index, status):
 #   id, title, stage, department, lead_id, support_ids[], priority, labels[], campaign,
 #   content_type, start_date, due_date (the LAUNCH date -- key canonical, label "Launch date"),
 #   service_charge (internal only),
-#   maintasks[] ({id, text, assignee_id, subs[] ({id, text, done, assignee_id})}),
+#   maintasks[] ({id, text, assignee_id, subs[] ({id, text, done, assignee_id, dod})}),
+#     -- dod = optional INTERNAL "done when" (team overlay only; never in the client Progress shape),
 #   comments[] (the content-comment shape incl. kind:"changes" + resolved), history[],
 #   client_facing, client_note, deliverable_url,        <- client-safe
 #   internal_notes, account_manager_id                  <- internal only
@@ -1678,7 +1679,9 @@ def add_task(client, fields, actor=""):
         "service_charge": f.get("service_charge") or "",
         "on_hold": bool(f.get("on_hold")),
         "hold_reason": f.get("hold_reason") or "",
-        "maintasks": [],
+        # A service can be seeded with a pre-built work breakdown (from service_templates.py); it is
+        # ordinary stored data from here on -- rename/add/delete via the normal helpers.
+        "maintasks": f.get("maintasks") if isinstance(f.get("maintasks"), list) else [],
         "comments": [],
         "history": [],
         "client_facing": bool(f.get("client_facing")),
@@ -1904,11 +1907,12 @@ def delete_maintask(client, task_id, maintask_id):
     return _mutate(client, fn)
 
 
-def add_subtask(client, task_id, text, assignee_id=None, maintask_id=""):
-    """Append a sub-task ({id, text, done, assignee_id}) under a main task. Returns (task, subtask).
+def add_subtask(client, task_id, text, assignee_id=None, maintask_id="", dod=""):
+    """Append a sub-task ({id, text, done, assignee_id, dod}) under a main task. Returns (task, sub).
 
     `maintask_id` picks the group; without one the sub-task lands in the LAST main task, and a
-    task with no main tasks yet grows a "Deliverable" group first (so legacy callers still work)."""
+    task with no main tasks yet grows a "Deliverable" group first (so legacy callers still work).
+    `dod` is the optional INTERNAL "done when" definition (never shown to the client)."""
     def fn(ws):
         task = _find_task(ws, task_id)
         if task is None:
@@ -1923,7 +1927,7 @@ def add_subtask(client, task_id, text, assignee_id=None, maintask_id=""):
                               "assignee_id": task.get("lead_id") or "", "subs": []})
             main = mains[-1]
         sub = {"id": _new_id("st"), "text": text or "", "done": False,
-               "assignee_id": assignee_id or ""}
+               "assignee_id": assignee_id or "", "dod": (dod or "").strip()}
         main.setdefault("subs", []).append(sub)
         return task, sub
     return _mutate(client, fn)

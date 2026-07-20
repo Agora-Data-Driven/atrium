@@ -54,6 +54,7 @@ import intel_refresh
 import notify
 import platform_sso
 import sentinel_directory
+import service_templates
 import store
 import sync_dash
 import workspace
@@ -3665,6 +3666,28 @@ def _task_fields_from_form():
     return fields
 
 
+def _task_template_seed():
+    """Read the New-Service form's service-type picker and return the fields a template drives:
+    {maintasks, content_type, department, labels} -- or {} when no template was chosen (a
+    custom/blank service). ONLY the New form posts `service_key`; edits never regenerate the
+    breakdown, so an edited task keeps whatever the team has since changed."""
+    key = request.form.get("service_key", "").strip()
+    tpl = service_templates.get(key)
+    if not tpl:
+        return {}
+    params = {p["k"]: request.form.get("p_" + p["k"], "") for p in tpl.get("params", [])}
+    added = []
+    if tpl.get("ad_production"):
+        types, qtys = request.form.getlist("ad_type"), request.form.getlist("ad_qty")
+        for i, ad_type in enumerate(types):
+            if (ad_type or "").strip():
+                added.append((ad_type.strip(), qtys[i] if i < len(qtys) else ""))
+    maintasks = service_templates.build_maintasks(key, params, added, id_factory=workspace._new_id)
+    lbl = TASK_DEPT_LABEL.get(tpl["dept"])
+    return {"maintasks": maintasks, "content_type": tpl["content_type"],
+            "department": tpl["dept"], "labels": [lbl] if lbl else []}
+
+
 @app.route("/w/<client>/admin/task", methods=["POST"])
 def atrium_admin_task(client):
     """Create or edit a task on a client's board (op=add|edit; TEAM only)."""
@@ -3684,6 +3707,9 @@ def atrium_admin_task(client):
         return _task_reply("Service updated.", task_id=task["id"])
     if not fields["title"]:
         return _task_reply("A service needs a campaign name.", err=True)
+    # A chosen service type seeds the whole work breakdown (main tasks + sub-tasks with "done when"),
+    # the content type, and the department/label -- overriding the posted department so they agree.
+    fields.update(_task_template_seed())
     # New services always start In Process; they're moved along the board from there.
     fields["stage"] = "in_process"
     try:
@@ -3763,7 +3789,8 @@ def atrium_admin_task_subtask(client):
                 return _task_reply("A sub-task needs a description.", err=True)
             workspace.add_subtask(client, task_id, text,
                                   request.form.get("assignee_id", "").strip(),
-                                  maintask_id=request.form.get("maintask_id", "").strip())
+                                  maintask_id=request.form.get("maintask_id", "").strip(),
+                                  dod=request.form.get("dod", "").strip())
             msg = "Sub-task added."
         elif op == "toggle":
             workspace.set_subtask_done(client, task_id, subtask_id, _bool_field("done"))
@@ -4033,6 +4060,8 @@ def admin_atrium():
         # Delivery -> Task Board: stage columns of every client's tasks + the pickers' vocabularies.
         task_cols=task_cols, task_roster=task_roster,
         task_departments=TASK_DEPARTMENTS,
+        # Service-template catalog for the New-Service picker (rendered as hidden DOM the JS reads).
+        task_services=service_templates.catalog(), task_adprod=service_templates.ad_catalog(),
         # Nav badge = every task on the board (matches the prototype's total count).
         task_open_total=sum(len(col["tasks"]) for col in task_cols),
         task_trash_count=len([t for t in trash if t.get("kind") == "task"]),

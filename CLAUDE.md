@@ -433,6 +433,12 @@ auto-refresh (see those bullets below). Product name is one constant:
   admin accounts from `store.py`; the lead is never duplicated into support; support is assigned
   AFTER creation — the picker renders only on the Edit form, guarded by a `has_support` form
   field), **`start_date` + `due_date`** (the LAUNCH date — key canonical, UI label "Launch date"),
+  a **service-template-seeded work breakdown** (`services/portal/dash/service_templates.py`: the
+  New-Service form's **Service type** picker — Acquisition = ONE type "Google / Meta Campaign" with
+  a Video/Static/Carousel **ad-production picker**, everything else a fixed recipe with optional
+  qty/platform params — auto-generates `maintasks[]`+`subs[]`, each sub with an INTERNAL `dod`
+  "done when"; seeded on op=add only, "Custom (blank)" keeps the empty-card path; the client
+  Progress shape strips `dod`),
   an internal-only **`service_charge`**, and a single **label AUTO-derived from the department**
   (`main.TASK_DEPT_LABEL`: Acquisition→Paid Media, Lifecycle→Organic, rest→Website — no manual
   label picker; the form's one name field is LABELED "Campaign" but stores as `title`). A move to
