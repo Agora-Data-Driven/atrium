@@ -1505,8 +1505,8 @@
                   <span class="tkd-status"><span class="pdot" style="background: {{ {'in_process':'#2f6ecc','for_launch':'#c77d16','launched':'#4fa84a','closed':'#8b8f8c'}[t.stage] }}"></span>{{ col.name }}</span>
                   <span class="tkd-eyebrow">Service &middot; {{ t.client_name }}</span>
                 </div>
-                {#- Edit + Close live in the always-visible header (the footer Edit can scroll off on a
-                    long Tasks list). Edit opens the same edit overlay as the footer button. -#}
+                {#- Edit + Close live in the always-visible header — the ONLY Edit affordance
+                    (the footer keeps just Archive + the one primary stage action). -#}
                 <button type="button" class="btn-ghost small tkd-headedit" data-tkedit-open="{{ t.client_key }}:{{ t.id }}">Edit</button>
                 <button type="button" class="tkd-x" data-tkclose aria-label="Close">&times;</button>
               </div>
@@ -1722,7 +1722,8 @@
                   <button type="submit" class="btn-ghost" title="Moves this service to the Bin — restorable for {{ trash_ttl_days }} days">Move to Archive</button>
                 </form>
                 <span class="spacer"></span>
-                <button type="button" class="btn-ghost" data-tkedit-open="{{ t.client_key }}:{{ t.id }}">Edit</button>
+                {#- No Edit here: the sticky header carries it (.tkd-headedit), so a second one is
+                    redundant and crowds the primary action. -#}
                 {#- The one primary action per stage (sandbox design): advance to the next stage.
                     Backward moves stay on the board via drag; the close-guard flash covers blocks. -#}
                 {% if t.next_stage_key %}

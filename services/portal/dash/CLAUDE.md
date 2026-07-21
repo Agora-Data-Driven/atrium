@@ -304,8 +304,9 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   Bin `kind:"task"` → `workspace.insert_task` on restore). **Detail-overlay chrome is now sticky**
   (2026-07-20): `.tkd` is a capped flex column (`max-height: calc(100vh - 72px)`) with only
   `.tkd-body` scrolling, so `.tkd-head`, the `.tkd-tabs` bar (sticky, full-bleed), and the `.tkd-foot`
-  (Archive / Edit / advance-stage) stay visible on a long task; **Edit is ALSO in the header**
-  (`.tkd-headedit`, same `data-tkedit-open`) so it's reachable without scrolling to the footer.
+  (Archive / advance-stage) stay visible on a long task. **Edit lives ONLY in the header**
+  (`.tkd-headedit`, `data-tkedit-open`) — the duplicate footer Edit was removed 2026-07-21 now that
+  the footer never scrolls off, leaving the footer with one primary action per stage.
   Overlay forms carry
   `back_task`/`back_tab` and `_task_reply` forwards them as `?task=<c>:<id>&tab=` so the console
   script REOPENS the same detail overlay on the same tab after the redirect (params scrubbed via
