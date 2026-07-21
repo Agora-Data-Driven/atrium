@@ -542,8 +542,18 @@ auto-refresh (see those bullets below). Product name is one constant:
   Data Green `#4FA84A` + Accent Purple `#6A6AEA` (deep companion `#5A54DD` for white-text fills), on a
   white canvas with bold black type; green = primary action, purple = informational. The whole
   front-door (login, portal, team console) shares it (`dash/brand.py` + `assets/brand.json` are the
-  palette source); the Atrium **client workspace** keeps its original design by decision (2026-07-10),
-  scoping every selector under `.atrium` so it stays self-contained. The logo is `ws.brand.agora_logo`
+  palette source); the Atrium **client workspace** keeps its original design for the PANE BODIES by
+  decision (2026-07-10), scoping every selector under `.atrium` so it stays self-contained — **except
+  the chrome (top bar + sidebar), re-skinned to the admin theme 2026-07-21** at the user's request:
+  admin fonts (Archivo display / Lato sans via `--ax-font-display`/`--ax-font-sans` chrome tokens),
+  Data Green `#4FA84A` active-nav tint + brand-700 text, Accent Purple `#6A6AEA/#5A54DD` counts/avatar,
+  the header underline gradient green→purple (`--ax-grad-chrome`), larger admin radii. The pane bodies
+  still use the original `--ax-violet` blue accent (full body re-skin stays parked). Same round: the
+  **top bar became a title + subtitle header** (`#ax-subtitle` + `tab_subtitles` Jinja map / `subtitles`
+  JS map) and the **duplicate per-pane `<h1>` was removed** where it merely repeated the tab title
+  (dashboard/conversations/intel/progress/settings moved their lede into the subtitle; website-health/
+  watcher/assistant kept their verbose in-pane lede, only the `<h1>` dropped). Overview (greeting) and
+  calendar (project name) keep their distinct `.ax-greet`. The logo is `ws.brand.agora_logo`
   (seeded) in Atrium and `dash/brand.py`
   elsewhere. Inline JS is esprima-4.x-safe and reads state from the DOM (no Jinja in any script block).
 - **Ships via the SAME deploy as the portal:** `services/portal/dash/deploy_dash_platform.ps1` (build

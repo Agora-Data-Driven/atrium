@@ -113,6 +113,10 @@
 {%- for x in _sel %}{%- if x %}<span class="ax-platone">{{ plat_ic(x) }}<span>{{ x }}</span></span>{%- endif %}{%- endfor %}
 {%- endmacro %}
 {% set tab_titles = {'overview':'Overview','dashboard':'Dashboard','leadgen':'Paid Media','organic':'Organic Content','calendar':'Content Calendar','conversations':'Communications','intel':'Market Intelligence','progress':'Progress','settings':'Notification settings','website-health':'Website Health','watcher':'Watcher','assistant':'Assistant'} %}
+{#- Top-bar subtitles: the one-line description shown under the page title in the header. Set ONLY
+   for tabs whose in-pane <h1> merely repeated the title (that duplicate is now removed); tabs with a
+   distinct in-pane heading (overview greeting, calendar, campaigns) keep an empty subtitle. -#}
+{% set tab_subtitles = {'overview':"Everything, visible — what's working, what's live, and what's coming next.",'dashboard':'Your live campaign data, updated automatically.','calendar':'Tracking the work from kickoff to delivered — paid and organic publish dates included.','conversations':'One running record of every conversation so nothing gets lost.','intel':"Your weekly briefing — what's moving in your industry and the platform updates worth acting on.",'progress':"Everything we're building for you and exactly where each piece stands.",'settings':'Choose what AGORA emails you about — everything still appears here in your workspace either way.'} %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -130,7 +134,7 @@
   <!-- End Google tag (gtag.js) -->
   {% if favicon %}<link rel="icon" href="{{ favicon }}">{% endif %}
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Archivo:wght@500;600;700;800&family=Lato:wght@400;700;900&display=swap');
     .atrium {
       --ax-green:#4CAC4C; --ax-green-d:#3E8C3B; --ax-green-bg:#EAF6E9;
       --ax-violet:#2575FC; --ax-violet-d:#1856C9; --ax-violet-bg:#E7F0FE;
@@ -143,6 +147,16 @@
       --ax-grad-violet: linear-gradient(135deg, #2575FC 0%, #1856C9 100%);
       --ax-grad-brand: linear-gradient(120deg, #4CAC4C 0%, #4CAC4C 42%, #2575FC 100%);
       --ax-shadow-lg: 0 2px 6px rgba(16,24,40,.05), 0 18px 42px rgba(16,24,40,.12);
+      /* --- Admin-theme chrome tokens (top bar + sidebar only) ---
+         The super-admin console's website design system: Archivo/Lato fonts, Data Green #4FA84A,
+         Accent Purple #6A6AEA, larger radii. Scoped to the chrome so the pane bodies keep their
+         original design (the full client re-skin stays parked). */
+      --ax-font-display:'Archivo','Archivo Variable',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+      --ax-font-sans:'Lato',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+      --ax-purple:#6A6AEA; --ax-purple-d:#5A54DD; --ax-purple-bg:#ECECFB;
+      --ax-tint:#EEF6ED; --ax-brand-500:#4FA84A; --ax-brand-700:#346F31; --ax-brand-ink:#121212;
+      --ax-r-md:.625rem; --ax-r-lg:1rem;
+      --ax-grad-chrome: linear-gradient(120deg, #4FA84A 0%, #4FA84A 40%, #6A6AEA 100%);
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; }
@@ -163,9 +177,9 @@
     /* App shell */
     .ax-app { display: grid; grid-template-columns: 256px 1fr; min-height: 100vh; transition: grid-template-columns .3s ease; }
     .ax-side {
-      background: linear-gradient(180deg, #FFFFFF 0%, #FCFCFE 100%);
+      background: linear-gradient(180deg, #FFFFFF 0%, #FBFBFC 100%);
       border-right: 1px solid var(--ax-line);
-      display: flex; flex-direction: column; gap: 14px; padding: 22px 16px; position: sticky; top: 0;
+      display: flex; flex-direction: column; gap: 16px; padding: 22px 14px; position: sticky; top: 0;
       height: 100vh;
     }
     .ax-brand { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 4px 6px 18px; position: relative; }
@@ -173,41 +187,44 @@
     .ax-brand .ax-co { display: flex; align-items: center; justify-content: center; gap: 9px; }
     .ax-brand .ax-co a { display: inline-flex; align-items: center; text-decoration: none; }
     .ax-brand .ax-co svg, .ax-brand .ax-co img { display: block; height: 42px; width: auto; max-width: 190px; }
-    /* "AGORA ATRIUM" as gradient TEXT (no pill background) -- keeps the green->blue colour, text only. */
+    /* "AGORA ATRIUM" as gradient TEXT (no pill background) -- admin-theme green->purple, display font. */
     .ax-badge {
-      font-size: 14px; font-weight: 800; letter-spacing: 1.7px; text-transform: uppercase;
-      background: var(--ax-grad-brand); -webkit-background-clip: text; background-clip: text;
+      font-family: var(--ax-font-display);
+      font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+      background: var(--ax-grad-chrome); -webkit-background-clip: text; background-clip: text;
       -webkit-text-fill-color: transparent; color: transparent;
       padding: 0; box-shadow: none;
     }
     /* Featured client logo (sidebar crest): drop the white PNG box into the card via multiply blend. */
     .ax-clientlogo { display: block; }
     .ax-clientlogo svg, .ax-clientlogo img { display: block; width: 100%; height: auto; mix-blend-mode: multiply; }
-    .ax-nav { display: flex; flex-direction: column; gap: 3px; }
+    .ax-nav { display: flex; flex-direction: column; gap: 2px; }
     .ax-nav a {
-      display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 11px;
-      color: var(--ax-sub); font-size: 14px; font-weight: 600; transition: background .12s, color .12s;
+      display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: var(--ax-r-md);
+      color: var(--ax-sub); font-family: var(--ax-font-sans); font-size: 14px; font-weight: 600;
+      letter-spacing: -.01em; transition: background .12s, color .12s;
     }
-    .ax-nav a:hover { background: var(--ax-canvas); color: var(--ax-ink); }
-    /* Active item matches the super-admin console: soft green wash + green text (not a gradient fill). */
-    .ax-nav a.is-active { background: var(--ax-green-bg); color: var(--ax-green-d); box-shadow: none; }
-    .ax-nav a.is-active .ax-ic { color: var(--ax-green-d); }
+    .ax-nav a:hover { background: #F4F5F7; color: var(--ax-brand-ink); }
+    .ax-nav a.is-active:hover { background: var(--ax-tint); }
+    /* Active item matches the super-admin console: soft green tint + brand-700 text. */
+    .ax-nav a.is-active { background: var(--ax-tint); color: var(--ax-brand-700); font-weight: 700; box-shadow: none; }
+    .ax-nav a.is-active .ax-ic { color: var(--ax-brand-700); }
     .ax-nav .ax-count {
       margin-left: auto; font-size: 11px; font-weight: 800; min-width: 20px; text-align: center;
-      background: var(--ax-violet-d); color: #fff; border-radius: var(--ax-pill); padding: 1px 6px;
+      background: var(--ax-purple-d); color: #fff; border-radius: var(--ax-pill); padding: 1px 6px;
     }
-    .ax-nav a.is-active .ax-count { background: var(--ax-violet-d); }
+    .ax-nav a.is-active .ax-count { background: var(--ax-purple-d); }
     /* Nav groups: "Campaigns" and "Insights" are expandable parents with indented sub-tabs.
        The head is a button (expand/collapse only, never navigates); a group opens automatically
        when one of its tabs is active. Collapsed rail + phone layouts flatten the groups away. */
     .ax-nav-group { display: flex; flex-direction: column; gap: 3px; }
     .ax-nav-ghead {
-      display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 11px;
+      display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: var(--ax-r-md);
       border: 0; background: transparent; cursor: pointer; text-align: left; width: 100%;
-      color: var(--ax-sub); font: inherit; font-size: 14px; font-weight: 600;
-      transition: background .12s, color .12s;
+      color: var(--ax-sub); font-family: var(--ax-font-sans); font-size: 14px; font-weight: 600;
+      letter-spacing: -.01em; transition: background .12s, color .12s;
     }
-    .ax-nav-ghead:hover { background: var(--ax-canvas); color: var(--ax-ink); }
+    .ax-nav-ghead:hover { background: #F4F5F7; color: var(--ax-brand-ink); }
     .ax-nav-ghead .ax-count { margin-left: auto; }
     .ax-nav-chev { width: 14px; height: 14px; flex: 0 0 auto; margin-left: auto; transition: transform .15s ease; }
     .ax-nav-ghead .ax-count ~ .ax-nav-chev { margin-left: 0; }
@@ -229,8 +246,8 @@
     .atrium.nav-collapsed #ax-navtoggle { left: 68px; }
     /* Client crest: features the client's own logo, blended onto a soft branded card. */
     .ax-side-card {
-      margin-top: auto; background: linear-gradient(165deg, #FFFFFF 0%, var(--ax-canvas) 100%);
-      border: 1px solid var(--ax-line); border-radius: var(--ax-radius);
+      margin-top: auto; background: linear-gradient(165deg, #FFFFFF 0%, var(--ax-tint) 120%);
+      border: 1px solid var(--ax-line); border-radius: var(--ax-r-md);
       padding: 16px 14px 14px; display: flex; flex-direction: column; align-items: center;
       gap: 11px; text-align: center; box-shadow: var(--ax-shadow);
     }
@@ -247,23 +264,23 @@
     .ax-logo-ovt { font-size: 11px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; color: #fff; padding: 0 8px; text-align: center; }
     .ax-logo-up.busy { pointer-events: none; }
     .ax-side-card .ax-crest-text { display: flex; flex-direction: column; gap: 2px; }
-    .ax-side-card .ax-name { font-size: 13.5px; font-weight: 800; letter-spacing: -.2px; }
+    .ax-side-card .ax-name { font-family: var(--ax-font-display); font-size: 14px; font-weight: 700; letter-spacing: -.02em; color: var(--ax-brand-ink); }
     .ax-side-card .ax-sub {
-      font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--ax-violet-d);
+      font-family: var(--ax-font-display); font-size: 10px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--ax-purple-d);
     }
 
     /* Main column */
     .ax-main { display: flex; flex-direction: column; min-width: 0; }
-    .ax-top {
-      display: flex; align-items: center; justify-content: space-between; gap: 16px;
-      padding: 16px 28px; border-bottom: 1px solid var(--ax-line); background: rgba(255,255,255,.72);
-      position: sticky; top: 0; z-index: 20; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-    }
-    /* Hairline brand gradient under the header for a premium finish. */
-    .ax-top::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--ax-grad-brand); opacity: .85; }
-    .ax-top h1 { font-size: 18px; margin: 0; font-weight: 800; letter-spacing: -.2px; }
-    .ax-top-right { display: flex; align-items: center; gap: 12px; }
-    .ax-clock { font-size: 13px; color: var(--ax-sub); font-variant-numeric: tabular-nums; min-width: 78px; text-align: right; }
+    /* Page header — no top bar; mirrors the super-admin console. It lives INSIDE the content area:
+       green eyebrow + display title + muted lede on the left, contextual actions on the right. */
+    .ax-pagehead { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin: 0 0 24px; }
+    .ax-pagehead-main { min-width: 0; }
+    .ax-pagehead-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+    .ax-top-eyebrow { font-family: var(--ax-font-display); font-size: .72rem; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--ax-green-d); margin: 0 0 8px; line-height: 1.2; }
+    .ax-pagehead h1 { font-family: var(--ax-font-display); font-size: 26px; margin: 0; font-weight: 700; letter-spacing: -.015em; color: var(--ax-brand-ink); line-height: 1.15; }
+    .ax-top-sub { font-family: var(--ax-font-sans); font-size: 13.5px; color: var(--ax-sub); margin: 6px 0 0; line-height: 1.55; max-width: 68ch; }
+    .ax-top-sub[hidden] { display: none; }
+    .ax-clock { display: none; }
     .ax-iconbtn {
       width: 38px; height: 38px; display: grid; place-items: center; border-radius: var(--ax-pill);
       border: 1px solid var(--ax-line); background: var(--ax-white); color: var(--ax-sub); cursor: pointer; position: relative;
@@ -272,7 +289,7 @@
     .ax-iconbtn .ax-bdot { position: absolute; top: 8px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--ax-warn); border: 2px solid var(--ax-white); }
     .ax-avatar {
       width: 38px; height: 38px; border-radius: var(--ax-pill); display: grid; place-items: center;
-      background: var(--ax-violet-d); color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; border: 0; overflow: hidden;
+      background: var(--ax-purple-d); color: #fff; font-family: var(--ax-font-display); font-size: 13px; font-weight: 700; cursor: pointer; border: 0; overflow: hidden;
     }
     .ax-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
     /* Header dropdown menus (notifications + profile). */
@@ -302,11 +319,11 @@
       border: 1px solid var(--ax-line); background: var(--ax-white); color: var(--ax-sub); font-size: 13px; font-weight: 600;
     }
     .ax-signout:hover { color: var(--ax-bad); border-color: rgba(229,65,62,.35); }
-    /* Super-admin only: jump back to the workspaces console (all clients). Violet = admin accent. */
+    /* Back to console/portal: a compact header pill (purple = admin accent). */
     .ax-backadmin { display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; border-radius: var(--ax-pill);
-      border: 1px solid var(--ax-line); background: var(--ax-white); color: var(--ax-violet-d); font-size: 13px; font-weight: 700; white-space: nowrap; }
+      border: 1px solid var(--ax-line); background: var(--ax-white); color: var(--ax-purple-d); font-size: 13px; font-weight: 700; white-space: nowrap; }
     .ax-backadmin .ax-ic { width: 16px; height: 16px; }
-    .ax-backadmin:hover { border-color: var(--ax-violet); background: var(--ax-violet-bg); }
+    .ax-backadmin:hover { border-color: var(--ax-purple); background: var(--ax-purple-bg); }
     /* Share recap: a premium brand-green pill; flips to violet "copied" on success. */
     .ax-share { display: inline-flex; align-items: center; gap: 7px; padding: 8px 15px; border-radius: var(--ax-pill);
       border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 700; color: #fff;
@@ -1229,7 +1246,7 @@
     .ax-confirm-actions .ax-btn.ghost:hover { color: var(--ax-ink); border-color: #d6d8e0; }
 
     /* Collapsible sidebar -- the topbar button tucks the nav away (choice persists in localStorage). */
-    .ax-top-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .ax-top-left { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-width: 0; }
     /* Collapsed = a slim ICON RAIL: the sidebar shrinks to a narrow strip, the brand mark + client
        crest tuck away, and every nav tab collapses to just its icon (label hidden; the awaiting-count
        rides the icon as a small dot-badge). The first track is a fixed rail width -- never 0, which
@@ -1270,10 +1287,10 @@
       /* No group heads in the strip -- dissolve the group wrappers so every tab rides the row. */
       .ax-nav-ghead { display: none; }
       .ax-nav-group, .ax-nav-sub, .ax-nav-group.is-open .ax-nav-sub { display: contents; }
-      .ax-top { padding: 12px 16px; flex-wrap: wrap; gap: 10px; }
-      .ax-top h1 { font-size: 16px; }
-      .ax-top-right { gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-      .ax-clock { display: none; }
+      .ax-pagehead { gap: 12px; margin-bottom: 18px; }
+      .ax-pagehead h1 { font-size: 21px; }
+      .ax-top-eyebrow { font-size: .66rem; margin-bottom: 5px; }
+      .ax-top-sub { font-size: 13px; }
       .ax-body { padding: 18px 16px 48px; }
       /* Inline grid-template-columns on the admin edit rows beats the stylesheet, so force the
          single column with !important - otherwise these never stack on a phone. */
@@ -1285,10 +1302,7 @@
     /* ---- Small phones: collapse the verbose action pills to their icons and tighten the
        7-column calendar so a full week fits a narrow screen. ---- */
     @media (max-width: 480px) {
-      .ax-top { padding: 10px 12px; }
       .ax-body { padding: 16px 12px 44px; }
-      .ax-backadmin span, .ax-signout span { display: none; }
-      .ax-backadmin, .ax-signout { padding: 9px; }
       .ax-share { padding: 8px 12px; font-size: 12px; }
       .ax-cal-grid { gap: 3px; }
       .ax-cal-cell { height: 56px; padding: 4px 5px; border-radius: 8px; }
@@ -1879,58 +1893,6 @@
 
     <!-- Main -->
     <div class="ax-main">
-      <header class="ax-top">
-        <div class="ax-top-left">
-          <h1 id="ax-title">{{ tab_titles[view.active_tab]|default('Overview', true) }}</h1>
-        </div>
-        <div class="ax-top-right">
-          <span class="ax-clock" id="ax-clock"></span>
-
-          <!-- Notifications: a real dropdown of what needs attention (no longer a jump to settings). -->
-          <div class="ax-menuwrap">
-            <button class="ax-iconbtn" type="button" id="ax-bellbtn" title="Notifications" aria-haspopup="true" aria-expanded="false">
-              {{ ic('bell') }}{% if view.awaiting_total > 0 %}<span class="ax-bdot"></span>{% endif %}
-            </button>
-            <div class="ax-menu" id="ax-bellmenu" hidden>
-              <div class="ax-menu-h">Notifications</div>
-              {% if view.attention %}
-                {% for a in view.attention %}
-                <button class="ax-menu-item" type="button" data-goto="{{ a.tab }}" data-gocamp="{{ a.camp_id }}" data-gocontent="{{ a.id }}">
-                  <span class="ax-menu-t">{{ a.type_tag }} &middot; {{ a.ref }}</span>
-                  <span class="ax-menu-s">{{ a.campaign_name }} &middot; Awaiting review</span>
-                </button>
-                {% endfor %}
-              {% else %}
-                <div class="ax-menu-empty">You're all caught up. Nothing is waiting on you right now.</div>
-              {% endif %}
-              <a class="ax-menu-foot" href="#" data-goto="settings">Notification settings</a>
-            </div>
-          </div>
-
-          <!-- Profile: the avatar opens a small account menu instead of jumping to settings. -->
-          <div class="ax-menuwrap">
-            <button class="ax-avatar" type="button" id="ax-avatarbtn" title="{{ user }}" aria-haspopup="true" aria-expanded="false">{% if profile_photo %}<img class="ax-avatar-img" src="{{ profile_photo }}" alt="">{% else %}{{ view.initials }}{% endif %}</button>
-            <div class="ax-menu ax-menu-r" id="ax-avatarmenu" hidden>
-              <div class="ax-menu-h">{{ user }}</div>
-              <div class="ax-menu-s2">{{ 'Super administrator' if is_superadmin else 'Client workspace' }}</div>
-              <a class="ax-menu-item" href="/profile">Profile</a>
-              <a class="ax-menu-item ax-menu-link" href="/logout" data-signout>Sign out</a>
-            </div>
-          </div>
-
-          <button class="ax-share" type="button" id="ax-sharebtn" data-recap="{{ view.recap_b64 }}"
-                  title="Copy a shareable link to this month's recap"
-                  {% if view.active_tab != 'overview' %}style="display:none"{% endif %}>Share recap <span class="ax-share-arrow">&rarr;</span></button>
-          {% if is_superadmin %}
-          {#- ?section=clients lands the team on the console's Clients pane (pick another client),
-              not the suite hub — the hub only greets a FRESH visit to /admin/atrium. -#}
-          <a class="ax-backadmin" href="/admin/atrium?section=clients" title="Back to all client workspaces">{{ ic('overview') }}<span>Back</span></a>
-          {% else %}
-          <a class="ax-backadmin" href="/" title="Back to your portal">{{ ic('overview') }}<span>Back</span></a>
-          {% endif %}
-        </div>
-      </header>
-
       <main class="ax-body">
 
         {% if admin_preview %}
@@ -1950,10 +1912,63 @@
         </div>
         {% endif %}
 
+        {#- Page header (no top bar — mirrors the admin console): green eyebrow + display title + lede,
+           with the notifications bell + Share-recap on the right. Title/subtitle update on tab switch. -#}
+        <header class="ax-pagehead">
+          <div class="ax-pagehead-main">
+            <p class="ax-top-eyebrow">Atrium Client &middot; Workspaces</p>
+            <h1 id="ax-title">{{ tab_titles[view.active_tab]|default('Overview', true) }}</h1>
+            {% set _sub = tab_subtitles[view.active_tab]|default('', true) %}
+            <p class="ax-top-sub" id="ax-subtitle" {% if not _sub %}hidden{% endif %}>{{ _sub }}</p>
+          </div>
+          <div class="ax-pagehead-actions">
+            <div class="ax-menuwrap">
+              <button class="ax-iconbtn" type="button" id="ax-bellbtn" title="Notifications" aria-haspopup="true" aria-expanded="false">
+                {{ ic('bell') }}{% if view.awaiting_total > 0 %}<span class="ax-bdot"></span>{% endif %}
+              </button>
+              <div class="ax-menu ax-menu-r" id="ax-bellmenu" hidden>
+                <div class="ax-menu-h">Notifications</div>
+                {% if view.attention %}
+                  {% for a in view.attention %}
+                  <button class="ax-menu-item" type="button" data-goto="{{ a.tab }}" data-gocamp="{{ a.camp_id }}" data-gocontent="{{ a.id }}">
+                    <span class="ax-menu-t">{{ a.type_tag }} &middot; {{ a.ref }}</span>
+                    <span class="ax-menu-s">{{ a.campaign_name }} &middot; Awaiting review</span>
+                  </button>
+                  {% endfor %}
+                {% else %}
+                  <div class="ax-menu-empty">You're all caught up. Nothing is waiting on you right now.</div>
+                {% endif %}
+                <a class="ax-menu-foot" href="#" data-goto="settings">Notification settings</a>
+              </div>
+            </div>
+
+            <button class="ax-share" type="button" id="ax-sharebtn" data-recap="{{ view.recap_b64 }}"
+                    title="Copy a shareable link to this month's recap"
+                    {% if view.active_tab != 'overview' %}style="display:none"{% endif %}>Share recap <span class="ax-share-arrow">&rarr;</span></button>
+
+            {#- Account: the avatar opens a small menu (identity + Profile + Sign out) — one place for
+               logout, no duplicate. The Back button differs by role (admin -> console, client -> portal). -#}
+            <div class="ax-menuwrap">
+              <button class="ax-avatar" type="button" id="ax-avatarbtn" title="{{ user }}" aria-haspopup="true" aria-expanded="false">{% if profile_photo %}<img class="ax-avatar-img" src="{{ profile_photo }}" alt="">{% else %}{{ view.initials }}{% endif %}</button>
+              <div class="ax-menu ax-menu-r" id="ax-avatarmenu" hidden>
+                <div class="ax-menu-h">{{ user }}</div>
+                <div class="ax-menu-s2">{{ 'Super administrator' if is_superadmin else 'Client workspace' }}</div>
+                <a class="ax-menu-item" href="/profile">Profile</a>
+                <a class="ax-menu-item ax-menu-link" href="/logout" data-signout>Sign out</a>
+              </div>
+            </div>
+
+            {% if is_superadmin %}
+            {#- ?section=clients lands the team on the console's Clients pane (pick another client). -#}
+            <a class="ax-backadmin" href="/admin/atrium?section=clients" title="Back to all client workspaces">{{ ic('overview') }}<span>Back to console</span></a>
+            {% else %}
+            <a class="ax-backadmin" href="/" title="Back to your portal">{{ ic('overview') }}<span>Back to portal</span></a>
+            {% endif %}
+          </div>
+        </header>
+
         <!-- ============ OVERVIEW ============ -->
         <section class="ax-pane {{ 'is-active' if view.active_tab=='overview' else '' }}" data-pane="overview">
-          <h1 class="ax-greet">Good <span id="ax-greetword">morning</span>, {{ view.greeting_name }}.</h1>
-          <p class="ax-lede">Everything, visible. What's working, what's live, and what's coming next.</p>
 
           {#- Overview headline = the SAME numbers the team manages on the admin side (ws.today /
               ws.split / ws.metrics). Curated ws.headline / ws.wins still win when present, so a
@@ -2138,8 +2153,6 @@
 
         <!-- ============ DASHBOARD ============ -->
         <section class="ax-pane {{ 'is-active' if view.active_tab=='dashboard' else '' }}" data-pane="dashboard">
-          <h1 class="ax-greet">Dashboard</h1>
-          <p class="ax-lede">Your live campaign data, updated automatically.</p>
 
           {% set dash_url = view.dashboard.url %}
           {% set dash_height = view.dashboard.height %}
@@ -2597,8 +2610,6 @@
 
         <!-- ============ CALENDAR ============ -->
         <section class="ax-pane {{ 'is-active' if view.active_tab=='calendar' else '' }}" data-pane="calendar">
-          <h1 class="ax-greet">{{ ws.project.name if (ws.project and ws.project.name) else view.calendar.label }}</h1>
-          <p class="ax-lede">Tracking the work from kickoff to delivered. Paid and organic publish dates included.</p>
 
           {% if view.progress %}
           <div class="ax-card ax-progress">
@@ -2730,8 +2741,6 @@
         <!-- ============ COMMUNICATIONS (one unified, channel-tagged, date-filterable timeline) ============ -->
         {%- set cm_labels = {'email':'Email','upwork':'Upwork','slack':'Slack','meeting':'Meeting','call':'Call','note':'Note'} -%}
         <section class="ax-pane {{ 'is-active' if view.active_tab=='conversations' else '' }}" data-pane="conversations">
-          <h1 class="ax-greet">Communications</h1>
-          <p class="ax-lede">One running record of every conversation &mdash; email, Upwork, Slack, meetings and calls &mdash; so nothing gets lost.</p>
 
           {% if is_superadmin and mail is not none %}
           {#- Team-only "Email intelligence" panel: the Mail machinery folded in (contacts, sync, the
@@ -2889,8 +2898,6 @@
 
         <!-- ============ MARKET INTELLIGENCE (team-written briefing, client-read) ============ -->
         <section class="ax-pane {{ 'is-active' if view.active_tab=='intel' else '' }}" data-pane="intel">
-          <h1 class="ax-greet">Market Intelligence</h1>
-          <p class="ax-lede">Your weekly briefing &mdash; what's moving in your industry, and the platform updates worth acting on.</p>
 
           {% if is_superadmin %}
           {% set ai = view.intel_ai %}
@@ -3102,8 +3109,6 @@
            No owners, no priority, no internal notes ever reach this HTML. The one client power is
            the comment composer (Comment / Request changes -> POST /w/<c>/task-comment). -#}
         <section class="ax-pane {{ 'is-active' if view.active_tab=='progress' else '' }}" data-pane="progress">
-          <h1 class="ax-greet">Progress</h1>
-          <p class="ax-lede">Everything we're building for you and exactly where each piece stands &mdash; updated live by your Agora team.</p>
           <span class="ax-pg-ro"><svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             Read-only &mdash; but you can comment on any item.</span>
 
@@ -3248,7 +3253,6 @@
             gtag('config', 'G-MEC39SD35R');
           </script>
           <!-- End Google tag (gtag.js) -->
-          <h1 class="ax-greet">Website Health</h1>
           <p class="ax-lede">Monitor {{ ws.display_name }}'s live website &mdash; confirm it's online with no errors, and see the Google Tag Manager containers and marketing tags installed on it.{% if not can_edit_health %} <strong>View only</strong> &mdash; a super admin runs the checks.{% endif %}</p>
 
           <div class="ax-panel ax-wh-card">
@@ -3333,7 +3337,6 @@
         <!-- ============ WATCHER (team-only: YouTube channel transcript archive) ============ -->
         {% if is_superadmin %}
         <section class="ax-pane {{ 'is-active' if view.active_tab=='watcher' else '' }}" data-pane="watcher">
-          <h1 class="ax-greet">Watcher</h1>
           <p class="ax-lede">Watch creators and competitors across platforms (YouTube for now) and archive the transcript of everything they publish. Paste a <strong>channel</strong> link to list every video, auto-label the industry, and pull the raw transcripts &mdash; or paste a <strong>single video</strong> link to grab just that one transcript (saved under &ldquo;Saved videos&rdquo;).</p>
 
           <div class="ax-panel ax-wt-addcard">
@@ -3542,7 +3545,6 @@
           {%- endfor -%}
         {%- endmacro %}
         <section class="ax-pane {{ 'is-active' if view.active_tab=='assistant' else '' }}" data-pane="assistant">
-          <h1 class="ax-greet">Assistant</h1>
           <p class="ax-lede">Ask anything about {{ ws.display_name }}'s world &mdash; it reads the whole workspace: campaigns and content, metrics and dashboard data, Market Intelligence, the content calendar, client conversations, and every Watcher transcript.</p>
 
           <div class="ax-panel ax-as-bar">
@@ -3581,8 +3583,6 @@
         {% endif %}
 
         <section class="ax-pane {{ 'is-active' if view.active_tab=='settings' else '' }}" data-pane="settings">
-          <h1 class="ax-greet">Notification settings</h1>
-          <p class="ax-lede">Choose what AGORA emails you about. Everything still appears here in your workspace either way.</p>
           <div class="ax-panel ax-set-wrap" id="ax-settings">
             <div class="ax-set-master">
               <div class="ax-set-row" style="border:0">
@@ -3797,6 +3797,16 @@
     settings: "Notification settings", "website-health": "Website Health", watcher: "Watcher",
     assistant: "Assistant", mail: "Mail"
   };
+  // Top-bar subtitles (mirrors the tab_subtitles Jinja map). A tab with no entry hides the subtitle.
+  var subtitles = {
+    overview: "Everything, visible — what's working, what's live, and what's coming next.",
+    dashboard: "Your live campaign data, updated automatically.",
+    calendar: "Tracking the work from kickoff to delivered — paid and organic publish dates included.",
+    conversations: "One running record of every conversation so nothing gets lost.",
+    intel: "Your weekly briefing — what's moving in your industry and the platform updates worth acting on.",
+    progress: "Everything we're building for you and exactly where each piece stands.",
+    settings: "Choose what AGORA emails you about — everything still appears here in your workspace either way."
+  };
   // Looker Studio embed: scale the fixed-canvas report to fill the container width (runs for ALL
   // users, not just admins). The report has a fixed native canvas (data-native-w/h); a 100%-width
   // iframe would leave a dead strip on the right. Render at native size, then transform-scale so the
@@ -3838,6 +3848,12 @@
     }
     var title = document.getElementById("ax-title");
     if (title && titles[tab]) { title.textContent = titles[tab]; }
+    var subtitle = document.getElementById("ax-subtitle");
+    if (subtitle) {
+      var subText = subtitles[tab] || "";
+      subtitle.textContent = subText;
+      if (subText) { subtitle.removeAttribute("hidden"); } else { subtitle.setAttribute("hidden", "hidden"); }
+    }
     var shareBtnToggle = document.getElementById("ax-sharebtn");
     if (shareBtnToggle) { shareBtnToggle.style.display = (tab === "overview") ? "" : "none"; }
     if (push && window.history && window.history.pushState) {

@@ -110,7 +110,10 @@ def run():
     for tag in ("style", "script"):
         _check("every <%s> is closed (page can render)" % tag,
                body.count("<" + tag) == body.count("</" + tag + ">"))
-    _check("greeting present", "Good <span" in body)
+    # The old top bar was removed: the page header (eyebrow + title + lede) now lives in the content
+    # area, admin-console style. Assert that header renders instead of the retired greeting.
+    _check("page header present", 'class="ax-pagehead"' in body and 'class="ax-top-eyebrow"' in body)
+    _check("overview subtitle present", "Everything, visible" in body)
     _check("leadgen content present in DOM", "Summer Paid Ads Push" in body)
     _check("organic content present in DOM", "June Nurture &amp; SEO" in body or "June Nurture" in body)
     _check("AI summary present", "AI summary" in body)
