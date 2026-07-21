@@ -229,6 +229,16 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   job `mail-refresh` reuses THIS image (gated `MAIL_SYNC_ENABLED=1`; deploy
   `deploy_mail_refresh.ps1`, rerun after any mailroom/mail_refresh change). Test:
   `python _mail_localtest.py`.
+- **`upwork_import.py`** — the Communications tab's **Upwork importer** (team-only, `POST
+  /w/<c>/admin/communication` op `import_upwork`). Pure + infra-free (no network/storage/AI):
+  `parse_upwork(raw, agora_names)` is a small state machine over pasted Upwork chat → an ordered,
+  role-tagged (agora vs client by the team's display name), de-duplicated (quoted reply-backs +
+  avatar-initials + attachment-count lines stripped) list of `{from,to:"",date,role,body}` messages
+  + `title`/`participants`/`latest_date`. `main.py` stores it as a Mail thread archive object (key
+  `up_<id>` via `workspace.write_mail_thread`) so the EXISTING `/w/<c>/mail/thread/<key>` reader
+  modal renders it, and adds an `upwork`-channel timeline card whose summary is
+  `mailroom.summarize_thread` (`fallback_summary` when no model). Test: `python
+  _upwork_import_localtest.py`.
 - **`intel_feed.py` / `intel_refresh.py`** — the DAILY Market Intelligence auto-refresh (opt-in,
   `INTEL_AUTO_ENABLED=1`). `intel_feed` parses Google News RSS + publisher feeds (keyless, stdlib
   `xml.etree` + lazy `requests`, degrades to `[]`); `intel_refresh.main()` is the Cloud Run **job**
@@ -360,5 +370,6 @@ they exist, so a default deploy stays unaffected (button off) until you create t
 `python _google_oauth_localtest.py`, `python _atrium_smoketest.py`, `python _auth_smoketest.py`,
 `python _audit_localtest.py`, `python _watcher_localtest.py`, `python _slashid_creative_test.py`,
 `python _assistant_localtest.py` (hybrid retrieval), `python _intel_ai_localtest.py` (AI brain +
-embeddings/reranking transport), and `python _mail_localtest.py` from this dir.
+embeddings/reranking transport), `python _mail_localtest.py`, and `python _upwork_import_localtest.py`
+from this dir.
 **Preview:** `run_local.ps1` (or `preview/Preview Portal (admin).cmd` at repo root).

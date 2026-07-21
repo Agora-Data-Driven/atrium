@@ -1475,6 +1475,28 @@
     .ax-ml-mbody .ax-ml-msg:first-child { border-top: 0; padding-top: 0; }
     .ax-ml-msghead { font-size: 12.5px; color: var(--ax-sub); margin-bottom: 6px; }
     .ax-ml-msgbody { white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; }
+    /* Two-sided CHAT layout for a role-tagged thread (imported Upwork): our side right in green, the
+       client left in grey, with avatars, day dividers and friendly times — so the back-and-forth
+       reads like a real messenger. Email threads carry no role and keep the plain list above. */
+    .ax-ml-chat { display: flex; flex-direction: column; gap: 4px; padding-top: 2px; }
+    .ax-ch-daysep { display: flex; align-items: center; justify-content: center; margin: 14px 0 8px; }
+    .ax-ch-daysep span { font-size: 11.5px; font-weight: 700; color: var(--ax-sub);
+      background: #F1F3F7; border: 1px solid var(--ax-line); border-radius: 999px; padding: 3px 12px; }
+    .ax-ch-row { display: flex; align-items: flex-end; gap: 9px; margin: 7px 0; max-width: 100%; }
+    .ax-ch-row.ax-ch-us { flex-direction: row-reverse; }
+    .ax-ch-av { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%; display: flex;
+      align-items: center; justify-content: center; font-size: 11px; font-weight: 800; letter-spacing: .3px; }
+    .ax-ch-them .ax-ch-av { background: #EEF0F4; color: var(--ax-sub); }
+    .ax-ch-us .ax-ch-av { background: var(--ax-green-d); color: #fff; }
+    .ax-ch-col { display: flex; flex-direction: column; gap: 3px; max-width: 78%; min-width: 0; }
+    .ax-ch-us .ax-ch-col { align-items: flex-end; }
+    .ax-ch-meta { font-size: 11.5px; color: var(--ax-sub); padding: 0 5px; }
+    .ax-ch-bub { padding: 9px 13px; border-radius: 16px; font-size: 13.5px; line-height: 1.5;
+      white-space: pre-wrap; overflow-wrap: anywhere; box-shadow: 0 1px 2px rgba(20,24,40,.06); }
+    .ax-ch-them .ax-ch-bub { background: #F1F3F7; color: var(--ax-ink); border-bottom-left-radius: 5px; }
+    .ax-ch-us .ax-ch-bub { background: var(--ax-green-d); color: #fff; border-bottom-right-radius: 5px; }
+    .ax-uw-hint { font-size: 12.5px; color: var(--ax-sub); margin: 0 0 10px; line-height: 1.5; }
+    .ax-uw-raw { width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
     .ax-wt-progress[hidden], .ax-wt-addmsg[hidden] { display: none; }
     .ax-wt-mbox { display: flex; flex-direction: column; width: 100%; max-width: 860px; max-height: 84vh; background: var(--ax-white, #fff); border-radius: var(--ax-radius, 14px); box-shadow: var(--ax-shadow-lg, 0 18px 50px rgba(20,24,40,.25)); padding: 20px 22px; animation: axConfirmIn .14s ease-out; }
     .ax-wt-mhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
@@ -2876,6 +2898,26 @@
               <div class="ax-actions">
                 <button class="ax-btn green small" type="button" data-commaddbtn>Add communication</button>
                 <button class="ax-btn ghost small" type="button" id="ax-cm-addcancel">Cancel</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="ax-cm-composer" data-upwadd>
+            <button class="ax-btn ax-cm-addbtn" type="button" id="ax-uw-addtoggle">&#8615; Import from Upwork</button>
+            <div class="ax-cm-form ax-card" data-upwaddform style="padding:16px 18px">
+              <p class="ax-uw-hint">Paste the whole conversation straight from the Upwork message thread. Atrium sorts it into a dated back-and-forth, tags who said what, drops the quoted duplicates, and writes a recap for the timeline.</p>
+              <textarea class="ax-editbox ax-uw-raw" data-uw="raw" rows="7" placeholder="Paste the Upwork messages here&hellip;"></textarea>
+              <div class="ax-cm-row">
+                <input class="ax-editbox ax-cm-fill" data-uw="team_names" placeholder="Your team's Upwork name(s), e.g. Ian Gabriel Fernandez">
+                <select class="ax-editbox ax-cm-narrow" data-uw="audience">
+                  <option value="client" selected>Client sees this</option>
+                  <option value="team">Team only</option>
+                </select>
+              </div>
+              <input class="ax-editbox ax-cm-fill" data-uw="title" placeholder="Title (optional &mdash; auto-generated if blank)">
+              <div class="ax-actions">
+                <button class="ax-btn green small" type="button" data-upwaddbtn>Import conversation</button>
+                <button class="ax-btn ghost small" type="button" id="ax-uw-addcancel">Cancel</button>
               </div>
             </div>
           </div>
@@ -4766,6 +4808,34 @@
     var mBody = document.getElementById("ax-ml-mbody");
     var mClose = document.getElementById("ax-ml-mclose");
     function closeModal() { if (modal) { modal.hidden = true; } }
+    // Chat-render helpers (used only for role-tagged threads): initials, a friendly time, and a
+    // day-divider label, all parsed from the stored 'YYYY-MM-DDTHH:MM' date.
+    var ML_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    var ML_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    function mlInitials(name) {
+      var parts = (name || "").trim().split(/\s+/);
+      if (!parts[0]) { return "?"; }
+      var a = parts[0].charAt(0);
+      var b = parts.length > 1 ? parts[parts.length - 1].charAt(0) : "";
+      return (a + b).toUpperCase();
+    }
+    function mlParts(iso) {
+      var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso || "");
+      return m ? { y: +m[1], mo: +m[2], d: +m[3], h: +m[4], mi: m[5] } : null;
+    }
+    function mlTime(iso) {
+      var p = mlParts(iso);
+      if (!p) { return (iso || "").slice(0, 16).replace("T", " "); }
+      var ap = p.h >= 12 ? "PM" : "AM";
+      var h12 = p.h % 12; if (h12 === 0) { h12 = 12; }
+      return h12 + ":" + p.mi + " " + ap;
+    }
+    function mlDayLabel(iso) {
+      var p = mlParts(iso);
+      if (!p) { return ""; }
+      var dt = new Date(p.y, p.mo - 1, p.d);
+      return ML_DAYS[dt.getDay()] + ", " + ML_MONTHS[p.mo - 1] + " " + p.d;
+    }
     function openThread(id) {
       if (!modal) { return; }
       mTitle.textContent = "Loading…";
@@ -4783,12 +4853,50 @@
           if (data.participants && data.participants.length) { bits.push(data.participants.join(", ")); }
           if (data.mailbox) { bits.push("via " + data.mailbox); }
           mMeta.textContent = bits.join(" · ");
-          (data.messages || []).forEach(function (m) {
+          var msgs = data.messages || [];
+          // A thread whose messages carry a role (Upwork/chat) renders as a two-sided CHAT: our side
+          // right in green, the client left in grey, with avatars, day dividers and friendly times.
+          // Email threads (no role) keep the plain "from → to" list.
+          var isChat = msgs.some(function (m) { return m.role; });
+          mBody.className = "ax-wt-mbody ax-ml-mbody" + (isChat ? " ax-ml-chat" : "");
+          var lastDay = "";
+          msgs.forEach(function (m) {
+            if (isChat) {
+              var day = mlDayLabel(m.date);
+              if (day && day !== lastDay) {
+                lastDay = day;
+                var div = document.createElement("div");
+                div.className = "ax-ch-daysep";
+                var pill = document.createElement("span");
+                pill.textContent = day;
+                div.appendChild(pill);
+                mBody.appendChild(div);
+              }
+              var row = document.createElement("div");
+              row.className = "ax-ch-row " + (m.role === "agora" ? "ax-ch-us" : "ax-ch-them");
+              var av = document.createElement("div");
+              av.className = "ax-ch-av";
+              av.textContent = mlInitials(m.from);
+              var col = document.createElement("div");
+              col.className = "ax-ch-col";
+              var meta = document.createElement("div");
+              meta.className = "ax-ch-meta";
+              meta.textContent = (m.from || "?") + (m.date ? " · " + mlTime(m.date) : "");
+              var bub = document.createElement("div");
+              bub.className = "ax-ch-bub";
+              bub.textContent = m.body || "(empty message)";
+              col.appendChild(meta);
+              col.appendChild(bub);
+              row.appendChild(av);
+              row.appendChild(col);
+              mBody.appendChild(row);
+              return;
+            }
             var wrap = document.createElement("div");
             wrap.className = "ax-ml-msg";
             var head = document.createElement("div");
             head.className = "ax-ml-msghead";
-            head.textContent = (m.from || "?") + " → " + (m.to || "?") +
+            head.textContent = (m.from || "?") + (m.to ? " → " + m.to : "") +
               (m.date ? " · " + m.date.slice(0, 16).replace("T", " ") : "");
             var body = document.createElement("div");
             body.className = "ax-ml-msgbody";
@@ -4797,7 +4905,7 @@
             wrap.appendChild(body);
             mBody.appendChild(wrap);
           });
-          if (!(data.messages || []).length) { mBody.textContent = "No messages stored for this thread."; }
+          if (!msgs.length) { mBody.textContent = "No messages stored for this thread."; }
         })
         .catch(function () {
           mTitle.textContent = "Could not load the thread";
@@ -6828,6 +6936,24 @@
       btn.addEventListener("click", function () {
         var fields = fieldsFrom(panel, "data-ca", { op: "add" });
         if (!fields.title && !fields.summary) { adminMsg("Add a title or a summary first.", false); return; }
+        adminAction("/admin/communication", fields, btn);
+      });
+    });
+
+    // The Upwork importer: toggle it open, then parse + store the pasted thread server-side.
+    (function () {
+      var toggle = document.getElementById("ax-uw-addtoggle");
+      var cancel = document.getElementById("ax-uw-addcancel");
+      var form = document.querySelector("[data-upwaddform]");
+      if (toggle && form) { toggle.addEventListener("click", function () { form.classList.toggle("is-open"); }); }
+      if (cancel && form) { cancel.addEventListener("click", function () { form.classList.remove("is-open"); }); }
+    })();
+    qsa("[data-upwaddbtn]").forEach(function (btn) {
+      var panel = document.querySelector("[data-upwaddform]");
+      btn.addEventListener("click", function () {
+        var fields = fieldsFrom(panel, "data-uw", { op: "import_upwork" });
+        if (!fields.raw || !fields.raw.trim()) { adminMsg("Paste the Upwork conversation first.", false); return; }
+        adminMsg("Importing…", true);
         adminAction("/admin/communication", fields, btn);
       });
     });
