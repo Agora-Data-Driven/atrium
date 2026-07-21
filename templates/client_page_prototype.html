@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client Page — Atrium theme prototype</title>
+<style>
+  :root{
+    --brand-50:#f1f8f0; --brand-100:#ddeedc; --brand-200:#bee0bc; --brand-300:#94cd91;
+    --brand-400:#6cb968; --brand-500:#4fa84a; --brand-600:#3f8b3b; --brand-700:#346f31; --brand-800:#2c5a2a;
+    --accent-100:#ececfb; --accent-200:#d8d8f6; --accent-500:#6a6aea; --accent-600:#5a54dd;
+    --ink:#121212; --body:#353535; --muted:#6b6f6c;
+    --canvas:#f7f7f8; --surface:#ffffff; --line:#e6e6e9; --tint:#eef6ed;
+    --warn:#c77d16; --warn-bg:#fdf3e3;
+    --danger:#c0453b; --danger-bg:#fbeceb;
+    --shadow-card:0 1px 2px rgba(18,18,18,.04), 0 10px 24px -14px rgba(18,18,18,.12);
+    --shadow-pop:0 24px 60px -28px rgba(18,18,18,.28);
+    --shadow-glow-sm:0 10px 30px -12px rgba(79,168,74,.4);
+    --r-sm:.375rem; --r-md:.625rem; --r-lg:1rem; --r-xl:1.5rem;
+    --font-sans:'Lato',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --font-display:'Archivo Variable','Archivo','Lato',ui-sans-serif,system-ui,sans-serif;
+    --side-w:264px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{font-family:var(--font-sans);background:var(--canvas);color:var(--body);-webkit-font-smoothing:antialiased;font-size:14px}
+  h1,h2,h3{font-family:var(--font-display);color:var(--ink);font-weight:700;letter-spacing:-.02em;margin:0}
+  a{color:inherit;text-decoration:none}
+  button{font:inherit}
+
+  /* ---------- shell ---------- */
+  .layout{display:flex;min-height:100vh}
+  .side{width:var(--side-w);flex:0 0 var(--side-w);background:var(--surface);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .content{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+
+  /* ---------- sidebar ---------- */
+  /* Identity matches the admin console: the real AGORA logo links back to the site (no "A" square). */
+  .side-top{padding:16px 20px 12px;border-bottom:1px solid var(--line)}
+  .ag-logo-link{display:inline-flex;align-items:center;border-radius:8px;transition:opacity .13s}
+  .ag-logo-link:hover{opacity:.78}
+  .ag-logo{height:30px;width:auto;display:block}
+
+  .nav{padding:12px;display:flex;flex-direction:column;gap:2px;flex:1 1 auto;overflow-y:auto}
+  .nav-group{font-family:var(--font-display);font-size:10px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);padding:12px 12px 6px}
+  .nav-group.first{padding-top:2px}
+  .nav-item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;border:0;background:transparent;
+    color:var(--body);font-size:13.5px;font-weight:600;padding:10px 12px;border-radius:var(--r-md);transition:background .13s,color .13s}
+  .nav-item:hover{background:var(--canvas);color:var(--ink)}
+  .nav-item.is-active{background:var(--tint);color:var(--brand-700);font-weight:700}
+  .nav-item .ic{width:18px;height:18px;flex:0 0 auto;opacity:.85}
+  .nav-item .count{margin-left:auto;font-size:11px;font-weight:800;color:var(--accent-600);background:var(--accent-100);
+    border-radius:999px;padding:1px 8px;min-width:20px;text-align:center}
+  .nav-item.is-active .count{color:var(--brand-700);background:#dcefdb}
+  /* Expandable nav parents (Campaigns, Insights) — mirrors the real client workspace nav. */
+  .nav-parent{display:flex;flex-direction:column;gap:2px}
+  .nav-chev{margin-left:auto;width:15px;height:15px;flex:0 0 auto;color:var(--muted);transition:transform .15s}
+  .nav-ghead .count + .nav-chev{margin-left:8px}
+  .nav-parent.is-open .nav-chev{transform:rotate(90deg)}
+  .nav-sub{display:none;flex-direction:column;gap:2px;margin-top:2px}
+  .nav-parent.is-open .nav-sub{display:flex}
+  .nav-sub .nav-item{padding-left:42px;font-size:13px}
+
+  /* per-client crest */
+  .side-card{margin:12px;background:linear-gradient(165deg,#fff,var(--canvas));border:1px solid var(--line);
+    border-radius:var(--r-lg);padding:16px 14px 14px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;box-shadow:var(--shadow-card)}
+  .side-card .crest{width:104px;height:78px;display:flex;align-items:center;justify-content:center;border-radius:12px;overflow:hidden;padding:8px;
+    border:1px solid var(--brand-200);background:linear-gradient(150deg,var(--brand-100),var(--tint));
+    color:var(--brand-700);font-family:var(--font-display);font-weight:800;font-size:30px;letter-spacing:.02em}
+  .side-card .cl-name{font-family:var(--font-display);font-size:13.5px;font-weight:800;color:var(--ink)}
+  .side-card .cl-sub{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-600)}
+  /* Account footer = the admin console's acct-button (avatar + name + role + caret). */
+  .side-foot{position:relative;border-top:1px solid var(--line);padding:12px}
+  .acct-btn{display:flex;align-items:center;gap:11px;width:100%;text-align:left;cursor:pointer;border:0;background:transparent;
+    padding:8px;border-radius:var(--r-md);transition:background .13s}
+  .acct-btn:hover{background:var(--canvas)}
+  .acct-av{width:34px;height:34px;flex:0 0 auto;border-radius:50%;display:grid;place-items:center;font-size:12.5px;font-weight:800;color:#fff;background:var(--brand-500)}
+  .acct-who{min-width:0;line-height:1.25}
+  .acct-who b{display:block;font-size:13px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .acct-who em{font-style:normal;font-size:11px;color:var(--muted)}
+  .acct-caret{margin-left:auto;width:16px;height:16px;flex:0 0 auto;color:var(--muted)}
+
+  /* ---------- body toolbar (admin has no separate top bar; the title lives in the body head) ---------- */
+  .body-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:14px;margin-bottom:20px}
+  .tb-ro{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--muted);
+    background:var(--canvas);border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+  .tb-ro .ic{width:13px;height:13px}
+  .tb-switch{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+  .tb-switch select{font:inherit;font-size:12.5px;font-weight:600;color:var(--ink);background:var(--surface);
+    border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 10px;cursor:pointer}
+
+  /* ---------- panes / page head ---------- */
+  .body-wrap{padding:32px 44px 72px;max-width:1240px;width:100%}
+  .pane{display:none;animation:fade .18s ease}
+  .pane.is-active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .eyebrow{font-family:var(--font-display);font-size:.75rem;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--brand-600);margin:0 0 10px}
+  .pagehead{border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:22px}
+  .pagehead h2{font-size:24px;letter-spacing:-.015em;margin:0 0 6px}
+  .pagehead .lead{color:var(--muted);font-size:13.5px;margin:0;max-width:70ch;line-height:1.55}
+
+  /* ---------- progress summary tiles (top) ---------- */
+  .pg-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:26px}
+  .pg-tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;box-shadow:var(--shadow-card)}
+  .pg-tile .tl-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .pg-tile .dot{width:9px;height:9px;border-radius:50%}
+  .pg-tile .tl-lab{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .pg-tile .tl-num{font-family:var(--font-display);font-size:30px;font-weight:800;color:var(--ink);line-height:1}
+  .pg-tile .tl-sub{font-size:11.5px;color:var(--muted);margin-top:4px}
+
+  /* ---------- progress board ---------- */
+  .pg-board{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;align-items:start}
+  .pg-col{background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px;min-height:120px}
+  .pg-colhead{display:flex;align-items:center;gap:8px;padding:4px 6px 12px}
+  .pg-colhead .dot{width:9px;height:9px;border-radius:50%}
+  .pg-colhead .nm{font-family:var(--font-display);font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink)}
+  .pg-colhead .c{margin-left:auto;font-size:11px;font-weight:800;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:1px 8px}
+  .pg-card{display:block;width:100%;text-align:left;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:13px 13px 12px;margin-bottom:10px;box-shadow:var(--shadow-card);transition:transform .1s,box-shadow .12s,border-color .12s}
+  .pg-card:hover{transform:translateY(-1px);box-shadow:var(--shadow-pop);border-color:var(--brand-200)}
+  .pg-chip{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px;margin-bottom:8px}
+  .lb-paid{background:var(--accent-100);color:var(--accent-600)}
+  .lb-organic{background:var(--tint);color:var(--brand-700)}
+  .lb-web{background:#e7f0fe;color:#1856c9}
+  .pg-title{font-family:var(--font-display);font-size:14px;font-weight:700;color:var(--ink);line-height:1.3;margin-bottom:10px}
+  .pg-prog{margin-bottom:10px}
+  .pg-bar{height:6px;border-radius:999px;background:var(--line);overflow:hidden}
+  .pg-bar>span{display:block;height:100%;background:var(--brand-500);border-radius:999px}
+  .pg-prog .pl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:5px}
+  .pg-foot{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:9px}
+  .pg-tag{font-weight:700}
+  .pg-tag.review{color:var(--warn)} .pg-tag.live{color:var(--brand-600)} .pg-tag.paused{color:var(--muted)}
+  .pg-cmt{margin-left:auto}
+
+  .stub{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r-lg);padding:40px;text-align:center;color:var(--muted)}
+  .note{margin-top:34px;padding:14px 16px;background:var(--accent-100);border:1px solid var(--accent-200);border-radius:var(--r-md);font-size:12.5px;color:#3b3766}
+  .note b{color:var(--accent-600)}
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="side">
+    <div class="side-top">
+      <a class="ag-logo-link" href="https://agoradatadriven.com" title="Agora Data Driven website" aria-label="Back to the Agora Data Driven website">
+        <span class="ag-logo"><svg xmlns="http://www.w3.org/2000/svg" width="132" height="40" viewBox="0 0 132 40" role="img" aria-label="AGORA">
+          <g fill="none" stroke="#1A1B1E" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 37 L19 4 L35 37" stroke-width="1.8"/>
+            <path d="M12 37 L24 12" stroke-width="1.1" opacity="0.5"/>
+            <path d="M11.5 24 L26.5 24" stroke-width="1.6"/>
+          </g>
+          <text x="48" y="29" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="22" font-weight="500" letter-spacing="3.4" fill="#1A1B1E">AGORA</text>
+        </svg></span>
+      </a>
+    </div>
+
+    {#- Nav mirrors the REAL client workspace exactly: Dashboard, an expandable Campaigns parent
+        (Paid Media + Organic Content, combined awaiting badge), an expandable Insights parent
+        (Market Intelligence), then Content Calendar, Communications, and Progress at the bottom. -#}
+    <nav class="nav" id="nav">
+      <button class="nav-item" data-pane="dashboard">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12.5" y="8" width="3" height="10"/><rect x="18" y="4" width="3" height="14"/></svg>
+        <span>Dashboard</span>
+      </button>
+
+      <!-- Campaigns — expandable parent (open by default), combined awaiting count on the head -->
+      <div class="nav-parent is-open" data-group="campaigns">
+        <button class="nav-item nav-ghead" type="button" aria-expanded="true">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+          <span>Campaigns</span><span class="count">2</span>
+          <svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <div class="nav-sub">
+          <button class="nav-item" data-pane="leadgen">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+            <span>Paid Media</span><span class="count">1</span>
+          </button>
+          <button class="nav-item" data-pane="organic">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V11"/><path d="M12 11C12 7 9 4 4 4c0 5 3 8 8 7z"/><path d="M12 14c0-3 3-6 8-6 0 4-3 7-8 6z"/></svg>
+            <span>Organic Content</span><span class="count">1</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Insights — expandable parent (Market Intelligence; team-only Website Health/Watcher omitted from this client view) -->
+      <div class="nav-parent" data-group="insights">
+        <button class="nav-item nav-ghead" type="button" aria-expanded="false">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A7 7 0 0 0 12 2z"/></svg>
+          <span>Insights</span>
+          <svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <div class="nav-sub">
+          <button class="nav-item" data-pane="intel">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <span>Market Intelligence</span>
+          </button>
+        </div>
+      </div>
+
+      <button class="nav-item" data-pane="calendar">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        <span>Content Calendar</span>
+      </button>
+      <button class="nav-item" data-pane="conversations">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Communications</span>
+      </button>
+
+      <button class="nav-item is-active" data-pane="progress">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>
+        <span>Progress</span><span class="count" id="nav-review">2</span>
+      </button>
+    </nav>
+
+    <!-- PER-CLIENT crest — swaps with the account -->
+    <div class="side-card">
+      <div class="crest" id="cl-crest">R</div>
+      <div>
+        <div class="cl-name" id="cl-name">Riverdance RV</div>
+        <div class="cl-sub">Client Workspace</div>
+      </div>
+    </div>
+
+    <div class="side-foot">
+      <button type="button" class="acct-btn" title="Your account">
+        <span class="acct-av">JS</span>
+        <span class="acct-who"><b>Jordan Smith</b><em>Client</em></span>
+        <svg class="acct-caret" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z" clip-rule="evenodd"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="content">
+
+    <div class="body-wrap">
+
+      <!-- No sticky top bar — like the admin console, the pane title lives in the body head below.
+           This slim right-aligned toolbar carries the read-only note + the prototype's client switcher. -->
+      <div class="body-toolbar">
+        <span class="tb-ro"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Read-only · you can comment</span>
+        <label class="tb-switch">Preview as
+          <select id="cl-switch">
+            <option value="R|Riverdance RV">Riverdance RV</option>
+            <option value="M|Melo Yelo">Melo Yelo</option>
+            <option value="T|The Contract Shop">The Contract Shop</option>
+            <option value="H|Honey Tribe">Honey Tribe</option>
+            <option value="R|Rooming House Expert">Rooming House Expert</option>
+            <option value="A|ASL Logistics">ASL Logistics</option>
+          </select>
+        </label>
+      </div>
+
+
+      <!-- ===== PROGRESS (default, at the top) ===== -->
+      <section class="pane is-active" data-pane="progress">
+        <div class="pagehead">
+          <p class="eyebrow">Your workspace</p>
+          <h2>Progress</h2>
+          <p class="lead">A live view of everything the Agora team is building for you — updated as work moves from in progress to live. Click any item to see the steps and leave a comment.</p>
+        </div>
+
+        <!-- summary tiles pinned at the very top -->
+        <div class="pg-tiles">
+          <div class="pg-tile"><div class="tl-top"><span class="dot" style="background:var(--accent-500)"></span><span class="tl-lab">In progress</span></div><div class="tl-num">3</div><div class="tl-sub">being built now</div></div>
+          <div class="pg-tile"><div class="tl-top"><span class="dot" style="background:var(--warn)"></span><span class="tl-lab">In review</span></div><div class="tl-num">2</div><div class="tl-sub">awaiting your look</div></div>
+          <div class="pg-tile"><div class="tl-top"><span class="dot" style="background:var(--brand-500)"></span><span class="tl-lab">Live</span></div><div class="tl-num">4</div><div class="tl-sub">shipped this month</div></div>
+          <div class="pg-tile"><div class="tl-top"><span class="dot" style="background:#8a93a3"></span><span class="tl-lab">Completed</span></div><div class="tl-num">11</div><div class="tl-sub">all-time delivered</div></div>
+        </div>
+
+        <!-- stage board -->
+        <div class="pg-board">
+          <div class="pg-col">
+            <div class="pg-colhead"><span class="dot" style="background:var(--accent-500)"></span><span class="nm">In progress</span><span class="c">3</span></div>
+            <button class="pg-card"><span class="pg-chip lb-paid">Paid Media</span><div class="pg-title">Park &amp; Porch | Leads</div><div class="pg-prog"><div class="pg-bar"><span style="width:60%"></span></div><div class="pl"><span>3 of 5 steps</span><span>60%</span></div></div><div class="pg-foot"><span class="pg-tag">Launching Jul 28</span><span class="pg-cmt">💬 1</span></div></button>
+            <button class="pg-card"><span class="pg-chip lb-organic">Organic</span><div class="pg-title">Direct Booking (Campspot)</div><div class="pg-prog"><div class="pg-bar"><span style="width:35%"></span></div><div class="pl"><span>2 of 6 steps</span><span>35%</span></div></div><div class="pg-foot"><span class="pg-tag">Launching Aug 4</span></div></button>
+            <button class="pg-card"><span class="pg-chip lb-web">Website</span><div class="pg-title">Landing page refresh</div><div class="pg-prog"><div class="pg-bar"><span style="width:20%"></span></div><div class="pl"><span>1 of 5 steps</span><span>20%</span></div></div><div class="pg-foot"><span class="pg-tag">Launching Aug 12</span></div></button>
+          </div>
+          <div class="pg-col">
+            <div class="pg-colhead"><span class="dot" style="background:var(--warn)"></span><span class="nm">In review</span><span class="c">2</span></div>
+            <button class="pg-card"><span class="pg-chip lb-paid">Paid Media</span><div class="pg-title">Summer promo — static set</div><div class="pg-prog"><div class="pg-bar"><span style="width:90%"></span></div><div class="pl"><span>4 of 5 steps</span><span>90%</span></div></div><div class="pg-foot"><span class="pg-tag review">Ready for your review</span><span class="pg-cmt">💬 2</span></div></button>
+            <button class="pg-card"><span class="pg-chip lb-organic">Organic</span><div class="pg-title">June newsletter</div><div class="pg-prog"><div class="pg-bar"><span style="width:85%"></span></div><div class="pl"><span>5 of 6 steps</span><span>85%</span></div></div><div class="pg-foot"><span class="pg-tag review">Changes requested</span></div></button>
+          </div>
+          <div class="pg-col">
+            <div class="pg-colhead"><span class="dot" style="background:var(--brand-500)"></span><span class="nm">Live</span><span class="c">4</span></div>
+            <button class="pg-card"><span class="pg-chip lb-paid">Paid Media</span><div class="pg-title">Spring lead gen</div><div class="pg-prog"><div class="pg-bar"><span style="width:100%"></span></div><div class="pl"><span>5 of 5 steps</span><span>100%</span></div></div><div class="pg-foot"><span class="pg-tag live">Live since Jun 30</span></div></button>
+            <button class="pg-card"><span class="pg-chip lb-web">Website</span><div class="pg-title">Booking flow fix</div><div class="pg-prog"><div class="pg-bar"><span style="width:100%"></span></div><div class="pl"><span>4 of 4 steps</span><span>100%</span></div></div><div class="pg-foot"><span class="pg-tag live">Live since Jun 22</span></div></button>
+          </div>
+          <div class="pg-col">
+            <div class="pg-colhead"><span class="dot" style="background:#8a93a3"></span><span class="nm">Completed</span><span class="c">11</span></div>
+            <button class="pg-card"><span class="pg-chip lb-organic">Organic</span><div class="pg-title">Q1 content plan</div><div class="pg-prog"><div class="pg-bar"><span style="width:100%"></span></div><div class="pl"><span>Delivered</span><span>100%</span></div></div><div class="pg-foot"><span class="pg-tag">Closed Apr 2</span></div></button>
+          </div>
+        </div>
+
+        <div class="note"><b>Prototype notes.</b> The whole shell now matches the admin console — the real <b>AGORA logo</b> at the top of the rail (links to the site), the account <b>footer button</b> (avatar + name + caret), and <b>no separate top bar</b>: like the admin page, each pane's title lives in its body head, with a slim right-aligned toolbar for the read-only note + the prototype's "Preview as" switcher. Theme tokens are unchanged (Lato/Archivo, brand green, <b>purple</b> informational accent, grey canvas, admin radii + shadows). Progress is still the landing pane with its summary tiles at the top; the sidebar crest below the nav is <b>per-client</b> — use "Preview as" to see it swap. The nav now <b>mirrors the real client workspace exactly</b>: Dashboard, an expandable <b>Campaigns</b> parent (Paid Media + Organic Content, combined awaiting badge), an expandable <b>Insights</b> parent (Market Intelligence), then Content Calendar, Communications, and Progress — every page is represented so no feature gets dropped.</div>
+      </section>
+
+      <!-- ===== other panes (stubs so nav works — ONE per real client-workspace page) ===== -->
+      <section class="pane" data-pane="dashboard"><div class="pagehead"><p class="eyebrow">Your workspace</p><h2>Dashboard</h2><p class="lead">Live performance across all channels.</p></div><div class="stub">Dashboard content (unchanged) lives here.</div></section>
+      <section class="pane" data-pane="leadgen"><div class="pagehead"><p class="eyebrow">Campaigns</p><h2>Paid Media</h2><p class="lead">Paid campaigns and their creative — approve, comment, request changes.</p></div><div class="stub">Paid Media content lives here.</div></section>
+      <section class="pane" data-pane="organic"><div class="pagehead"><p class="eyebrow">Campaigns</p><h2>Organic Content</h2><p class="lead">Organic posts and content pieces — approve, comment, request changes.</p></div><div class="stub">Organic Content lives here.</div></section>
+      <section class="pane" data-pane="intel"><div class="pagehead"><p class="eyebrow">Insights</p><h2>Market Intelligence</h2><p class="lead">Competitor and market signals, curated weekly by your team.</p></div><div class="stub">Market Intelligence content lives here.</div></section>
+      <section class="pane" data-pane="calendar"><div class="pagehead"><p class="eyebrow">Your workspace</p><h2>Content Calendar</h2><p class="lead">Scheduled posts and launches.</p></div><div class="stub">Calendar content lives here.</div></section>
+      <section class="pane" data-pane="conversations"><div class="pagehead"><p class="eyebrow">Your workspace</p><h2>Communications</h2><p class="lead">Messages with your Agora team.</p></div><div class="stub">Communications content lives here.</div></section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  // tab switching (the pane's own body head carries the title now — no top-bar h1 to sync).
+  // Only real tabs carry data-pane; group heads (Campaigns, Insights) just expand/collapse.
+  var items = document.querySelectorAll('.nav-item[data-pane]');
+  var panes = document.querySelectorAll('.pane');
+  for (var i=0;i<items.length;i++){
+    items[i].addEventListener('click', function(){
+      var key = this.getAttribute('data-pane');
+      for (var j=0;j<items.length;j++){ items[j].classList.remove('is-active'); }
+      this.classList.add('is-active');
+      for (var k=0;k<panes.length;k++){ panes[k].classList.toggle('is-active', panes[k].getAttribute('data-pane')===key); }
+    });
+  }
+
+  // expandable nav parents (Campaigns / Insights)
+  var heads = document.querySelectorAll('.nav-ghead');
+  for (var h=0;h<heads.length;h++){
+    heads[h].addEventListener('click', function(){
+      var parent = this.parentNode;
+      var open = parent.classList.toggle('is-open');
+      this.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
+
+  // per-client crest switcher (prototype only)
+  document.getElementById('cl-switch').addEventListener('change', function(){
+    var parts = this.value.split('|');
+    document.getElementById('cl-crest').textContent = parts[0];
+    document.getElementById('cl-name').textContent = parts[1];
+  });
+</script>
+</body>
+</html>

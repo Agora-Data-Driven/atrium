@@ -476,8 +476,12 @@
       box-shadow: var(--shadow-pop); animation: rise .25s cubic-bezier(.22,1,.36,1);
       /* Cap to the viewport so the head + footer stay put and only the BODY scrolls -- Edit/Move and
          the tab bar are always reachable even on a long task (was: whole modal grew, buttons off-screen). */
-      display: flex; flex-direction: column; max-height: calc(100vh - 72px); }
+      display: flex; flex-direction: column; max-height: calc(100vh - 72px); overflow: hidden; }
     .tkd.narrow { max-width: 720px; }   /* the tabbed detail view (sandbox design); forms stay wide */
+    /* Edit / New overlays wrap head+body+foot in a <form>, so the form (not the head/body/foot) is
+       .tkd's single flex child. Make it a flex column that can shrink below its content, so .tkd-body
+       scrolls internally instead of the form growing past the modal and spilling over the board. */
+    .tkd > form { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
     .tkd-head { display: flex; align-items: flex-start; gap: 12px; padding: 18px 22px 14px; border-bottom: 1px solid var(--line); flex: none; }
     .tkd-eyebrow { font-family: var(--font-display); font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
       color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -485,7 +489,10 @@
     .tkd-headedit { margin-left: auto; flex: none; align-self: center; }
     .tkd-x { border: 0; background: transparent; color: var(--muted); font-size: 22px; line-height: 1; padding: 2px 8px; border-radius: 8px; cursor: pointer; flex: none; align-self: center; }
     .tkd-x:hover { color: var(--danger); background: var(--danger-bg); }
-    .tkd-body { padding: 18px 22px 22px; flex: 1 1 auto; overflow-y: auto; }
+    /* min-height:0 lets this flex child shrink so it (not the whole modal) scrolls -- keeps the
+       head + footer pinned instead of the modal growing past the viewport. overflow-x:hidden stops
+       the browser's intrinsic date-input width from forcing a horizontal scrollbar. */
+    .tkd-body { padding: 18px 22px 22px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
     .tkd-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 22px; }
     .tk-stagepill { font-size: 10px; font-weight: 800; border-radius: 999px; padding: 2px 9px; letter-spacing: .03em; text-transform: uppercase; }
     .tk-stagepill.in_process { background: #eaf1fb; color: #1c4f9c; } .tk-stagepill.for_launch { background: #fdf3e3; color: #8a6003; }
@@ -582,6 +589,9 @@
     .tkd-foot .spacer { margin-left: auto; }
     /* New / edit forms */
     .tk-formgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+    /* Grid items default to min-width:auto (min-content); a date input's intrinsic width then
+       overflows its 1fr track and pushes a horizontal scrollbar. min-width:0 lets tracks shrink. */
+    .tk-formgrid > * { min-width: 0; }
     .tk-formgrid .full { grid-column: 1 / -1; }
     .tk-formgrid label { margin: 0 0 4px; }
     .tk-formgrid input[type=text], .tk-formgrid input[type=date], .tk-formgrid select, .tk-formgrid textarea {
@@ -726,6 +736,8 @@
     .cal-overjump { margin-left: 12px; border: 1px solid rgba(192,69,59,.35); background: var(--danger-bg); color: #9b2c2a;
       font: inherit; font-size: 12px; font-weight: 800; border-radius: 999px; padding: 4px 12px; cursor: pointer; }
     .cal-overjump:hover { filter: brightness(.97); }
+    /* The forward twin of the overdue jump -- neutral brand tint, not the alarm red. */
+    .cal-overjump.upcoming { border-color: var(--brand-200); background: var(--tint); color: var(--brand-700); }
     .cal-grid-wrap { overflow-x: auto; }
     .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(112px, 1fr)); gap: 1px; background: var(--line);
       border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
@@ -3304,6 +3316,24 @@
               build();
             });
             footEl.appendChild(jump);
+          }
+          // Upcoming: services scheduled in a LATER month than the one on screen. The calendar opens
+          // on today's month, so a task you just gave a future launch date would otherwise be invisible
+          // until you happened to page forward -- surface a jump to the earliest upcoming one.
+          var viewMonth = calY + "-" + pad2(calM + 1);
+          var ahead = visible.filter(function (ev) { return ev.date.slice(0, 7) > viewMonth; })
+            .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+          if (ahead.length) {
+            var next = document.createElement("button");
+            next.type = "button";
+            next.className = "cal-overjump upcoming";
+            next.textContent = "▸ " + ahead.length + " upcoming — show next";
+            next.addEventListener("click", function () {
+              calY = Number(ahead[0].date.slice(0, 4));
+              calM = Number(ahead[0].date.slice(5, 7)) - 1;
+              build();
+            });
+            footEl.appendChild(next);
           }
           // Re-apply the day selection: keep the panel in sync if the selected day is in THIS month
           // (e.g. after a client-filter change); otherwise close it (e.g. after month navigation).
