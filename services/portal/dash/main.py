@@ -2110,13 +2110,63 @@ def atrium_admin_communication(client):
     gate = _atrium_admin_json_gate(client)
     if gate:
         return gate
-    if workspace.load_workspace(client) is None:
+    ws = workspace.load_workspace(client)
+    if ws is None:
         return Response('{"error":"no_workspace"}', status=404, mimetype="application/json")
     op = request.form.get("op", "").strip()
     if op == "delete":
-        workspace.delete_communication(client, request.form.get("item_id", "").strip())
+        item_id = request.form.get("item_id", "").strip()
+        # An imported Upwork conversation stores its full thread as its OWN object (like a Mail
+        # thread); clean that up too so deleting the card never orphans the archive.
+        for it in workspace.communications_list(ws):
+            if it.get("id") == item_id and str(it.get("thread_key", "")).startswith("up_"):
+                workspace.delete_mail_thread_object(client, it["thread_key"])
+                break
+        workspace.delete_communication(client, item_id)
         _audit(client, "deleted a communication")
         return jsonify(ok=True)
+    if op == "import_upwork":
+        # Paste raw Upwork chat -> parse into a role-tagged, de-duplicated message thread, store it
+        # like a Mail thread archive object (so the EXISTING /w/<c>/mail/thread reader renders it),
+        # and mirror an AI recap into the timeline as an 'upwork' card.
+        import upwork_import
+        raw = request.form.get("raw", "")
+        if not raw.strip():
+            return jsonify(ok=False, message="Paste the Upwork conversation text first.")
+        audience = request.form.get("audience", "client").strip() or "client"
+        parsed = upwork_import.parse_upwork(raw, agora_names=request.form.get("team_names", ""))
+        msgs = parsed["messages"]
+        if not msgs:
+            return jsonify(ok=False, message=("Couldn't find any messages in that text. "
+                                              "Paste the conversation straight from Upwork."))
+        key = workspace._new_id("up")
+        subject = request.form.get("title", "").strip() or parsed["title"]
+        thread = {"subject": subject, "participants": parsed["participants"], "mailbox": "Upwork",
+                  "messages": msgs, "last_date": parsed["latest_date"], "origin": "upwork"}
+        # AI recap (graceful): the Mail brain writes an internal + a client-facing voice; use the
+        # one matching the card's audience. Any failure/absence falls back to a plain recap.
+        summary = ""
+        try:
+            import mailroom
+            model = mailroom._mail_model(ws)
+            internal, client_summary, err = mailroom.summarize_thread(
+                ws.get("display_name") or client, thread, model)
+            if not err:
+                summary = (client_summary if audience == "client" and client_summary else internal)
+        except Exception:
+            summary = ""
+        if not summary:
+            summary = upwork_import.fallback_summary(parsed)
+        thread["summary"] = summary
+        workspace.write_mail_thread(client, key, thread)
+        item = workspace.add_communication(
+            client, "upwork", subject, summary,
+            date=(parsed["latest_date"] or None),
+            people=", ".join(parsed["client_participants"]),
+            audience=audience, origin="upwork", thread_key=key)
+        _audit(client, "imported an Upwork conversation",
+               "%s (%d messages)" % (subject, len(msgs)))
+        return jsonify(ok=True, id=item.get("id"), messages=len(msgs))
     if op == "add":
         item = workspace.add_communication(
             client,

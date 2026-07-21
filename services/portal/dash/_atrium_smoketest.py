@@ -147,6 +147,32 @@ def run():
     with c.session_transaction() as s:
         s.update(SUPER)
 
+    # Communications: import a pasted Upwork conversation -> a role-tagged thread + a timeline card.
+    upw_raw = ("Saturday, Jul 11\nDM\nDaniela Marquez\n12:59 AM\nHi Ian, UPWORKPASTE please send.\n"
+               "Ian Gabriel Fernandez\n10:55 PM\nHi Daniela, got it.\n")
+    r = c.post("/w/%s/admin/communication" % CLIENT,
+               data={"op": "import_upwork", "raw": upw_raw, "audience": "client",
+                     "team_names": "Ian Gabriel Fernandez"})
+    j = r.get_json()
+    _check("Upwork import returns ok + a message count",
+           r.status_code == 200 and j.get("ok") and j.get("messages") == 2)
+    conv_after = c.get("/w/%s/conversations" % CLIENT).get_data(as_text=True)
+    _check("imported Upwork card renders with an upwork badge + a Read-full-thread link",
+           "ch-upwork" in conv_after and "Read full thread" in conv_after)
+    # The stored thread is served by the EXISTING reader route, role-tagged and de-duplicated.
+    up_item = next(it for it in workspace.communications_list(workspace.load_workspace(CLIENT))
+                   if it.get("channel") == "upwork")
+    tr = c.get("/w/%s/mail/thread/%s" % (CLIENT, up_item["thread_key"])).get_json()
+    _check("Upwork thread reader returns the 2 parsed messages with roles",
+           tr.get("ok") and len(tr.get("messages") or []) == 2
+           and tr["messages"][0].get("role") == "client"
+           and tr["messages"][1].get("role") == "agora")
+    # Deleting the card also removes its thread archive object (no orphan).
+    c.post("/w/%s/admin/communication" % CLIENT,
+           data={"op": "delete", "item_id": up_item["id"]})
+    _check("deleting the Upwork card cleans up its thread object",
+           workspace.read_mail_thread(CLIENT, up_item["thread_key"]) is None)
+
     # Approve an awaiting piece -> persists + confirmation shows on reload.
     r = c.post("/w/%s/approve" % CLIENT, data={"content_id": "RVR-016", "note": "Ship it."})
     _check("approve returns ok json", r.status_code == 200 and r.get_json().get("ok") is True)

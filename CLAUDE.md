@@ -248,6 +248,16 @@ auto-refresh (see those bullets below). Product name is one constant:
   from Mail as team-only cards, plus an All/Client-sees/Team-only toggle + per-card visibility pill.
   Channel chips + counts, the date range, and the audience toggle all filter client-side in
   `atrium.html`. Route `POST /w/<c>/admin/communication` (op add|edit|delete, `channel`+`audience`).
+  **Upwork import (op `import_upwork`, team-only):** paste a raw Upwork message thread and
+  `dash/upwork_import.py` (pure, infra-free — no network/storage/AI) parses it into an ordered,
+  role-tagged (agora vs client by matching the team's Upwork display name), de-duplicated (quoted
+  reply-backs dropped) message list. The route stores it like a Mail thread archive object (key
+  `up_<id>` via `workspace.write_mail_thread`) so the SAME thread-reader modal + `GET
+  /w/<c>/mail/thread/<key>` route render it (the modal role-tints chat messages, which carry no
+  `to`); the timeline gets an `upwork`-channel card whose summary is the Mail brain's recap
+  (`mailroom.summarize_thread` via `_mail_model`, client/internal voice by audience — falls back to
+  a plain `upwork_import.fallback_summary` when no model is configured). Deleting the card also
+  removes its thread object (no orphan). Test: `dash/_upwork_import_localtest.py` (in CI).
 - **Mail is FOLDED INTO Communications (team-only machinery; client email archive + AI digest,
   `mailroom.py`):** there is no standalone Mail tab anymore -- its contacts editor, Sync/Refresh
   buttons, the AI briefing, and the response-stats strip live in the Communications tab's collapsible

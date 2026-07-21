@@ -99,3 +99,7 @@ jobs:
       - name: Mail tab test (connectors, sync, routes; network + IMAP + LLM stubbed)
         working-directory: services/portal/dash
         run: python _mail_localtest.py
+
+      - name: Upwork import parser test (pure; no network/storage/AI)
+        working-directory: services/portal/dash
+        run: python _upwork_import_localtest.py
