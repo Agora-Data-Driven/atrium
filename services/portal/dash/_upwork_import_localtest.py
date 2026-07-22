@@ -94,7 +94,78 @@ def main():
     assert empty["messages"] == [] and empty["latest_date"] == ""
     assert upwork_import.fallback_summary(empty) == ""
 
-    print("upwork_import localtest: OK (%d messages parsed, quoted dup dropped)" % len(msgs))
+    # --- Upwork SYSTEM EVENTS are dropped, not parsed as messages/participants -------------------
+    EVENTS = """Monday, Jul 13
+Lorenzo Marchese
+2:00 PM
+Hi, sharing the offer now.
+Lorenzo Marchese sent an offer
+2:01 PM
+THE ROLE
+
+We're building out our analytics practice.
+Ian Gabriel Fernandez accepted an offer
+2:05 PM
+View contract
+Ian Gabriel Fernandez
+2:06 PM
+Great, excited to start!
+"""
+    ev = upwork_import.parse_upwork(EVENTS, agora_names=["Ian Gabriel Fernandez"], year=2026)
+    froms = [m["from"] for m in ev["messages"]]
+    assert froms == ["Lorenzo Marchese", "Ian Gabriel Fernandez"], froms
+    assert not any("offer" in f.lower() for f in froms), froms       # no event line became a sender
+    assert ev["participants"] == ["Lorenzo Marchese", "Ian Gabriel Fernandez"], ev["participants"]
+    assert "sent an offer" not in ev["title"], ev["title"]
+
+    # --- normalize_chat_thread heals an OLD import (all-client roles + an event msg + jumbled) ----
+    stored = {
+        "subject": "Upwork conversation with Lorenzo Marchese, Lorenzo Marchese sent an offer",
+        "participants": ["Lorenzo Marchese", "Lorenzo Marchese sent an offer", "Ian Gabriel Fernandez"],
+        "messages": [
+            {"from": "Ian Gabriel Fernandez", "to": "", "date": "2026-07-13T14:06", "role": "client",
+             "body": "Great, excited to start!"},
+            {"from": "Lorenzo Marchese sent an offer", "to": "", "date": "2026-07-13T14:01",
+             "role": "client", "body": "THE ROLE"},
+            {"from": "Lorenzo Marchese", "to": "", "date": "2026-07-13T14:00", "role": "client",
+             "body": "Hi, sharing the offer now."},
+        ],
+    }
+    changed = upwork_import.normalize_chat_thread(stored, agora_names=["Ian Gabriel Fernandez"])
+    assert changed is True
+    nf = [m["from"] for m in stored["messages"]]
+    assert nf == ["Lorenzo Marchese", "Ian Gabriel Fernandez"], nf   # event dropped + sorted
+    roles = {m["from"]: m["role"] for m in stored["messages"]}
+    assert roles["Ian Gabriel Fernandez"] == "agora", roles          # "me" now tagged agora (right)
+    assert roles["Lorenzo Marchese"] == "client", roles
+    assert stored["subject"] == "Upwork conversation with Lorenzo Marchese", stored["subject"]
+    # Idempotent: a second pass changes nothing.
+    assert upwork_import.normalize_chat_thread(stored, agora_names=["Ian Gabriel Fernandez"]) is False
+
+    # --- merge_messages folds in only genuinely-new messages (the "add newer messages" flow) ------
+    existing = [
+        {"from": "Daniela Marquez", "date": "2026-07-11T00:59", "role": "client", "body": "Hi Ian!"},
+        {"from": "Ian Gabriel Fernandez", "date": "2026-07-11T22:55", "role": "agora", "body": "Got it."},
+    ]
+    incoming = [
+        # the same two (re-pasted) ...
+        {"from": "Daniela Marquez", "date": "2026-07-11T00:59", "role": "client", "body": "Hi Ian!"},
+        {"from": "Ian Gabriel Fernandez", "date": "2026-07-11T22:55", "role": "agora", "body": "Got it."},
+        # ... plus two NEW ones from the same people, later.
+        {"from": "Daniela Marquez", "date": "2026-07-12T09:00", "role": "client", "body": "One more thing."},
+        {"from": "Ian Gabriel Fernandez", "date": "2026-07-12T09:30", "role": "agora", "body": "On it."},
+    ]
+    merged, added = upwork_import.merge_messages(existing, incoming)
+    assert added == 2, added                                   # only the two new ones counted
+    assert len(merged) == 4, len(merged)                       # no duplicates of the first two
+    assert [m["date"] for m in merged] == sorted(m["date"] for m in merged)   # ordered
+    assert merged[-1]["body"] == "On it.", merged[-1]
+    # Re-merging the same incoming again adds nothing (idempotent).
+    merged2, added2 = upwork_import.merge_messages(merged, incoming)
+    assert added2 == 0 and len(merged2) == 4, (added2, len(merged2))
+
+    print("upwork_import localtest: OK (%d messages parsed, quoted dup dropped, events skipped, "
+          "merge verified)" % len(msgs))
 
 
 if __name__ == "__main__":

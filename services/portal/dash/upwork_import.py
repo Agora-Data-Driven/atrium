@@ -46,6 +46,16 @@ RE_SIZE = re.compile(r"^\s*\d+(?:\.\d+)?\s*(?:bytes|[kKmMgG]B)\s*$")
 RE_FILENAME = re.compile(
     r"^\S.*\.(?:pdf|jpe?g|png|gif|webp|docx?|xlsx?|pptx?|csv|txt|zip|mp4|mov)\s*$", re.I)
 RE_SHOW_MORE = re.compile(r"^\s*Show more\s*$", re.I)
+# Upwork sprinkles SYSTEM-EVENT lines into a thread -- "<Name> sent an offer", "withdrew an offer",
+# "accepted an offer", "sent you an invitation", "started the contract", etc. Each is followed by a
+# time + a blurb, so the parser used to mistake them for chat messages (they polluted the message
+# list AND the derived participants/title). A sender-position line matching this is treated as an
+# event and dropped. A real display name never carries one of these verb+noun phrases.
+RE_EVENT = re.compile(
+    r"\b(?:sent|sends|withdrew|withdraws|updated|updates|accepted|accepts|declined|declines|"
+    r"cancell?ed|cancels|ended|ends|started|starts|reopened|paused|closed|submitted|released|"
+    r"requested|approved)\b.{0,24}\b(?:offer|contract|invitation|invite|milestone|proposal|"
+    r"interview|job|payment|hours?)\b", re.I)
 
 
 def _norm_names(agora_names):
@@ -85,6 +95,20 @@ def _iso(month, day, year, hh, mm, ampm):
         return datetime(year, month, int(day), h, int(mm)).strftime("%Y-%m-%dT%H:%M")
     except ValueError:
         return ""
+
+
+def sort_messages(messages):
+    """Return `messages` ordered strictly oldest->newest by parsed date. Stable: an undated line
+    keeps its neighbour's slot via a forward-filled key, and equal keys preserve the input order."""
+    last_seen = ""
+    keyed = []
+    for idx, m in enumerate(messages or []):
+        d = m.get("date") or last_seen
+        if m.get("date"):
+            last_seen = m["date"]
+        keyed.append((d, idx, m))
+    keyed.sort(key=lambda t: (t[0], t[1]))
+    return [t[2] for t in keyed]
 
 
 def _clean_body(buf):
@@ -182,6 +206,13 @@ def parse_upwork(raw, agora_names=None, year=None):
             mt = RE_TIME.match(nl)
             if mt:
                 flush()
+                # An Upwork system event ("<Name> sent an offer") sits in the sender slot with a
+                # timestamp under it -- skip the header + time; its blurb drops as preamble until
+                # the next real message (cur is None, so buffered lines are discarded).
+                if RE_EVENT.search(ln):
+                    cur = None
+                    i = j + 1
+                    continue
                 sender = ln
                 cur = {
                     "from": sender, "to": "",
@@ -211,6 +242,10 @@ def parse_upwork(raw, agora_names=None, year=None):
 
     flush()
 
+    # Order strictly oldest->newest by timestamp (a pasted thread is usually chronological, but a
+    # quoted reply-back or a copy that skips around can land a message out of order).
+    messages = sort_messages(messages)
+
     participants, seen = [], set()
     for m in messages:
         s = m.get("from") or ""
@@ -233,6 +268,81 @@ def parse_upwork(raw, agora_names=None, year=None):
         "latest_date": latest_date,
         "title": title,
     }
+
+
+def _msg_sig(m):
+    """A dedupe key for a message: its date + sender + trimmed body. Two pastes of the same
+    conversation produce identical signatures for the overlapping messages."""
+    return ((m.get("date") or ""), (m.get("from") or "").strip().lower(),
+            (m.get("body") or "").strip())
+
+
+def merge_messages(existing, incoming):
+    """Union `existing` with `incoming`, dropping duplicates by signature, ordered oldest->newest.
+    Returns (merged, added_count) where added_count = how many incoming messages were genuinely new.
+    This is how "paste the fuller thread to add newer messages" folds into the stored conversation
+    without creating duplicates."""
+    seen = set()
+    merged = []
+    for m in (existing or []):
+        sig = _msg_sig(m)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        merged.append(m)
+    added = 0
+    for m in (incoming or []):
+        sig = _msg_sig(m)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        merged.append(m)
+        added += 1
+    return sort_messages(merged), added
+
+
+def normalize_chat_thread(thread, agora_names=None):
+    """Re-clean a STORED chat thread in place so an older import renders correctly without a
+    re-paste. Idempotent. It (1) drops any message whose sender is an Upwork system event, (2)
+    RE-TAGS each message's role from `agora_names` (so the team lands on the right even if the
+    original import had no team name), (3) re-orders oldest->newest, and (4) recomputes
+    participants + an auto-generated subject from the surviving client names.
+
+    Returns True if anything changed. A subject the operator clearly hand-wrote (one that does NOT
+    start with the auto "Upwork conversation with " prefix) is left untouched.
+    """
+    msgs = thread.get("messages") or []
+    if not msgs:
+        return False
+    agora_set = _norm_names(agora_names)
+    before = list(msgs)
+
+    kept = [m for m in msgs if not RE_EVENT.search(m.get("from") or "")]
+    for m in kept:
+        m["role"] = "agora" if _is_agora(m.get("from"), agora_set) else "client"
+    kept = sort_messages(kept)
+
+    participants, seen = [], set()
+    for m in kept:
+        s = m.get("from") or ""
+        if s and s not in seen:
+            seen.add(s)
+            participants.append(s)
+    client_participants = [s for s in participants if not _is_agora(s, agora_set)]
+    latest_date = max((m.get("date") or "" for m in kept), default="")
+
+    changed = kept != before or thread.get("participants") != participants
+    thread["messages"] = kept
+    thread["participants"] = participants
+    thread["last_date"] = latest_date
+    subject = thread.get("subject") or ""
+    if subject.startswith("Upwork conversation with ") or not subject:
+        who = ", ".join(client_participants) if client_participants else "the client"
+        new_subject = "Upwork conversation with %s" % who
+        if new_subject != subject:
+            thread["subject"] = new_subject
+            changed = True
+    return changed
 
 
 def fallback_summary(parsed):

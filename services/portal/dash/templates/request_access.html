@@ -61,17 +61,17 @@
         <a href="/auth/google/login" style="color:inherit;font-weight:800">sign in with Google</a>.</div>
       {% else %}
       <h1>Request sent</h1>
-      <div class="ok">Thanks &mdash; we've let the Agora team know that <b>{{ email }}</b> would like
+      <div class="ok">Thanks, we've let the Agora team know that <b>{{ email }}</b> would like
         access. Once an admin approves you, sign in with Google and you're in. You can close this tab.</div>
       {% endif %}
     {% else %}
       <h1>Request access</h1>
       {% if pending %}
-      <p class="sub">You've already requested access with this Google account &mdash; an admin just
+      <p class="sub">You've already requested access with this Google account. An admin just
         needs to approve it. Sending again bumps your request to the top.</p>
       {% else %}
       <p class="sub">There's no Agora account for this Google address yet. Send a request and an admin
-        will approve it &mdash; then you can sign in with Google.</p>
+        will approve it, then you can sign in with Google.</p>
       {% endif %}
       <div class="who">{{ email }}</div>
 

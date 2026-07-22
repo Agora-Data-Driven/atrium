@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Upwork Job Demand — Agora</title>
+<title>Upwork Job Demand: Agora</title>
 <style>
   /* Agora Data Driven theme (assets/brand.json): white space + bold black
      type + Data Green CTA. Series hues stay the validated dataviz palette;
@@ -27,7 +27,7 @@
     --chip-on: #eef6ed;
     --hover-wash: rgba(18,18,18,0.045);
   }
-  /* deliberately ONE look — the brand's white + green — in light AND dark
+  /* deliberately ONE look, the brand's white + green, in light AND dark
      browsers, so the embed reads the same everywhere it is iframed */
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -302,7 +302,7 @@
     </select>
     <label class="chk"><input type="checkbox" id="fVerified"> Payment verified</label>
   </div>
-  <div class="chips" aria-label="Demand tags — pick up to 6 to compare">
+  <div class="chips" aria-label="Demand tags: pick up to 6 to compare">
     <div class="tagdd" id="tagDD">
       <button type="button" id="tagBtn" class="morebtn" aria-expanded="false">Demand tags ▾<span class="n" id="tagCount" style="display:none"></span></button>
       <div class="tagdd-panel" id="tagPanel"></div>
@@ -322,7 +322,7 @@
         <button data-vm="count">Raw count</button>
         <button data-vm="share">% of jobs</button>
       </div>
-      <div class="seg" id="ctxSeg" style="display:none" title="All jobs shows/hides the gray context line. 2nd axis moves it to its own right-hand scale so the selected tags keep a readable shape (scales differ — compare shapes, not heights).">
+      <div class="seg" id="ctxSeg" style="display:none" title="All jobs shows/hides the gray context line. 2nd axis moves it to its own right-hand scale so the selected tags keep a readable shape (scales differ, compare shapes, not heights).">
         <button type="button" id="ctxShowBtn" class="on">All jobs</button>
         <button type="button" id="ctxAxisBtn">2nd axis</button>
       </div>
@@ -354,7 +354,7 @@
   </div>
 
   <div class="card" style="margin-bottom:10px">
-    <h2>Momentum — last 4 weeks vs the historical 4-week average (within current filters)</h2>
+    <h2>Momentum: last 4 weeks vs the historical 4-week average (within current filters)</h2>
     <div class="mom" id="momentum"></div>
   </div>
 
@@ -523,7 +523,7 @@
   }
   function statsFromAggregates(a) {
     // the three preset views (current era / since Mar 31 / all time) are all
-    // pre-baked at process time — no full-table scan
+    // pre-baked at process time, no full-table scan
     var b = a;
     if (state.datePreset === "era" && a.era) b = a.era;
     else if (state.datePreset === "mar31" && a.mar31) b = a.mar31;
@@ -574,7 +574,7 @@
     refreshJobs();
   }
 
-  // a stray filter silently narrowing every number is how charts get misread —
+  // a stray filter silently narrowing every number is how charts get misread:
   // list every active non-chip filter where nobody can miss it
   function renderBanner() {
     var bits = [];
@@ -656,14 +656,14 @@
   }
 
   // ---- number helpers ----
-  function fmt(n) { return n === null || n === undefined ? "—" : Number(n).toLocaleString("en-US"); }
+  function fmt(n) { return n === null || n === undefined ? "–" : Number(n).toLocaleString("en-US"); }
   function compact(n) {
-    if (n === null || n === undefined) return "—";
+    if (n === null || n === undefined) return "–";
     if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
     if (n >= 1e4) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
     return fmt(Math.round(n));
   }
-  function money(n) { return n === null || n === undefined ? "—" : "$" + fmt(Math.round(n)); }
+  function money(n) { return n === null || n === undefined ? "–" : "$" + fmt(Math.round(n)); }
   function niceTicks(max, count) {
     if (max <= 0) return [0, 1];
     var raw = max / count;
@@ -680,7 +680,7 @@
     var el = document.getElementById("kpis");
     el.textContent = "";
     // KPIs use coverage-adjusted counts; ALL full weeks count toward the
-    // baselines — banded weeks (outages/holidays) included, by request
+    // baselines, banded weeks (outages/holidays) included, by request
     var wk = fullWeeks(d.weekly).map(function (w) {
       return (w.a !== null && w.a !== undefined) ? w.a : w.n;
     });
@@ -698,14 +698,14 @@
     var hist4 = wk.length > 4 ? avg(wk.slice(0, -4)) : null;
 
     tile(el, "Jobs in view", compact(d.total), null, null);
-    tile(el, "Last full week", lastW === null ? "—" : fmt(lastW),
+    tile(el, "Last full week", lastW === null ? "–" : fmt(lastW),
          pctVs(lastW, histW),
-         "vs " + (histW === null ? "—" : compact(Math.round(histW))) + "/wk historical avg");
-    tile(el, "Last 4 wks (avg/wk)", last4 === null ? "—" : compact(Math.round(last4)),
+         "vs " + (histW === null ? "–" : compact(Math.round(histW))) + "/wk historical avg");
+    tile(el, "Last 4 wks (avg/wk)", last4 === null ? "–" : compact(Math.round(last4)),
          pctVs(last4, hist4),
-         "vs " + (hist4 === null ? "—" : compact(Math.round(hist4))) + "/wk historical avg");
-    tile(el, "Median hourly (posted min)", d.median_hourly === null ? "—" : "$" + d.median_hourly, null, null);
-    tile(el, "Median fixed budget", d.median_fixed === null ? "—" : money(d.median_fixed), null, null);
+         "vs " + (hist4 === null ? "–" : compact(Math.round(hist4))) + "/wk historical avg");
+    tile(el, "Median hourly (posted min)", d.median_hourly === null ? "–" : "$" + d.median_hourly, null, null);
+    tile(el, "Median fixed budget", d.median_fixed === null ? "–" : money(d.median_fixed), null, null);
   }
   function tile(parent, label, value, deltaPct, vsText) {
     var t = document.createElement("div"); t.className = "card tile";
@@ -740,7 +740,7 @@
     return out;
   }
   function trimPartial(rows, key, periodDays) {
-    // the current week/day is still filling — charting it reads as a collapse
+    // the current week/day is still filling, charting it reads as a collapse
     if (!agg || rows.length < 2) return rows;
     var lastStart = new Date(rows[rows.length - 1][key] + "T00:00:00");
     var dmax = new Date(agg.date_max.slice(0, 10) + "T00:00:00");
@@ -913,7 +913,7 @@
       svg.appendChild(tx2);
     }
 
-    // outage annotations: every period Zenfl was down (or no feeds existed) —
+    // outage annotations: every period Zenfl was down (or no feeds existed),
     // recessive chrome UNDER the series, so cliffs read as data-source
     // artifacts, not market moves
     (agg && agg.outages ? agg.outages : []).forEach(function (o, oi) {
@@ -1229,7 +1229,7 @@
     if (!d.rows.length) {
       var tr0 = document.createElement("tr");
       var td0 = document.createElement("td"); td0.colSpan = 7; td0.className = "empty";
-      td0.textContent = "Nothing matches this slice — loosen a filter.";
+      td0.textContent = "Nothing matches this slice. Loosen a filter.";
       tr0.appendChild(td0); body.appendChild(tr0);
       return;
     }
@@ -1240,7 +1240,7 @@
       var fit = document.createElement("td");
       var badge = document.createElement("span");
       if (r.fit_score === null || r.fit_score === undefined) {
-        badge.className = "fit fit-none"; badge.textContent = "—";
+        badge.className = "fit fit-none"; badge.textContent = "–";
         badge.title = "Not scored yet";
       } else {
         badge.className = "fit " + (r.fit_score >= 85 ? "fit-hi" : r.fit_score >= 50 ? "fit-mid" : "fit-lo");
@@ -1264,9 +1264,9 @@
       }
       var rsn = document.createElement("td"); rsn.className = "rsn";
       rsn.textContent = (r.fit_score === null || r.fit_score === undefined)
-        ? "—" : (r.fit_reason || "—");
+        ? "–" : (r.fit_reason || "–");
       var sk = document.createElement("td"); sk.className = "sk";
-      sk.textContent = r.skills || "—";
+      sk.textContent = r.skills || "–";
       var rate = document.createElement("td"); rate.className = "rate";
       rate.textContent = rateText(r);
       var cl = document.createElement("td"); cl.className = "cl";
@@ -1284,14 +1284,14 @@
       return "$" + r.rate_min + "–$" + r.rate_max + "/hr";
     }
     if (r.fixed_budget !== null) return money(r.fixed_budget) + " fixed";
-    return r.budget_type || "—";
+    return r.budget_type || "–";
   }
   function clientText(r) {
     var bits = [];
     if (r.country) bits.push(r.country);
     if (r.rating !== null) bits.push("⭐ " + r.rating);
-    if (r.spent !== null) bits.push(compact(r.spent) === "—" ? "" : "$" + compact(r.spent) + " spent");
-    return bits.filter(Boolean).join(" · ") || "—";
+    if (r.spent !== null) bits.push(compact(r.spent) === "–" ? "" : "$" + compact(r.spent) + " spent");
+    return bits.filter(Boolean).join(" · ") || "–";
   }
   function toggleDetail(tr, r) {
     var next = tr.nextElementSibling;
@@ -1306,7 +1306,7 @@
       var b = document.createElement("b");
       b.textContent = "Agora fit " + r.fit_score + "/100";
       fl.appendChild(b);
-      fl.appendChild(document.createTextNode(" — " + (r.fit_reason || "no reason recorded")));
+      fl.appendChild(document.createTextNode(": " + (r.fit_reason || "no reason recorded")));
       td.appendChild(fl);
     }
     var meta = document.createElement("div"); meta.className = "meta";
@@ -1461,7 +1461,7 @@
 
     // spreadsheet mode: per-column filters + click-to-sort headers + CSV export.
     // Min-fit is a real number, entered either in the top bar or the column
-    // filter — the two inputs mirror each other.
+    // filter. The two inputs mirror each other.
     var fFit = document.getElementById("fFit"), cfFit = document.getElementById("cfFit");
     fFit.value = state.fit === "unscored" ? "" : state.fit;
     cfFit.value = fFit.value;
@@ -1499,7 +1499,7 @@
         state.page = 1;
         var dd = document.getElementById("fSort");
         dd.value = state.sort;
-        if (dd.value !== state.sort) dd.value = "";  // sort not in the dropdown — blank it
+        if (dd.value !== state.sort) dd.value = "";  // sort not in the dropdown, blank it
         writeUrl(); refreshJobs();
       });
     });
@@ -1613,7 +1613,7 @@
       " · from the Upwork feed archive";
     document.getElementById("footNote").textContent =
       "Processed " + a.generated_at.slice(0, 10) + " · demand tags are keyword-classified from title, skills and description · a job can carry several tags. " +
-      "Comparable mode rescales each feed-pipeline era to today's coverage (chain-linked per feed at the outage boundaries — the gray bands), because the bot over-delivered ~3× Jul 28–Oct 17, 2025 and delivers about half the old baseline since. ≈ values are estimates; Raw shows exactly what the bot sent; thin vertical lines mark feed creations (real coverage additions). KPI baselines and Momentum use the adjusted numbers.";
+      "Comparable mode rescales each feed-pipeline era to today's coverage (chain-linked per feed at the outage boundaries, the gray bands), because the bot over-delivered ~3× Jul 28–Oct 17, 2025 and delivers about half the old baseline since. ≈ values are estimates; Raw shows exactly what the bot sent; thin vertical lines mark feed creations (real coverage additions). KPI baselines and Momentum use the adjusted numbers.";
     fillSelect("fCategory", a.categories, "category");
     fillSelect("fCountry", a.countries, "country");
     // restore select values that only exist after options are filled
