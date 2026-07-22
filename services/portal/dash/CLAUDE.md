@@ -231,14 +231,31 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   `python _mail_localtest.py`.
 - **`upwork_import.py`** — the Communications tab's **Upwork importer** (team-only, `POST
   /w/<c>/admin/communication` op `import_upwork`). Pure + infra-free (no network/storage/AI):
-  `parse_upwork(raw, agora_names)` is a small state machine over pasted Upwork chat → an ordered,
-  role-tagged (agora vs client by the team's display name), de-duplicated (quoted reply-backs +
-  avatar-initials + attachment-count lines stripped) list of `{from,to:"",date,role,body}` messages
-  + `title`/`participants`/`latest_date`. `main.py` stores it as a Mail thread archive object (key
+  `parse_upwork(raw, agora_names)` is a small state machine over pasted Upwork chat → an ordered
+  (oldest→newest via `sort_messages`), role-tagged (agora vs client by the team's display name),
+  de-duplicated (quoted reply-backs + avatar-initials + attachment-count lines stripped) list of
+  `{from,to:"",date,role,body}` messages + `title`/`participants`/`latest_date`. **Upwork
+  SYSTEM-EVENT lines** ("<Name> sent/withdrew/updated/accepted an offer", contract/invitation/…) are
+  matched by `RE_EVENT` and dropped — they used to be mis-parsed as chat messages (polluting the
+  list + the derived participants/title). `main.py` stores it as a Mail thread archive object (key
   `up_<id>` via `workspace.write_mail_thread`) so the EXISTING `/w/<c>/mail/thread/<key>` reader
   modal renders it, and adds an `upwork`-channel timeline card whose summary is
-  `mailroom.summarize_thread` (`fallback_summary` when no model). Test: `python
-  _upwork_import_localtest.py`.
+  `mailroom.summarize_thread` (`fallback_summary` when no model). **"Us" = the right side of the
+  chat:** the import route builds `agora_names` from the typed team name PLUS the whole `_team_roster()`
+  (a first name like "Ian" matches the full Upwork display "Ian Gabriel Fernandez"), so the team
+  lands on the right even when the name field is left blank. **`normalize_chat_thread(thread,
+  agora_names)`** re-cleans a STORED thread idempotently (drop event lines, RE-TAG roles from the
+  roster, re-order, recompute participants/subject) — the thread route calls it on read for any
+  `up_`/`origin=="upwork"` thread and persists only when it changed, so OLD imports render correctly
+  (right-side team, no event noise) with NO re-import. The reader modal (`atrium.html`) renders a
+  chat thread oldest→newest, **opens scrolled to the newest message** with a floating **"↓ Latest"**
+  jump pill, and **groups consecutive same-sender messages** (`ax-ch-cont`: follow-ups drop the
+  avatar/name, stack tight). **Add newer messages to an existing conversation** (op `update_upwork`,
+  team-only): the reader modal's **"＋ Add newer messages"** button (Upwork threads only) takes a
+  re-paste of the fuller thread; `upwork_import.merge_messages(existing, incoming)` folds in ONLY the
+  genuinely-new messages (dedupe by date+sender+trimmed-body signature, returns an `added` count),
+  then `normalize_chat_thread` re-tags/re-orders and the card's date/people/subject are refreshed —
+  no duplicate card, idempotent (a re-paste adds 0). Test: `python _upwork_import_localtest.py`.
 - **`intel_feed.py` / `intel_refresh.py`** — the DAILY Market Intelligence auto-refresh (opt-in,
   `INTEL_AUTO_ENABLED=1`). `intel_feed` parses Google News RSS + publisher feeds (keyless, stdlib
   `xml.etree` + lazy `requests`, degrades to `[]`); `intel_refresh.main()` is the Cloud Run **job**

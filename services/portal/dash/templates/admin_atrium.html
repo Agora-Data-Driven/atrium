@@ -16,10 +16,10 @@
   {% if favicon %}<link rel="icon" href="{{ favicon }}">{% endif %}
   <style>
     /* ==========================================================================
-       Team console — Concept B (Home hub + focused console).
+       Team console: Concept B (Home hub + focused console).
        Tokens ported from the Agora WEBSITE design system (website/src/styles/global.css):
        white + airy, bold black type, green = primary/CTA, purple = informational accent.
-       Fonts use the system stack (the locked runtime can't web-load Archivo/Lato — see brand.py).
+       Fonts use the system stack (the locked runtime can't web-load Archivo/Lato, see brand.py).
        Inline JS is esprima-4.x-safe (no ?./??) and reads state from the DOM (no Jinja in the script block).
        ========================================================================== */
     :root {
@@ -92,7 +92,7 @@
       -webkit-background-clip: text; background-clip: text; color: transparent; }
     .hub-lead { color: var(--muted); font-size: 17px; max-width: 56ch; margin: 0 0 40px; line-height: 1.6; }
     /* Deterministic wrap: 1 column on phones, a balanced 2x2 on laptops, one row of 4 on
-       desktop — the last card is never orphaned (no 3+1 row at any width). */
+       desktop, the last card is never orphaned (no 3+1 row at any width). */
     .suite { display: grid; grid-template-columns: 1fr; gap: 16px; }
     @media (min-width: 640px)  { .suite { grid-template-columns: repeat(2, 1fr); } }
     @media (min-width: 1100px) { .suite { grid-template-columns: repeat(4, 1fr); } }
@@ -335,7 +335,7 @@
     .tk-head-actions .btn { margin-left: 2px; box-shadow: 0 6px 15px -9px rgba(79,168,74,.55); }  /* softer than the heavy glow */
     .tk-head-actions .btn:hover { box-shadow: 0 9px 20px -10px rgba(79,168,74,.6); }
     .tk-head-actions .btn svg { width: 16px; height: 16px; }
-    /* Header secondary controls (Archived / Export / Import) — identical ghost buttons with a leading
+    /* Header secondary controls (Archived / Export / Import), identical ghost buttons with a leading
        icon, so the cluster reads as one consistent toolbar next to the green primary. */
     .tk-hbtn { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; white-space: nowrap; }
     .tk-hbtn svg { width: 15px; height: 15px; flex: 0 0 auto; }
@@ -428,12 +428,12 @@
     .tk-hold { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; font-weight: 800; letter-spacing: .03em;
       text-transform: uppercase; color: #9b6a12; background: #fdf3e3; border: 1px solid #f0dda2; border-radius: 999px; padding: 1px 7px; }
     .tk-hold svg { width: 10px; height: 10px; }
-    /* URGENT tag: a solid red filled pill (NOT a left accent bar — that treatment was rejected).
+    /* URGENT tag: a solid red filled pill (NOT a left accent bar, that treatment was rejected).
        No motion; the fill + weight carry the signal. Urgent-first sort already floats these to top. */
     .tk-urgent { font-family: var(--font-display); font-size: 9.5px; font-weight: 800; letter-spacing: .05em;
       text-transform: uppercase; color: #fff; background: #d7263d; border-radius: 999px; padding: 2px 8px;
       box-shadow: 0 1px 2px rgba(215,38,61,.35); }
-    /* Card top line: the CLIENT leads (display caps, ink), pills sit right — hierarchy, not color. */
+    /* Card top line: the CLIENT leads (display caps, ink), pills sit right: hierarchy, not color. */
     .tk-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; min-width: 0; }
     /* Card hierarchy by WEIGHT: the title is the card's one bold element; the client leads by
        position + caps (not shout), and everything else recedes until it has a reason to speak. */
@@ -497,7 +497,7 @@
     .tk-stagepill { font-size: 10px; font-weight: 800; border-radius: 999px; padding: 2px 9px; letter-spacing: .03em; text-transform: uppercase; }
     .tk-stagepill.in_process { background: #eaf1fb; color: #1c4f9c; } .tk-stagepill.for_launch { background: #fdf3e3; color: #8a6003; }
     .tk-stagepill.launched { background: var(--tint); color: var(--brand-700); } .tk-stagepill.closed { background: #eef0ee; color: #5b615c; }
-    /* Section labels: quiet sentence-case guides, not shouting uppercase headers — the content
+    /* Section labels: quiet sentence-case guides, not shouting uppercase headers, the content
        carries the hierarchy, the label just whispers what it is. */
     .tkd-sl { font-size: 11.5px; font-weight: 700; letter-spacing: .01em; color: var(--muted); margin: 15px 0 6px; }
     .tkd-sl:first-child { margin-top: 0; }
@@ -514,7 +514,7 @@
       border-radius: var(--r-md); padding: 8px 11px; font-size: 12px; font-weight: 700; margin-top: 10px; }
     .tk-nudge form { margin: 0; }
     /* align-items:flex-start so the checkbox sits beside the sub-task's NAME line (the row can be two
-       lines tall once the "done when" caption shows) — it no longer floats between text + caption. */
+       lines tall once the "done when" caption shows). It no longer floats between text + caption. */
     .tk-subrow { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; padding: 7px 2px; font-size: 13px; }
     .tk-subrow form { margin: 0; display: flex; align-items: center; gap: 6px; }
     .tk-subrow input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--brand-600); cursor: pointer; margin-top: 3px; }
@@ -575,7 +575,7 @@
     .tk-comform input[type=text] { flex: 1; min-width: 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 12.5px; }
     .tk-activity { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; color: var(--muted); }
     .tk-activity b { color: var(--body); }
-    /* Collapsible disclosure inside the overlay (Activity) — matches the prototype's ▸ sections. */
+    /* Collapsible disclosure inside the overlay (Activity), matches the prototype's ▸ sections. */
     details.tk-disc { margin-top: 14px; }
     details.tk-disc > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 7px; font-size: 11.5px;
       font-weight: 700; letter-spacing: .01em; color: var(--muted); padding: 4px 0; }
@@ -645,7 +645,7 @@
       cursor: pointer; padding: 2px 4px; border-radius: 6px; text-decoration: underline; text-underline-offset: 2px; }
     .tk-linkish:hover { color: var(--ink); background: var(--canvas); }
     .tk-holdform { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    /* display:flex beats the [hidden] UA style — restore it, or the collapsed form leaks through. */
+    /* display:flex beats the [hidden] UA style. Restore it, or the collapsed form leaks through. */
     .tk-holdrow[hidden], .tk-holdform[hidden] { display: none; }
     .tk-holdform input[type=text] { flex: 1; min-width: 140px; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 12.5px; }
     .tk-holdform .btn, .tk-holdform .btn-ghost { margin: 0; }
@@ -683,7 +683,7 @@
     .tk-main-count { font-size: 10.5px; font-weight: 800; color: var(--muted); background: var(--canvas); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
     .tk-main-head select { max-width: 118px; padding: 3px 5px; border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 11px; background: var(--surface); color: var(--body); }
     /* The group owner reads like the prototype (avatar + bold name): a borderless select that
-       only reveals it's a control on hover — clicking it reassigns in one step. */
+       only reveals it's a control on hover. Clicking it reassigns in one step. */
     .tk-main-head select.tk-ownersel { border-color: transparent; background: transparent; font-size: 12px; font-weight: 800;
       color: var(--ink); cursor: pointer; padding: 3px 2px; max-width: 128px; }
     .tk-main-head select.tk-ownersel:hover, .tk-main-head select.tk-ownersel:focus { border-color: var(--line); background: var(--surface); }
@@ -832,7 +832,7 @@
   {% macro assign_select() %}
     <select name="assign" aria-label="Assign access to">
       <option value="new-client">New client (create workspace)</option>
-      {% if is_root_admin %}<option value="role-admin">Admin &mdash; all clients</option>
+      {% if is_root_admin %}<option value="role-admin">Admin: all clients</option>
       <option value="role-superadmin">Super admin</option>{% endif %}
       {% for c in clients %}<option value="{{ c.key }}">Client: {{ c.name|default(c.key, true) }}</option>{% endfor %}
     </select>
@@ -937,7 +937,7 @@
             <div>
               <p class="eyebrow">Atrium Admin &middot; Workspaces</p>
               <h1 class="page">Clients</h1>
-              <p class="lead">Your home base for every Agora client &mdash; click one to open its workspace and edit it in place.</p>
+              <p class="lead">Your home base for every Agora client. Click one to open its workspace and edit it in place.</p>
             </div>
             <div class="sync-inline">
               <span class="meta" id="sync-when" data-iso="" title="Dashboards sync automatically every few hours">Last synced: checking&hellip;</span>
@@ -993,7 +993,7 @@
         <section class="pane" data-pane="accounts">
           <p class="eyebrow">Atrium Admin &middot; People &amp; access</p>
           <h1 class="page">Accounts</h1>
-          <p class="lead">Everyone who can sign in &mdash; review pending requests, manage existing
+          <p class="lead">Everyone who can sign in. Review pending requests, manage existing
             logins, or add someone new. One place, one job.</p>
 
           <div class="subtabs" role="tablist">
@@ -1121,7 +1121,7 @@
           <div class="sub" data-sub="add">
             <h2 class="section">Grant Google access to a Gmail</h2>
             <form class="panel" method="post" action="/admin/accounts/grant-google">
-              <p class="meta">Give any Google account access &mdash; they sign in with <b>Sign in with
+              <p class="meta">Give any Google account access. They sign in with <b>Sign in with
                 Google</b> (no password). Assign them to a new client, an existing client, or a role.</p>
               <div class="row">
                 <div><label>Google email</label><input type="email" name="email" placeholder="person@gmail.com" required></div>
@@ -1186,8 +1186,8 @@
             <div class="req">
               <div>
                 <b>{{ b.email }}</b>
-                <span class="meta">&middot; {{ 'Workspace (delegated — nothing stored)' if b.kind == 'dwd' else 'App password (IMAP)' }}
-                  &middot; {% if b.client %}<b>{{ b.client }}</b> only — whole inbox ingested{% else %}shared — routed to each client by contacts{% endif %}{% if b.added_at %} &middot; added {{ b.added_at[:10] }}{% endif %}</span>
+                <span class="meta">&middot; {{ 'Workspace (delegated, nothing stored)' if b.kind == 'dwd' else 'App password (IMAP)' }}
+                  &middot; {% if b.client %}<b>{{ b.client }}</b> only, whole inbox ingested{% else %}shared, routed to each client by contacts{% endif %}{% if b.added_at %} &middot; added {{ b.added_at[:10] }}{% endif %}</span>
                 <span class="meta" data-mbmsg="{{ b.id }}"></span>
               </div>
               {% if is_root_admin %}
@@ -1203,7 +1203,7 @@
             </div>
             {% endfor %}
             {% else %}
-            <p class="meta">No mailboxes connected yet &mdash; the Mail tab stays empty until one is.</p>
+            <p class="meta">No mailboxes connected yet. The Mail tab stays empty until one is.</p>
             {% endif %}
           </div>
 
@@ -1215,18 +1215,18 @@
             <input type="email" name="email" placeholder="info@agoradatadriven.com" required>
             <label>How to connect</label>
             <select name="kind" id="mb-kind">
-              <option value="dwd">Our Workspace domain &mdash; delegated, no password stored</option>
-              <option value="imap">Any other Google account &mdash; via an app password</option>
+              <option value="dwd">Our Workspace domain: delegated, no password stored</option>
+              <option value="imap">Any other Google account, via an app password</option>
             </select>
             <label>Whose mailbox is this?</label>
             <select name="client" id="mb-client">
-              <option value="">Shared inbox &mdash; route to each client by their contact addresses</option>
+              <option value="">Shared inbox: route to each client by their contact addresses</option>
               {% for c in mail_client_options %}
-              <option value="{{ c.key }}">{{ c.name }} &mdash; a dedicated inbox; ingest its WHOLE contents into {{ c.name }}</option>
+              <option value="{{ c.key }}">{{ c.name }}: a dedicated inbox; ingest its WHOLE contents into {{ c.name }}</option>
               {% endfor %}
             </select>
             <p class="meta">Pick a client for a mailbox that belongs to just them (like one they gave
-              you access to) &mdash; the whole inbox is pulled, no contact list needed. Leave it
+              you access to), the whole inbox is pulled, no contact list needed. Leave it
               <b>Shared</b> for an agency mailbox that many clients email; then each client's Mail tab
               pulls only the mail matching their own contact addresses.</p>
             <div id="mb-pw" hidden>
@@ -1237,7 +1237,7 @@
                 private registry bucket and never shown again; re-adding the same email replaces it.</p>
             </div>
             {% if not mail_dwd %}
-            <p class="meta">Workspace delegation isn't wired on this deploy yet &mdash; run
+            <p class="meta">Workspace delegation isn't wired on this deploy yet. Run
               <b>services/portal/dash/enable_atrium_mail.ps1</b> once and redeploy to enable the
               no-password option for our own domain. App-password mailboxes work regardless.</p>
             {% endif %}
@@ -1250,7 +1250,7 @@
         <section class="pane" data-pane="activity">
           <p class="eyebrow">Atrium Admin &middot; Workspaces</p>
           <h1 class="page">Activity</h1>
-          <p class="lead">Everything admins and clients do across every workspace &mdash; newest first.</p>
+          <p class="lead">Everything admins and clients do across every workspace, newest first.</p>
           {% if activity %}
           <div class="panel feed">
             {% for a in activity %}
@@ -1277,7 +1277,7 @@
           {% if trash %}
           <div class="bin-tools" style="display:flex;justify-content:flex-end;margin:0 0 12px">
             <form method="post" action="/admin/atrium/trash/empty" data-empty-bin data-count="{{ trash|length }}" style="margin:0">
-              <button type="submit" class="btn-ghost-danger small" title="Permanently delete everything in the Bin — cannot be undone">
+              <button type="submit" class="btn-ghost-danger small" title="Permanently delete everything in the Bin, cannot be undone">
                 Empty bin permanently
               </button>
             </form>
@@ -1306,7 +1306,7 @@
         <!-- ---------- TASK BOARD (Delivery) ---------- -->
         {#- Person <select> options from the team roster (lead / sub-task owner pickers). -#}
         {% macro tk_people(sel, blank) -%}
-          <option value="">{{ blank|default('—', true) }}</option>
+          <option value="">{{ blank|default('-', true) }}</option>
           {%- for p in task_roster %}<option value="{{ p.id }}" {{ 'selected' if p.id == sel else '' }}>{{ p.name }}</option>{% endfor %}
         {%- endmacro %}
         {#- Reopen-after-action: overlay forms carry these so the redirect lands back INSIDE this
@@ -1322,15 +1322,15 @@
         {#- The New/Edit service form is split into small field groups so the two forms can arrange
             them differently: the New form slots the Service-type picker between Dept/Lead and
             Campaign (so you pick the template that drives the tasks BEFORE the details it fills in),
-            while Edit — which never regenerates the breakdown — just stacks them in reading order. -#}
+            while Edit, which never regenerates the breakdown, just stacks them in reading order. -#}
         {% macro tk_deptlead(t) -%}
           <div class="tk-formgrid">
             <div><label>Department</label><select name="department">
-              <option value="">—</option>
+              <option value="">-</option>
               {% for dk, dl in task_departments %}<option value="{{ dk }}" {{ 'selected' if t.department|default('') == dk else '' }}>{{ dl }}</option>{% endfor %}
             </select></div>
             <div><label>Lead (main)</label><select name="lead_id">{{ tk_people(t.lead_id|default('', true), 'Unassigned') }}</select></div>
-            <div class="full"><div class="tk-hint">The card label follows the department automatically — Acquisition → <b>Paid Media</b>, Lifecycle → <b>Organic</b>, everything else → <b>Website</b>.</div></div>
+            <div class="full"><div class="tk-hint">The card label follows the department automatically: Acquisition → <b>Paid Media</b>, Lifecycle → <b>Organic</b>, everything else → <b>Website</b>.</div></div>
           </div>
         {%- endmacro %}
         {% macro tk_campaign(t) -%}
@@ -1353,9 +1353,9 @@
           <details class="tk-extra" {{ 'open' if has_extra else '' }}>
             <summary>Additional details{{ '' if has_extra else ' (optional)' }}</summary>
             <div class="tk-formgrid">
-              <div class="full"><div class="tk-hint">This board is internal. The service reaches the client's Progress tab only when <b>Client-facing</b> is ticked — and even then only the client-safe fields are shared; support people, the charge, and internal notes stay here.</div></div>
+              <div class="full"><div class="tk-hint">This board is internal. The service reaches the client's Progress tab only when <b>Client-facing</b> is ticked, and even then only the client-safe fields are shared; support people, the charge, and internal notes stay here.</div></div>
               <div class="full"><label class="tk-cf"><input type="checkbox" name="client_facing" value="1" {{ 'checked' if t.client_facing|default(false) else '' }}>
-                Client-facing &mdash; show this service on the client's Progress tab</label></div>
+                Client-facing: show this service on the client's Progress tab</label></div>
               {% if is_edit %}
               <input type="hidden" name="has_support" value="1">
               <div class="full"><label>Support people</label><div class="tk-pick">
@@ -1371,7 +1371,7 @@
           </details>
         {%- endmacro %}
         {#- Edit form: no service-type picker (edits never regenerate the breakdown), so the groups
-            just stack — Dept/Lead → Campaign → Priority/charge/dates → Additional details. -#}
+            just stack: Dept/Lead → Campaign → Priority/charge/dates → Additional details. -#}
         {% macro tk_fields(t, is_edit) -%}
           {{ tk_deptlead(t) }}
           {{ tk_campaign(t) }}
@@ -1383,7 +1383,7 @@
             <div>
               <p class="eyebrow">Atrium Admin &middot; Delivery</p>
               <h1 class="page">Task Board</h1>
-              <p class="lead">Every client deliverable across every workspace &mdash; drag to move, click to open.</p>
+              <p class="lead">Every client deliverable across every workspace, drag to move, click to open.</p>
             </div>
             <div class="tk-head-actions">
               <button type="button" class="btn-ghost tk-hbtn" data-section="trash" title="Deleted tasks live in the Bin, restorable for {{ trash_ttl_days }} days">
@@ -1425,7 +1425,7 @@
             <button type="button" class="clear" id="tk-f-clear">Clear filters</button>
           </div>
 
-          {#- Display row: HOW the matching services are shown (view / sort / density / caps) — kept
+          {#- Display row: HOW the matching services are shown (view / sort / density / caps), kept
               separate from the filter row above so neither feels crowded. VIEW + DENSITY are
               segmented toggles; density + caps only apply to the flat board (hidden in Swimlanes). -#}
           <div class="tk-display">
@@ -1468,10 +1468,10 @@
                      data-people="{{ t.people }}" data-priority="{{ t.priority }}"
                      data-due="{{ t.due_date or '9999-99-99' }}" data-cname="{{ t.client_name }}" data-hold="{{ '1' if t.on_hold else '0' }}">
                   {#- The client leads the card (an agency scans by client first): its own top
-                      line in display caps, pills on the right — no extra color, just hierarchy. -#}
+                      line in display caps, pills on the right: no extra color, just hierarchy. -#}
                   <div class="tk-top">
                     <span class="tk-client" title="{{ t.client_name }}">{{ t.client_name }}</span>
-                    {% if t.labels or t.on_hold or t.priority == 'Urgent' %}<div class="tk-pills">{% if t.priority == 'Urgent' and not t.on_hold %}<span class="tk-urgent" title="Urgent priority">URGENT</span>{% endif %}{% for l in t.labels %}<span class="tk-pill {{ {'Paid Media': 'lb-paid', 'Organic': 'lb-organic', 'Website': 'lb-web'}.get(l, 'lb-other') }}">{{ l }}</span>{% endfor %}{% if t.on_hold %}<span class="tk-hold" title="On hold{{ ' — ' ~ t.hold_reason if t.hold_reason else '' }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>On hold</span>{% endif %}</div>{% endif %}
+                    {% if t.labels or t.on_hold or t.priority == 'Urgent' %}<div class="tk-pills">{% if t.priority == 'Urgent' and not t.on_hold %}<span class="tk-urgent" title="Urgent priority">URGENT</span>{% endif %}{% for l in t.labels %}<span class="tk-pill {{ {'Paid Media': 'lb-paid', 'Organic': 'lb-organic', 'Website': 'lb-web'}.get(l, 'lb-other') }}">{{ l }}</span>{% endfor %}{% if t.on_hold %}<span class="tk-hold" title="On hold{{ ': ' ~ t.hold_reason if t.hold_reason else '' }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>On hold</span>{% endif %}</div>{% endif %}
                   </div>
                   <div class="tk-title">{{ t.title }}</div>
                   <div class="tk-meta">
@@ -1480,7 +1480,7 @@
                     {% if t.due_date %}<span class="tk-due {{ t.due_cls }}">{% if not urgent_pill %}&middot; {% endif %}{{ (t.due_date ~ 'T00:00:00Z')|atrium_date }}</span>{% endif %}
                   </div>
                   <div class="tk-foot">
-                    {#- Lead only on the card — support people live in the detail modal
+                    {#- Lead only on the card. Support people live in the detail modal
                         (and still power the person filter via data-people). -#}
                     <span class="tk-people">
                       {% if t.lead_name %}<span class="tk-av" title="{{ t.lead_name }} (lead)" style="background: {{ t.lead_color }}">{{ t.lead_name[:1]|upper }}</span>
@@ -1517,7 +1517,7 @@
                   <span class="tkd-status"><span class="pdot" style="background: {{ {'in_process':'#2f6ecc','for_launch':'#c77d16','launched':'#4fa84a','closed':'#8b8f8c'}[t.stage] }}"></span>{{ col.name }}</span>
                   <span class="tkd-eyebrow">Service &middot; {{ t.client_name }}</span>
                 </div>
-                {#- Edit + Close live in the always-visible header — the ONLY Edit affordance
+                {#- Edit + Close live in the always-visible header, the ONLY Edit affordance
                     (the footer keeps just Archive + the one primary stage action). -#}
                 <button type="button" class="btn-ghost small tkd-headedit" data-tkedit-open="{{ t.client_key }}:{{ t.id }}">Edit</button>
                 <button type="button" class="tkd-x" data-tkclose aria-label="Close">&times;</button>
@@ -1528,7 +1528,7 @@
                 <h2 class="tkd-title" style="margin:0;font-size:20px">{{ t.title }}</h2>
                 {#- Glance diet: priority + dates + charge + trouble flags only. No decorative
                     icons (the priority dot / ⚑ / ⏸ are the meaningful marks), and no sub-task
-                    chip — the Tasks tab badge right below already carries that count. -#}
+                    chip, the Tasks tab badge right below already carries that count. -#}
                 <div class="tkd-glance">
                   <span class="tkd-stat prio p-{{ t.priority }}"><span class="pdot tk-pdot p-{{ t.priority }}"></span>{{ t.priority }}</span>
                   {% if t.on_hold %}<span class="tkd-stat hold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>On hold</span>{% endif %}
@@ -1539,10 +1539,10 @@
                   {% if t.client_facing %}<span class="tkd-stat sync-on">Syncs to Atrium</span>
                   {% else %}<span class="tkd-stat"><span class="k">Internal only</span></span>{% endif %}
                 </div>
-                {#- On-hold banner (orthogonal to stage — shows above it). -#}
+                {#- On-hold banner (orthogonal to stage, shows above it). -#}
                 {% if t.on_hold %}<div class="tkd-ctx hold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>On hold{% if t.hold_reason %} &middot; {{ t.hold_reason }}{% endif %}</div>{% endif %}
-                {#- Stage context banner (skipped for In Process — that's the default working state). -#}
-                {% if t.stage == 'for_launch' %}<div class="tkd-ctx review"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>In review — awaiting sign-off{% if t.subs_total and t.subs_done != t.subs_total %} &middot; {{ t.subs_total - t.subs_done }} sub-task(s) still open{% endif %}</div>
+                {#- Stage context banner (skipped for In Process, that's the default working state). -#}
+                {% if t.stage == 'for_launch' %}<div class="tkd-ctx review"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>In review, awaiting sign-off{% if t.subs_total and t.subs_done != t.subs_total %} &middot; {{ t.subs_total - t.subs_done }} sub-task(s) still open{% endif %}</div>
                 {% elif t.stage == 'launched' %}<div class="tkd-ctx live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/></svg>Live</div>
                 {% elif t.stage == 'closed' %}<div class="tkd-ctx done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Completed &amp; archived</div>{% endif %}
                 {#- Details / Tasks / Comments -- heavy content split into tabs, not one long scroll. -#}
@@ -1551,7 +1551,7 @@
                   <button type="button" class="tkd-tab" role="tab" aria-selected="false" data-tktab="tasks">Tasks{% if t.subs_total %} <span class="tcount tnum">{{ t.subs_done }}/{{ t.subs_total }}</span>{% endif %}</button>
                   <button type="button" class="tkd-tab" role="tab" aria-selected="false" data-tktab="comments">Comments{% if t.comment_count %} <span class="tcount tnum">{{ t.comment_count }}</span>{% endif %}</button>
                 </div>
-                {#- Details reads as content, not a form: the client note leads (no label — it's
+                {#- Details reads as content, not a form: the client note leads (no label, it's
                     the human summary), the deliverable button explains itself, one quiet
                     "Internal" marker splits the halves, and the hold control stays collapsed
                     behind a link until it's needed. -#}
@@ -1559,14 +1559,14 @@
                   {% if t.client_note %}<div class="tkd-note">{{ t.client_note }}</div>{% endif %}
                   {% if t.deliverable_url %}<a class="btn-ghost" style="display:inline-flex;text-decoration:none;{{ 'margin-top:10px' if t.client_note else '' }}" href="{{ t.deliverable_url }}" target="_blank" rel="noopener">Open deliverable →</a>{% endif %}
                   <div class="tkd-internal" {% if not t.client_note and not t.deliverable_url %}style="margin-top:0;padding-top:0;border-top:0"{% endif %}>
-                    <span class="tkd-lock" title="Everything below stays on this board — the client never sees it.">🔒 Internal</span>
+                    <span class="tkd-lock" title="Everything below stays on this board. The client never sees it.">🔒 Internal</span>
                     <div class="tk-chiprow">
                       {% if t.lead_name %}<span class="tk-personchip"><span class="tk-av" style="background: {{ t.lead_color }}">{{ t.lead_name[:1]|upper }}</span>{{ t.lead_name }} <span class="tk-leadtag">LEAD</span></span>
                       {% else %}<span style="font-size:12.5px;color:var(--muted)">No lead assigned</span>{% endif %}
                       {% for s in t.support_people %}<span class="tk-personchip"><span class="tk-av sup" style="margin:0;background: {{ s.color }}">{{ s.name[:1]|upper }}</span>{{ s.name }}</span>{% endfor %}
                     </div>
                     {% if t.internal_notes %}<div class="tkd-sl">Notes</div><div style="font-size:13px;color:var(--body);line-height:1.55">{{ t.internal_notes }}</div>{% endif %}
-                    {#- On hold ⇄ Ongoing. The put-on-hold form stays hidden behind a link — a
+                    {#- On hold ⇄ Ongoing. The put-on-hold form stays hidden behind a link, a
                         rarely-used action shouldn't hold a permanent input field. -#}
                     {% if t.on_hold %}
                     <form class="tk-holdform" method="post" action="/w/{{ t.client_key }}/admin/task/hold">
@@ -1632,13 +1632,13 @@
                         <input type="checkbox" name="done" value="1" {{ 'checked' if s.done else '' }} aria-label="Done">
                       </form>
                       {#- Text + "done when" are inline-editable: edit and blur to save (like the
-                          main-task rename). The dod is INTERNAL — never rendered on the client Progress. -#}
+                          main-task rename). The dod is INTERNAL, never rendered on the client Progress. -#}
                       <form method="post" action="/w/{{ t.client_key }}/admin/task/subtask" data-autosubmit class="tk-sub-edit">
                         <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="edit">
                         <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="subtask_id" value="{{ s.id }}">
                         {{ tk_back(t, 'tasks') }}
                         <input type="text" name="text" value="{{ s.text }}" class="tk-sub-name" aria-label="Sub-task (edit to rename)" title="Click to edit">
-                        <input type="text" name="dod" value="{{ s.dod|default('', true) }}" class="tk-sub-dod" placeholder="Done when… (internal)" aria-label="Done when (internal)" title="Definition of done — internal, never shown to the client">
+                        <input type="text" name="dod" value="{{ s.dod|default('', true) }}" class="tk-sub-dod" placeholder="Done when… (internal)" aria-label="Done when (internal)" title="Definition of done: internal, never shown to the client">
                       </form>
                       <form method="post" action="/w/{{ t.client_key }}/admin/task/subtask" data-autosubmit>
                         <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="assign">
@@ -1668,7 +1668,7 @@
                     </form>
                   </div>
                   {% else %}
-                  <div style="font-size:12.5px;color:var(--muted)">No main tasks yet — add one below, then break it into sub-tasks.</div>
+                  <div style="font-size:12.5px;color:var(--muted)">No main tasks yet. Add one below, then break it into sub-tasks.</div>
                   {% endfor %}
                   <form class="tk-addmain" method="post" action="/w/{{ t.client_key }}/admin/task/maintask">
                     <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="add">
@@ -1679,7 +1679,7 @@
                     <button type="submit" class="btn small">Add main task</button>
                   </form>
                   {% if t.all_subs_done and t.next_stage_key and t.stage != 'closed' %}
-                  <div class="tk-nudge">✓ All sub-tasks done —
+                  <div class="tk-nudge">✓ All sub-tasks done:
                     <form method="post" action="/w/{{ t.client_key }}/admin/task/move">
                       <input type="hidden" name="redirect" value="console"><input type="hidden" name="task_id" value="{{ t.id }}">
                       <input type="hidden" name="stage" value="{{ t.next_stage_key }}">
@@ -1731,7 +1731,7 @@
               <div class="tkd-foot">
                 <form method="post" action="/w/{{ t.client_key }}/admin/task/delete" data-tkdelete data-tktitle="{{ t.title }}">
                   <input type="hidden" name="redirect" value="console"><input type="hidden" name="task_id" value="{{ t.id }}">
-                  <button type="submit" class="btn-ghost" title="Moves this service to the Bin — restorable for {{ trash_ttl_days }} days">Move to Archive</button>
+                  <button type="submit" class="btn-ghost" title="Moves this service to the Bin, restorable for {{ trash_ttl_days }} days">Move to Archive</button>
                 </form>
                 <span class="spacer"></span>
                 {#- No Edit here: the sticky header carries it (.tkd-headedit), so a second one is
@@ -1821,12 +1821,12 @@
                         </select>
                       </div>
                     </div>
-                    <div class="tk-hint" style="margin-top:8px">Pick a department, then a service type &mdash; the phases and steps (with a &ldquo;done when&rdquo; on each) are created for you. Choose <b>Custom (blank)</b> to start empty.</div>
+                    <div class="tk-hint" style="margin-top:8px">Pick a department, then a service type. The phases and steps (with a &ldquo;done when&rdquo; on each) are created for you. Choose <b>Custom (blank)</b> to start empty.</div>
                     {{ tk_campaign({}) }}
                     <div id="svc-params" class="svc-params"></div>
                     <div id="svc-adprod" class="svc-adprod" hidden>
                       <div class="svc-adprod-h">Ad production tasks</div>
-                      <div class="tk-hint">Add the creative work this campaign needs &mdash; each drops in its own task group on top of the automatic launch tasks. Add as many as you like.</div>
+                      <div class="tk-hint">Add the creative work this campaign needs. Each drops in its own task group on top of the automatic launch tasks. Add as many as you like.</div>
                       <div class="svc-adprod-add">
                         <select id="svc-adprod-pick" aria-label="Choose a set of tasks"></select>
                         <button type="button" class="btn small" id="svc-adprod-add-btn">+ Add</button>
@@ -1874,7 +1874,7 @@
             <div>
               <p class="eyebrow">Atrium Admin &middot; Delivery</p>
               <h1 class="page">Delivery Calendar</h1>
-              <p class="lead">Every client's services plotted on their launch date &mdash; click any to open it.</p>
+              <p class="lead">Every client's services plotted on their launch date. Click any to open it.</p>
             </div>
           </div>
           <div class="cal-bar">
@@ -1927,7 +1927,7 @@
             </div>
             <div class="acct-sub" style="margin-top:6px">{{ profile.email }}</div>
             {% if profile.role == 'superadmin' %}
-            <p class="meta" style="margin-top:14px">You're the super admin &mdash; you can create and manage
+            <p class="meta" style="margin-top:14px">You're the super admin. You can create and manage
               admin accounts, and your account can't be deleted from the Accounts list.</p>
             {% endif %}
             <a class="btn small" href="/profile" style="display:inline-block;text-decoration:none;margin-top:14px">Edit profile &amp; upload photo &rarr;</a>
@@ -1956,7 +1956,7 @@
   <div class="modal-veil" id="signout-veil" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signout-title">
       <h3 id="signout-title">Sign out?</h3>
-      <p>You'll be signed out of the Agora suite &mdash; Atrium, Sentinel and the Website Editor
+      <p>You'll be signed out of the Agora suite. Atrium, Sentinel and the Website Editor
         all share this login.</p>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" id="signout-cancel">Cancel</button>
@@ -1965,7 +1965,7 @@
     </div>
   </div>
 
-  <!-- Reusable confirm modal (window.agConfirm) — a styled replacement for window.confirm/prompt.
+  <!-- Reusable confirm modal (window.agConfirm), a styled replacement for window.confirm/prompt.
        Used by "Move to Archive" and "Empty bin permanently"; supports an optional type-to-confirm. -->
   <div class="modal-veil" id="ag-confirm-veil" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ag-confirm-title">
@@ -2157,7 +2157,7 @@
           e.preventDefault();
           var n = f.getAttribute("data-count") || "0";
           var msg = "This permanently deletes all " + n + " item" + (n === "1" ? "" : "s")
-            + " in the Bin. This cannot be undone — restore will no longer be possible.";
+            + " in the Bin. This cannot be undone. Restore will no longer be possible.";
           if (!window.agConfirm) {   // defensive fallback
             if (window.confirm(msg)) { f.submit(); }
             return;
@@ -2315,7 +2315,7 @@
             + "click “Stop acting as” in the banner at the bottom.")) { e.preventDefault(); }
         });
       });
-      // Confirm before signing out — a themed modal instead of the browser confirm().
+      // Confirm before signing out, a themed modal instead of the browser confirm().
       var soVeil = document.getElementById("signout-veil");
       var soCancel = document.getElementById("signout-cancel");
       function closeSignout() { if (soVeil) { soVeil.hidden = true; } }
@@ -2488,7 +2488,7 @@
           if (!adList.children.length) {
             var hint = document.createElement("div");
             hint.className = "tk-hint svc-ad-empty";
-            hint.textContent = "No ad production added yet — the campaign still ships with its automatic launch tasks.";
+            hint.textContent = "No ad production added yet. The campaign still ships with its automatic launch tasks.";
             adList.appendChild(hint);
           }
         }
@@ -2561,7 +2561,7 @@
           for (var i = 0; i < CAT.length; i++) { if (CAT[i].dept === dept) { here.push(CAT[i]); } }
           var first = document.createElement("option");
           first.value = "";
-          first.textContent = dept ? "Custom (blank — no auto tasks)" : "Choose a department first…";
+          first.textContent = dept ? "Custom (blank, no auto tasks)" : "Choose a department first…";
           typeSel.appendChild(first);
           for (var k = 0; k < here.length; k++) {
             var o = document.createElement("option");
@@ -2662,7 +2662,7 @@
 
       // ---- Auto-submit mini-forms WITHOUT the full-page reload ("the blink"). ----
       // Sub-task done toggles + owner/assignee selects + main-task rename post via fetch and the
-      // page STAYS PUT — the control already shows the new state, so it reads as instant (optimistic
+      // page STAYS PUT, the control already shows the new state, so it reads as instant (optimistic
       // update). Only these high-frequency actions are converted; create/edit/move/delete still do a
       // normal submit. The routes return JSON when `redirect` is absent (see _task_reply).
       function tkToast(text, bad) {
@@ -2737,8 +2737,8 @@
             tkToast("Saved");
           })
           .catch(function () {
-            // Never silently drop a change — resync by reloading so the UI can't lie.
-            tkToast("Couldn't save — refreshing", true);
+            // Never silently drop a change. Resync by reloading so the UI can't lie.
+            tkToast("Couldn't save, refreshing", true);
             setTimeout(function () { window.location.reload(); }, 950);
           });
       }
@@ -2946,7 +2946,7 @@
           var stage = col.getAttribute("data-stage") || "";
           qsa(".tk-card", col).forEach(function (card) {
             if (card.style.display === "none") { return; }
-            var cname = card.getAttribute("data-cname") || "—";
+            var cname = card.getAttribute("data-cname") || "-";
             if (!groups[cname]) { groups[cname] = {}; order.push(cname); }
             if (!groups[cname][stage]) { groups[cname][stage] = []; }
             var titleEl = card.querySelector(".tk-title");
@@ -2977,7 +2977,7 @@
                 + '<span class="tk-chip-dot" style="background:' + swColor(t.prio) + '"></span>'
                 + '<span class="tk-chip-t">' + swEsc(t.title) + '</span></button>';
             }
-            if (!here.length) { chips = '<div class="tk-lane-empty">—</div>'; }
+            if (!here.length) { chips = '<div class="tk-lane-empty">-</div>'; }
             grid += '<div class="tk-lane-col"><div class="tk-lane-ch"><span class="dot" style="background:'
               + st[2] + '"></span>' + st[1] + '<span class="n">' + here.length + '</span></div>' + chips + '</div>';
           }
@@ -3052,7 +3052,7 @@
           ru.searchParams.delete("tab");
           window.history.replaceState({}, document.title, ru.pathname + ru.search + ru.hash);
         }
-      } catch (e) { /* URL/history unsupported — harmless, the board still rendered */ }
+      } catch (e) { /* URL/history unsupported, harmless, the board still rendered */ }
 
       // ---- Drag a card to another column -> POST the stage move (server re-renders). ----
       var dragKey = null;
@@ -3138,8 +3138,8 @@
           b.className = "cal-chip " + ev.disc + (ev.hold ? " held" : "")
             + (isLaunched(ev) ? " done" : (overdue(ev) ? " over" : ""));
           b.title = (overdue(ev) ? "Past its launch date · " : "") + (ev.hold ? "On hold · " : "")
-            + ev.cname + " — " + ev.title + " · " + ev.prio + (ev.start ? " (starts " + ev.start + ")" : "");
-          // Priority: dot ONLY for the exceptional (Urgent red / High amber) — the rest stay clean.
+            + ev.cname + ": " + ev.title + " · " + ev.prio + (ev.start ? " (starts " + ev.start + ")" : "");
+          // Priority: dot ONLY for the exceptional (Urgent red / High amber), the rest stay clean.
           if (!isLaunched(ev) && (ev.prio === "Urgent" || ev.prio === "High")) {
             var pd = document.createElement("span");
             pd.className = "cal-pdot p-" + ev.prio;
@@ -3303,13 +3303,13 @@
           footEl.appendChild(strong);
           footEl.appendChild(document.createTextNode(" service" + (monthCount === 1 ? "" : "s") + " launching this month · " + visible.length + " scheduled in total."));
           // Overdue rescue: past-launch pre-launch services hide in past months where nobody
-          // scrolls — surface a count that JUMPS the calendar to the earliest one.
+          // scrolls, surface a count that JUMPS the calendar to the earliest one.
           var lost = visible.filter(overdue).sort(function (a, b) { return a.date < b.date ? -1 : 1; });
           if (lost.length) {
             var jump = document.createElement("button");
             jump.type = "button";
             jump.className = "cal-overjump";
-            jump.textContent = "⚠ " + lost.length + " past " + (lost.length === 1 ? "its" : "their") + " launch date — show";
+            jump.textContent = "⚠ " + lost.length + " past " + (lost.length === 1 ? "its" : "their") + " launch date, show";
             jump.addEventListener("click", function () {
               calY = Number(lost[0].date.slice(0, 4));
               calM = Number(lost[0].date.slice(5, 7)) - 1;
@@ -3327,7 +3327,7 @@
             var next = document.createElement("button");
             next.type = "button";
             next.className = "cal-overjump upcoming";
-            next.textContent = "▸ " + ahead.length + " upcoming — show next";
+            next.textContent = "▸ " + ahead.length + " upcoming, show next";
             next.addEventListener("click", function () {
               calY = Number(ahead[0].date.slice(0, 4));
               calM = Number(ahead[0].date.slice(5, 7)) - 1;

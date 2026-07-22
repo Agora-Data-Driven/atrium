@@ -2134,7 +2134,12 @@ def atrium_admin_communication(client):
         if not raw.strip():
             return jsonify(ok=False, message="Paste the Upwork conversation text first.")
         audience = request.form.get("audience", "client").strip() or "client"
-        parsed = upwork_import.parse_upwork(raw, agora_names=request.form.get("team_names", ""))
+        # Who is "us"? Whatever the operator typed PLUS the whole team roster as a fallback, so the
+        # team lands on the right side of the chat even when the name field is left blank (a first
+        # name like "Ian" matches the full Upwork display name "Ian Gabriel Fernandez").
+        agora_names = "\n".join(
+            [request.form.get("team_names", "")] + [p["name"] for p in _team_roster()])
+        parsed = upwork_import.parse_upwork(raw, agora_names=agora_names)
         msgs = parsed["messages"]
         if not msgs:
             return jsonify(ok=False, message=("Couldn't find any messages in that text. "
@@ -2167,6 +2172,46 @@ def atrium_admin_communication(client):
         _audit(client, "imported an Upwork conversation",
                "%s (%d messages)" % (subject, len(msgs)))
         return jsonify(ok=True, id=item.get("id"), messages=len(msgs))
+    if op == "update_upwork":
+        # Paste the FULLER Upwork thread to fold NEW messages into an existing conversation (same
+        # person, later replies) -- de-duplicated against what's already stored, no new card.
+        import upwork_import
+        thread_key = (request.form.get("thread_key", "") or "").strip()
+        raw = request.form.get("raw", "")
+        if not raw.strip():
+            return jsonify(ok=False, message="Paste the newer Upwork messages first.")
+        # Find the timeline card that owns this thread (so we can refresh its date/people/title).
+        item = None
+        for it in workspace.communications_list(ws):
+            if it.get("thread_key") == thread_key:
+                item = it
+                break
+        thread = workspace.read_mail_thread(client, thread_key)
+        if item is None or thread is None:
+            return jsonify(ok=False, message="That conversation no longer exists.")
+        agora_names = "\n".join(
+            [request.form.get("team_names", "")] + [p["name"] for p in _team_roster()])
+        parsed = upwork_import.parse_upwork(raw, agora_names=agora_names)
+        if not parsed["messages"]:
+            return jsonify(ok=False, message=("Couldn't find any messages in that text. "
+                                              "Paste the conversation straight from Upwork."))
+        merged, added = upwork_import.merge_messages(thread.get("messages") or [],
+                                                     parsed["messages"])
+        thread["messages"] = merged
+        # Re-tag roles / re-order / recompute participants + subject over the merged set.
+        upwork_import.normalize_chat_thread(thread, agora_names=agora_names)
+        workspace.write_mail_thread(client, thread_key, thread)
+        latest = thread.get("last_date", "") or ""
+        client_parts = [p for p in (thread.get("participants") or [])
+                        if not upwork_import._is_agora(p, upwork_import._norm_names(agora_names))]
+        workspace.update_communication(client, item.get("id"), {
+            "title": thread.get("subject", "") or item.get("title", ""),
+            "people": ", ".join(client_parts),
+            "date": latest or item.get("date", ""),
+        })
+        _audit(client, "updated an Upwork conversation",
+               "%s (+%d new, %d total)" % (thread.get("subject", ""), added, len(merged)))
+        return jsonify(ok=True, added=added, total=len(merged))
     if op == "add":
         item = workspace.add_communication(
             client,
@@ -3310,6 +3355,18 @@ def atrium_mail_thread(client, thread_id):
     t = workspace.read_mail_thread(client, thread_id)
     if t is None:
         return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    # An imported Upwork chat gets RE-NORMALIZED on read (idempotent): drop Upwork system-event
+    # lines, re-tag roles from the team roster (so "us" is on the right even for a thread imported
+    # before that fix), re-order oldest->newest, and recompute participants/subject. Persist only
+    # when something actually changed, so a clean thread is a pure read.
+    if str(thread_id).startswith("up_") or t.get("origin") == "upwork":
+        import upwork_import
+        agora_names = "\n".join(p["name"] for p in _team_roster())
+        if upwork_import.normalize_chat_thread(t, agora_names=agora_names):
+            try:
+                workspace.write_mail_thread(client, thread_id, t)
+            except Exception:
+                pass
     return jsonify(ok=True, subject=t.get("subject", ""),
                    participants=t.get("participants") or [], mailbox=t.get("mailbox", ""),
                    summary=t.get("summary", ""), last_date=t.get("last_date", ""),

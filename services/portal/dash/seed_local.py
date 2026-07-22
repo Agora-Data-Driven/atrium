@@ -19,6 +19,7 @@ import onboard_client
 import seed_workspace
 import service_templates
 import store
+import upwork_import
 import workspace
 
 # (key, display name, LOCAL dev password). Riverdance reuses the rich demo workspace; the rest get a
@@ -216,6 +217,74 @@ def _seed_tasks():
                 workspace.add_task_comment(key, task["id"], sender, name, body, kind=kind)
 
 
+# A representative Upwork paste for the demo (day headers, both senders, an avatar-initials line,
+# an attachment run, and a QUOTED reply-back that must be de-duplicated). Seeded through the REAL
+# import path so the Communications timeline shows a two-sided chat (Ian = us/right, Daniela =
+# client/left) sorted oldest->newest -- the same thing an operator gets by pasting from Upwork.
+_UPWORK_RAW = """Saturday, Jul 11
+DM
+Daniela Marquez
+12:59 AM
+Hi Ian!
+We have a storage place called Down Valley Storage where we rent space. We need to fill the place, so we need to send 2 emails promoting this. Promo code: Riverdance26
+
+this needs to be sent ASAP. https://www.downvalleystorage.com/
+Let me know if you have any questions. also send me first a test before sending. thanks!
+Ian Gabriel Fernandez
+10:55 PM
+Hi Daniela, got it. Thank you for sending this over.
+
+We'll get the two drafts over to you for a review before anything goes out.
+Monday, Jul 13
+Ian Gabriel Fernandez
+1:30 PM
+We've completed the two Down Valley Storage email drafts.
+2 files
+email_2_leads_preview.pdf
+443 kB
+email_1_rd_pp_owners_preview.pdf
+399 kB
+DM
+Daniela Marquez
+11:13 PM
+Hi! Is dmarquez@fortiuscap.com the right test address?
+Tuesday, Jul 14
+DM
+Daniela Marquez
+12:08 AM
+The emails look great, a few comments below.
+"""
+
+
+def _seed_upwork():
+    """Import one demo Upwork conversation into riverdance's Communications timeline (skipped once a
+    thread already exists), via the same parse -> write_mail_thread -> add_communication path the
+    /admin/communication route uses."""
+    key = DEMO_KEY
+    ws = workspace.load_workspace(key)
+    if ws is None:
+        return
+    # Don't clobber a conversation an operator imported by hand, or a prior seed.
+    for it in workspace.communications_list(ws):
+        if str(it.get("thread_key", "")).startswith("up_"):
+            return
+    parsed = upwork_import.parse_upwork(_UPWORK_RAW, agora_names=["Ian Gabriel Fernandez"], year=2026)
+    msgs = parsed["messages"]
+    if not msgs:
+        return
+    thread_key = workspace._new_id("up")
+    subject = parsed["title"]
+    summary = upwork_import.fallback_summary(parsed)
+    workspace.write_mail_thread(key, thread_key, {
+        "subject": subject, "participants": parsed["participants"], "mailbox": "Upwork",
+        "messages": msgs, "last_date": parsed["latest_date"], "origin": "upwork", "summary": summary,
+    })
+    workspace.add_communication(
+        key, "upwork", subject, summary, date=(parsed["latest_date"] or None),
+        people=", ".join(parsed["client_participants"]), audience="client",
+        origin="upwork", thread_key=thread_key)
+
+
 def main():
     creds = []
 
@@ -240,6 +309,9 @@ def main():
 
     # Fill the Delivery -> Task Board with realistic work (skips workspaces that already have tasks).
     _seed_tasks()
+
+    # One demo Upwork conversation in Communications (skips a workspace that already has one).
+    _seed_upwork()
 
     print("\n  Local portal seeded. Log in at http://localhost:8080/login")
     print("  SUPER ADMIN (manages admins; this is 'you'):")

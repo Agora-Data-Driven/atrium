@@ -116,7 +116,7 @@
 {#- Top-bar subtitles: the one-line description shown under the page title in the header. Set ONLY
    for tabs whose in-pane <h1> merely repeated the title (that duplicate is now removed); tabs with a
    distinct in-pane heading (overview greeting, calendar, campaigns) keep an empty subtitle. -#}
-{% set tab_subtitles = {'overview':"Everything, visible — what's working, what's live, and what's coming next.",'dashboard':'Your live campaign data, updated automatically.','calendar':'Tracking the work from kickoff to delivered — paid and organic publish dates included.','conversations':'One running record of every conversation so nothing gets lost.','intel':"Your weekly briefing — what's moving in your industry and the platform updates worth acting on.",'progress':"Everything we're building for you and exactly where each piece stands.",'settings':'Choose what AGORA emails you about — everything still appears here in your workspace either way.'} %}
+{% set tab_subtitles = {'overview':"Everything, visible: what's working, what's live, and what's coming next.",'dashboard':'Your live campaign data, updated automatically.','calendar':'Tracking the work from kickoff to delivered, paid and organic publish dates included.','conversations':'One running record of every conversation so nothing gets lost.','intel':"Your weekly briefing: what's moving in your industry and the platform updates worth acting on.",'progress':"Everything we're building for you and exactly where each piece stands.",'settings':'Choose what AGORA emails you about. Everything still appears here in your workspace either way.'} %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -271,7 +271,7 @@
 
     /* Main column */
     .ax-main { display: flex; flex-direction: column; min-width: 0; }
-    /* Page header — no top bar; mirrors the super-admin console. It lives INSIDE the content area:
+    /* Page header. No top bar; mirrors the super-admin console. It lives INSIDE the content area:
        green eyebrow + display title + muted lede on the left, contextual actions on the right. */
     .ax-pagehead { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin: 0 0 24px; }
     .ax-pagehead-main { min-width: 0; }
@@ -1052,7 +1052,7 @@
     .ax-comm-meta .ax-ic { width: 14px; height: 14px; }
     .ax-comm-body { font-size: 13.5px; color: #2b2f38; margin: 0; white-space: pre-wrap; }
 
-    /* Communications v2 — ONE unified, channel-tagged, date-filterable timeline. Per-channel colour
+    /* Communications v2: ONE unified, channel-tagged, date-filterable timeline. Per-channel colour
        set on .ch-<channel>; the badge + audience pill encode channel and who-can-see-it at a glance. */
     .ch-email   { --cm:#6a6aea; --cm-bg:#eeeefc; --cm-ink:#4a44c8; }
     .ch-upwork  { --cm:#12a594; --cm-bg:#dcf4f0; --cm-ink:#0b7d70; }
@@ -1476,7 +1476,7 @@
     .ax-ml-msghead { font-size: 12.5px; color: var(--ax-sub); margin-bottom: 6px; }
     .ax-ml-msgbody { white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; }
     /* Two-sided CHAT layout for a role-tagged thread (imported Upwork): our side right in green, the
-       client left in grey, with avatars, day dividers and friendly times — so the back-and-forth
+       client left in grey, with avatars, day dividers and friendly times, so the back-and-forth
        reads like a real messenger. Email threads carry no role and keep the plain list above. */
     .ax-ml-chat { display: flex; flex-direction: column; gap: 4px; padding-top: 2px; }
     .ax-ch-daysep { display: flex; align-items: center; justify-content: center; margin: 14px 0 8px; }
@@ -1484,6 +1484,10 @@
       background: #F1F3F7; border: 1px solid var(--ax-line); border-radius: 999px; padding: 3px 12px; }
     .ax-ch-row { display: flex; align-items: flex-end; gap: 9px; margin: 7px 0; max-width: 100%; }
     .ax-ch-row.ax-ch-us { flex-direction: row-reverse; }
+    /* Grouped follow-up from the same person: no repeated avatar/name, stacked tight. The avatar
+       slot stays (invisible) so bubbles keep their alignment down the column. */
+    .ax-ch-row.ax-ch-cont { margin: 2px 0; }
+    .ax-ch-cont .ax-ch-av { visibility: hidden; }
     .ax-ch-av { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%; display: flex;
       align-items: center; justify-content: center; font-size: 11px; font-weight: 800; letter-spacing: .3px; }
     .ax-ch-them .ax-ch-av { background: #EEF0F4; color: var(--ax-sub); }
@@ -1498,7 +1502,21 @@
     .ax-uw-hint { font-size: 12.5px; color: var(--ax-sub); margin: 0 0 10px; line-height: 1.5; }
     .ax-uw-raw { width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
     .ax-wt-progress[hidden], .ax-wt-addmsg[hidden] { display: none; }
-    .ax-wt-mbox { display: flex; flex-direction: column; width: 100%; max-width: 860px; max-height: 84vh; background: var(--ax-white, #fff); border-radius: var(--ax-radius, 14px); box-shadow: var(--ax-shadow-lg, 0 18px 50px rgba(20,24,40,.25)); padding: 20px 22px; animation: axConfirmIn .14s ease-out; }
+    .ax-wt-mbox { position: relative; display: flex; flex-direction: column; width: 100%; max-width: 860px; max-height: 84vh; background: var(--ax-white, #fff); border-radius: var(--ax-radius, 14px); box-shadow: var(--ax-shadow-lg, 0 18px 50px rgba(20,24,40,.25)); padding: 20px 22px; animation: axConfirmIn .14s ease-out; }
+    /* "Jump to latest": a chat thread opens scrolled to the newest message; this floats in when the
+       reader is scrolled up so a long back-and-forth can snap back to the bottom in one click. */
+    .ax-ml-jump { position: absolute; right: 22px; bottom: 18px; display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 13px; border: 1px solid var(--ax-line); border-radius: 999px; background: var(--ax-green-d); color: #fff;
+      font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 14px rgba(20,24,40,.22);
+      opacity: 0; transform: translateY(6px); pointer-events: none; transition: opacity .15s ease, transform .15s ease; }
+    .ax-ml-jump.is-shown { opacity: 1; transform: none; pointer-events: auto; }
+    .ax-ml-jump[hidden] { display: none; }
+    /* "Add newer messages" paste panel inside the thread reader (Upwork threads only). */
+    .ax-ml-updbox { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--ax-line);
+      border-radius: 12px; background: var(--ax-canvas, #f7f8fa); }
+    .ax-ml-updbox[hidden] { display: none; }
+    .ax-ml-updbox .ax-uw-raw { width: 100%; margin-bottom: 8px; }
+    .ax-ml-updstatus { font-size: 12.5px; color: var(--ax-sub); align-self: center; }
     .ax-wt-mhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
     .ax-wt-mtitle { font-size: 17px; font-weight: 800; color: var(--ax-ink); flex: 1 1 260px; }
     .ax-wt-mactions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1705,7 +1723,7 @@
     .ax-pg-card:hover { transform: translateY(-3px); box-shadow: var(--ax-shadow-lg); border-color: #d4d6df; }
     .ax-pg-chip { display: inline-flex; align-items: center; font-size: 10px; font-weight: 800; border-radius: var(--ax-pill);
       padding: 2px 9px; letter-spacing: .03em; text-transform: uppercase; background: var(--ax-violet-bg); color: var(--ax-violet-d); }
-    /* Discipline tint on the campaign chip — the SAME color language as the admin board
+    /* Discipline tint on the campaign chip, the SAME color language as the admin board
        (Paid Media purple, Organic green, Website blue); legacy/none stays neutral. */
     .ax-pg-chip.lb-paid { background: #ECECFB; color: #5A54DD; }
     .ax-pg-chip.lb-organic { background: var(--ax-green-bg); color: var(--ax-green-d); }
@@ -1800,7 +1818,7 @@
     @media (max-width: 980px) { .ax-pg-summary { grid-template-columns: repeat(2, 1fr); } .ax-pg-board { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 640px) { .ax-pg-board { grid-template-columns: 1fr; } }
 
-    /* On the Assistant tab the pane IS the chat, so the bubble would be redundant — hide it there
+    /* On the Assistant tab the pane IS the chat, so the bubble would be redundant, hide it there
        (showTab keeps the root's data-tab current; the FAB/panel live inside .atrium). */
     .atrium[data-tab="assistant"] .ax-asfab, .atrium[data-tab="assistant"] .ax-aspanel { display: none; }
     @media (max-width: 560px) {
@@ -1826,7 +1844,7 @@
       <div>
         <div class="ax-brand">
           <span class="ax-co">
-            <a href="https://agoradatadriven.com" title="Agora Data Driven — main website">{{ ws.brand.agora_logo|safe }}</a>
+            <a href="https://agoradatadriven.com" title="Agora Data Driven: main website">{{ ws.brand.agora_logo|safe }}</a>
           </span>
           <span class="ax-badge">{{ workspace_name }}</span>
         </div>
@@ -1863,7 +1881,7 @@
 
         {#- Insights: the research/monitoring surfaces. Market Intelligence is client-visible;
            Website Health + Watcher stay TEAM-ONLY (admins + super-admins, hidden from clients
-           entirely) — the nav, the panes, AND the routes all gate on is_superadmin. -#}
+           entirely), the nav, the panes, AND the routes all gate on is_superadmin. -#}
         {% set tools_open = view.active_tab in ('intel', 'website-health', 'watcher') %}
         <div class="ax-nav-group {{ 'is-open' if tools_open else '' }}">
           <button class="ax-nav-ghead" type="button" title="Insights" aria-expanded="{{ 'true' if tools_open else 'false' }}">
@@ -1891,7 +1909,7 @@
         </a>
         {% endfor %}
 
-        {#- Progress: the read-only delivery board — every client-facing task and where it stands.
+        {#- Progress: the read-only delivery board, every client-facing task and where it stands.
            The badge is the count of tasks sitting in review (For Launch), i.e. waiting on the client. -#}
         {% set pg_review = ((progress_cols|default([], true))|selectattr('key','equalto','for_launch')|map(attribute='tasks')|sum(start=[]))|length %}
         <a href="{{ '/w/' ~ view.client ~ '/progress' }}" data-tab="progress" title="Progress" class="{{ 'is-active' if view.active_tab == 'progress' else '' }}">
@@ -1920,7 +1938,7 @@
         {% if admin_preview %}
         <div class="ax-adminbar ax-previewbar">
           <span class="ax-adminbadge">Client preview</span>
-          <span>This is exactly what {{ ws.display_name }}'s client sees when they log in &mdash; editing tools are hidden.</span>
+          <span>This is exactly what {{ ws.display_name }}'s client sees when they log in, editing tools are hidden.</span>
           <a class="ax-previewexit" href="{{ request.path }}">Exit preview &amp; edit &rarr;</a>
         </div>
         {% endif %}
@@ -1934,7 +1952,7 @@
         </div>
         {% endif %}
 
-        {#- Page header (no top bar — mirrors the admin console): green eyebrow + display title + lede,
+        {#- Page header (no top bar, mirrors the admin console): green eyebrow + display title + lede,
            with the notifications bell + Share-recap on the right. Title/subtitle update on tab switch. -#}
         <header class="ax-pagehead">
           <div class="ax-pagehead-main">
@@ -1968,7 +1986,7 @@
                     title="Copy a shareable link to this month's recap"
                     {% if view.active_tab != 'overview' %}style="display:none"{% endif %}>Share recap <span class="ax-share-arrow">&rarr;</span></button>
 
-            {#- Account: the avatar opens a small menu (identity + Profile + Sign out) — one place for
+            {#- Account: the avatar opens a small menu (identity + Profile + Sign out), one place for
                logout, no duplicate. The Back button differs by role (admin -> console, client -> portal). -#}
             <div class="ax-menuwrap">
               <button class="ax-avatar" type="button" id="ax-avatarbtn" title="{{ user }}" aria-haspopup="true" aria-expanded="false">{% if profile_photo %}<img class="ax-avatar-img" src="{{ profile_photo }}" alt="">{% else %}{{ view.initials }}{% endif %}</button>
@@ -2535,7 +2553,7 @@
                     </select>
                   </div>
                   <div class="ax-platfield">
-                    <span class="ax-platfield-lab">Platform &mdash; tap to pick one or more</span>
+                    <span class="ax-platfield-lab">Platform: tap to pick one or more</span>
                     {{ plat_picker('data-cf', p.platform|default('', true)) }}
                   </div>
                   <textarea class="ax-editbox" data-cf="caption" placeholder="Description">{{ p.caption }}</textarea>
@@ -2552,11 +2570,11 @@
                     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                       <select class="ax-editbox" data-movecamp="{{ p.id }}" aria-label="Move this post to another campaign" style="flex:1;min-width:180px">
                         <option value="" selected disabled hidden>Choose a campaign…</option>
-                        {% for mc in move_targets %}<option value="{{ mc.id }}">{{ mc.name }} &mdash; {{ 'Lead Gen' if mc.channel == 'paid' else 'Organic' }}</option>{% endfor %}
+                        {% for mc in move_targets %}<option value="{{ mc.id }}">{{ mc.name }}: {{ 'Lead Gen' if mc.channel == 'paid' else 'Organic' }}</option>{% endfor %}
                       </select>
                       <button class="ax-btn admin small" type="button" data-contentmove="{{ p.id }}">Move</button>
                     </div>
-                    <span class="ax-newdate-hint">Reassigns this post &mdash; it moves out of &ldquo;{{ c.name }}&rdquo; into the campaign you pick.</span>
+                    <span class="ax-newdate-hint">Reassigns this post. It moves out of &ldquo;{{ c.name }}&rdquo; into the campaign you pick.</span>
                   </div>
                   {% endif %}
                   <div class="ax-actions">
@@ -2583,7 +2601,7 @@
                 </select>
               </div>
               <div class="ax-platfield">
-                <span class="ax-platfield-lab">Platform &mdash; tap to pick one or more</span>
+                <span class="ax-platfield-lab">Platform: tap to pick one or more</span>
                 {{ plat_picker('data-nc', '') }}
               </div>
               <textarea class="ax-editbox" data-nc="caption" placeholder="Description"></textarea>
@@ -2620,7 +2638,7 @@
             <div class="ax-strat-doc" style="margin-top:14px">
               <span class="ax-doc-label">{{ ic('sparkle') }} Strategy doc → AI writes the strategy</span>
               <input class="ax-strat-doc-in" data-ac="strategy_doc" placeholder="Paste a Google Doc link…">
-              <p class="ax-doc-help">AI reads the doc and writes the &ldquo;Insight / Action&rdquo; bullet points for you. The client also gets a &ldquo;View the full breakdown&rdquo; link to the doc. Optional &mdash; you can skip it and write the strategy by hand later.</p>
+              <p class="ax-doc-help">AI reads the doc and writes the &ldquo;Insight / Action&rdquo; bullet points for you. The client also gets a &ldquo;View the full breakdown&rdquo; link to the doc. Optional, you can skip it and write the strategy by hand later.</p>
             </div>
             <button class="ax-btn violet small" type="button" data-addcampaignbtn="{{ chan }}" style="margin-top:14px">{{ ic('sparkle') }} Add campaign</button>
               </div>
@@ -2769,24 +2787,24 @@
              AI briefing, response stats). Clients never see this; the email threads themselves appear
              as cards in the timeline below. Element ids (ax-ml-*) are reused by the Mail JS. -#}
           <details class="ax-card ax-cm-mailpanel"{{ ' open' if mail.stats and mail.stats.awaiting else '' }}>
-            <summary class="ax-cm-mailsum">{{ ic('mail') }} <span>Email intelligence</span> <span class="ax-cm-mailhint">contacts, sync &amp; the AI briefing &mdash; team only</span></summary>
+            <summary class="ax-cm-mailsum">{{ ic('mail') }} <span>Email intelligence</span> <span class="ax-cm-mailhint">contacts, sync &amp; the AI briefing, team only</span></summary>
             <div class="ax-cm-mailbody">
               {% if mail.mailbox_count == 0 %}
-              <div class="ax-ml-hint">No mailboxes are connected yet &mdash; connect one in the <a href="/admin/atrium?section=mailboxes">operator console &rarr; Mailboxes</a> first, then come back.</div>
+              <div class="ax-ml-hint">No mailboxes are connected yet. Connect one in the <a href="/admin/atrium?section=mailboxes">operator console &rarr; Mailboxes</a> first, then come back.</div>
               {% endif %}
               <div>
                 <h3 class="ax-ml-h">This client's email addresses</h3>
-                <p class="ax-ml-note">Comma-separated emails or whole domains (e.g. <code>maya@riverdance.com, riverdance.com</code>). Only mail to or from these is ever pulled &mdash; nothing else leaves the mailbox.</p>
+                <p class="ax-ml-note">Comma-separated emails or whole domains (e.g. <code>maya@riverdance.com, riverdance.com</code>). Only mail to or from these is ever pulled, nothing else leaves the mailbox.</p>
                 <textarea class="ax-editbox ax-ml-contacts" id="ax-ml-contacts" rows="2" placeholder="name@client.com, clientdomain.com">{{ mail.contacts }}</textarea>
                 <div class="ax-ml-actions">
                   <button class="ax-btn" type="button" id="ax-ml-savecontacts">Save contacts</button>
                   <button class="ax-btn violet" type="button" id="ax-ml-sync">Sync now</button>
                   <button class="ax-btn" type="button" id="ax-ml-redigest">Refresh briefing</button>
-                  <span class="ax-ml-status" id="ax-ml-status">{% if mail.last_sync %}Last sync {{ mail.last_sync|atrium_dt }}{% if mail.backlog %} &middot; {{ mail.backlog }} older conversation{{ '' if mail.backlog == 1 else 's' }} still queued{% endif %}{% if mail.last_error %} &middot; {{ mail.last_error }}{% endif %}{% else %}Never synced yet &mdash; the hourly job also syncs automatically once it's deployed.{% endif %}</span>
+                  <span class="ax-ml-status" id="ax-ml-status">{% if mail.last_sync %}Last sync {{ mail.last_sync|atrium_dt }}{% if mail.backlog %} &middot; {{ mail.backlog }} older conversation{{ '' if mail.backlog == 1 else 's' }} still queued{% endif %}{% if mail.last_error %} &middot; {{ mail.last_error }}{% endif %}{% else %}Never synced yet. The hourly job also syncs automatically once it's deployed.{% endif %}</span>
                 </div>
               </div>
               {% if mail.threads %}
-              {% if mail.stats.security %}<div class="ax-ml-secbanner">{{ ic('health') }}<span><b>{{ mail.stats.security }}</b> security / account alert{{ '' if mail.stats.security == 1 else 's' }} in this mailbox &mdash; review these first.</span></div>{% endif %}
+              {% if mail.stats.security %}<div class="ax-ml-secbanner">{{ ic('health') }}<span><b>{{ mail.stats.security }}</b> security / account alert{{ '' if mail.stats.security == 1 else 's' }} in this mailbox. Review these first.</span></div>{% endif %}
               <div class="ax-ml-statsrow">
                 <span><b>{{ mail.stats.total }}</b> real conversation{{ '' if mail.stats.total == 1 else 's' }}</span>
                 <span class="{{ 'is-bad' if mail.stats.awaiting else '' }}"><b>{{ mail.stats.awaiting }}</b> awaiting our reply{% if mail.stats.awaiting and mail.stats.oldest_awaiting %} (oldest {{ mail.stats.oldest_awaiting|atrium_date }}){% endif %}</span>
@@ -2795,7 +2813,7 @@
               {% endif %}
               <div>
                 <div class="ax-ml-dighead"><h3 class="ax-ml-h">AI briefing</h3>{% if mail.digest.updated %}<span class="ax-ml-meta">updated {{ mail.digest.updated|atrium_dt }}</span>{% endif %}</div>
-                <div class="ax-ml-digest" id="ax-ml-digest">{{ mail.digest.body or 'No briefing yet — sync some mail and the AI keeps a running summary of where things stand with this client.' }}</div>
+                <div class="ax-ml-digest" id="ax-ml-digest">{{ mail.digest.body or 'No briefing yet. Sync some mail and the AI keeps a running summary of where things stand with this client.' }}</div>
               </div>
             </div>
           </details>
@@ -2914,7 +2932,7 @@
                   <option value="team">Team only</option>
                 </select>
               </div>
-              <input class="ax-editbox ax-cm-fill" data-uw="title" placeholder="Title (optional &mdash; auto-generated if blank)">
+              <input class="ax-editbox ax-cm-fill" data-uw="title" placeholder="Title (optional, auto-generated if blank)">
               <div class="ax-actions">
                 <button class="ax-btn green small" type="button" data-upwaddbtn>Import conversation</button>
                 <button class="ax-btn ghost small" type="button" id="ax-uw-addcancel">Cancel</button>
@@ -2928,11 +2946,22 @@
               <div class="ax-wt-mhead">
                 <div class="ax-wt-mtitle" id="ax-ml-mtitle"></div>
                 <div class="ax-wt-mactions">
+                  <button class="ax-btn admin small" id="ax-ml-updbtn" type="button" hidden>&#43; Add newer messages</button>
                   <button class="ax-btn" id="ax-ml-mclose" type="button">Close</button>
                 </div>
               </div>
               <div class="ax-wt-mmeta" id="ax-ml-mmeta"></div>
+              <div class="ax-ml-updbox" id="ax-ml-updbox" hidden>
+                <p class="ax-uw-hint">Paste the whole (longer) Upwork thread again &mdash; Atrium folds in only the messages that aren&rsquo;t already here, in the right order. Nothing is duplicated.</p>
+                <textarea class="ax-editbox ax-uw-raw" id="ax-ml-updraw" rows="6" placeholder="Paste the newer Upwork messages here&hellip;"></textarea>
+                <div class="ax-actions">
+                  <button class="ax-btn green small" id="ax-ml-updsend" type="button">Add to conversation</button>
+                  <button class="ax-btn ghost small" id="ax-ml-updcancel" type="button">Cancel</button>
+                  <span class="ax-ml-updstatus" id="ax-ml-updstatus"></span>
+                </div>
+              </div>
               <div class="ax-wt-mbody ax-ml-mbody" id="ax-ml-mbody"></div>
+              <button class="ax-ml-jump" id="ax-ml-jump" type="button" hidden>&#8595; Latest</button>
             </div>
           </div>
           {% endif %}
@@ -2951,7 +2980,7 @@
               {% elif ai.last_error %}<span class="ax-intel-ai-pill is-err">Needs attention</span>
               {% else %}<span class="ax-intel-ai-pill is-on">Active</span>{% endif %}
             </div>
-            <p class="ax-intel-ai-sub">Choose the model, how far back to search, and how many stories to pull. It runs daily and <strong>adds</strong> new, de-duplicated stories &mdash; it never wipes the list. Entries you add, edit, or favourite always stay.</p>
+            <p class="ax-intel-ai-sub">Choose the model, how far back to search, and how many stories to pull. It runs daily and <strong>adds</strong> new, de-duplicated stories. It never wipes the list. Entries you add, edit, or favourite always stay.</p>
 
             {% if not ai.any_available %}
             <p class="ax-intel-ai-off">No AI model is available yet. Gemini runs on <code>Vertex AI</code> (GCP-billed); DeepSeek needs its <code>DEEPSEEK_API_KEY</code> secret.</p>
@@ -2963,7 +2992,7 @@
                 <select id="ax-intel-model" class="ax-editbox">
                   <option value="" {{ 'selected' if not ai.selected else '' }}>Off</option>
                   {% for m in ai.models %}
-                  <option value="{{ m.id }}"{{ ' selected' if m.id == ai.selected else '' }}{{ ' disabled' if not m.available else '' }}>{{ m.label }}{{ '' if m.available else ' — not set up' }}</option>
+                  <option value="{{ m.id }}"{{ ' selected' if m.id == ai.selected else '' }}{{ ' disabled' if not m.available else '' }}>{{ m.label }}{{ '' if m.available else ' (not set up)' }}</option>
                   {% endfor %}
                 </select>
               </div>
@@ -2980,12 +3009,12 @@
             </div>
 
             <div class="ax-fld">
-              <div class="ax-fld-labelrow"><label class="ax-fld-label" for="ax-intel-topics">Research keywords <span class="ax-fld-hint">&mdash; this client's industry/topics; the AI expands these into live web searches</span></label><button type="button" class="ax-linkbtn" id="ax-intel-suggest"{{ ' disabled' if not ai.any_available else '' }} title="AI drafts the keywords and both focus prompts from what we know about this client — review, tweak, then Save settings.">{{ ic('sparkle') }} Write these for me</button></div>
+              <div class="ax-fld-labelrow"><label class="ax-fld-label" for="ax-intel-topics">Research keywords <span class="ax-fld-hint">(this client's industry/topics; the AI expands these into live web searches)</span></label><button type="button" class="ax-linkbtn" id="ax-intel-suggest"{{ ' disabled' if not ai.any_available else '' }} title="AI drafts the keywords and both focus prompts from what we know about this client, then review, tweak, and Save settings.">{{ ic('sparkle') }} Write these for me</button></div>
               <textarea id="ax-intel-topics" class="ax-editbox" rows="2" placeholder="e.g. contract templates, creative entrepreneurs, Etsy sellers, small business legal">{{ view.intel_topics }}</textarea>
             </div>
 
             <details class="ax-intel-ai-adv"{{ ' open' if ai.business_prompt or ai.media_prompt else '' }}>
-              <summary>Advanced &mdash; fine-tune what the AI looks for</summary>
+              <summary>Advanced: fine-tune what the AI looks for</summary>
               <div class="ax-fld">
                 <div class="ax-fld-labelrow"><label class="ax-fld-label" for="ax-intel-bizprompt">Business Research focus</label><button type="button" class="ax-linkbtn" data-intel-reset="ax-intel-bizprompt">Reset to default</button></div>
                 <textarea id="ax-intel-bizprompt" class="ax-editbox" rows="3" data-default="{{ ai.default_business_prompt }}" placeholder="{{ ai.default_business_prompt }}">{{ ai.business_prompt }}</textarea>
@@ -2998,7 +3027,7 @@
 
             <label class="ax-intel-thinktoggle" for="ax-intel-thinking">
               <input type="checkbox" id="ax-intel-thinking"{{ ' checked' if ai.show_thinking else '' }}>
-              <span>Show the AI's reasoning &amp; the articles it considered <span class="ax-fld-hint">&mdash; slower; a debugging aid</span></span>
+              <span>Show the AI's reasoning &amp; the articles it considered <span class="ax-fld-hint">(slower; a debugging aid)</span></span>
             </label>
 
             <div class="ax-intel-ai-foot">
@@ -3016,10 +3045,10 @@
               {% set tr = ai.last_trace.get(key) %}
               {% if tr %}
               <details class="ax-intel-trace-sec">
-                <summary>{{ label }} &mdash; {{ tr.added or 0 }} added{% if tr.candidate_count %} &middot; {{ tr.candidate_count }} live source{{ '' if tr.candidate_count == 1 else 's' }}{% endif %}{% if tr.seconds %} &middot; {{ tr.seconds }}s{% endif %}</summary>
+                <summary>{{ label }}: {{ tr.added or 0 }} added{% if tr.candidate_count %} &middot; {{ tr.candidate_count }} live source{{ '' if tr.candidate_count == 1 else 's' }}{% endif %}{% if tr.seconds %} &middot; {{ tr.seconds }}s{% endif %}</summary>
                 {% if tr.queries %}
                 <div class="ax-trace-block">
-                  <div class="ax-trace-h">Its search plan &mdash; the Google searches it ran</div>
+                  <div class="ax-trace-h">Its search plan: the Google searches it ran</div>
                   <ul class="ax-trace-queries">{% for q in tr.queries %}<li>{{ q }}</li>{% endfor %}</ul>
                 </div>
                 {% endif %}
@@ -3120,7 +3149,7 @@
               </div>
               {% endfor %}
             {% else %}
-              <div class="ax-empty">Nothing here yet{% if is_superadmin %} &mdash; add the first update below{% endif %}.</div>
+              <div class="ax-empty">Nothing here yet{% if is_superadmin %}, add the first update below{% endif %}.</div>
             {% endif %}
 
             {% if is_superadmin %}
@@ -3152,7 +3181,7 @@
            the comment composer (Comment / Request changes -> POST /w/<c>/task-comment). -#}
         <section class="ax-pane {{ 'is-active' if view.active_tab=='progress' else '' }}" data-pane="progress">
           <span class="ax-pg-ro"><svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            Read-only &mdash; but you can comment on any item.</span>
+            Read-only, but you can comment on any item.</span>
 
           {% set pg_total = (progress_cols|default([], true))|map(attribute='tasks')|sum(start=[])|length %}
           {% set pg_dots = {'in_process':'var(--ax-violet)','for_launch':'#F2820C','launched':'var(--ax-green)','closed':'#8A93A3'} %}
@@ -3187,7 +3216,7 @@
                   </div>
                 </button>
                 {% else %}
-                <div class="ax-pg-colempty">&mdash;</div>
+                <div class="ax-pg-colempty">None</div>
                 {% endfor %}
               </div>
             </div>
@@ -3211,7 +3240,7 @@
                 <button type="button" class="ax-pg-mx" data-pgclose aria-label="Close">&times;</button>
               </div>
               <div class="ax-pg-mbody">
-                {% if t.on_hold %}<div class="ax-pg-paused"><span class="ax-pg-tag paused">⏸ Paused</span> This piece is on hold for now &mdash; we'll pick it back up and let you know.</div>{% endif %}
+                {% if t.on_hold %}<div class="ax-pg-paused"><span class="ax-pg-tag paused">⏸ Paused</span> This piece is on hold for now. We'll pick it back up and let you know.</div>{% endif %}
                 {#- Start → Launch timeline: when work began and when it goes (or went) live. -#}
                 <div class="ax-pg-timeline">
                   {% if t.content_type %}<span class="tl-type">{{ t.content_type }}</span>{% endif %}
@@ -3250,7 +3279,7 @@
                       <span class="ax-com-when">{{ cm.created_at|atrium_dt }}</span>
                     </div>
                     {% else %}
-                    <div class="ax-pg-comempty">No comments yet &mdash; start the conversation below.</div>
+                    <div class="ax-pg-comempty">No comments yet. Start the conversation below.</div>
                     {% endfor %}
                   </div>
                   <div class="ax-pg-comform">
@@ -3295,7 +3324,7 @@
             gtag('config', 'G-MEC39SD35R');
           </script>
           <!-- End Google tag (gtag.js) -->
-          <p class="ax-lede">Monitor {{ ws.display_name }}'s live website &mdash; confirm it's online with no errors, and see the Google Tag Manager containers and marketing tags installed on it.{% if not can_edit_health %} <strong>View only</strong> &mdash; a super admin runs the checks.{% endif %}</p>
+          <p class="ax-lede">Monitor {{ ws.display_name }}'s live website. Confirm it's online with no errors, and see the Google Tag Manager containers and marketing tags installed on it.{% if not can_edit_health %} <strong>View only</strong>. A super admin runs the checks.{% endif %}</p>
 
           <div class="ax-panel ax-wh-card">
             <div class="ax-wh-urlrow">
@@ -3340,7 +3369,7 @@
 
           <div class="ax-panel">
             <h2 class="ax-wh-h">Tags &amp; tracking detected</h2>
-            <p class="ax-wh-note">Scanned from the live page &mdash; this is everything that actually loads on the site (Google Tag Manager, Analytics, ad pixels, and more).</p>
+            <p class="ax-wh-note">Scanned from the live page. This is everything that actually loads on the site (Google Tag Manager, Analytics, ad pixels, and more).</p>
             {% if lc.tags %}
             <div class="ax-wh-tags">
               {% for t in lc.tags %}
@@ -3379,7 +3408,7 @@
         <!-- ============ WATCHER (team-only: YouTube channel transcript archive) ============ -->
         {% if is_superadmin %}
         <section class="ax-pane {{ 'is-active' if view.active_tab=='watcher' else '' }}" data-pane="watcher">
-          <p class="ax-lede">Watch creators and competitors across platforms (YouTube for now) and archive the transcript of everything they publish. Paste a <strong>channel</strong> link to list every video, auto-label the industry, and pull the raw transcripts &mdash; or paste a <strong>single video</strong> link to grab just that one transcript (saved under &ldquo;Saved videos&rdquo;).</p>
+          <p class="ax-lede">Watch creators and competitors across platforms (YouTube for now) and archive the transcript of everything they publish. Paste a <strong>channel</strong> link to list every video, auto-label the industry, and pull the raw transcripts, or paste a <strong>single video</strong> link to grab just that one transcript (saved under &ldquo;Saved videos&rdquo;).</p>
 
           <div class="ax-panel ax-wt-addcard">
             <div class="ax-wt-addrow">
@@ -3394,7 +3423,7 @@
           <div class="ax-panel ax-wt-addcard ax-wt-vidcard">
             <div class="ax-wt-addrow">
               <span class="ax-wt-eye">{{ ic('watcher') }}</span>
-              <input class="ax-editbox ax-wt-url" id="ax-wt-vurl" type="url" inputmode="url" placeholder="Or paste ONE video link &mdash; youtube.com/watch?v=&hellip; (grabs just that transcript)">
+              <input class="ax-editbox ax-wt-url" id="ax-wt-vurl" type="url" inputmode="url" placeholder="Or paste ONE video link: youtube.com/watch?v=&hellip; (grabs just that transcript)">
               <button class="ax-btn" id="ax-wt-vget" type="button">Get transcript</button>
             </div>
             <div class="ax-wt-addmsg" id="ax-wt-vmsg" hidden></div>
@@ -3480,7 +3509,7 @@
                 <button class="ax-btn" type="button" disabled>Safe pull queued &#10003;</button>
                 {% else %}
                 <button class="ax-btn" type="button" data-wtsafe="{{ ch.id }}"
-                        title="Queue this channel for the slow safe scraper — it never gets rate-limited, transcripts land automatically">Safe pull</button>
+                        title="Queue this channel for the slow safe scraper. It never gets rate-limited, transcripts land automatically">Safe pull</button>
                 {% endif %}
                 {% endif %}
                 {% if not ch.loose %}
@@ -3491,7 +3520,7 @@
               </div>
               <div class="ax-wt-progress" data-wtprogress="{{ ch.id }}" {% if ch.safe_queued %}data-safe-queued="1"{% endif %} {% if not ch.safe_queued %}hidden{% endif %}>
                 <div class="ax-wt-bar" {% if ch.safe_queued %}hidden{% endif %}><span></span></div>
-                <div class="ax-wt-ptext">{% if ch.safe_queued %}Safe pull queued — checking the scraper’s progress…{% endif %}</div>
+                <div class="ax-wt-ptext">{% if ch.safe_queued %}Safe pull queued, checking the scraper’s progress…{% endif %}</div>
               </div>
 
               <div class="ax-wt-recent">
@@ -3545,7 +3574,7 @@
           {% else %}
           <div class="ax-panel ax-wt-empty">
             {{ ic('watcher') }}
-            <div>No creators are being watched yet. Paste a YouTube channel link above and click <strong>Watch channel</strong> &mdash; Watcher will list every video, auto-label the industry, then pull each transcript.</div>
+            <div>No creators are being watched yet. Paste a YouTube channel link above and click <strong>Watch channel</strong>. Watcher will list every video, auto-label the industry, then pull each transcript.</div>
           </div>
           {% endif %}
 
@@ -3566,8 +3595,8 @@
           </div>
         </section>
 
-        <!-- Mail was folded into Communications (2026-07-15). Its team machinery — contacts, sync,
-             the AI briefing, response stats, and the thread reader — now lives in the Communications
+        <!-- Mail was folded into Communications (2026-07-15). Its team machinery (contacts, sync,
+             the AI briefing, response stats, and the thread reader) now lives in the Communications
              pane's "Email intelligence" panel; email threads appear as cards in that timeline. -->
 
         <!-- ============ ASSISTANT (team-only: RAG chat over the whole workspace) ============ -->
@@ -3576,7 +3605,7 @@
         {% macro as_model_options() -%}
           <option value=""{{ ' selected' if not assistant_model else '' }}>Automatic</option>
           {%- for m in assistant_models -%}
-          <option value="{{ m.id }}"{{ ' selected' if m.id == assistant_model else '' }}{{ ' disabled' if not m.available else '' }}>{{ m.label }}{{ '' if m.available else ' — not set up' }}</option>
+          <option value="{{ m.id }}"{{ ' selected' if m.id == assistant_model else '' }}{{ ' disabled' if not m.available else '' }}>{{ m.label }}{{ '' if m.available else ' (not set up)' }}</option>
           {%- endfor -%}
         {%- endmacro %}
         {#- The Assistant's detail control, shared the same way. Deep analysis = model thinking ON
@@ -3587,15 +3616,15 @@
           {%- endfor -%}
         {%- endmacro %}
         <section class="ax-pane {{ 'is-active' if view.active_tab=='assistant' else '' }}" data-pane="assistant">
-          <p class="ax-lede">Ask anything about {{ ws.display_name }}'s world &mdash; it reads the whole workspace: campaigns and content, metrics and dashboard data, Market Intelligence, the content calendar, client conversations, and every Watcher transcript.</p>
+          <p class="ax-lede">Ask anything about {{ ws.display_name }}'s world. It reads the whole workspace: campaigns and content, metrics and dashboard data, Market Intelligence, the content calendar, client conversations, and every Watcher transcript.</p>
 
           <div class="ax-panel ax-as-bar">
             <span class="ax-as-src">{{ ic('assistant') }} Answers are grounded in this workspace's data and cite their sources.</span>
-            <span class="ax-as-model" title="The AI model the Assistant answers with — Automatic follows the research brain's model">
+            <span class="ax-as-model" title="The AI model the Assistant answers with. Automatic follows the research brain's model">
               <label for="ax-as-model">Model</label>
               <select class="ax-editbox ax-as-modelsel" id="ax-as-model">{{ as_model_options() }}</select>
             </span>
-            <span class="ax-as-model" title="How hard the Assistant works per answer — Deep analysis thinks before answering, searches the workspace from several angles, and writes a structured comparison; Quick keeps it to a few sentences">
+            <span class="ax-as-model" title="How hard the Assistant works per answer. Deep analysis thinks before answering, searches the workspace from several angles, and writes a structured comparison; Quick keeps it to a few sentences">
               <label for="ax-as-depth">Detail</label>
               <select class="ax-editbox ax-as-depthsel" id="ax-as-depth">{{ as_depth_options() }}</select>
               <span class="ax-savehint ax-as-saved" data-asmodelsaved hidden>Saved &#10003;</span>
@@ -3613,7 +3642,7 @@
           </div>
 
           <div class="ax-panel ax-as-chat">
-            <div class="ax-as-log" id="ax-as-log" data-greeting="Hi &mdash; I can answer from everything in this workspace. Try &ldquo;What do Carson Reed and Nick Saraev say about pricing AI services?&rdquo; or &ldquo;Which content pieces are still awaiting approval?&rdquo;"></div>
+            <div class="ax-as-log" id="ax-as-log" data-greeting="Hi, I can answer from everything in this workspace. Try &ldquo;What do Carson Reed and Nick Saraev say about pricing AI services?&rdquo; or &ldquo;Which content pieces are still awaiting approval?&rdquo;"></div>
             <div class="ax-as-histpanel" id="ax-as-histpanel" hidden></div>
             <div class="ax-as-inputrow">
               <textarea class="ax-editbox ax-as-input" id="ax-as-input" rows="2" placeholder="Ask about campaigns, metrics, market intel, or anything a watched creator has said&hellip;"></textarea>
@@ -3682,12 +3711,12 @@
       <span class="ax-ascost-sub" id="ax-ascost-sub">session &middot; $0.0000 all-time</span>
     </span>
   </button>
-  <button class="ax-asfab" id="ax-asfab" type="button" title="Assistant — ask about this workspace" aria-label="Open the workspace assistant" aria-expanded="false">{{ ic('assistant') }}</button>
+  <button class="ax-asfab" id="ax-asfab" type="button" title="Assistant: ask about this workspace" aria-label="Open the workspace assistant" aria-expanded="false">{{ ic('assistant') }}</button>
   <div class="ax-aspanel" id="ax-aspanel" hidden role="dialog" aria-label="Workspace assistant">
     <div class="ax-aspanel-head">
       <div>
         <div class="ax-aspanel-title">Assistant</div>
-        <div class="ax-aspanel-hint">Grounded in this workspace &mdash; campaigns, metrics, intel, conversations, and every Watcher transcript.</div>
+        <div class="ax-aspanel-hint">Grounded in this workspace: campaigns, metrics, intel, conversations, and every Watcher transcript.</div>
       </div>
       <div class="ax-aspanel-actions">
         <button class="ax-aspanel-gear" id="ax-asfab-gear" type="button" title="AI model" aria-label="Choose the AI model">{{ ic('gear') }}</button>
@@ -3703,10 +3732,10 @@
       <label class="ax-aspanel-setlabel" for="ax-asfab-depth" style="margin-top:8px">Detail
         <select class="ax-editbox ax-as-depthsel" id="ax-asfab-depth">{{ as_depth_options() }}</select>
       </label>
-      <label class="ax-as-plan" for="ax-asfab-plan"><input type="checkbox" class="ax-as-planmode" id="ax-asfab-plan"> Plan first &mdash; show the plan &amp; pause to steer before answering</label>
-      <p class="ax-aspanel-setnote">Both apply to the Assistant everywhere in this workspace &mdash; this bubble and the Assistant tab. Automatic follows the research brain's model; Deep analysis thinks before answering and digs for comparisons (slower, costs a little more). <span class="ax-savehint ax-as-saved" data-asmodelsaved hidden>Saved &#10003;</span></p>
+      <label class="ax-as-plan" for="ax-asfab-plan"><input type="checkbox" class="ax-as-planmode" id="ax-asfab-plan"> Plan first: show the plan &amp; pause to steer before answering</label>
+      <p class="ax-aspanel-setnote">Both apply to the Assistant everywhere in this workspace: this bubble and the Assistant tab. Automatic follows the research brain's model; Deep analysis thinks before answering and digs for comparisons (slower, costs a little more). <span class="ax-savehint ax-as-saved" data-asmodelsaved hidden>Saved &#10003;</span></p>
     </div>
-    <div class="ax-as-log" id="ax-asfab-log" data-greeting="Hi — ask me anything about this workspace, from any tab: campaigns, metrics, intel, conversations, and every Watcher transcript."></div>
+    <div class="ax-as-log" id="ax-asfab-log" data-greeting="Hi, ask me anything about this workspace, from any tab: campaigns, metrics, intel, conversations, and every Watcher transcript."></div>
     <div class="ax-as-histpanel" id="ax-asfab-histpanel" hidden></div>
     <div class="ax-as-inputrow">
       <textarea class="ax-editbox ax-as-input" id="ax-asfab-input" rows="2" placeholder="Ask about campaigns, metrics, intel&hellip;"></textarea>
@@ -3841,13 +3870,13 @@
   };
   // Top-bar subtitles (mirrors the tab_subtitles Jinja map). A tab with no entry hides the subtitle.
   var subtitles = {
-    overview: "Everything, visible — what's working, what's live, and what's coming next.",
+    overview: "Everything, visible: what's working, what's live, and what's coming next.",
     dashboard: "Your live campaign data, updated automatically.",
-    calendar: "Tracking the work from kickoff to delivered — paid and organic publish dates included.",
+    calendar: "Tracking the work from kickoff to delivered, paid and organic publish dates included.",
     conversations: "One running record of every conversation so nothing gets lost.",
-    intel: "Your weekly briefing — what's moving in your industry and the platform updates worth acting on.",
+    intel: "Your weekly briefing: what's moving in your industry and the platform updates worth acting on.",
     progress: "Everything we're building for you and exactly where each piece stands.",
-    settings: "Choose what AGORA emails you about — everything still appears here in your workspace either way."
+    settings: "Choose what AGORA emails you about. Everything still appears here in your workspace either way."
   };
   // Looker Studio embed: scale the fixed-canvas report to fill the container width (runs for ALL
   // users, not just admins). The report has a fixed native canvas (data-native-w/h); a 100%-width
@@ -4157,7 +4186,7 @@
         var url = input ? input.value.replace(/^\s+|\s+$/g, "") : "";
         if (!url) { showAddMsg("Paste a YouTube channel link first.", false); return; }
         addBtn.setAttribute("disabled", "disabled");
-        showAddMsg("Finding the channel, listing every video, and labeling the industry — this can take a minute…", true);
+        showAddMsg("Finding the channel, listing every video, and labeling the industry. This can take a minute…", true);
         post("/admin/watcher", { op: "add", url: url })
           .then(function (data) {
             if (data && data.ok === false) {
@@ -4205,10 +4234,10 @@
             }
             var note;
             if (data.transcript) {
-              note = { msg: (data.already ? "Re-fetched ✓ — " : "Saved to your archive ✓ — ") + data.words + " words.",
+              note = { msg: (data.already ? "Re-fetched ✓, " : "Saved to your archive ✓, ") + data.words + " words.",
                        ok: true, open: true, chan: data.channel, vid: data.video_id };
             } else if (data.blocked) {
-              note = { msg: "YouTube is rate-limiting this server right now — the video is saved. Click “Safe pull” on the Saved videos card below and the transcript lands automatically.",
+              note = { msg: "YouTube is rate-limiting this server right now, but the video is saved. Click “Safe pull” on the Saved videos card below and the transcript lands automatically.",
                        ok: false, open: false };
             } else {
               note = { msg: "Saved, but no transcript: " + (data.error || "none is available for this video."),
@@ -4255,7 +4284,7 @@
         function tick() {
           if (!running) { return; }
           if (left <= 0) { clearInterval(timer); timer = null; step(false); return; }
-          say(prefix + " — auto-retrying in " + left + "s (click Stop to cancel)…");
+          say(prefix + ", auto-retrying in " + left + "s (click Stop to cancel)…");
           left -= 1;
         }
         tick();
@@ -4295,7 +4324,7 @@
       }
       btn.addEventListener("click", function () {
         if (running) {   // acting as a Stop button
-          stopLoop("Stopped — progress saved. Click Fetch missing to resume.");
+          stopLoop("Stopped. Progress saved. Click Fetch missing to resume.");
           return;
         }
         running = true;
@@ -4331,27 +4360,27 @@
       var prog = done + " of " + total + " transcripts";
       if (!stillQueued || ch.complete) {
         var tail = failed ? (" (" + failed + " have no captions)") : "";
-        return "Safe pull complete ✓ — " + done + " transcripts ready" + tail + ". Reload the page to read them.";
+        return "Safe pull complete ✓, " + done + " transcripts ready" + tail + ". Reload the page to read them.";
       }
       var onThis = agent && agent.active && agent.on_this_client && agent.channel_id === cid;
       if (onThis && agent.phase === "cooldown") {
         var mins = Math.max(1, Math.ceil((agent.cooldown_seconds || 0) / 60));
-        return "⏳ YouTube rate-limited the scraper — cooling down ~" + mins + " min, then it resumes automatically. " + prog + " so far.";
+        return "⏳ YouTube rate-limited the scraper, cooling down ~" + mins + " min, then it resumes automatically. " + prog + " so far.";
       }
       if (onThis && agent.phase === "fetching") {
         var now = agent.current_video ? ("“" + agent.current_video + "”") : "the next video";
-        return "▶ Fetching now: " + now + " — " + prog + ", " + pending + " to go (safe pace ~15s/video to avoid blocks).";
+        return "▶ Fetching now: " + now + ", " + prog + ", " + pending + " to go (safe pace ~15s/video to avoid blocks).";
       }
       if (onThis) {
-        return "▶ Working through this channel — " + prog + ", " + pending + " to go.";
+        return "▶ Working through this channel: " + prog + ", " + pending + " to go.";
       }
       if (agent && agent.active) {
-        return "Scraper is busy on another channel right now — this one is next in line. " + prog + " so far, " + pending + " to go.";
+        return "Scraper is busy on another channel right now, this one is next in line. " + prog + " so far, " + pending + " to go.";
       }
       if (agent && agent.present) {
         return "Scraper idle (last active " + agoWords(agent.seconds_ago) + "). It runs every ~5 min from a home IP. " + prog + " so far, " + pending + " to go.";
       }
-      return "Queued for the safe scraper — it runs every ~5 min from a home IP (no rate-limits). " + prog + " so far. If nothing moves for a while, the scrape agent may not be running on the office machine.";
+      return "Queued for the safe scraper, it runs every ~5 min from a home IP (no rate-limits). " + prog + " so far. If nothing moves for a while, the scrape agent may not be running on the office machine.";
     }
     var safePollTimer = null, safePollBusy = false, safePullReloaded = false;
     function renderSafeCard(cid, ch, agent, stillQueued) {
@@ -4431,14 +4460,14 @@
               wrap.hidden = false;
               wrap.setAttribute("data-safe-queued", "1");
             }
-            if (ptext) { ptext.textContent = "Safe pull queued — checking the scraper’s progress…"; }
+            if (ptext) { ptext.textContent = "Safe pull queued, checking the scraper’s progress…"; }
             startSafePoll();  // begin live status updates immediately
           })
           .catch(function () {
             btn.removeAttribute("disabled");
             if (ptext) {
               wrap.hidden = false;
-              ptext.textContent = "Could not queue the safe pull (network error) — please try again.";
+              ptext.textContent = "Could not queue the safe pull (network error). Please try again.";
             }
           });
       });
@@ -4716,7 +4745,7 @@
           .then(function (data) {
             saveBtn.removeAttribute("disabled");
             if (!data || data.ok === false) { mlStatus((data && data.message) || "Could not save contacts."); return; }
-            mlStatus(data.message || "Contacts saved ✓ — click Sync now to pull their mail.");
+            mlStatus(data.message || "Contacts saved ✓, click Sync now to pull their mail.");
           })
           .catch(function () {
             saveBtn.removeAttribute("disabled");
@@ -4729,9 +4758,9 @@
       syncBtn.addEventListener("click", function () {
         var box = document.getElementById("ax-ml-contacts");
         syncBtn.setAttribute("disabled", "disabled");
-        mlStatus("Syncing — pulling every matching email from the connected mailboxes…");
+        mlStatus("Syncing, pulling every matching email from the connected mailboxes…");
         // Send the contacts box along so Sync works even if Save wasn't clicked first; archive-only
-        // (no AI) so it's fast and free — summaries fill in later via the hourly job.
+        // (no AI) so it's fast and free; summaries fill in later via the hourly job.
         post("/admin/mail", { op: "sync", contacts: box ? box.value : "" })
           .then(function (data) {
             if (!data) { throw new Error("no data"); }
@@ -4767,7 +4796,7 @@
               var box = document.getElementById("ax-ml-digest");
               if (box && data.digest) { box.textContent = data.digest; }
               if (data.remaining > 0) {
-                mlStatus("Summarized " + data.summarized + " — " + data.remaining + " more to go…");
+                mlStatus("Summarized " + data.summarized + ", " + data.remaining + " more to go…");
                 step();
               } else {
                 window.location.reload();
@@ -4807,7 +4836,34 @@
     var mMeta = document.getElementById("ax-ml-mmeta");
     var mBody = document.getElementById("ax-ml-mbody");
     var mClose = document.getElementById("ax-ml-mclose");
-    function closeModal() { if (modal) { modal.hidden = true; } }
+    var mJump = document.getElementById("ax-ml-jump");
+    // "Add newer messages" (Upwork threads only): paste the fuller thread; new messages fold in.
+    var mUpdBtn = document.getElementById("ax-ml-updbtn");
+    var mUpdBox = document.getElementById("ax-ml-updbox");
+    var mUpdRaw = document.getElementById("ax-ml-updraw");
+    var mUpdSend = document.getElementById("ax-ml-updsend");
+    var mUpdCancel = document.getElementById("ax-ml-updcancel");
+    var mUpdStatus = document.getElementById("ax-ml-updstatus");
+    var curThread = null;          // the open thread's key (for the update POST)
+    var curIsUpwork = false;       // only Upwork chat threads can take pasted-in newer messages
+    function hideUpdBox() {
+      if (mUpdBox) { mUpdBox.hidden = true; }
+      if (mUpdRaw) { mUpdRaw.value = ""; }
+      if (mUpdStatus) { mUpdStatus.textContent = ""; }
+    }
+    function closeModal() { if (modal) { modal.hidden = true; } hideUpdBox(); }
+    // The "jump to latest" pill: shown only for chat threads, and only once scrolled up off the
+    // bottom (within 40px of the bottom counts as "at latest", so it hides).
+    var jumpArmed = false;
+    function atBottom() { return mBody.scrollHeight - mBody.scrollTop - mBody.clientHeight < 40; }
+    function syncJump() {
+      if (!mJump) { return; }
+      if (jumpArmed && !atBottom()) { mJump.classList.add("is-shown"); }
+      else { mJump.classList.remove("is-shown"); }
+    }
+    function scrollLatest() { mBody.scrollTop = mBody.scrollHeight; syncJump(); }
+    if (mBody) { mBody.addEventListener("scroll", syncJump); }
+    if (mJump) { mJump.addEventListener("click", scrollLatest); }
     // Chat-render helpers (used only for role-tagged threads): initials, a friendly time, and a
     // day-divider label, all parsed from the stored 'YYYY-MM-DDTHH:MM' date.
     var ML_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -4838,6 +4894,12 @@
     }
     function openThread(id) {
       if (!modal) { return; }
+      jumpArmed = false;
+      curThread = id;
+      curIsUpwork = false;
+      if (mUpdBtn) { mUpdBtn.hidden = true; }
+      hideUpdBox();
+      if (mJump) { mJump.hidden = true; mJump.classList.remove("is-shown"); }
       mTitle.textContent = "Loading…";
       mMeta.textContent = "";
       while (mBody.firstChild) { mBody.removeChild(mBody.firstChild); }
@@ -4854,17 +4916,40 @@
           if (data.mailbox) { bits.push("via " + data.mailbox); }
           mMeta.textContent = bits.join(" · ");
           var msgs = data.messages || [];
+          // Only an Upwork chat thread can take pasted-in newer messages -> reveal the update button.
+          curIsUpwork = (data.origin === "upwork") || /^up_/.test(String(id));
+          if (mUpdBtn) { mUpdBtn.hidden = !curIsUpwork; }
           // A thread whose messages carry a role (Upwork/chat) renders as a two-sided CHAT: our side
           // right in green, the client left in grey, with avatars, day dividers and friendly times.
           // Email threads (no role) keep the plain "from → to" list.
           var isChat = msgs.some(function (m) { return m.role; });
+          // Chat threads render strictly OLDEST→NEWEST by timestamp (a pasted Upwork thread can be
+          // out of order). Stable sort: an undated continuation keeps its neighbour's slot via a
+          // forward-filled key, and equal keys preserve the original order.
+          if (isChat) {
+            var lastSeen = "";
+            var indexed = msgs.map(function (m, idx) {
+              var key = m.date || lastSeen;
+              if (m.date) { lastSeen = m.date; }
+              return { m: m, key: key, idx: idx };
+            });
+            indexed.sort(function (a, b) {
+              if (a.key < b.key) { return -1; }
+              if (a.key > b.key) { return 1; }
+              return a.idx - b.idx;
+            });
+            msgs = indexed.map(function (x) { return x.m; });
+          }
           mBody.className = "ax-wt-mbody ax-ml-mbody" + (isChat ? " ax-ml-chat" : "");
           var lastDay = "";
+          var lastFrom = "";          // sender of the previous chat row (for same-person grouping)
           msgs.forEach(function (m) {
             if (isChat) {
               var day = mlDayLabel(m.date);
-              if (day && day !== lastDay) {
+              var newDay = day && day !== lastDay;
+              if (newDay) {
                 lastDay = day;
+                lastFrom = "";        // a day break always re-shows the sender header
                 var div = document.createElement("div");
                 div.className = "ax-ch-daysep";
                 var pill = document.createElement("span");
@@ -4872,24 +4957,31 @@
                 div.appendChild(pill);
                 mBody.appendChild(div);
               }
+              // Consecutive messages from the SAME person (same day) are grouped: the follow-ups
+              // drop the avatar + name/time header and stack tightly, so a burst reads as one turn.
+              var cont = !newDay && (m.from || "") === lastFrom;
               var row = document.createElement("div");
-              row.className = "ax-ch-row " + (m.role === "agora" ? "ax-ch-us" : "ax-ch-them");
+              row.className = "ax-ch-row " + (m.role === "agora" ? "ax-ch-us" : "ax-ch-them") +
+                (cont ? " ax-ch-cont" : "");
               var av = document.createElement("div");
               av.className = "ax-ch-av";
               av.textContent = mlInitials(m.from);
               var col = document.createElement("div");
               col.className = "ax-ch-col";
-              var meta = document.createElement("div");
-              meta.className = "ax-ch-meta";
-              meta.textContent = (m.from || "?") + (m.date ? " · " + mlTime(m.date) : "");
+              if (!cont) {
+                var meta = document.createElement("div");
+                meta.className = "ax-ch-meta";
+                meta.textContent = (m.from || "?") + (m.date ? " · " + mlTime(m.date) : "");
+                col.appendChild(meta);
+              }
               var bub = document.createElement("div");
               bub.className = "ax-ch-bub";
               bub.textContent = m.body || "(empty message)";
-              col.appendChild(meta);
               col.appendChild(bub);
               row.appendChild(av);
               row.appendChild(col);
               mBody.appendChild(row);
+              lastFrom = m.from || "";
               return;
             }
             var wrap = document.createElement("div");
@@ -4906,6 +4998,10 @@
             mBody.appendChild(wrap);
           });
           if (!msgs.length) { mBody.textContent = "No messages stored for this thread."; }
+          // A chat opens at the newest message (messenger-style); an email list stays at the top.
+          jumpArmed = isChat && msgs.length > 0;
+          if (mJump) { mJump.hidden = !jumpArmed; }
+          if (jumpArmed) { scrollLatest(); } else { mBody.scrollTop = 0; }
         })
         .catch(function () {
           mTitle.textContent = "Could not load the thread";
@@ -4919,6 +5015,46 @@
       row.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
     });
     if (mClose) { mClose.addEventListener("click", closeModal); }
+    // "Add newer messages": reveal the paste box; on submit, POST the fuller thread and re-open the
+    // conversation so the merged (newest-at-bottom) view shows immediately.
+    if (mUpdBtn) {
+      mUpdBtn.addEventListener("click", function () {
+        if (!mUpdBox) { return; }
+        mUpdBox.hidden = !mUpdBox.hidden;
+        if (!mUpdBox.hidden && mUpdRaw) { mUpdRaw.focus(); }
+      });
+    }
+    if (mUpdCancel) { mUpdCancel.addEventListener("click", hideUpdBox); }
+    if (mUpdSend) {
+      mUpdSend.addEventListener("click", function () {
+        var raw = (mUpdRaw && mUpdRaw.value || "").trim();
+        if (!raw) { if (mUpdStatus) { mUpdStatus.textContent = "Paste the newer messages first."; } return; }
+        if (!curThread) { return; }
+        mUpdSend.setAttribute("disabled", "disabled");
+        if (mUpdStatus) { mUpdStatus.textContent = "Adding…"; }
+        post("/admin/communication", { op: "update_upwork", thread_key: curThread, raw: raw })
+          .then(function (data) {
+            mUpdSend.removeAttribute("disabled");
+            if (!data || data.ok === false) {
+              if (mUpdStatus) { mUpdStatus.textContent = (data && data.message) || "Could not add the messages."; }
+              return;
+            }
+            var n = data.added || 0;
+            if (n > 0) {
+              // Re-render the merged thread; it opens at the newest message, so the freshly added
+              // ones are exactly what's on screen -- that IS the confirmation.
+              openThread(curThread);
+            } else if (mUpdStatus) {
+              // Nothing new: keep the box open and say so (openThread would have hidden it).
+              mUpdStatus.textContent = "No new messages found — everything was already here.";
+            }
+          })
+          .catch(function () {
+            mUpdSend.removeAttribute("disabled");
+            if (mUpdStatus) { mUpdStatus.textContent = "Network error. Please try again."; }
+          });
+      });
+    }
     if (modal) {
       modal.addEventListener("click", function (e) { if (e.target === modal) { closeModal(); } });
       document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !modal.hidden) { closeModal(); } });
@@ -5342,7 +5478,7 @@
       }
       var card = document.createElement("div"); card.className = "ax-as-plancard";
       var title = document.createElement("div"); title.className = "ax-as-plantitle";
-      title.textContent = "Here's my plan — approve or steer before I answer";
+      title.textContent = "Here's my plan. Approve or steer before I answer";
       card.appendChild(title);
       if (queries && queries.length) {
         var ul = document.createElement("ul"); ul.className = "ax-as-planq";
@@ -5372,7 +5508,7 @@
       var head = document.createElement("div"); head.className = "ax-as-think-body";
       head.style.display = "flex"; head.style.alignItems = "center"; head.style.gap = "7px";
       var spin = document.createElement("span"); spin.className = "ax-as-spin";
-      var lab = document.createElement("span"); lab.textContent = "Planning — deciding what to search…";
+      var lab = document.createElement("span"); lab.textContent = "Planning, deciding what to search…";
       head.appendChild(spin); head.appendChild(lab); bubble.appendChild(head);
       var queries = [], sources = null, failed = false;
       var range = dateRange();
@@ -5546,7 +5682,7 @@
             reindex.removeAttribute("disabled");
             reindex.textContent = "Rebuild knowledge";
             if (data && data.ok) {
-              tabChat.say("Knowledge rebuilt — " + data.chunks + " excerpts indexed.");
+              tabChat.say("Knowledge rebuilt, " + data.chunks + " excerpts indexed.");
             } else {
               tabChat.say("Could not rebuild the knowledge index.", "is-err");
             }
@@ -7128,12 +7264,12 @@
         var refreshLabel = refreshBtn.innerHTML;
         refreshBtn.addEventListener("click", function () {
           if (!val("ax-intel-model")) {
-            if (statusEl) { statusEl.classList.add("is-err"); statusEl.textContent = "The research model is set to Off — pick one above, then Refresh."; }
+            if (statusEl) { statusEl.classList.add("is-err"); statusEl.textContent = "The research model is set to Off. Pick one above, then Refresh."; }
             return;
           }
           refreshBtn.setAttribute("disabled", "disabled");
           refreshBtn.textContent = "Researching…";
-          if (statusEl) { statusEl.classList.remove("is-err"); statusEl.textContent = "Saving these settings, then researching — this can take up to a minute…"; }
+          if (statusEl) { statusEl.classList.remove("is-err"); statusEl.textContent = "Saving these settings, then researching. This can take up to a minute…"; }
           var refreshFail = function (msg) {
             if (statusEl) { statusEl.classList.add("is-err"); statusEl.textContent = msg; }
             refreshBtn.removeAttribute("disabled");
@@ -7174,7 +7310,7 @@
           suggestBtn.textContent = "Writing…";
           if (statusEl) {
             statusEl.classList.remove("is-err");
-            statusEl.textContent = "Studying this client and drafting the keywords + focus prompts — this can take a minute…";
+            statusEl.textContent = "Studying this client and drafting the keywords + focus prompts. This can take a minute…";
           }
           post("/admin/intel", { op: "suggest" })
             .then(function (data) {
@@ -7193,7 +7329,7 @@
               fill("ax-intel-mediaprompt", data.media_prompt);
               var adv = document.querySelector(".ax-intel-ai-adv");
               if (adv) { adv.open = true; }
-              if (statusEl) { statusEl.textContent = "Drafted — review the keywords and both focus prompts, tweak anything, then Save settings."; }
+              if (statusEl) { statusEl.textContent = "Drafted. Review the keywords and both focus prompts, tweak anything, then Save settings."; }
             })
             .catch(function () { suggestFail("Could not draft the prompts. Please try again."); });
         });
@@ -7736,7 +7872,7 @@
       })
       .catch(function () {
         btn.disabled = false;
-        window.alert("That didn't send — please try again.");
+        window.alert("That didn't send. Please try again.");
       });
   }
   qsa("[data-pgcomment]").forEach(function (b) {
