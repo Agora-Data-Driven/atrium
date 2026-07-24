@@ -61,6 +61,20 @@
 #   -Exclude a,b   skip specific dev branches (comma-separated).
 #   -DeleteMerged  standalone: ONLY prune remote branches already contained in origin/main
 #                  (runs nothing else). Unchanged from the original tool.
+#   -AllowReverts  bypass the SECONDARY reversion net only (after confirming a mass deletion is
+#                  intentional). It does NOT bypass the staleness gate -- a stale branch is fixed
+#                  by syncing it onto origin/main, not by a flag.
+#
+# GUARDS (fail-safe, never silent):
+#   * STALENESS (PRIMARY, hard gate, no bypass) -- a dev branch that does NOT contain origin/main was
+#                  built on old main and could revert newer work. This is an EXACT ancestry fact, so it
+#                  is the load-bearing guard: the run STOPS before integrating any such branch. The fix
+#                  is always to sync the branch onto origin/main (push-branch.ps1 auto-merges it in) --
+#                  there is deliberately no flag to force a stale branch through.
+#   * REVERSION (SECONDARY net, -AllowReverts) -- catches the one case staleness can't see: main WAS
+#                  merged in, but newer work got discarded during manual conflict resolution. If the
+#                  integrated tree deletes files present on main or is heavily net-negative, the land
+#                  STOPS unless -AllowReverts confirms the removal is intentional.
 #
 # USAGE
 #   .\tools\merge-branches.ps1                  # integrate -> land -> deploy -> prune
@@ -76,7 +90,9 @@ param(
     [switch]$NoPush,
     [switch]$NoDeploy,
     [switch]$NoPrune,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$AllowReverts   # bypass the SECONDARY reversion net only (deletes files on main / large
+                            # net-negative). Does NOT bypass the staleness gate -- sync the branch instead.
 )
 
 $ErrorActionPreference = "Continue"
@@ -140,6 +156,22 @@ function Resolve-DeployPlan {
         $r
     }
     return @($out)
+}
+
+# ---- REVERSION NET (SECONDARY): does the integrated tree REMOVE work that's on origin/main? ------
+# The staleness gate below makes it impossible to integrate a branch that doesn't contain origin/main,
+# so the classic stale-revert can't reach here. This is the backstop for what ancestry CAN'T see: main
+# WAS merged in, but newer work got discarded during manual conflict resolution. It's a heuristic
+# (files deleted vs main + a large net-negative delta), so unlike the staleness gate it CAN false-
+# positive on an intentional big cleanup -- hence the -AllowReverts escape.
+function Test-ReversionRisk([string]$mainRef, [string]$intgRef) {
+    $deleted = @(git diff --diff-filter=D --name-only $mainRef $intgRef |
+        ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $short = (git diff --shortstat $mainRef $intgRef 2>$null)
+    $ins = 0; $del = 0
+    if ($short -match '(\d+) insertion')  { $ins = [int]$Matches[1] }
+    if ($short -match '(\d+) deletion')   { $del = [int]$Matches[1] }
+    return [pscustomobject]@{ Deleted = $deleted; Insertions = $ins; Deletions = $del; NetRemoved = ($del - $ins) }
 }
 
 # Per-machine dev branches whose commits are ALREADY in origin/main (safe to delete).
@@ -232,6 +264,32 @@ if (-not $branches) {
 Write-Host "[OK] branches to integrate: $($branches -join ', ')"
 
 # =============================================================================
+# 1b. PRIMARY GATE: staleness (each branch MUST contain origin/main).
+#     The load-bearing guard. A dev branch that does not contain origin/main was built on an OLD
+#     main; integrating it can silently revert newer work. This is an EXACT ancestry fact (not the
+#     heuristic the reversion net uses), so a clean pass here means a stale revert is structurally
+#     impossible, not merely unlikely. The fix is ALWAYS to sync the branch onto origin/main
+#     (push-branch.ps1 auto-merges it in), so there is deliberately no bypass flag.
+# =============================================================================
+$stale = @()
+foreach ($b in $branches) {
+    git merge-base --is-ancestor origin/main "origin/$b" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        $bBehind = "$(git rev-list --count origin/$b..origin/main 2>$null)".Trim()
+        $stale += [pscustomobject]@{ Branch = $b; Behind = $bBehind }
+    }
+}
+if ($stale.Count -gt 0) {
+    Write-Host "[STALENESS GATE] these branches do NOT contain origin/main (built on stale main):" -ForegroundColor Red
+    $stale | ForEach-Object { Write-Host "      origin/$($_.Branch) -- $($_.Behind) commit(s) behind origin/main" -ForegroundColor Yellow }
+    Write-Host "    Landing them could revert newer work already on main. Sync each stale branch FIRST:" -ForegroundColor Yellow
+    Write-Host "      git switch <branch>; git merge --no-edit origin/main   (or just re-run its push-branch.ps1)" -ForegroundColor Yellow
+    Write-Host "      resolve any conflicts keeping BOTH sides, push, then re-run this script." -ForegroundColor Yellow
+    Die "staleness gate tripped -- NOT integrating a stale branch. Syncing is the fix; there is no bypass."
+}
+Write-Host "[OK] staleness gate passed -- every branch contains origin/main." -ForegroundColor Green
+
+# =============================================================================
 # 2. Throwaway integration branch off the CURRENT origin/main.
 # =============================================================================
 $intg = "integration/merge"
@@ -274,6 +332,30 @@ if ($t1 -ne 0 -or $t2 -ne 0) {
     Die "integration tests FAILED (workspace=$t1 smoke=$t2) -- do NOT land this. AGENT: fix the failure on the integrated tree, then re-run. The $intg branch holds the result."
 }
 Write-Host "[OK] integration tests green" -ForegroundColor Green
+
+# =============================================================================
+# 4b. REVERSION NET (secondary backstop): did manual conflict resolution discard newer work?
+#     The staleness gate above already blocks stale branches, so the classic stale-revert can't
+#     reach here. This catches only what ancestry can't see (main merged in, then newer work
+#     discarded while resolving a conflict). Heuristic -> can false-positive on an intentional big
+#     cleanup, so -AllowReverts is the escape.
+# =============================================================================
+Write-Host "[..] Reversion net (did manual conflict resolution discard newer work?)" -ForegroundColor Cyan
+$rev = Test-ReversionRisk origin/main $intg
+$NET_REMOVE_LIMIT = 300
+if (($rev.Deleted.Count -gt 0 -or $rev.NetRemoved -ge $NET_REMOVE_LIMIT) -and -not $AllowReverts) {
+    Write-Host "[REVERSION GUARD] the integrated tree removes work that exists on origin/main:" -ForegroundColor Red
+    if ($rev.Deleted.Count -gt 0) {
+        Write-Host "    deletes $($rev.Deleted.Count) file(s) present on main:" -ForegroundColor Red
+        $rev.Deleted | Select-Object -First 25 | ForEach-Object { Write-Host "      $_" -ForegroundColor Yellow }
+        if ($rev.Deleted.Count -gt 25) { Write-Host "      ... and $($rev.Deleted.Count - 25) more" -ForegroundColor Yellow }
+    }
+    Write-Host "    net lines: +$($rev.Insertions) / -$($rev.Deletions)  (net $($rev.NetRemoved) removed)" -ForegroundColor Red
+    Write-Host "    If a conflict resolution dropped newer work: redo it keeping BOTH sides, then re-run." -ForegroundColor Yellow
+    Write-Host "    If the removal is genuinely intended: re-run with -AllowReverts." -ForegroundColor Yellow
+    Die "reversion net tripped -- NOT landing."
+}
+Write-Host "[OK] reversion net passed (+$($rev.Insertions) / -$($rev.Deletions))" -ForegroundColor Green
 
 # =============================================================================
 #    Compute the deploy plan now (used by -DryRun, -NoPush, and the live path).
