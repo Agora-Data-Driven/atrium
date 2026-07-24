@@ -675,10 +675,46 @@ write_watermark(bucket, object_name, observed)     # GCS JSON sidecar <- dict
 is_stale(observed, watermark)                       # True if anything advanced or a key is missing
 ```
 
+## Debugging — symptom → cause (checked before you go hunting)
+
+These are the recurring ones. Each cost real hours; check here before reading code.
+
+- **"My change isn't live" / "the browser is caching."** Probably neither. Deploys are
+  **last-deploy-wins**: a teammate deploying a stale or divergent local tree silently overwrites
+  your revision. **Check what is actually serving before blaming cache:**
+  `gcloud run services describe platform-dash --project agora-data-driven --region asia-southeast1 --format='value(status.traffic[0].revisionName)'`
+  Then confirm that revision's image is the one you built. (Same applies to every `<c>-dash`.)
+- **SSE "network error" in the browser.** Almost always a **500 raised BEFORE the stream opened**,
+  not a transport fault — the client only sees a dead connection. Build expensive context (index
+  rebuild, retrieval) *after* the stream is open, behind a heartbeat, so failures arrive as an
+  `error` frame instead of a broken pipe. This is why `ask_stream` retrieves inside the stream.
+- **`/admin/atrium` 500s after someone hand-edited a workspace JSON.** On Windows, writing
+  `workspace/*.json` in **text mode** encodes as cp1252, so a smart quote lands as `0x92` and the
+  UTF-8 read (`store.py:87`) blows up. The app itself always writes bytes
+  (`json.dumps(...).encode("utf-8")`, `store.py:102`) — the corruption comes from ad-hoc edits.
+  **Always write these objects as UTF-8 bytes**, never via a text-mode handle or a shell redirect.
+- **A Vertex-backed feature 429s or dies mid-run.** Two distinct causes: per-region quota
+  (429 `RESOURCE_EXHAUSTED` — retry in another region or back off) and **context-cache expiry**
+  (a cached handle silently stops resolving). Treat both as expected and degrade, don't crash;
+  every AI leg in this repo is written to fall back to the non-AI path.
+- **Watcher fetches return nothing / `blocked` from Cloud Run.** **YouTube blocks datacenter IPs.**
+  That is the whole reason `WATCHER_PROXY_URL` (Secret `watcher-proxy-url`) and the operator-machine
+  **Safe pull** path exist. A bare Cloud Run fetch is expected to fail — it is not a code bug.
+- **Mail (dwd) returns nothing.** Domain-wide delegation needs a **Workspace-admin grant** that is
+  separate from any IAM you can set from here. Unset/ungranted degrades to empty, by design.
+- **`/go` reported success but a repo didn't ship.** `/go` **exits 0 on partial failure** — read the
+  Summary block, not the exit code. See the root [`../CLAUDE.md`](../CLAUDE.md).
+- **The esprima JS gate fails on valid-looking JS.** Inline JS must be **esprima-4.x-safe**: no `?.`,
+  no `??`. Use classic `&&`/`||`. This applies to every `dashboard.html` and every portal template.
+- **A view-only or seed-only change serves stale JSON.** Those changes don't advance the upstream
+  watermark, so the freshness gate no-ops. `FORCE_REBUILD=1` is **mandatory** for them.
+
 ## Never
 
 - **Never commit secrets.** Keys, `.p8`/`.pem`, `*credentials*.json`, `.env` are gitignored — keep
   it that way. Write secret material via UTF-8 (no BOM, no trailing newline) temp files.
+- **Never write `workspace/*.json` or `platform.json` in text mode on Windows** — UTF-8 bytes only
+  (see Debugging above).
 - **Never make the data JSON public.** It is served only through the authenticated `/data.json`
   proxy. Buckets stay private.
 - **Never edit views in the BigQuery console.** Views are code: edit `sql/*.sql` and reapply with
