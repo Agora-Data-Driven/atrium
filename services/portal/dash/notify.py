@@ -128,6 +128,15 @@ def client_commented(client, item, body, user=None):
     _send_email(team_address(), "New Atrium comment on %s" % ref, body or "")
 
 
+def client_task_added(client, task, user=None):
+    """A client filed a new request from the Progress tab's quick-add. Notify the AGORA team."""
+    title = task.get("title") or task.get("id") or "a task"
+    _record(client, "message", "You added a request: %s." % title)
+    _log("client task added: %s (by %s)" % (title, user or "client"))
+    _send_email(team_address(), "New Atrium client request: %s" % title,
+                task.get("client_note") or "")
+
+
 def client_task_commented(client, task, body, user=None):
     """A client commented on a Progress-tab task. Notify the AGORA team."""
     title = task.get("title") or task.get("id") or "a task"

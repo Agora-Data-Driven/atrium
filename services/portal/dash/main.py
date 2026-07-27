@@ -1310,6 +1310,10 @@ def _progress_tasks(ws):
             "discipline": _disc_pair[0], "disc_class": _disc_pair[1],
             # On hold -> the client sees a plain "Paused" (never the internal reason).
             "on_hold": bool(t.get("on_hold")),
+            # Who filed it (client-safe): the Progress quick-add auto-tags client vs agora, so a
+            # request captured live on a call keeps its attribution on both surfaces.
+            "reporter": t.get("reporter", "agora"),
+            "reporter_name": t.get("reporter_name", ""),
             "start_date": t.get("start_date", ""),
             "due_date": due,
             "due_soon": bool(due and today <= due <= soon and stage != "closed"),
@@ -1360,6 +1364,44 @@ def atrium_task_comment(client):
            task.get("title") or task_id)
     return jsonify(ok=True, comment=comment,
                    open_changes=len(workspace.task_open_changes(task)))
+
+
+@app.route("/w/<client>/task-add", methods=["POST"])
+def atrium_task_add(client):
+    """Quick-add a task from the Progress tab (client AND team) -- built for live-call capture:
+    share the workspace on screen and type requests as the client says them.
+
+    The REPORTER is auto-tagged from the session, never a form choice: a team session files it as
+    "agora", anyone else as "client". Quick-added tasks are always client_facing (they were created
+    on the client surface, so they must appear there) and start in_process with no breakdown --
+    the team fleshes them out from the console like any blank custom service. Internal fields
+    (priority/charge/owners/notes) are NOT accepted here; the admin console remains the only place
+    those are set."""
+    gate = _atrium_json_gate(client)
+    if gate:
+        return gate
+    title = request.form.get("title", "").strip()
+    if not title:
+        return Response('{"error":"empty"}', status=400, mimetype="application/json")
+    note = request.form.get("note", "").strip()
+    user = current_user()
+    from_team = is_superadmin()
+    fields = {
+        "title": title[:200],
+        "stage": "in_process",
+        "client_facing": True,
+        "client_note": note[:1000],
+        "reporter": "agora" if from_team else "client",
+        "reporter_name": (_admin_sender_name(user) if from_team else _client_sender_name(user)),
+    }
+    try:
+        task = workspace.add_task(client, fields, actor=user or "")
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    if not from_team:
+        notify.client_task_added(client, task, user)
+    _audit(client, "added task" if from_team else "client added request", task["title"])
+    return jsonify(ok=True, task_id=task["id"], reporter=task["reporter"])
 
 
 @app.route("/w/<client>/resolve-comment", methods=["POST"])

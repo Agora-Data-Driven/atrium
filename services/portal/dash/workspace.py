@@ -1567,6 +1567,7 @@ def set_calendar_status(client, index, status):
 #     -- dod = optional INTERNAL "done when" (team overlay only; never in the client Progress shape),
 #   comments[] (the content-comment shape incl. kind:"changes" + resolved), history[],
 #   client_facing, client_note, deliverable_url,        <- client-safe
+#   reporter ("agora"|"client") + reporter_name,        <- who FILED it (client-safe, set once at add)
 #   internal_notes, account_manager_id                  <- internal only
 # LEGACY: tasks written before the two-level model carry a flat subtasks[] -- normalize_task()
 # migrates that into one maintask in place (called by _find_task, so every mutation persists it).
@@ -1685,6 +1686,10 @@ def add_task(client, fields, actor=""):
         "comments": [],
         "history": [],
         "client_facing": bool(f.get("client_facing")),
+        # Who FILED the task -- auto-stamped by the route from the session, never a form choice
+        # (the Progress tab's quick-add tags client vs agora so live-call capture is attributed).
+        "reporter": f.get("reporter") if f.get("reporter") in ("agora", "client") else "agora",
+        "reporter_name": f.get("reporter_name") or "",
         "client_note": f.get("client_note") or "",
         "deliverable_url": f.get("deliverable_url") or "",
         "internal_notes": f.get("internal_notes") or "",
