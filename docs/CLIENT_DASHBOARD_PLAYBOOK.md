@@ -223,9 +223,22 @@ Build these as a small reusable vocabulary; one `segWire(id, attr, apply)` helpe
 segmented control on the page.
 
 **Segmented control (`.seg`)** — pill group, one active. Use for mutually exclusive *views*:
-`Auto / Week / Month` (grain), `Relative / Absolute` (axis), `By platform / Over time`,
+`Auto / Day / Week / Month` (grain), `Relative / Absolute` (axis), `By platform / Over time`,
 `Ranked / By month`, `Order history / Curated sheet`. Give it a tiny uppercase `.cap` label
 ("AXIS") when the meaning isn't obvious from the options.
+
+**Time grain on EVERY time-series chart** — `Auto / Day / Week / Month`, re-bucketing the current
+date-range selection. Make it a shared helper (`grainOf(key, from, to)` + `bucketOf(iso, grain)`),
+not per-chart logic, so every chart behaves identically and a new chart is one line.
+- **`Auto` must scale with the span**: day ≤ ~62 days, week ≤ ~400, month beyond. Without this a
+  7-day range bucketed by week renders **a single dot** — which is exactly the bug we shipped and
+  had to fix. Never hardcode a grain.
+- Say the resolved grain in the subtitle ("29 days in the selected period") so the user knows what
+  they're looking at.
+- Bar charts need room: clip to the most recent ~40 buckets and label it, rather than drawing 1,100
+  slivers.
+- **Do not offer a grain the data cannot support.** Shopify sessions are month-granular, so that
+  chart stays monthly — offering Day there would fabricate precision.
 
 **Scorecards as series toggles** — the strongest pattern we built. Click a KPI tile to add/remove
 its line from the chart beneath it. Rules that make it work:

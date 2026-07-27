@@ -239,6 +239,10 @@
               font-weight:700;padding:5px 13px;border-radius:999px;cursor:pointer;white-space:nowrap}
   .seg button:hover{color:var(--ink)}
   .seg button.on{background:var(--cocoa);color:var(--cream)}
+  .seg.mini button{font-size:10.5px;padding:4px 9px}
+  .cardhead{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .cardhead>div:first-child{flex:1;min-width:170px}
+  .cardhead .csub{margin-bottom:0}
 
   /* month accordion — every product sold in a month, on demand */
   .macc{border:1px solid var(--line);border-radius:11px;overflow:hidden;max-height:460px;overflow-y:auto}
@@ -384,6 +388,7 @@
           </div>
           <div class="seg" id="kpiGrainSeg">
             <button type="button" data-kgrain="auto" class="on">Auto</button>
+            <button type="button" data-kgrain="day">Day</button>
             <button type="button" data-kgrain="week">Week</button>
             <button type="button" data-kgrain="month">Month</button>
           </div>
@@ -420,8 +425,8 @@
           <div class="scale" id="mapScale"></div>
         </div>
         <div class="card">
-          <h3>Customers, AOV &amp; sales per week</h3>
-          <div class="csub">weekly trend across the selected period</div>
+          <div class="cardhead"><div><h3>Customers, AOV &amp; sales</h3>
+          <div class="csub" id="trendSub">trend across the selected period</div></div><div class="seg mini" id="trendGrainSeg"><button type="button" data-g="trend" data-gv="auto" class="on">Auto</button><button type="button" data-g="trend" data-gv="day">Day</button><button type="button" data-g="trend" data-gv="week">Week</button><button type="button" data-g="trend" data-gv="month">Month</button></div></div>
           <div class="legend" id="trendLegend"></div>
           <svg class="ch" id="chartTrend" viewBox="0 0 620 300" role="img" aria-label="Weekly sales trend"></svg>
         </div>
@@ -444,8 +449,8 @@
           <div class="tfoot" id="bsFoot"></div>
         </div>
         <div class="card">
-          <h3>New vs. returning</h3>
-          <div class="csub">orders per month, split by customer type</div>
+          <div class="cardhead"><div><h3>New vs. returning</h3>
+          <div class="csub" id="nrSub">orders split by customer type</div></div><div class="seg mini" id="nrGrainSeg"><button type="button" data-g="nr" data-gv="auto" class="on">Auto</button><button type="button" data-g="nr" data-gv="day">Day</button><button type="button" data-g="nr" data-gv="week">Week</button><button type="button" data-g="nr" data-gv="month">Month</button></div></div>
           <div class="legend" id="nrLegend"></div>
           <svg class="ch" id="chartNR" viewBox="0 0 620 300" role="img" aria-label="New vs returning orders"></svg>
         </div>
@@ -509,8 +514,8 @@
           <svg class="ch" id="chartFunnel" viewBox="0 0 560 330" role="img" aria-label="Conversion funnel"></svg>
         </div>
         <div class="card">
-          <h3>Revenue vs. spend over time</h3>
-          <div class="csub">attributed purchase value against ad spend</div>
+          <div class="cardhead"><div><h3>Revenue vs. spend over time</h3>
+          <div class="csub">attributed purchase value against ad spend</div></div><div class="seg mini" id="revGrainSeg"><button type="button" data-g="rev" data-gv="auto" class="on">Auto</button><button type="button" data-g="rev" data-gv="day">Day</button><button type="button" data-g="rev" data-gv="week">Week</button><button type="button" data-g="rev" data-gv="month">Month</button></div></div>
           <div class="legend" id="revLegend"></div>
           <svg class="ch" id="chartRev" viewBox="0 0 660 300" role="img" aria-label="Revenue versus spend"></svg>
         </div>
@@ -520,14 +525,14 @@
     <section>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
         <div class="card">
-          <h3>Efficiency over time</h3>
-          <div class="csub">ROAS and CPM by week</div>
+          <div class="cardhead"><div><h3>Efficiency over time</h3>
+          <div class="csub">ROAS and CPM</div></div><div class="seg mini" id="effGrainSeg"><button type="button" data-g="eff" data-gv="auto" class="on">Auto</button><button type="button" data-g="eff" data-gv="day">Day</button><button type="button" data-g="eff" data-gv="week">Week</button><button type="button" data-g="eff" data-gv="month">Month</button></div></div>
           <div class="legend" id="effLegend"></div>
           <svg class="ch" id="chartEff" viewBox="0 0 620 280" role="img" aria-label="ROAS and CPM"></svg>
         </div>
         <div class="card">
-          <h3>Audience freshness</h3>
-          <div class="csub">frequency &mdash; how often the same person sees an ad</div>
+          <div class="cardhead"><div><h3>Audience freshness</h3>
+          <div class="csub">frequency &mdash; how often the same person sees an ad</div></div><div class="seg mini" id="freqGrainSeg"><button type="button" data-g="freq" data-gv="auto" class="on">Auto</button><button type="button" data-g="freq" data-gv="day">Day</button><button type="button" data-g="freq" data-gv="week">Week</button><button type="button" data-g="freq" data-gv="month">Month</button></div></div>
           <svg class="ch" id="chartFreq" viewBox="0 0 620 280" role="img" aria-label="Frequency"></svg>
         </div>
       </div>
@@ -827,6 +832,31 @@ function compactN(v){
 }
 function pct(v, d){ return Number(v).toFixed(d === undefined ? 2 : d) + "%"; }
 function safe(a, b){ return b ? a / b : 0; }
+
+/* ---------- Time grain: one rule for every time-series chart -------------------------------
+   Every chart that plots something over time offers Auto / Day / Week / Month and re-buckets
+   the CURRENT date-range selection. "Auto" picks the grain the selected span can actually
+   support — a 7-day range bucketed by week is a single dot (which is exactly what it did
+   before this existed), and three years bucketed by day is 1,100 unreadable points. */
+var GRAIN = { kpi:"auto", trend:"auto", nr:"auto", rev:"auto", eff:"auto", freq:"auto" };
+function autoGrain(from, to){
+  var d = daysBetween(from, to);
+  if(d <= 62){ return "day"; }
+  if(d <= 400){ return "week"; }
+  return "month";
+}
+function grainOf(key, from, to){
+  var g = GRAIN[key];
+  return (!g || g === "auto") ? autoGrain(from, to) : g;
+}
+function bucketOf(iso, g){
+  return g === "day" ? iso : (g === "month" ? monthKey(iso) : weekStart(iso));
+}
+function bucketLabel(k, g){ return g === "month" ? monthLabel(k) : mday(k); }
+function grainNote(g, n){
+  var word = g === "day" ? "day" : g === "month" ? "month" : "week";
+  return n + " " + word + (n === 1 ? "" : "s");
+}
 
 function dObj(iso){ return new Date(iso + "T00:00:00Z"); }
 function isoOf(dt){ return dt.toISOString().slice(0, 10); }
@@ -1310,7 +1340,27 @@ function wireControls(){
   setTuck(isTucked());
 
   segWire("kpiScaleSeg", "data-kscale", function(v){ KPI_SCALE = v; renderKpiChart(); });
-  segWire("kpiGrainSeg", "data-kgrain", function(v){ KPI_GRAIN = v; renderKpiChart(); });
+  segWire("kpiGrainSeg", "data-kgrain", function(v){ GRAIN.kpi = v; renderKpiChart(); });
+
+  /* Day/Week/Month on every other time-series chart. One handler; each button carries the
+     chart key it drives, and only that chart re-renders. */
+  var GRAIN_REDRAW = {
+    trend: renderTrend,
+    nr: renderNewReturning,
+    rev: function(){ renderRevChart(metaIn(S2.from, S2.to)); },
+    eff: function(){ renderEffChart(metaIn(S2.from, S2.to)); },
+    freq: function(){ renderFreqChart(metaIn(S2.from, S2.to)); }
+  };
+  document.querySelectorAll("[data-g]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var key = b.getAttribute("data-g");
+      GRAIN[key] = b.getAttribute("data-gv");
+      var box = b.parentNode;
+      box.querySelectorAll("button").forEach(function(x){ x.classList.remove("on"); });
+      b.classList.add("on");
+      if(GRAIN_REDRAW[key]){ GRAIN_REDRAW[key](); }
+    });
+  });
   segWire("trafSeg", "data-traf", function(v){ TRAF_MODE = v; renderTraffic(); });
   segWire("demoSeg", "data-demo", function(v){ DEMO_METRIC = v; renderAgeGender(); renderAdRegion(); });
   segWire("seasonSeg", "data-sv", function(v){ SEASON_VIEW = v; renderS3(); });
@@ -1493,8 +1543,7 @@ var KPI_METRICS = [
     val:function(a){ return a.munits; }, sub:"merchandise items sold" }
 ];
 var KPI_ON = { sales:true, customers:true, aov:true, first:false, ret:false, units:false };
-var KPI_SCALE = "rel";
-var KPI_GRAIN = "auto";
+var KPI_SCALE = "rel";   /* grain now lives in the shared GRAIN map */
 
 function kpiMetric(k){
   for(var i = 0; i < KPI_METRICS.length; i++){ if(KPI_METRICS[i].k === k){ return KPI_METRICS[i]; } }
@@ -1503,12 +1552,11 @@ function kpiMetric(k){
 /* Period buckets over the CURRENT tab-1 filters, so the chart always matches the tiles. */
 function kpiSeries(){
   var list = s1Orders(S1.from, S1.to);
-  var g = KPI_GRAIN;
-  if(g === "auto"){ g = daysBetween(S1.from, S1.to) > 400 ? "month" : "week"; }
+  var g = grainOf("kpi", S1.from, S1.to);
   var m = {}, ord = [];
   for(var i = 0; i < list.length; i++){
     var o = list[i];
-    var key = (g === "month") ? monthKey(o.d) : weekStart(o.d);
+    var key = bucketOf(o.d, g);
     if(!m[key]){ m[key] = []; ord.push(key); }
     m[key].push(o);
   }
@@ -1518,7 +1566,7 @@ function kpiSeries(){
   var mu = {};
   var lines = s1Lines(S1.from, S1.to);
   for(var j = 0; j < lines.length; j++){
-    var lk = (g === "month") ? monthKey(lines[j].d) : weekStart(lines[j].d);
+    var lk = bucketOf(lines[j].d, g);
     mu[lk] = (mu[lk] || 0) + lines[j].q;
   }
   var pts = ord.map(function(k){
@@ -1528,7 +1576,7 @@ function kpiSeries(){
     return a;
   });
   return { grain:g, keys:ord, pts:pts,
-           labels:ord.map(function(k){ return g === "month" ? monthLabel(k) : mday(k); }) };
+           labels:ord.map(function(k){ return bucketLabel(k, g); }) };
 }
 
 function renderKpiChart(){
@@ -1537,7 +1585,7 @@ function renderKpiChart(){
   var active = KPI_METRICS.filter(function(mm){ return KPI_ON[mm.k]; });
 
   setText("kpiChartSub", "click a scorecard above to add or remove its line · " +
-    S.keys.length + " " + S.grain + (S.keys.length === 1 ? "" : "s") + " in the selected period");
+    grainNote(S.grain, S.keys.length) + " in the selected period");
 
   setHTML("kpiLegend", KPI_METRICS.map(function(mm){
     return '<div class="lg' + (KPI_ON[mm.k] ? "" : " off") + '" data-kpi-leg="' + mm.k + '">' +
@@ -1845,32 +1893,31 @@ function weekSeries(list){
 }
 function renderTrend(){
   var svg = byId("chartTrend");
-  var ser = weekSeries(s1Orders(S1.from, S1.to));
-  if(!ser.length){ clear(svg); return; }
-  /* Down-sample to months when the window is long, so the line stays readable. */
-  var useMonth = ser.length > 70;
-  var pts = ser, labels;
-  if(useMonth){
-    var mm = {}, ord = [];
-    s1Orders(S1.from, S1.to).forEach(function(o){
-      var k = monthKey(o.d);
-      if(!mm[k]){ mm[k] = { w:k, sales:0, orders:0, cust:{} }; ord.push(k); }
-      mm[k].sales += o.tot; mm[k].orders++;
-      if(o.cid){ mm[k].cust[o.cid] = 1; }
-    });
-    ord.sort();
-    pts = ord.map(function(k){
-      var r = mm[k]; r.customers = Object.keys(r.cust).length; r.aov = safe(r.sales, r.orders); return r;
-    });
-    labels = ord.map(monthLabel);
-  } else {
-    labels = ser.map(function(r){ return mday(r.w); });
-  }
+  var g = grainOf("trend", S1.from, S1.to);
+  var list = s1Orders(S1.from, S1.to);
+  var m = {}, ord = [];
+  list.forEach(function(o){
+    var k = bucketOf(o.d, g);
+    if(!m[k]){ m[k] = { w:k, sales:0, orders:0, cust:{} }; ord.push(k); }
+    m[k].sales += o.tot; m[k].orders++;
+    if(o.cid){ m[k].cust[o.cid] = 1; }
+  });
+  ord.sort();
+  var pts = ord.map(function(k){
+    var r = m[k];
+    r.customers = Object.keys(r.cust).length;
+    r.aov = safe(r.sales, r.customers);   /* sales / customers -- the agreed AOV definition */
+    return r;
+  });
+  var labels = ord.map(function(k){ return bucketLabel(k, g); });
+  setText("trendSub", grainNote(g, pts.length) + " across the selected period");
+  if(!pts.length){ clear(svg); setHTML("trendLegend", ""); return; }
 
+  var per = g === "day" ? "Sales per day" : (g === "month" ? "Sales per month" : "Sales per week");
   var items = [
     { k:"cust", n:"Customers", c:CO.cocoa },
     { k:"aov",  n:"AOV",       c:CO.gold },
-    { k:"sales", n:(useMonth ? "Sales per month" : "Sales per week"), c:CO.flame }
+    { k:"sales", n:per, c:CO.flame }
   ];
   legend("trendLegend", items, trendOff, renderTrend);
 
@@ -1881,8 +1928,9 @@ function renderTrend(){
     if(r.aov > maxAov){ maxAov = r.aov; }
     if(r.sales > maxSales){ maxSales = r.sales; }
   });
-  /* Three units on one canvas — index each series to its own max so shapes stay comparable. */
-  var g = frame(svg, { max:100, mL:34, mR:14, mB:32, ticks:4, fmt:function(v){ return Math.round(v) + "%"; } });
+  /* Three units on one canvas -- index each series to its own max so shapes stay comparable. */
+  var gg = frame(svg, { max:100, mL:34, mR:14, mB:32, ticks:4,
+                        fmt:function(v){ return Math.round(v) + "%"; } });
   var N = pts.length;
   vis.forEach(function(it){
     var mx = it.k === "cust" ? maxCust : (it.k === "aov" ? maxAov : maxSales);
@@ -1890,13 +1938,14 @@ function renderTrend(){
       var raw = it.k === "cust" ? r.customers : (it.k === "aov" ? r.aov : r.sales);
       return mx ? raw / mx * 100 : 0;
     });
-    svg.appendChild(el("path", { d:linePath(g, vals, N), fill:"none", stroke:it.c,
-                                 "stroke-width":2.2, "stroke-linejoin":"round", "stroke-linecap":"round" }));
+    svg.appendChild(el("path", { d:linePath(gg, vals, N), fill:"none", stroke:it.c,
+                                 "stroke-width":2.2, "stroke-linejoin":"round",
+                                 "stroke-linecap":"round" }));
   });
-  xLabels(svg, g, labels);
-  hoverBands(svg, g, N, function(i){
+  xLabels(svg, gg, labels);
+  hoverBands(svg, gg, N, function(i){
     var r = pts[i];
-    return '<div class="td">' + (useMonth ? monthLabel(r.w) : "Week of " + mday(r.w)) + "</div>" +
+    return '<div class="td">' + esc(bucketLabel(r.w, g)) + "</div>" +
       tipRow("Sales", money(r.sales, 0)) + tipRow("Orders", num(r.orders)) +
       tipRow("Customers", num(r.customers)) + tipRow("AOV", money(r.aov, 2));
   });
@@ -1938,32 +1987,37 @@ function renderBest(lines){
 
 function renderNewReturning(){
   var svg = byId("chartNR");
+  var g = grainOf("nr", S1.from, S1.to);
   var list = s1Orders(S1.from, S1.to);
   var m = {}, ord = [];
   list.forEach(function(o){
-    var k = monthKey(o.d);
+    var k = bucketOf(o.d, g);
     if(!m[k]){ m[k] = { first:0, ret:0 }; ord.push(k); }
     if(o.ct === "first"){ m[k].first++; } else { m[k].ret++; }
   });
   ord.sort();
-  if(ord.length > 30){ ord = ord.slice(ord.length - 30); }
+  /* bars need room: show the most recent 40 buckets rather than 1,100 slivers */
+  var clipped = ord.length > 40;
+  if(clipped){ ord = ord.slice(ord.length - 40); }
+  setText("nrSub", "orders split by customer type - " + grainNote(g, ord.length) +
+    (clipped ? " (most recent)" : ""));
   var items = [{ k:"first", n:"First-time", c:CO.flame }, { k:"ret", n:"Returning", c:CO.gold }];
   legend("nrLegend", items, {}, function(){});
 
   var max = 0;
   ord.forEach(function(k){ var t = m[k].first + m[k].ret; if(t > max){ max = t; } });
-  var g = frame(svg, { max:max, mL:40, mR:12, mB:30, ticks:4, fmt:function(v){ return String(Math.round(v)); } });
-  var N = ord.length, bw = g.iw / Math.max(1, N);
+  var gf = frame(svg, { max:max, mL:40, mR:12, mB:30, ticks:4, fmt:function(v){ return String(Math.round(v)); } });
+  var N = ord.length, bw = gf.iw / Math.max(1, N);
   ord.forEach(function(k, i){
-    var r = m[k], x = g.mL + bw * i + bw * 0.16, w = bw * 0.68;
-    var hF = (r.first / g.maxV) * g.ih, hR = (r.ret / g.maxV) * g.ih;
-    svg.appendChild(el("rect", { x:x, y:g.mT + g.ih - hF - hR, width:w, height:hR, fill:CO.gold, rx:2 }));
-    svg.appendChild(el("rect", { x:x, y:g.mT + g.ih - hF, width:w, height:hF, fill:CO.flame, rx:2 }));
+    var r = m[k], x = gf.mL + bw * i + bw * 0.16, w = bw * 0.68;
+    var hF = (r.first / gf.maxV) * gf.ih, hR = (r.ret / gf.maxV) * gf.ih;
+    svg.appendChild(el("rect", { x:x, y:gf.mT + gf.ih - hF - hR, width:w, height:hR, fill:CO.gold, rx:2 }));
+    svg.appendChild(el("rect", { x:x, y:gf.mT + gf.ih - hF, width:w, height:hF, fill:CO.flame, rx:2 }));
   });
-  xLabelsBand(svg, g, ord.map(monthLabel));
-  hoverBands(svg, g, N, function(i){
+  xLabelsBand(svg, gf, ord.map(function(k){ return bucketLabel(k, g); }));
+  hoverBands(svg, gf, N, function(i){
     var r = m[ord[i]], t = r.first + r.ret;
-    return '<div class="td">' + monthLabel(ord[i]) + "</div>" +
+    return '<div class="td">' + bucketLabel(ord[i], g) + "</div>" +
       tipRow("First-time", num(r.first)) + tipRow("Returning", num(r.ret)) +
       tipRow("Repeat share", pct(safe(r.ret, t) * 100, 1));
   });
@@ -2160,23 +2214,21 @@ function renderFunnelChart(a){
   });
 }
 
-function timeBuckets(rows, from, to){
-  /* week buckets, or month buckets when the window is long */
-  var span = daysBetween(from, to);
-  var useMonth = span > 200;
+function timeBuckets(rows, from, to, key){
+  var g = grainOf(key || "rev", from, to);
   var m = {}, ord = [];
   rows.forEach(function(r){
-    var k = useMonth ? monthKey(r.d) : weekStart(r.d);
+    var k = bucketOf(r.d, g);
     if(!m[k]){ m[k] = blankM(); ord.push(k); }
     addM(m[k], r);
   });
   ord.sort();
-  return { keys:ord, map:m, useMonth:useMonth,
-           labels:ord.map(function(k){ return useMonth ? monthLabel(k) : mday(k); }) };
+  return { keys:ord, map:m, grain:g,
+           labels:ord.map(function(k){ return bucketLabel(k, g); }) };
 }
 function renderRevChart(rows){
   var svg = byId("chartRev");
-  var tb = timeBuckets(rows, S2.from, S2.to);
+  var tb = timeBuckets(rows, S2.from, S2.to, "rev");
   if(!tb.keys.length){ clear(svg); setHTML("revLegend", ""); return; }
   var items = [{ k:"rev", n:"Attributed sales", c:CO.flame }, { k:"spend", n:"Ad spend", c:CO.cocoa }];
   legend("revLegend", items, revOff, function(){ renderRevChart(rows); });
@@ -2216,7 +2268,7 @@ function renderRevChart(rows){
 }
 function renderEffChart(rows){
   var svg = byId("chartEff");
-  var tb = timeBuckets(rows, S2.from, S2.to);
+  var tb = timeBuckets(rows, S2.from, S2.to, "eff");
   if(!tb.keys.length){ clear(svg); setHTML("effLegend", ""); return; }
   var items = [{ k:"roas", n:"ROAS", c:CO.flame }, { k:"cpm", n:"CPM", c:CO.teal }];
   legend("effLegend", items, effOff, function(){ renderEffChart(rows); });
@@ -2252,7 +2304,7 @@ function renderEffChart(rows){
 }
 function renderFreqChart(rows){
   var svg = byId("chartFreq");
-  var tb = timeBuckets(rows, S2.from, S2.to);
+  var tb = timeBuckets(rows, S2.from, S2.to, "freq");
   if(!tb.keys.length){ clear(svg); return; }
   var max = 0;
   tb.keys.forEach(function(k){ var a = deriveM(tb.map[k]); if(a.freq > max){ max = a.freq; } });
