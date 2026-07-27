@@ -1,0 +1,4 @@
+# Belt-and-braces: the build context is job/ only, but never let a stray data or
+# context drop ride into the image.
+__pycache__/
+*.pyc
