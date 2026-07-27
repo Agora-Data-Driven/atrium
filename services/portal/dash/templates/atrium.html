@@ -3190,13 +3190,16 @@
           <span class="ax-pg-ro"><svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             Add requests and comment on any item — your Agora team handles the rest.</span>
 
-          {#- Quick-add: one input, Enter to file. POSTs /w/<c>/task-add; the server auto-tags
-             the reporter (a team session files as agora, a client session as client). -#}
-          <div class="ax-pg-add">
-            <input type="text" data-pgadd-input maxlength="200" aria-label="Add a request"
+          {#- Quick-add: a REAL form, so filing a request NEVER depends on JavaScript running.
+             POSTs /w/<c>/task-add; the server auto-tags the reporter (a team session files as
+             agora, a client session as client) and redirects back here. The script below only
+             upgrades this to a fetch so the input keeps focus for rapid live-call entry. -#}
+          <form class="ax-pg-add" method="post" action="/w/{{ view.client }}/task-add" data-pgadd-form>
+            <input type="text" name="title" data-pgadd-input maxlength="200" required aria-label="Add a request"
                    placeholder='Type a request and press Enter — e.g. "Update the homepage banner"'>
-            <button type="button" class="ax-btn violet" data-pgadd-btn>Add request</button>
-          </div>
+            <input type="hidden" name="redirect" value="progress">
+            <button type="submit" class="ax-btn violet" data-pgadd-btn>Add request</button>
+          </form>
 
           {% set pg_total = (progress_cols|default([], true))|map(attribute='tasks')|sum(start=[])|length %}
           {% set pg_dots = {'in_process':'var(--ax-violet)','for_launch':'#F2820C','launched':'var(--ax-green)','closed':'#8A93A3'} %}
@@ -7807,8 +7810,54 @@
 })();
 </script>
 <script>
+// Quick-add composer. DELIBERATELY its own IIFE, wired FIRST and independent of the board below:
+// filing a request must never depend on the modal veil / detail store existing (they are board
+// furniture), nor on the board's code running. The form posts natively with no JS at all; this
+// only upgrades it to a fetch so the input keeps focus for rapid live-call entry. Any failure
+// falls back to the native post, so a typed request is never silently lost.
+(function () {
+  var form = document.querySelector("[data-pgadd-form]");
+  if (!form) { return; }
+  var input = form.querySelector("[data-pgadd-input]");
+  var btn = form.querySelector("[data-pgadd-btn]");
+  var action = form.getAttribute("action") || "";
+
+  form.addEventListener("submit", function (e) {
+    var title = input ? (input.value || "").replace(/^\s+|\s+$/g, "") : "";
+    if (!title) { e.preventDefault(); if (input) { input.focus(); } return; }
+    e.preventDefault();
+    if (btn) { btn.disabled = true; }
+    var fd = new FormData();
+    fd.append("title", title);
+    fetch(action, { method: "POST", body: fd, credentials: "same-origin" })
+      .then(function (resp) {
+        if (!resp || !resp.ok) { throw new Error("request failed"); }
+        return resp.json();
+      })
+      .then(function () {
+        try { window.sessionStorage.setItem("agora.pgadded", "1"); } catch (err) {}
+        window.location.replace(action.replace(/\/task-add$/, "/progress"));
+      })
+      .catch(function () {
+        // Never lose the typed request: submit the form the plain way instead.
+        if (btn) { btn.disabled = false; }
+        form.submit();
+      });
+  });
+
+  // After the reload lands back on Progress, put the caret straight back in the box so the next
+  // request can be typed immediately (the flag survives the reload in sessionStorage).
+  var added = null;
+  try { added = window.sessionStorage.getItem("agora.pgadded"); } catch (err) {}
+  if (added) {
+    try { window.sessionStorage.removeItem("agora.pgadded"); } catch (err) {}
+    if (input) { input.focus(); }
+  }
+})();
+
 // Progress tab (client-facing read-only board). Self-contained + esprima-4.x-safe; state lives in
-// the DOM (server-rendered detail nodes in #ax-pg-store), the ONE write is POST <base>/task-comment.
+// the DOM (server-rendered detail nodes in #ax-pg-store); the board's write is POST
+// <base>/task-comment (the quick-add above posts /task-add independently).
 (function () {
   var qsa = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
   var root = document.querySelector(".atrium");
@@ -7899,45 +7948,6 @@
     b.addEventListener("click", function () { send(b.getAttribute("data-pgchanges"), "changes", b); });
   });
 
-  // Quick-add: type a request, Enter (or Add) files it via POST <base>/task-add — the server
-  // auto-tags the reporter from the session (team = agora, client = client). Built for live-call
-  // capture: after the reload lands back on Progress, the input is re-focused so the next request
-  // can be typed immediately (the flag survives the reload in sessionStorage).
-  var addInput = document.querySelector("[data-pgadd-input]");
-  var addBtn = document.querySelector("[data-pgadd-btn]");
-  function pgAdd() {
-    if (!addInput) { return; }
-    var title = (addInput.value || "").replace(/^\s+|\s+$/g, "");
-    if (!title) { addInput.focus(); return; }
-    if (addBtn) { addBtn.disabled = true; }
-    var fd = new FormData();
-    fd.append("title", title);
-    fetch(base + "/task-add", { method: "POST", body: fd, credentials: "same-origin" })
-      .then(function (resp) {
-        if (!resp || !resp.ok) { throw new Error("request failed"); }
-        return resp.json();
-      })
-      .then(function () {
-        try { window.sessionStorage.setItem("agora.pgadded", "1"); } catch (e) {}
-        window.location.replace(base + "/progress");
-      })
-      .catch(function () {
-        if (addBtn) { addBtn.disabled = false; }
-        window.alert("That didn't save. Please try again.");
-      });
-  }
-  if (addBtn) { addBtn.addEventListener("click", pgAdd); }
-  if (addInput) {
-    addInput.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") { e.preventDefault(); pgAdd(); }
-    });
-    var added = null;
-    try { added = window.sessionStorage.getItem("agora.pgadded"); } catch (e) {}
-    if (added) {
-      try { window.sessionStorage.removeItem("agora.pgadded"); } catch (e) {}
-      addInput.focus();
-    }
-  }
 })();
 </script>
 </body>

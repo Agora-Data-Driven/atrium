@@ -349,7 +349,15 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   reporter is AUTO-TAGGED from the session as agora|client + a derived `reporter_name`, never a
   form choice; always client_facing, starts in_process, no internal fields accepted; client adds
   fire `notify.client_task_added`, and client-filed tasks carry a "Requested by" chip on Progress
-  + a "Client req" pill on the console board).
+  + a "Client req" pill on the console board). ⚠️ **The composer is a REAL `<form
+  method="post" action="/w/<c>/task-add">`, wired in its OWN IIFE placed FIRST in the trailing
+  `<script>` block** — deliberately independent of the Progress-board IIFE below it. The original
+  build put the quick-add inside that board IIFE, where it inherited
+  `if (!root || !veil || !storeBox) { return; }` (veil + hidden detail store = board furniture)
+  and failed SILENTLY — the composer rendered, clicking did nothing, and Cloud Run logged no POST
+  at all. Now: no-JS native post → `redirect=progress` → 302 back to the tab; JS present → fetch →
+  JSON → reload with the input refocused; fetch failure → `form.submit()` so a typed request is
+  never lost. Covered by the "no-JS form post" checks in `_atrium_smoketest.py`.
   Notifications: `notify.client_task_commented/client_task_changes/
   team_task_commented/team_task_resolved`. **Delivery Calendar** = a 2nd Delivery nav pane
   (`data-section/pane="calendar"`) in `admin_atrium.html`: a month grid built CLIENT-SIDE from a

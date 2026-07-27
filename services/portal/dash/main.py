@@ -1380,8 +1380,15 @@ def atrium_task_add(client):
     gate = _atrium_json_gate(client)
     if gate:
         return gate
+    # The composer is a REAL form: a native post (no JS) carries redirect=progress and gets a
+    # redirect back to the tab; the fetch path omits it and gets JSON. Both are first-class, so
+    # a broken/blocked script can never stop a request being filed.
+    wants_redirect = request.form.get("redirect") == "progress"
+    back = "/w/%s/progress" % client
     title = request.form.get("title", "").strip()
     if not title:
+        if wants_redirect:
+            return redirect(back)
         return Response('{"error":"empty"}', status=400, mimetype="application/json")
     note = request.form.get("note", "").strip()
     user = current_user()
@@ -1397,10 +1404,14 @@ def atrium_task_add(client):
     try:
         task = workspace.add_task(client, fields, actor=user or "")
     except KeyError:
+        if wants_redirect:
+            return redirect(back)
         return Response('{"error":"not_found"}', status=404, mimetype="application/json")
     if not from_team:
         notify.client_task_added(client, task, user)
     _audit(client, "added task" if from_team else "client added request", task["title"])
+    if wants_redirect:
+        return redirect(back)
     return jsonify(ok=True, task_id=task["id"], reporter=task["reporter"])
 
 

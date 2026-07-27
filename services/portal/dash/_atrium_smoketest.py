@@ -885,9 +885,25 @@ def run():
            and added["reporter"] == "client" and added["reporter_name"] == "Owner")
     _check("empty quick-add rejected",
            c.post("/w/%s/task-add" % CLIENT, data={"title": "  "}).status_code == 400)
+    # The composer is a REAL form, so a request must file with NO JavaScript at all: a native post
+    # carries redirect=progress and gets a redirect back to the tab instead of JSON.
+    rform = c.post("/w/%s/task-add" % CLIENT,
+                   data={"title": "FILED-WITHOUT-JS", "redirect": "progress"})
+    _check("no-JS form post files the request and redirects back to Progress",
+           rform.status_code in (301, 302, 303)
+           and rform.headers.get("Location", "").endswith("/w/%s/progress" % CLIENT))
+    _check("the no-JS request really landed on the board",
+           any(t.get("title") == "FILED-WITHOUT-JS"
+               for t in workspace.load_workspace(CLIENT).get("tasks", [])))
+    _check("an empty no-JS post redirects back rather than erroring",
+           c.post("/w/%s/task-add" % CLIENT,
+                  data={"title": " ", "redirect": "progress"}).status_code in (301, 302, 303))
     pg2 = c.get("/w/%s/progress" % CLIENT).get_data(as_text=True)
     _check("progress renders the quick-add composer + the request's reporter chip",
            "data-pgadd-input" in pg2 and "Requested by" in pg2)
+    _check("the composer is a real form that posts to task-add without JS",
+           'method="post"' in pg2 and ('action="/w/%s/task-add"' % CLIENT) in pg2
+           and 'name="title"' in pg2)
 
     # Back to the team: the open change request blocks closing, resolving unblocks it.
     with c.session_transaction() as s:

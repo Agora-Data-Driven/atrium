@@ -476,7 +476,13 @@ auto-refresh (see those bullets below). Product name is one constant:
   resolving is team-only, `op=resolve`, which also notifies via the `notify.py` task functions)
   and `POST /w/<c>/task-add` (the Progress tab's **quick-add composer**, rendered for client AND
   team — built for live-call capture: share the workspace on screen and type requests as the
-  client says them. The **reporter is auto-tagged from the session** (`reporter` agora|client +
+  client says them. ⚠️ **The composer is a REAL `<form>`, not a JS widget** — a native post
+  carries `redirect=progress` and gets a redirect back to the tab; the fetch path omits it and
+  gets JSON. Both are first-class ON PURPOSE: the first build wired the composer inside the
+  Progress-board IIFE, so it shared that block's `if (!root || !veil || !storeBox) return;`
+  guard and died SILENTLY — no request, no error, no alert — whenever that board furniture was
+  missing. Filing a request must never depend on JS running at all. The **reporter is
+  auto-tagged from the session** (`reporter` agora|client +
   `reporter_name`, stored by `workspace.add_task`, never a form choice); quick-added tasks are
   always client_facing, start in_process with no breakdown, and accept NO internal fields —
   priority/charge/owners stay console-only. Client-filed requests show a "Requested by <name>"
