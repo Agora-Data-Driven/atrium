@@ -236,6 +236,43 @@
   .footer-brand{text-align:right}
   .footer-brand .made{font-size:11px;color:#aeb6ae;margin-top:8px}
 
+  /* ---------- Tabs (Paid Social / Email) ---------- */
+  .tabs{display:flex;gap:4px;margin:0 0 24px;border-bottom:1px solid var(--sage);flex-wrap:wrap}
+  .tab{appearance:none;border:none;background:transparent;color:var(--gray);font-family:var(--sans);font-size:13px;font-weight:700;padding:11px 16px;border-radius:8px 8px 0 0;cursor:pointer;position:relative;display:flex;align-items:center;gap:8px;transition:.15s}
+  .tab .ic{font-size:14px;line-height:1}
+  .tab .cnt{font-size:10px;font-weight:700;color:var(--gray);background:var(--mist);border:1px solid var(--sage);border-radius:999px;padding:1px 7px;font-variant-numeric:tabular-nums}
+  .tab:hover{color:var(--green)}
+  .tab[aria-selected="true"]{color:var(--green)}
+  .tab[aria-selected="true"] .cnt{color:var(--green);border-color:var(--green3);background:#e7f1e9}
+  .tab[aria-selected="true"]::after{content:'';position:absolute;left:12px;right:12px;bottom:-1px;height:3px;border-radius:3px 3px 0 0;background:var(--green)}
+  .tab-pane[hidden]{display:none}
+
+  /* ---------- Email tab ---------- */
+  .fbanner{display:none;align-items:center;gap:11px;margin:0 0 18px;padding:10px 14px;border:1px solid var(--green3);background:#e7f1e9;border-radius:10px;font-size:12.5px;color:var(--pine)}
+  .fbanner.on{display:flex}
+  .fbanner .lab{font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.06em;font-size:10px;white-space:nowrap}
+  .fbanner b{color:var(--pine)}
+  .fbanner button{margin-left:auto;appearance:none;border:1px solid var(--green);background:var(--white);color:var(--green);font-family:var(--sans);font-size:11px;font-weight:700;padding:5px 12px;border-radius:999px;cursor:pointer;white-space:nowrap}
+  .fbanner button:hover{background:var(--green);color:#fff}
+  .em-ctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;margin-bottom:12px}
+  .em-chips{display:flex;gap:6px;flex-wrap:wrap}
+  .em-chip{font-family:var(--sans);font-size:12px;font-weight:600;border:1px solid var(--sage);background:var(--white);color:var(--gray);padding:5px 12px;border-radius:999px;cursor:pointer;transition:.15s}
+  .em-chip:hover{border-color:var(--green2);color:var(--green)}
+  .em-chip[aria-pressed="true"]{background:var(--green);color:#fff;border-color:var(--green)}
+  .lists{display:flex;flex-direction:column;gap:11px}
+  .lrow{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center}
+  .lrow .ln{font-size:12.5px;color:var(--pine);font-weight:600}
+  .lrow .lv{font-family:var(--serif);font-size:14px;font-weight:700;color:var(--green);font-variant-numeric:tabular-nums}
+  .lrow .lbar{grid-column:1/3;height:7px;background:var(--mist);border-radius:5px;overflow:hidden}
+  .lrow .lbar i{display:block;height:100%;border-radius:5px;background:var(--green2)}
+  .abadge{display:inline-block;font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;font-weight:700;padding:3px 9px;border-radius:999px}
+  .abadge.on{color:#1d6b34;background:#e7f1e9;border:1px solid #bfdcc6}
+  .abadge.off{color:var(--gray);background:var(--mist);border:1px solid var(--sage)}
+  .em-note{padding:16px 18px;border:1px dashed var(--sage);border-radius:var(--radius);color:var(--gray);font-size:13px;background:var(--white)}
+  .kpi[data-emmetric]{cursor:pointer;transition:.15s}
+  .kpi[data-emmetric]:hover{border-color:var(--green2)}
+  .kpi[data-emmetric][aria-pressed="true"]{border-color:var(--green2);box-shadow:0 0 0 2px #e7f1e9,var(--shadow)}
+
   /* ---------- Responsive ---------- */
   @media(max-width:1080px){
     .kpi-strip{grid-template-columns:repeat(4,1fr)} .bm-grid{grid-template-columns:repeat(2,1fr)}
@@ -301,6 +338,14 @@
 <div class="loading" id="loading">Loading dashboard&hellip;</div>
 
 <main class="wrap" id="main" style="display:none">
+
+  <!-- ============ TABS ============ -->
+  <div class="tabs" id="tabs" role="tablist" aria-label="Dashboard sections">
+    <button type="button" class="tab" id="tabbtn-ads" role="tab" data-tab="ads" aria-selected="true" aria-controls="tab-ads"><span class="ic">&#9679;</span>Paid Social</button>
+    <button type="button" class="tab" id="tabbtn-email" role="tab" data-tab="email" aria-selected="false" aria-controls="tab-email"><span class="ic">&#9993;</span>Email &middot; ActiveCampaign<span class="cnt" id="em-tabcnt"></span></button>
+  </div>
+
+<div id="tab-ads" class="tab-pane" role="tabpanel" aria-labelledby="tabbtn-ads">
 
   <div class="empty-note" id="emptyNote">No data in the selected range. Try widening the dates or switching campaign.</div>
 
@@ -547,6 +592,109 @@
     <div class="insights" id="insights"></div>
   </section>
 
+</div><!-- /#tab-ads -->
+
+<!-- ============ EMAIL · ACTIVECAMPAIGN ============ -->
+<div id="tab-email" class="tab-pane" role="tabpanel" aria-labelledby="tabbtn-email" hidden>
+
+  <div id="em-live">
+    <div class="fbanner" id="em-filter" role="status">
+      <span class="lab">Filtered to campaign</span>
+      <span>Every email metric below is scoped to <b id="em-filter-name"></b>.</span>
+      <button type="button" id="em-filter-clear">Show all campaigns</button>
+    </div>
+
+    <!-- ---- Headline KPIs ---- -->
+    <section>
+      <div class="section-head"><h2>Email at a glance</h2><span class="sub" id="em-window"></span></div>
+      <p class="caption">Every campaign sent in the selected range. Rates are calculated from raw
+        ActiveCampaign counters, so they recompute for any date window or campaign filter.</p>
+      <div class="kpis" style="margin-top:0" id="em-kpis"></div>
+      <div class="kpi-strip" id="em-strip"></div>
+    </section>
+
+    <!-- ---- Per-campaign chart ---- -->
+    <section>
+      <div class="section-head"><h2>Campaign performance</h2><span class="sub">one bar per email sent</span></div>
+      <div class="card full">
+        <div class="em-ctl">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <select id="em-campaign" aria-label="Filter by email campaign"><option value="">All campaigns in range</option></select>
+            <div class="em-chips" id="em-chips" role="group" aria-label="Email metric"></div>
+          </div>
+          <div class="seg" id="em-view" role="group" aria-label="View">
+            <button type="button" data-emview="rate" aria-pressed="true">Rates</button>
+            <button type="button" data-emview="vol" aria-pressed="false">Volume</button>
+          </div>
+        </div>
+        <div class="legend"><span id="em-hero-now"></span></div>
+        <svg class="ch" id="em-hero" viewBox="0 0 1000 240" role="img" aria-label="Email campaign performance over time"></svg>
+      </div>
+    </section>
+
+    <!-- ---- Lists + contact base ---- -->
+    <section>
+      <div class="section-head"><h2>Audience</h2><span class="sub">current snapshot &mdash; not date-filtered</span></div>
+      <div class="grid2">
+        <div class="card">
+          <h3>Lists &amp; subscribers</h3>
+          <div class="ch-sub">Active subscribers per list. The bar is relative to the largest list.</div>
+          <div class="lists" id="em-lists"></div>
+        </div>
+        <div class="card">
+          <h3>Who we can reach</h3>
+          <div class="ch-sub">The whole ActiveCampaign database powering campaigns &amp; automations.</div>
+          <div class="kpi-strip" style="grid-template-columns:repeat(2,1fr);margin-top:12px" id="em-base"></div>
+          <div class="panel-lbl" style="margin-top:16px">Account</div>
+          <div class="tname" id="em-acct"></div>
+          <div class="tsub" id="em-acct-sub"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---- Campaigns table ---- -->
+    <section>
+      <div class="section-head"><h2>Every email, by the numbers</h2><span class="sub" id="em-camp-sub"></span></div>
+      <div class="card full scroll-x">
+        <table>
+          <thead><tr id="em-head">
+            <th class="sortable" data-emsort="name">Campaign<span class="arr"></span></th>
+            <th class="sortable tr" data-emsort="date">Sent<span class="arr"></span></th>
+            <th class="sortable tr" data-emsort="sent">Recipients<span class="arr"></span></th>
+            <th class="sortable tr" data-emsort="opens">Opens<span class="arr"></span></th>
+            <th class="sortable tr" data-emsort="openrate">Open&nbsp;%<span class="arr"></span></th>
+            <th class="sortable tr" data-emsort="clicks">Clicks<span class="arr"></span></th>
+            <th class="sortable tr" data-emsort="clickrate">Click&nbsp;%<span class="arr"></span></th>
+            <th class="sortable tr" data-emsort="ctor">CTOR<span class="arr"></span></th>
+            <th class="sortable tr" data-emsort="unsubs">Unsubs<span class="arr"></span></th>
+            <th class="sortable tr" data-emsort="bounces">Bounces<span class="arr"></span></th>
+          </tr></thead>
+          <tbody id="em-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---- Automations ---- -->
+    <section>
+      <div class="section-head"><h2>Journeys running in the background</h2><span class="sub" id="em-auto-sub"></span></div>
+      <div class="card full scroll-x">
+        <table>
+          <thead><tr>
+            <th>Automation</th><th>Status</th><th class="tr">Entered</th><th class="tr">Completed</th>
+            <th class="tr">In&nbsp;progress</th><th class="tr">Completion&nbsp;%</th>
+          </tr></thead>
+          <tbody id="em-autos"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div id="em-empty" hidden>
+    <section><div class="em-note" id="em-empty-msg"></div></section>
+  </div>
+
+</div><!-- /#tab-email -->
+
 </main>
 
 <!-- ============ FOOTER ============ -->
@@ -682,6 +830,25 @@ function tagOf(m){ var t = m.type || ""; return (t.length > 14) ? "Ad" : t; }
 var state = { start: "", end: "", camp: "all", gran: "week", heroSel: ["rev"], heroMode: "abs" };
 var tableSort = { key: "rev", dir: -1 };
 var HAS_CAMPS = false;
+
+/* ---------- Email · ActiveCampaign state ----------
+   DOMAIN is the UNION of ad days + email send dates, so the shared range picker can reach
+   campaigns sent before the first ad day (8 of Riverdance's 38 predate the Meta data). */
+var DOMAIN = [];
+var activeTab = "ads";
+var AC = { enabled: false };
+var EM_METRICS = {
+  openrate:  { label: "Open rate",     short: "Open rate",  unit: "pct" },
+  clickrate: { label: "Click rate",    short: "Click rate", unit: "pct" },
+  ctor:      { label: "Click-to-open", short: "CTOR",       unit: "pct" },
+  unsubrate: { label: "Unsub rate",    short: "Unsub rate", unit: "pct" },
+  sent:      { label: "Recipients",    short: "Recipients", unit: "int" },
+  opens:     { label: "Unique opens",  short: "Opens",      unit: "int" },
+  clicks:    { label: "Unique clicks", short: "Clicks",     unit: "int" }
+};
+var EM_RATE = ["openrate", "clickrate", "ctor", "unsubrate"];
+var EM_VOL = ["sent", "opens", "clicks"];
+var emMetric = "openrate", emView = "rate", emSort = { key: "date", dir: -1 }, emCamps = [], emFilter = "";
 
 function filtered(){
   return DATA.rows.filter(function(r){
@@ -1104,8 +1271,12 @@ function chartMini(id, series){
    ============================================================ */
 
 function renderHero(a, rows){
-  var startL = rows.length ? mday(state.start) : "", endL = rows.length ? mday(state.end) : "";
-  var yr = state.end.split("-")[0];
+  /* Label the window by the ad days ACTUALLY in it, not the picker bounds: the range picker spans
+     the shared domain (ad days ∪ email send dates), which starts before the first ad day. */
+  var ds = rows.map(function(r){ return r.date; }); ds.sort();
+  var lo = ds.length ? ds[0] : state.start, hi = ds.length ? ds[ds.length - 1] : state.end;
+  var startL = rows.length ? mday(lo) : "", endL = rows.length ? mday(hi) : "";
+  var yr = hi.split("-")[0];
   setText("hero-eyebrow", "Performance Summary · " + startL + " – " + endL + ", " + yr);
   var lead;
   if(a.rev > 0){
@@ -1513,6 +1684,313 @@ function renderRangeLabel(){
     (HAS_CAMPS ? " · <strong>" + esc(camp) + "</strong>" : "") + " · " + g + " view");
 }
 
+/* ============================================================
+   EMAIL · ACTIVECAMPAIGN
+   Renders every Email-tab section from DATA.activecampaign. Rates (open %, click %, CTOR,
+   unsub %, bounce %) are DERIVED here from the raw counters, never stored -- so every date
+   window and campaign filter recomputes them correctly. Contacts / lists / automations are
+   current snapshots from ActiveCampaign, so they deliberately do NOT shrink with the range.
+   ============================================================ */
+function emCampsInWindow(){
+  if(!AC.enabled || !AC.campaigns){ return []; }
+  return AC.campaigns.filter(function(c){ return c.date && c.date >= state.start && c.date <= state.end; });
+}
+function emAgg(camps){
+  var t = { sent:0, opens:0, clicks:0, unsubs:0, bounces:0, forwards:0, replies:0,
+            socialshares:0, opens_total:0, clicks_total:0 };
+  camps.forEach(function(c){
+    t.sent += c.sent || 0; t.opens += c.opens || 0; t.clicks += c.clicks || 0;
+    t.unsubs += c.unsubs || 0; t.bounces += c.bounces || 0; t.forwards += c.forwards || 0;
+    t.replies += c.replies || 0; t.socialshares += c.socialshares || 0;
+    t.opens_total += c.opens_total || 0; t.clicks_total += c.clicks_total || 0;
+  });
+  return t;
+}
+function emRates(t){
+  return { openrate: t.sent ? t.opens / t.sent * 100 : 0,
+           clickrate: t.sent ? t.clicks / t.sent * 100 : 0,
+           ctor: t.opens ? t.clicks / t.opens * 100 : 0,
+           unsubrate: t.sent ? t.unsubs / t.sent * 100 : 0,
+           bouncerate: t.sent ? t.bounces / t.sent * 100 : 0 };
+}
+function emVal(c, key){
+  if(key === "openrate"){ return c.sent ? c.opens / c.sent * 100 : 0; }
+  if(key === "clickrate"){ return c.sent ? c.clicks / c.sent * 100 : 0; }
+  if(key === "ctor"){ return c.opens ? c.clicks / c.opens * 100 : 0; }
+  if(key === "unsubrate"){ return c.sent ? c.unsubs / c.sent * 100 : 0; }
+  return c[key] || 0;
+}
+
+function renderEmChips(){
+  var w = byId("em-chips"); w.innerHTML = "";
+  var keys = (emView === "rate") ? EM_RATE : EM_VOL;
+  if(keys.indexOf(emMetric) < 0){ emMetric = keys[0]; }
+  keys.forEach(function(k){
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "em-chip";
+    b.setAttribute("data-emmetric", k);
+    b.setAttribute("aria-pressed", k === emMetric ? "true" : "false");
+    b.textContent = EM_METRICS[k].short;
+    w.appendChild(b);
+  });
+}
+
+function renderEmKpis(t, rates, windowCamps){
+  var tiles = [
+    { k:"Recipients", v:num(t.sent), n:num(windowCamps.length) + " campaign" + (windowCamps.length === 1 ? "" : "s") + " sent", m:"sent" },
+    { k:"Open rate", v:pct(rates.openrate), n:num(t.opens) + " unique opens", m:"openrate" },
+    { k:"Click rate", v:pct(rates.clickrate), n:num(t.clicks) + " unique clicks", m:"clickrate" },
+    { k:"Unsub rate", v:pct(rates.unsubrate), n:"<strong>" + num(t.unsubs) + "</strong> unsubscribed", m:"unsubrate", accent:true }
+  ];
+  var w = byId("em-kpis"); w.innerHTML = "";
+  tiles.forEach(function(o){
+    var d = document.createElement("div");
+    d.className = "kpi" + (o.accent ? " accent" : "");
+    d.setAttribute("data-emmetric", o.m);
+    d.setAttribute("role", "button");
+    d.setAttribute("tabindex", "0");
+    d.setAttribute("aria-pressed", o.m === emMetric ? "true" : "false");
+    d.innerHTML = '<div class="label">' + o.k + '</div><div class="val">' + o.v + '</div><div class="note">' + o.n + '</div>';
+    w.appendChild(d);
+  });
+}
+
+function renderEmStrip(t, rates){
+  var T = AC.totals || {};
+  var cells = [["Contacts", num(T.contacts || 0)], ["Campaigns sent", num(T.campaigns_sent || 0)],
+    ["Unique opens", num(t.opens)], ["Unique clicks", num(t.clicks)],
+    ["Click-to-open", pct(rates.ctor)], ["Bounce rate", pct(rates.bouncerate)],
+    ["Lists", num(T.lists || 0)], ["Automations", num(T.automations || 0)]];
+  var w = byId("em-strip"); w.innerHTML = "";
+  cells.forEach(function(c){
+    var d = document.createElement("div"); d.className = "chip";
+    d.innerHTML = '<div class="label">' + c[0] + '</div><div class="val">' + c[1] + '</div>';
+    w.appendChild(d);
+  });
+}
+
+/* One bar per campaign, on the shared brand palette. The average line is deliberately faint. */
+function chartEmail(camps, mkey, view){
+  var svg = byId("em-hero"); clear(svg);
+  var cfg = EM_METRICS[mkey];
+  var cs = camps.slice().sort(function(a, b){ return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+  var N = cs.length;
+  if(!N){
+    var vb = svg.getAttribute("viewBox").split(" ");
+    var t0 = el("text", { "class":"axis", x: parseFloat(vb[2]) / 2, y: parseFloat(vb[3]) / 2, "text-anchor":"middle" });
+    t0.textContent = "No email campaigns sent in this window";
+    svg.appendChild(t0); setHTML("em-hero-now", ""); return;
+  }
+  var vals = cs.map(function(c){ return emVal(c, mkey); });
+  var maxV = 0; vals.forEach(function(v){ if(v > maxV){ maxV = v; } });
+  var g = frame(svg, { max: maxV, unit: (cfg.unit === "pct") ? "pct" : "int", ticks: 4, mL: 54, mB: 30 });
+  var slot = g.iw / N, bw = Math.min(slot * 0.6, 44);
+  cs.forEach(function(c, i){
+    var v = vals[i], y = g.Y(v), x = g.mL + slot * (i + 0.5) - bw / 2;
+    var bar = el("rect", { x: x, y: y, width: bw, height: Math.max(g.mT + g.ih - y, 0), rx: 3,
+      style: "fill:" + (mkey === "unsubrate" ? C.red : C.green2) });
+    bar.addEventListener("mousemove", function(ev){ emTip(c, ev); });
+    bar.addEventListener("mouseleave", hideTip);
+    svg.appendChild(bar);
+  });
+  var sum = 0; vals.forEach(function(v){ sum += v; });
+  var avg = sum / N, ay = g.Y(avg);
+  svg.appendChild(el("line", { x1: g.mL, y1: ay, x2: g.W - g.mR, y2: ay, "stroke-width": 1,
+    "stroke-dasharray": "2 5", "stroke-linecap": "round",
+    style: "fill:none;stroke:" + C.gray + ";stroke-opacity:.55" }));
+  xLabelsBand(svg, g, cs.map(function(c){ return mday(c.date); }));
+  setHTML("em-hero-now", (view === "rate")
+    ? ('<span><i class="dash"></i>Average ' + pct(avg) + '</span> &middot; ' + cfg.label + ' across ' + N + ' campaign' + (N === 1 ? '' : 's'))
+    : ('<span><strong>' + num(Math.round(sum)) + '</strong> total &middot; ' + N + ' campaign' + (N === 1 ? '' : 's') + '</span>'));
+}
+function emTip(c, ev){
+  showTip('<div class="td">' + esc(c.name) + '</div>' + tipRow(prettyDate(c.date), "") +
+    tipRow("Recipients", num(c.sent)) + tipRow("Open rate", pct(emVal(c, "openrate"))) +
+    tipRow("Click rate", pct(emVal(c, "clickrate"))) + tipRow("Unsubs", num(c.unsubs)),
+    ev.clientX, ev.clientY);
+}
+
+function renderEmLists(){
+  var box = byId("em-lists"); box.innerHTML = "";
+  var ls = (AC.lists || []).filter(function(l){ return l.subscribers > 0 || l.total > 0; }).slice(0, 8);
+  if(!ls.length){ box.innerHTML = '<div class="em-note">No subscriber lists returned.</div>'; return; }
+  var maxV = 0; ls.forEach(function(l){ if(l.subscribers > maxV){ maxV = l.subscribers; } });
+  maxV = maxV || 1;
+  ls.forEach(function(l){
+    var row = document.createElement("div"); row.className = "lrow";
+    row.innerHTML = '<span class="ln">' + esc(l.name) + '</span><span class="lv">' + num(l.subscribers) +
+      '</span><span class="lbar"><i style="width:' + Math.max(l.subscribers / maxV * 100, 2) + '%"></i></span>';
+    box.appendChild(row);
+  });
+}
+
+function renderEmBase(){
+  var T = AC.totals || {};
+  var cells = [["Contacts", num(T.contacts || 0)], ["Lists", num(T.lists || 0)],
+    ["Automations", num(T.automations || 0)], ["Campaigns sent", num(T.campaigns_sent || 0)]];
+  var w = byId("em-base"); w.innerHTML = "";
+  cells.forEach(function(c){
+    var d = document.createElement("div"); d.className = "chip";
+    d.innerHTML = '<div class="label">' + c[0] + '</div><div class="val">' + c[1] + '</div>';
+    w.appendChild(d);
+  });
+  setText("em-acct", AC.account || "ActiveCampaign");
+  setText("em-acct-sub", "CRM " + (AC.crm_enabled ? "enabled" : "not enabled") + " · via ActiveCampaign API" +
+    (AC.fetched ? " · fetched " + prettyDate(AC.fetched) : ""));
+}
+
+function renderEmSelect(windowCamps){
+  var sel = byId("em-campaign"); if(!sel){ return; }
+  var ordered = windowCamps.slice().sort(function(a, b){ return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+  var html = '<option value="">All campaigns in range (' + windowCamps.length + ')</option>';
+  ordered.forEach(function(c){
+    html += '<option value="' + esc(String(c.id)) + '">' + esc(c.name + " — " + mday(c.date)) + '</option>';
+  });
+  sel.innerHTML = html; sel.value = emFilter || "";
+}
+function syncEmFilter(fc){
+  var ban = byId("em-filter"); if(!ban){ return; }
+  if(fc){ ban.classList.add("on"); setText("em-filter-name", fc.name); }
+  else { ban.classList.remove("on"); }
+}
+
+function emSortVal(c, key){
+  if(key === "name"){ return (c.name || "").toLowerCase(); }
+  if(key === "date"){ return c.date || ""; }
+  if(key === "openrate" || key === "clickrate" || key === "ctor"){ return emVal(c, key); }
+  return c[key] || 0;
+}
+function renderEmTable(){
+  var body = byId("em-table");
+  if(!emCamps.length){ body.innerHTML = emptyRow(10); return; }
+  var camps = emCamps.slice(), key = emSort.key, dir = emSort.dir;
+  camps.sort(function(a, b){
+    var va = emSortVal(a, key), vb = emSortVal(b, key);
+    if(key === "name" || key === "date"){ return va < vb ? -1 * dir : (va > vb ? 1 * dir : 0); }
+    return (va - vb) * dir;
+  });
+  var maxO = 0; camps.forEach(function(c){ var o = emVal(c, "openrate"); if(o > maxO){ maxO = o; } });
+  maxO = maxO || 1;
+  var html = "";
+  camps.forEach(function(c){
+    html += '<tr><td><div class="tname">' + esc(c.name) + '</div>' +
+      '<div class="mbar" style="margin-left:0"><div class="mbar-fill" style="width:' +
+        (emVal(c, "openrate") / maxO * 100) + '%;background:' + C.green2 + '"></div></div></td>' +
+      '<td class="tr">' + mday(c.date) + '</td><td class="tr">' + num(c.sent) + '</td>' +
+      '<td class="tr">' + num(c.opens) + '</td><td class="tr">' + pct(emVal(c, "openrate")) + '</td>' +
+      '<td class="tr">' + num(c.clicks) + '</td><td class="tr">' + pct(emVal(c, "clickrate")) + '</td>' +
+      '<td class="tr">' + pct(emVal(c, "ctor")) + '</td><td class="tr">' + num(c.unsubs) + '</td>' +
+      '<td class="tr">' + num(c.bounces) + '</td></tr>';
+  });
+  var t = emAgg(emCamps), r = emRates(t);
+  html += '<tr class="tot"><td>All campaigns (' + emCamps.length + ')</td><td class="tr"></td>' +
+    '<td class="tr">' + num(t.sent) + '</td><td class="tr">' + num(t.opens) + '</td>' +
+    '<td class="tr">' + pct(r.openrate) + '</td><td class="tr">' + num(t.clicks) + '</td>' +
+    '<td class="tr">' + pct(r.clickrate) + '</td><td class="tr">' + pct(r.ctor) + '</td>' +
+    '<td class="tr">' + num(t.unsubs) + '</td><td class="tr">' + num(t.bounces) + '</td></tr>';
+  body.innerHTML = html;
+  var ths = document.querySelectorAll("#em-head th");
+  for(var i = 0; i < ths.length; i++){
+    var th = ths[i], sk = th.getAttribute("data-emsort"), arr = th.querySelector(".arr");
+    if(sk === key){ th.setAttribute("aria-sort", dir < 0 ? "descending" : "ascending");
+      if(arr){ arr.textContent = dir < 0 ? "▼" : "▲"; } }
+    else { th.removeAttribute("aria-sort"); if(arr){ arr.textContent = ""; } }
+  }
+}
+
+function renderEmAutos(){
+  var body = byId("em-autos");
+  var autos = (AC.automations || []).filter(function(a){ return a.entered > 0 || a.active; });
+  setText("em-auto-sub", autos.length + " with contacts");
+  if(!autos.length){ body.innerHTML = emptyRow(6); return; }
+  var html = "";
+  autos.forEach(function(a){
+    var prog = a.entered - a.exited; if(prog < 0){ prog = 0; }
+    var comp = a.entered ? Math.round(a.exited / a.entered * 100) : 0;
+    html += '<tr><td><div class="tname">' + esc(a.name) + '</div></td>' +
+      '<td><span class="abadge ' + (a.active ? "on" : "off") + '">' + (a.active ? "Active" : "Off") + '</span></td>' +
+      '<td class="tr">' + num(a.entered) + '</td><td class="tr">' + num(a.exited) + '</td>' +
+      '<td class="tr">' + num(prog) + '</td><td class="tr">' + comp + '%</td></tr>';
+  });
+  body.innerHTML = html;
+}
+
+function syncEmActive(){
+  var chips = document.querySelectorAll("#em-chips [data-emmetric]");
+  for(var i = 0; i < chips.length; i++){
+    chips[i].setAttribute("aria-pressed", chips[i].getAttribute("data-emmetric") === emMetric ? "true" : "false");
+  }
+  var tiles = document.querySelectorAll("#em-kpis [data-emmetric]");
+  for(var j = 0; j < tiles.length; j++){
+    tiles[j].setAttribute("aria-pressed", tiles[j].getAttribute("data-emmetric") === emMetric ? "true" : "false");
+  }
+}
+
+function renderEmail(){
+  var live = byId("em-live"), empty = byId("em-empty"), cnt = byId("em-tabcnt");
+  if(!AC || !AC.enabled){
+    live.hidden = true; empty.hidden = false;
+    setText("em-empty-msg", "ActiveCampaign is not connected for this account yet" +
+      ((AC && AC.error) ? " (" + AC.error + ")" : "") +
+      ". Once the email key is configured, this tab fills in automatically.");
+    if(cnt){ cnt.textContent = ""; }
+    return;
+  }
+  live.hidden = false; empty.hidden = true;
+  var windowCamps = emCampsInWindow();
+  /* If the selected campaign fell out of the new date range, drop the filter. */
+  if(emFilter){
+    var stillHere = false;
+    windowCamps.forEach(function(c){ if(String(c.id) === String(emFilter)){ stillHere = true; } });
+    if(!stillHere){ emFilter = ""; }
+  }
+  renderEmSelect(windowCamps);
+  emCamps = emFilter ? windowCamps.filter(function(c){ return String(c.id) === String(emFilter); }) : windowCamps;
+  var fc = emFilter ? emCamps[0] : null;
+  var t = emAgg(emCamps), rates = emRates(t);
+  if(cnt){ cnt.textContent = num((AC.totals && AC.totals.campaigns_sent) || windowCamps.length); }
+  setText("em-window", prettyDate(state.start) + " → " + prettyDate(state.end));
+  setText("em-camp-sub", emCamps.length
+    ? ((fc ? "1 campaign — " + fc.name
+           : emCamps.length + " campaign" + (emCamps.length === 1 ? "" : "s") + " in range") + " · click a column to sort")
+    : "none in this range");
+  syncEmFilter(fc);
+  renderEmChips(); renderEmKpis(t, rates, windowCamps); renderEmStrip(t, rates);
+  chartEmail(emCamps, emMetric, emView);
+  renderEmLists(); renderEmBase(); renderEmTable(); renderEmAutos();
+  syncEmActive();
+}
+
+function setEmMetric(k){
+  if(!EM_METRICS[k]){ return; }
+  emMetric = k; chartEmail(emCamps, emMetric, emView); syncEmActive();
+}
+function setEmView(v){
+  emView = v;
+  if(v === "rate" && EM_RATE.indexOf(emMetric) < 0){ emMetric = EM_RATE[0]; }
+  if(v === "vol" && EM_VOL.indexOf(emMetric) < 0){ emMetric = EM_VOL[0]; }
+  renderEmChips(); chartEmail(emCamps, emMetric, emView); syncEmActive();
+  var b = document.querySelectorAll("#em-view button");
+  for(var i = 0; i < b.length; i++){
+    b[i].setAttribute("aria-pressed", b[i].getAttribute("data-emview") === v ? "true" : "false");
+  }
+}
+function setEmFilter(id){ emFilter = id || ""; renderEmail(); }
+
+/* ---------- Tabs ---------- */
+function setTab(name){
+  activeTab = name;
+  byId("tab-ads").hidden = (name !== "ads");
+  byId("tab-email").hidden = (name !== "email");
+  var btns = document.querySelectorAll("#tabs .tab");
+  for(var i = 0; i < btns.length; i++){
+    btns[i].setAttribute("aria-selected", btns[i].getAttribute("data-tab") === name ? "true" : "false");
+  }
+  setText("top-sub", (name === "email") ? "Email · ActiveCampaign" : ("Meta Ads · " + (DATA.location || "")));
+  if(name === "email"){ renderEmail(); } else { render(); }
+}
+function renderAll(){ render(); renderEmail(); }
+
 /* ---------- Master render ---------- */
 function render(){
   var rows = filtered();
@@ -1539,7 +2017,7 @@ function clearPresets(){
   for(var i = 0; i < b.length; i++){ b[i].classList.remove("active"); }
 }
 function setPreset(days, btn){
-  var lo = DATA.dates[0], hi = DATA.dates[DATA.dates.length - 1];
+  var lo = DOMAIN[0], hi = DOMAIN[DOMAIN.length - 1];
   if(days === 0){ state.start = lo; }
   else {
     var dt = dObj(hi); dt.setUTCDate(dt.getUTCDate() - days + 1);
@@ -1548,22 +2026,75 @@ function setPreset(days, btn){
   state.end = hi;
   byId("startDate").value = state.start; byId("endDate").value = state.end;
   clearPresets(); if(btn){ btn.classList.add("active"); }
-  render();
+  renderAll();
 }
 
 function initControls(){
-  var lo = DATA.dates[0], hi = DATA.dates[DATA.dates.length - 1];
+  /* Bounds come from the SHARED domain (ad days ∪ email send dates), so the picker can reach
+     campaigns sent before the first ad day. The Meta side still windows on DATA.dates itself. */
+  var lo = DOMAIN[0], hi = DOMAIN[DOMAIN.length - 1];
   state.start = lo; state.end = hi;
   var si = byId("startDate"), ei = byId("endDate");
   si.min = lo; si.max = hi; ei.min = lo; ei.max = hi; si.value = lo; ei.value = hi;
 
   si.addEventListener("change", function(){
     var v = si.value || lo; if(v < lo){ v = lo; } if(v > state.end){ v = state.end; }
-    state.start = v; si.value = v; clearPresets(); render();
+    state.start = v; si.value = v; clearPresets(); renderAll();
   });
   ei.addEventListener("change", function(){
     var v = ei.value || hi; if(v > hi){ v = hi; } if(v < state.start){ v = state.start; }
-    state.end = v; ei.value = v; clearPresets(); render();
+    state.end = v; ei.value = v; clearPresets(); renderAll();
+  });
+
+  /* Tabs */
+  byId("tabs").addEventListener("click", function(ev){
+    var b = ev.target.closest ? ev.target.closest(".tab") : ev.target;
+    if(!b || !b.getAttribute("data-tab")){ return; }
+    setTab(b.getAttribute("data-tab"));
+  });
+
+  /* Email controls: campaign dropdown, metric chips, Rates/Volume toggle, KPI tiles, sortable head */
+  byId("em-campaign").addEventListener("change", function(){ setEmFilter(this.value); });
+  byId("em-filter-clear").addEventListener("click", function(){ setEmFilter(""); });
+  byId("em-view").addEventListener("click", function(ev){
+    var b = ev.target.closest ? ev.target.closest("button") : ev.target;
+    if(!b || !b.getAttribute("data-emview")){ return; }
+    setEmView(b.getAttribute("data-emview"));
+  });
+  byId("em-chips").addEventListener("click", function(ev){
+    var b = ev.target.closest ? ev.target.closest("button") : ev.target;
+    if(!b || !b.getAttribute("data-emmetric")){ return; }
+    setEmMetric(b.getAttribute("data-emmetric"));
+  });
+  var emkpi = byId("em-kpis");
+  function emTileFrom(t){
+    while(t && t !== emkpi){
+      if(t.getAttribute && t.getAttribute("data-emmetric")){ return t; }
+      t = t.parentNode;
+    }
+    return null;
+  }
+  emkpi.addEventListener("click", function(ev){
+    var t = emTileFrom(ev.target); if(t){ setEmMetric(t.getAttribute("data-emmetric")); }
+  });
+  emkpi.addEventListener("keydown", function(ev){
+    if(ev.key === "Enter" || ev.key === " "){
+      var t = emTileFrom(ev.target);
+      if(t){ ev.preventDefault(); setEmMetric(t.getAttribute("data-emmetric")); }
+    }
+  });
+  var emhead = byId("em-head");
+  emhead.addEventListener("click", function(ev){
+    var th = ev.target;
+    while(th && th !== emhead){
+      if(th.getAttribute && th.getAttribute("data-emsort")){
+        var key = th.getAttribute("data-emsort");
+        if(emSort.key === key){ emSort.dir = -emSort.dir; }
+        else { emSort.key = key; emSort.dir = (key === "name") ? 1 : -1; }
+        renderEmTable(); return;
+      }
+      th = th.parentNode;
+    }
   });
 
   var presets = document.querySelectorAll(".preset");
@@ -1688,6 +2219,19 @@ function excludeForeignAds(){
 function boot(){
   excludeForeignAds();
   tip = byId("tip");
+
+  /* ActiveCampaign arrives with data.json, so read it here, then build the SHARED date domain =
+     ad days ∪ email send dates. Riverdance has campaigns predating the first ad day; without the
+     union they would be unreachable even on "All time". */
+  AC = (DATA && DATA.activecampaign) ? DATA.activecampaign : { enabled: false };
+  var domSet = {};
+  DATA.dates.forEach(function(d){ domSet[d] = true; });
+  if(AC.enabled && AC.campaigns){
+    AC.campaigns.forEach(function(c){ if(c.date){ domSet[c.date] = true; } });
+  }
+  DOMAIN = Object.keys(domSet); DOMAIN.sort();
+  if(!DOMAIN.length){ DOMAIN = DATA.dates.slice(); }
+
   if(DATA.logo){ byId("brand-logo").src = DATA.logo; }
   if(DATA.agora_logo){ byId("agora-logo").src = DATA.agora_logo; byId("foot-agora").src = DATA.agora_logo; }
   setText("top-sub", "Meta Ads · " + (DATA.location || ""));
@@ -1701,7 +2245,7 @@ function boot(){
   byId("main").style.display = "";
   initControls();
   renderAudience();
-  render();
+  renderAll();
 }
 
 if(DATA){ boot(); }
