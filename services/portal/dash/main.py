@@ -1577,9 +1577,18 @@ def atrium_task_add(client):
         "stage": workspace.canon_stage(request.form.get("stage")),
         "client_facing": True,
         "client_note": note[:1000],
+        "due_date": (request.form.get("due_date") or "").strip()[:10],
         "reporter": "agora" if from_team else "client",
         "reporter_name": (_admin_sender_name(user) if from_team else _client_sender_name(user)),
     }
+    # The form's "More options" block is rendered for the TEAM only, and the server enforces that
+    # too -- a client posting these by hand is ignored, so priority/internal notes can never be
+    # forged from the client surface (same posture as the auto-tagged reporter).
+    if from_team:
+        priority = request.form.get("priority", "")
+        if priority in workspace.TASK_PRIORITIES:
+            fields["priority"] = priority
+        fields["internal_notes"] = (request.form.get("internal_notes") or "").strip()[:2000]
     try:
         task = workspace.add_task(client, fields, actor=user or "")
     except KeyError:

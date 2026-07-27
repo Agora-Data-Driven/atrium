@@ -935,6 +935,24 @@ def run():
                   data={"title": "JUNK-STAGE", "stage": "not-a-stage"}).get_json().get("ok") is True
            and [t for t in workspace.load_workspace(CLIENT).get("tasks", [])
                 if t.get("title") == "JUNK-STAGE"][0]["stage"] == "todo")
+    # The add form mirrors Sentinel's "New task": name + description + due date on show, the rest
+    # collapsed. A CLIENT must never get the internal block, nor be able to forge those fields.
+    _check("the client's add form has name, description and due date",
+           'name="title"' in pg2 and 'name="note"' in pg2 and 'name="due_date"' in pg2)
+    # NB: match the ELEMENT, not the bare class -- ".ax-pg-more" also appears in the stylesheet,
+    # which every page carries whatever the viewer's role is.
+    _check("the internal 'More options' block is NOT in the client's HTML",
+           '<details class="ax-pg-more"' not in pg2
+           and 'name="internal_notes"' not in pg2 and 'name="priority"' not in pg2)
+    rforge = c.post("/w/%s/task-add" % CLIENT,
+                    data={"title": "CLIENT-FORGERY", "priority": "Urgent",
+                          "internal_notes": "should never stick", "due_date": "2026-09-01"})
+    _forged = workspace._find_task(workspace.load_workspace(CLIENT),
+                                   rforge.get_json()["task_id"])
+    _check("a client cannot forge priority or internal notes",
+           _forged.get("priority") == "Medium" and not _forged.get("internal_notes"))
+    _check("but the client's own due date IS honoured",
+           _forged.get("due_date") == "2026-09-01")
     # Legacy rows written under the OLD 4-stage keys must still land in a real column.
     _check("a legacy stage key is translated, not dropped",
            workspace.canon_stage("for_launch") == "for_review"
@@ -952,6 +970,22 @@ def run():
                                     radd2.get_json()["task_id"])["client_facing"] is True)
     _check("console board flags the client-filed request",
            "Client req" in c.get("/admin/atrium").get_data(as_text=True))
+    # The TEAM does get the collapsed internal block, and those fields stick.
+    pg_team = c.get("/w/%s/progress" % CLIENT).get_data(as_text=True)
+    _check("the team's add form carries the collapsed 'More options' block",
+           '<details class="ax-pg-more"' in pg_team and 'name="internal_notes"' in pg_team
+           and 'name="priority"' in pg_team)
+    rteam = c.post("/w/%s/task-add" % CLIENT,
+                   data={"title": "TEAM-WITH-EXTRAS", "priority": "Urgent",
+                         "internal_notes": "keep this internal", "note": "client sees this",
+                         "due_date": "2026-10-05"})
+    _extra = workspace._find_task(workspace.load_workspace(CLIENT),
+                                  rteam.get_json()["task_id"])
+    _check("the team's priority, internal notes, description and due date all persist",
+           _extra["priority"] == "Urgent" and _extra["internal_notes"] == "keep this internal"
+           and _extra["client_note"] == "client sees this" and _extra["due_date"] == "2026-10-05")
+    # (The no-leak rule itself is asserted against a real client session by the
+    #  "internal notes never reach the client HTML" check earlier in this file.)
     blocked = c.post("/w/%s/admin/task/move" % CLIENT, data={"task_id": task_id, "stage": "completed"})
     _check("close is blocked while a change request is open",
            blocked.get_json().get("ok") is False and "change request" in blocked.get_json()["error"])
