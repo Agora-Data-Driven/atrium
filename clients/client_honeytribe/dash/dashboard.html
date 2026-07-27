@@ -101,6 +101,17 @@
   .preset.wk{background:linear-gradient(135deg,var(--flame),var(--honey));border-color:var(--flame);
              color:#fff;font-weight:900;letter-spacing:.2px}
   .preset.wk:hover{filter:brightness(1.06);color:#fff}
+  /* Once armed, the Weekly review button BECOMES the two weeks it compares -- left is older,
+     right is the most recent, so the pair reads chronologically. */
+  .wkpair{display:inline-flex;border-radius:7px;overflow:hidden;border:1px solid var(--flame)}
+  /* an explicit display: would otherwise beat the UA stylesheet's [hidden] rule */
+  .wkpair[hidden]{display:none}
+  .wkpair button{border:none;background:rgba(238,104,57,.12);color:#B0431F;font-family:var(--sans);
+                 font-size:12px;font-weight:900;padding:5px 12px;cursor:pointer;white-space:nowrap;
+                 transition:.14s}
+  .wkpair button+button{border-left:1px solid var(--flame)}
+  .wkpair button:hover{background:rgba(238,104,57,.22)}
+  .wkpair button.on{background:linear-gradient(135deg,var(--flame),var(--honey));color:#fff}
   input[type=date],select,input[type=search]{font-family:var(--sans);font-size:12px;color:var(--ink);border:1px solid var(--line2);
           background:var(--white);border-radius:7px;padding:5px 9px;cursor:pointer;font-weight:600}
   input[type=search]{cursor:text;min-width:150px}
@@ -347,11 +358,15 @@
       <button type="button" class="ctuck" data-tuck="1" aria-label="Collapse or expand the filters"><span class="cv">&#9650;</span><span class="cl">Filters</span></button>
       <div class="cgroup">
         <button type="button" class="preset wk" data-weekly="1"
-                title="Last complete week vs the week before it">&#9654; Weekly review</button>
+                title="Report view: a complete Mon-Sun week vs the week before it">&#9654; Weekly review</button>
+        <div class="wkpair" id="wkpair1" hidden>
+          <button type="button" data-wk="1" data-wkn="2">2 weeks ago</button>
+          <button type="button" data-wk="1" data-wkn="1" class="on">1 week ago</button>
+        </div>
       </div>
       <div class="cgroup">
         <span class="clabel">Period</span>
-        <button type="button" class="preset" data-p1="lastweek">Last week</button>
+        <button type="button" class="preset" data-p1="7">7d</button>
         <button type="button" class="preset" data-p1="30">30d</button>
         <button type="button" class="preset" data-p1="90">90d</button>
         <button type="button" class="preset" data-p1="365">12m</button>
@@ -480,11 +495,15 @@
       <button type="button" class="ctuck" data-tuck="1" aria-label="Collapse or expand the filters"><span class="cv">&#9650;</span><span class="cl">Filters</span></button>
       <div class="cgroup">
         <button type="button" class="preset wk" data-weekly="2"
-                title="Last complete week vs the week before it">&#9654; Weekly review</button>
+                title="Report view: a complete Mon-Sun week vs the week before it">&#9654; Weekly review</button>
+        <div class="wkpair" id="wkpair2" hidden>
+          <button type="button" data-wk="2" data-wkn="2">2 weeks ago</button>
+          <button type="button" data-wk="2" data-wkn="1" class="on">1 week ago</button>
+        </div>
       </div>
       <div class="cgroup">
         <span class="clabel">Current</span>
-        <button type="button" class="preset" data-p2="lastweek">Last week</button>
+        <button type="button" class="preset" data-p2="7">7d</button>
         <button type="button" class="preset active" data-p2="30">30d</button>
         <button type="button" class="preset" data-p2="90">90d</button>
         <button type="button" class="preset" data-p2="365">12m</button>
@@ -904,6 +923,14 @@ function lastCompleteWeek(maxIso, minIso){
   if(mon < minIso){ mon = minIso; }
   return [mon, sun];
 }
+/* The Mon-Sun block `n` weeks back: n=1 is the last complete week, n=2 the one before it. */
+function weekAgo(n, maxIso, minIso){
+  var lc = lastCompleteWeek(maxIso, minIso);
+  var back = 7 * (Math.max(1, n) - 1);
+  var mon = shiftDays(lc[0], -back), sun = shiftDays(lc[1], -back);
+  if(mon < minIso){ mon = minIso; }
+  return [mon, sun];
+}
 /* the Mon-Sun block immediately before whatever period is selected */
 function weekBefore(fromIso, minIso){
   var mon = weekStart(fromIso);
@@ -1295,6 +1322,14 @@ function setTuck(on){
   try { window.localStorage.setItem("ht_tuck", on ? "1" : "0"); } catch(e){ /* private mode */ }
 }
 
+/* leaving the weekly view: the pair stays on screen (it is the reporting control) but stops
+   claiming to be the active period */
+function clearWkPair(tab){
+  var pair = byId("wkpair" + tab);
+  if(!pair){ return; }
+  pair.querySelectorAll("button").forEach(function(x){ x.classList.remove("on"); });
+}
+
 /* highlight the matching button inside one segmented control */
 function markSeg(segId, attr, val){
   var box = byId(segId);
@@ -1315,7 +1350,7 @@ function wireControls(){
     b.addEventListener("click", function(){
       var r = presetRange(b.getAttribute("data-p1"), SHOP_MAX, DATA.shopify.range[0]);
       S1.from = r[0]; S1.to = r[1];
-      setActive("[data-p1]", b); syncDates(); renderS1();
+      setActive("[data-p1]", b); clearWkPair("1"); syncDates(); renderS1();
     });
   });
   document.querySelectorAll("[data-b1]").forEach(function(b){
@@ -1359,7 +1394,7 @@ function wireControls(){
     b.addEventListener("click", function(){
       var r = presetRange(b.getAttribute("data-p2"), META_MAX, DATA.meta.range[0]);
       S2.from = r[0]; S2.to = r[1];
-      setActive("[data-p2]", b); syncDates(); renderS2();
+      setActive("[data-p2]", b); clearWkPair("2"); syncDates(); renderS2();
     });
   });
   document.querySelectorAll("[data-b2]").forEach(function(b){
@@ -1422,33 +1457,53 @@ function wireControls(){
       });
     });
   }
-  /* Weekly review: last complete Mon-Sun as the period, the Mon-Sun before it as the
-     benchmark, and day grain so each weekday is visible. One click, both ranges. */
+  /* Weekly review -- the reporting control. Clicking it ARMS the view and turns the button into
+     the two weeks it compares: "2 weeks ago" on the left, "1 week ago" on the right, so the pair
+     reads left-to-right in time. Picking either sets the period to that complete Mon-Sun week AND
+     the benchmark to the week before it, so every comparison on screen is week-over-week. */
+  function applyWeek(tab, n){
+    if(tab === "1"){
+      var r = weekAgo(n, SHOP_MAX, DATA.shopify.range[0]);
+      S1.from = r[0]; S1.to = r[1];
+      var b = weekBefore(S1.from, DATA.shopify.range[0]);
+      S1.bfrom = b[0]; S1.bto = b[1];
+      GRAIN.kpi = "day"; GRAIN.trend = "day"; GRAIN.nr = "day";
+      markSeg("kpiGrainSeg", "data-kgrain", "day");
+      markSeg("trendGrainSeg", "data-gv", "day");
+      markSeg("nrGrainSeg", "data-gv", "day");
+      setActive("[data-p1]", null);
+      setActive("[data-b1]", document.querySelector('[data-b1="prevweek"]'));
+      syncDates(); renderS1();
+    } else {
+      var r2 = weekAgo(n, META_MAX, DATA.meta.range[0]);
+      S2.from = r2[0]; S2.to = r2[1];
+      var b2 = weekBefore(S2.from, DATA.meta.range[0]);
+      S2.bfrom = b2[0]; S2.bto = b2[1];
+      GRAIN.rev = "day"; GRAIN.eff = "day"; GRAIN.freq = "day";
+      ["rev", "eff", "freq"].forEach(function(k){ markSeg(k + "GrainSeg", "data-gv", "day"); });
+      setActive("[data-p2]", null);
+      setActive("[data-b2]", document.querySelector('[data-b2="prevweek"]'));
+      syncDates(); renderS2();
+    }
+    var pair = byId("wkpair" + tab);
+    if(pair){
+      pair.querySelectorAll("button").forEach(function(x){
+        x.classList.toggle("on", x.getAttribute("data-wkn") === String(n));
+      });
+    }
+  }
   document.querySelectorAll("[data-weekly]").forEach(function(b){
     b.addEventListener("click", function(){
-      if(b.getAttribute("data-weekly") === "1"){
-        var r = lastCompleteWeek(SHOP_MAX, DATA.shopify.range[0]);
-        S1.from = r[0]; S1.to = r[1];
-        var p = weekBefore(S1.from, DATA.shopify.range[0]);
-        S1.bfrom = p[0]; S1.bto = p[1];
-        GRAIN.kpi = "day"; GRAIN.trend = "day"; GRAIN.nr = "day";
-        markSeg("kpiGrainSeg", "data-kgrain", "day");
-        markSeg("trendGrainSeg", "data-gv", "day");
-        markSeg("nrGrainSeg", "data-gv", "day");
-        setActive("[data-p1]", document.querySelector('[data-p1="lastweek"]'));
-        setActive("[data-b1]", document.querySelector('[data-b1="prevweek"]'));
-        syncDates(); renderS1();
-      } else {
-        var r2 = lastCompleteWeek(META_MAX, DATA.meta.range[0]);
-        S2.from = r2[0]; S2.to = r2[1];
-        var p2 = weekBefore(S2.from, DATA.meta.range[0]);
-        S2.bfrom = p2[0]; S2.bto = p2[1];
-        GRAIN.rev = "day"; GRAIN.eff = "day"; GRAIN.freq = "day";
-        ["rev", "eff", "freq"].forEach(function(k){ markSeg(k + "GrainSeg", "data-gv", "day"); });
-        setActive("[data-p2]", document.querySelector('[data-p2="lastweek"]'));
-        setActive("[data-b2]", document.querySelector('[data-b2="prevweek"]'));
-        syncDates(); renderS2();
-      }
+      var tab = b.getAttribute("data-weekly");
+      b.hidden = true;                       /* the button becomes the pair */
+      var pair = byId("wkpair" + tab);
+      if(pair){ pair.hidden = false; }
+      applyWeek(tab, 1);                     /* default to the week just gone */
+    });
+  });
+  document.querySelectorAll("[data-wk]").forEach(function(b){
+    b.addEventListener("click", function(){
+      applyWeek(b.getAttribute("data-wk"), parseInt(b.getAttribute("data-wkn"), 10));
     });
   });
 

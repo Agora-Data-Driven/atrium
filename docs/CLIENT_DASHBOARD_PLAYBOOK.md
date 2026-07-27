@@ -248,13 +248,28 @@ not per-chart logic, so every chart behaves identically and a new chart is one l
 - **Label day buckets with the weekday** ("Mon 20 Jul"), and the full name in tooltips. "Was that
   spike a Monday or a Saturday" is usually the actual question.
 
-**Match the client's reporting ritual with one button.** Ask how they present. Honey Tribe presents
-every Monday: last week against the week before. So `Weekly review` sets *both* ranges at once —
-period = the last complete Mon–Sun the data covers, benchmark = the Mon–Sun before it — plus day
-grain. Note the two subtleties: snap to **complete ISO weeks** (walk back to the most recent Sunday
-the data actually covers, so a partial current week never sneaks in), and make the "previous week"
-relative to the **selected period start**, not to today, so the pairing survives moving the period.
-A rolling "7d" button is the wrong tool for this and should be relabelled to what it really does.
+**Match the client's reporting ritual with one button.** Ask how they present, then build that
+exact view as a control. Honey Tribe presents every Monday: last week against the week before.
+
+`Weekly review` is a **button that becomes the thing it does**. Collapsed it is one button; clicking
+it *arms the reporting view* and replaces itself with the two weeks being compared —
+`2 weeks ago | 1 week ago`, ordered left-to-right in time. Picking either sets the period to that
+complete Mon–Sun week **and** the benchmark to the week before it, plus day grain, so every number
+on screen is week-over-week and you can step between weeks live while presenting.
+
+Four subtleties that make it correct:
+- Snap to **complete ISO weeks** — walk back to the most recent Sunday the data actually covers, so
+  a partial current week never sneaks in.
+- Make "previous week" relative to the **selected period start**, not to today, so the pairing
+  follows the period wherever it moves.
+- **Don't hijack the rolling presets.** `7d` should stay a rolling 7 days; the weekly control is a
+  separate, explicit thing.
+- Selecting an ordinary preset should drop the pair's highlight but **leave it on screen** — it is
+  the control they reach for, not a mode to be exited.
+
+⚠️ `[hidden]` loses to an explicit `display:` in author CSS. A control styled
+`display:inline-flex` will render even with the attribute set — add `.thing[hidden]{display:none}`.
+Ours shipped visible-from-load until a screenshot caught it.
 
 **Scorecards as series toggles** — the strongest pattern we built. Click a KPI tile to add/remove
 its line from the chart beneath it. Rules that make it work:
