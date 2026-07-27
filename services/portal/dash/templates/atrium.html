@@ -1711,12 +1711,24 @@
       border: 1px solid var(--ax-line); border-radius: 10px; outline: none; box-shadow: var(--ax-shadow); }
     .ax-pg-add input:focus { border-color: var(--ax-violet); }
     .ax-pg-tag.req { color: var(--ax-violet-d); background: var(--ax-violet-bg); text-transform: none; letter-spacing: 0; }
-    .ax-pg-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 0 0 20px; }
+    .ax-pg-summary { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin: 0 0 20px; }
     .ax-pg-tile { background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: var(--ax-radius); padding: 14px 16px; box-shadow: var(--ax-shadow); }
     .ax-pg-tile .n { font-size: 25px; font-weight: 900; color: var(--ax-ink); line-height: 1; }
     .ax-pg-tile .l { font-size: 12px; font-weight: 700; color: var(--ax-sub); margin-top: 6px; display: flex; align-items: center; gap: 7px; }
     .ax-pg-tile .l .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
-    .ax-pg-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; align-items: start; }
+    {#- 7 stage columns (Sentinel's set) don't fit a grid, so the board scrolls sideways like
+       Sentinel's board does. Fixed-width columns keep the cards readable at any count. -#}
+    .ax-pg-board { display: flex; gap: 14px; align-items: start; overflow-x: auto; padding-bottom: 12px; }
+    .ax-pg-board > .ax-pg-col { flex: 0 0 262px; min-width: 262px; }
+    .ax-pg-addcard { width: 100%; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 7px;
+      background: var(--ax-white); border: 1px dashed var(--ax-line); border-radius: var(--ax-radius);
+      color: var(--ax-sub); font: inherit; font-size: 12.5px; font-weight: 700; padding: 11px 8px; cursor: pointer; }
+    .ax-pg-addcard:hover { border-color: var(--ax-violet); color: var(--ax-violet); background: var(--ax-violet-tint, #f4f4fe); }
+    .ax-pg-addform { margin-top: 10px; display: none; }
+    .ax-pg-addform.open { display: block; }
+    .ax-pg-addform input { width: 100%; border: 1px solid var(--ax-violet); border-radius: var(--ax-radius);
+      padding: 10px 11px; font: inherit; font-size: 13px; outline: none; }
+    .ax-pg-addform .row { display: flex; gap: 7px; margin-top: 7px; }
     .ax-pg-colhead { display: flex; align-items: center; gap: 8px; padding: 2px 4px 10px; }
     .ax-pg-colhead .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
     .ax-pg-colhead .t { font-size: 11.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ax-ink); }
@@ -1822,8 +1834,9 @@
     .ax-pg-empty { background: var(--ax-white); border: 1px dashed var(--ax-line); border-radius: var(--ax-radius);
       padding: 44px 24px; text-align: center; color: var(--ax-sub); box-shadow: var(--ax-shadow); }
     .ax-pg-empty h3 { font-size: 17px; margin: 0 0 6px; color: var(--ax-ink); }
-    @media (max-width: 980px) { .ax-pg-summary { grid-template-columns: repeat(2, 1fr); } .ax-pg-board { grid-template-columns: 1fr 1fr; } }
-    @media (max-width: 640px) { .ax-pg-board { grid-template-columns: 1fr; } }
+    @media (max-width: 980px) { .ax-pg-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 640px) { .ax-pg-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .ax-pg-board > .ax-pg-col { flex-basis: 84vw; min-width: 84vw; } }
 
     /* On the Assistant tab the pane IS the chat, so the bubble would be redundant, hide it there
        (showTab keeps the root's data-tab current; the FAB/panel live inside .atrium). */
@@ -3202,8 +3215,13 @@
           </form>
 
           {% set pg_total = (progress_cols|default([], true))|map(attribute='tasks')|sum(start=[])|length %}
-          {% set pg_dots = {'in_process':'var(--ax-violet)','for_launch':'#F2820C','launched':'var(--ax-green)','closed':'#8A93A3'} %}
-          {% if pg_total %}
+          {#- One dot colour per Sentinel stage. -#}
+          {% set pg_dots = {'todo':'#8A93A3','in_progress':'var(--ax-violet)','for_review':'#F2820C',
+                            'waiting_client':'#C79A1E','revision':'#D9534F','completed':'var(--ax-green)',
+                            'blocked':'#6B7280'} %}
+          {#- The board ALWAYS renders now (even empty), because every column carries its own
+             "+ Add card" -- an empty board with no way to add to a column would be a dead end. -#}
+          {% if true %}
           <div class="ax-pg-summary">
             {% for col in progress_cols %}
             <div class="ax-pg-tile"><div class="n tnum">{{ col.tasks|length }}</div>
@@ -3212,7 +3230,7 @@
           </div>
           <div class="ax-pg-board">
             {% for col in progress_cols %}
-            <div>
+            <div class="ax-pg-col">
               <div class="ax-pg-colhead"><span class="dot" style="background: {{ pg_dots[col.key] }}"></span>
                 <span class="t">{{ col.name }}</span><span class="c tnum">{{ col.tasks|length }}</span></div>
               <div class="ax-pg-collist">
@@ -3229,21 +3247,35 @@
                     {% if t.on_hold %}<span class="ax-pg-tag paused">⏸ Paused</span>
                     {% elif t.open_changes %}<span class="ax-pg-tag changes">Changes requested</span>
                     {% elif t.in_review %}<span class="ax-pg-tag review">Ready for your review</span>
-                    {% elif t.due_date %}<span class="ax-pg-target {{ 'soon' if t.due_soon else '' }}">{{ 'Live' if t.stage in ('launched', 'closed') else 'Launching' }} {{ (t.due_date ~ 'T00:00:00Z')|atrium_date }}</span>{% endif %}
+                    {% elif t.due_date %}<span class="ax-pg-target {{ 'soon' if t.due_soon else '' }}">{{ 'Live' if t.stage == 'completed' else 'Launching' }} {{ (t.due_date ~ 'T00:00:00Z')|atrium_date }}</span>{% endif %}
                     {% if t.reporter == 'client' %}<span class="ax-pg-tag req">Requested by {{ t.reporter_name or 'client' }}</span>{% endif %}
                     {% if t.comment_count %}<span class="ax-pg-tag cmt">💬 {{ t.comment_count }}</span>{% endif %}
                   </div>
                 </button>
-                {% else %}
-                <div class="ax-pg-colempty">None</div>
                 {% endfor %}
               </div>
+              {#- Per-column add: files straight into THIS stage with the client already implied by
+                 the workspace. A real form again, so it works with no JS; the script below only
+                 toggles it open. -#}
+              <button type="button" class="ax-pg-addcard" data-pgcol-open="{{ col.key }}">+ Add card</button>
+              <form class="ax-pg-addform" method="post" action="/w/{{ view.client }}/task-add"
+                    data-pgcol-form="{{ col.key }}">
+                <input type="text" name="title" maxlength="200" required
+                       aria-label="Add a card to {{ col.name }}" placeholder="What needs doing?">
+                <input type="hidden" name="stage" value="{{ col.key }}">
+                <input type="hidden" name="redirect" value="progress">
+                <div class="row">
+                  <button type="submit" class="ax-btn violet">Add</button>
+                  <button type="button" class="ax-btn ghost" data-pgcol-cancel="{{ col.key }}">Cancel</button>
+                </div>
+              </form>
             </div>
             {% endfor %}
           </div>
-          {% else %}
-          <div class="ax-pg-empty"><h3>Nothing to show yet</h3>
-            <div>Add your first request above, or wait for your Agora team to start work — deliverables will appear here.</div></div>
+          {% if not pg_total %}
+          <div class="ax-pg-empty"><h3>No tasks yet</h3>
+            <div>Type a request above, or use “+ Add card” under any column to start one there.</div></div>
+          {% endif %}
           {% endif %}
 
           <!-- Hidden store: one read-only detail per task; JS shows it in the veil below. -->
@@ -7843,6 +7875,30 @@
         if (btn) { btn.disabled = false; }
         form.submit();
       });
+  });
+
+  // Per-column "+ Add card": reveal that column's form and focus it. The forms post natively
+  // (each carries its own stage + redirect), so this is purely a disclosure toggle -- with JS off
+  // every form is simply visible and still works.
+  var cols = document.querySelectorAll("[data-pgcol-open]");
+  Array.prototype.slice.call(cols).forEach(function (btn) {
+    var key = btn.getAttribute("data-pgcol-open");
+    var cform = document.querySelector('[data-pgcol-form="' + key + '"]');
+    if (!cform) { return; }
+    var cancel = document.querySelector('[data-pgcol-cancel="' + key + '"]');
+    var box = cform.querySelector("input[name=title]");
+    btn.addEventListener("click", function () {
+      cform.className = "ax-pg-addform open";
+      btn.style.display = "none";
+      if (box) { box.focus(); }
+    });
+    if (cancel) {
+      cancel.addEventListener("click", function () {
+        cform.className = "ax-pg-addform";
+        btn.style.display = "";
+        if (box) { box.value = ""; }
+      });
+    }
   });
 
   // After the reload lands back on Progress, put the caret straight back in the box so the next

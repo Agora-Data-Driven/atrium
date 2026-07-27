@@ -1305,7 +1305,7 @@ def _progress_tasks(ws):
         if not t.get("client_facing"):
             continue
         t = workspace.normalize_task(dict(t))
-        stage = t.get("stage") or "in_process"
+        stage = workspace.canon_stage(t.get("stage"))
         # The two-level breakdown, stripped to client-safe "phases": a name + its steps.
         # Owners (main-task AND sub-task assignees) never reach this shape.
         phases = []
@@ -1342,14 +1342,14 @@ def _progress_tasks(ws):
             "reporter_name": t.get("reporter_name", ""),
             "start_date": t.get("start_date", ""),
             "due_date": due,
-            "due_soon": bool(due and today <= due <= soon and stage != "closed"),
+            "due_soon": bool(due and today <= due <= soon and stage != "completed"),
             "client_note": t.get("client_note", ""),
             "deliverable_url": t.get("deliverable_url", ""),
             "phases": phases, "subs_done": done, "subs_total": len(subs),
             "pct": (int(round(100.0 * done / len(subs))) if subs else 0),
             "open_changes": len(workspace.task_open_changes(t)),
             "comments": comments, "comment_count": len(comments),
-            "in_review": stage == "for_launch",
+            "in_review": stage == "for_review",
         }
         (by_key.get(stage) or cols[0])["tasks"].append(view)
     for col in cols:
@@ -1399,7 +1399,8 @@ def atrium_task_add(client):
 
     The REPORTER is auto-tagged from the session, never a form choice: a team session files it as
     "agora", anyone else as "client". Quick-added tasks are always client_facing (they were created
-    on the client surface, so they must appear there) and start in_process with no breakdown --
+    on the client surface, so they must appear there) and start in the requested column (todo by
+    default) with no breakdown --
     the team fleshes them out from the console like any blank custom service. Internal fields
     (priority/charge/owners/notes) are NOT accepted here; the admin console remains the only place
     those are set."""
@@ -1419,9 +1420,12 @@ def atrium_task_add(client):
     note = request.form.get("note", "").strip()
     user = current_user()
     from_team = is_superadmin()
+    # Which column the card was added to. The board's per-column "+ Add card" posts its own stage;
+    # the top composer posts none and lands in To Do. Always canonicalised, so a bad/legacy value
+    # can never 500 or drop the card into the wrong column.
     fields = {
         "title": title[:200],
-        "stage": "in_process",
+        "stage": workspace.canon_stage(request.form.get("stage")),
         "client_facing": True,
         "client_note": note[:1000],
         "reporter": "agora" if from_team else "client",
@@ -3619,12 +3623,17 @@ def _discipline(labels):
         if lbl in TASK_DISC_CLASS:
             return lbl, TASK_DISC_CLASS[lbl]
     return "", ""
-TASK_STAGE_META = (("in_process", "In Process"), ("for_launch", "For Launch"),
-                   ("launched", "Launched"), ("closed", "Closed"))
+# Stage columns MIRROR SENTINEL'S BOARD exactly (sentinel constants.TASK_STATUSES) so the internal
+# board and the client Progress board are the same interface with the same words -- the whole point
+# of the 2026-07-27 change. Keys are canonical (workspace.TASK_STAGES); labels are Sentinel's.
+TASK_STAGE_META = (("todo", "To Do"), ("in_progress", "In Progress"),
+                   ("for_review", "For Review"), ("waiting_client", "Waiting for Client"),
+                   ("revision", "Revision Needed"), ("completed", "Completed"),
+                   ("blocked", "Blocked"))
 TASK_STAGE_LABELS = dict(TASK_STAGE_META)
-# The client-facing relabels (spec §3.1) -- keys never change, labels are friendlier.
-TASK_CLIENT_STAGES = (("in_process", "In progress"), ("for_launch", "In review"),
-                      ("launched", "Live"), ("closed", "Completed"))
+# The client sees the SAME column names now (previously friendlier relabels). Kept as its own tuple
+# so a client-only wording change stays a one-line edit.
+TASK_CLIENT_STAGES = TASK_STAGE_META
 
 
 # Canonical Atrium delivery team -- these people must ALWAYS be assignable on the board, on EVERY
@@ -3745,11 +3754,11 @@ def _task_board(clients_tasks, roster):
         done = len([s for s in subs if s.get("done")])
         due = t.get("due_date") or ""
         due_cls = ""
-        if due and t.get("stage") != "closed":
+        if due and t.get("stage") != "completed":
             due_cls = "over" if due < today_iso else ("soon" if due <= soon_iso else "")
         lead = t.get("lead_id") or ""
         support = [s for s in (t.get("support_ids") or []) if s]
-        nxt_key, nxt_label = _task_next_stage(t.get("stage") or "in_process")
+        nxt_key, nxt_label = _task_next_stage(workspace.canon_stage(t.get("stage")))
         view = dict(t)
         view.update({
             "client_key": ckey, "client_name": cname,
@@ -3772,7 +3781,7 @@ def _task_board(clients_tasks, roster):
             "all_subs_done": bool(subs) and done == len(subs),
             "next_stage_key": nxt_key or "", "next_stage_label": nxt_label or "",
         })
-        col = by_key.get(t.get("stage") or "in_process") or cols[0]
+        col = by_key.get(workspace.canon_stage(t.get("stage"))) or cols[0]
         col["tasks"].append(view)
     for col in cols:
         # Urgent on top; within a priority, ACTIVE work before on-hold; then sooner launch, then age.
@@ -3897,7 +3906,7 @@ def atrium_admin_task(client):
     # the content type, and the department/label -- overriding the posted department so they agree.
     fields.update(_task_template_seed())
     # New services always start In Process; they're moved along the board from there.
-    fields["stage"] = "in_process"
+    fields["stage"] = "todo"
     try:
         task = workspace.add_task(client, fields, actor=actor)
     except KeyError:

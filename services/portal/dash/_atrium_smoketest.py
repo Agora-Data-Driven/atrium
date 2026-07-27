@@ -735,13 +735,13 @@ def run():
     _check("team adds a task", rt.status_code == 200 and rt.get_json().get("ok") is True)
     task_id = rt.get_json()["task_id"]
     made = workspace._find_task(workspace.load_workspace(CLIENT), task_id)
-    _check("new service always starts In Process", made["stage"] == "in_process")
+    _check("new service always starts in To Do", made["stage"] == "todo")
     _forced = c.post("/w/%s/admin/task" % CLIENT,
                      data={"op": "add", "title": "Stage-forced check",
-                           "department": "lifecycle", "stage": "launched"})
+                           "department": "lifecycle", "stage": "completed"})
     _forced_task = workspace._find_task(workspace.load_workspace(CLIENT), _forced.get_json()["task_id"])
-    _check("a submitted stage on create is ignored (always In Process)",
-           _forced_task["stage"] == "in_process")
+    _check("a submitted stage on create is ignored (always To Do)",
+           _forced_task["stage"] == "todo")
     _check("label auto-derived from the department", made["labels"] == ["Paid Media"])
     _check("start date + service charge stored",
            made["start_date"] == "2026-07-10" and made["service_charge"] == "4200")
@@ -849,7 +849,7 @@ def run():
     _check("console form posts redirect back to the Tasks pane",
            c.post("/w/%s/admin/task/move" % CLIENT,
                   data={"redirect": "console", "task_id": task_id,
-                        "stage": "for_launch"}).status_code == 302)
+                        "stage": "for_review"}).status_code == 302)
 
     # The CLIENT sees the Progress tab: their client-facing task, client-safe fields ONLY.
     with c.session_transaction() as s:
@@ -890,8 +890,8 @@ def run():
     _check("client quick-adds a request",
            radd.get_json().get("ok") is True and radd.get_json().get("reporter") == "client")
     added = workspace._find_task(workspace.load_workspace(CLIENT), radd.get_json()["task_id"])
-    _check("client request is client-facing + In Process + reporter-tagged",
-           added["client_facing"] is True and added["stage"] == "in_process"
+    _check("client request is client-facing + To Do + reporter-tagged",
+           added["client_facing"] is True and added["stage"] == "todo"
            and added["reporter"] == "client" and added["reporter_name"] == "Owner")
     _check("empty quick-add rejected",
            c.post("/w/%s/task-add" % CLIENT, data={"title": "  "}).status_code == 400)
@@ -914,6 +914,32 @@ def run():
     _check("the composer is a real form that posts to task-add without JS",
            'method="post"' in pg2 and ('action="/w/%s/task-add"' % CLIENT) in pg2
            and 'name="title"' in pg2)
+    # The Progress board now mirrors SENTINEL's board: same 7 columns, same words.
+    _check("Progress renders all 7 Sentinel stage columns",
+           all(name in pg2 for name in ("To Do", "In Progress", "For Review", "Waiting for Client",
+                                        "Revision Needed", "Completed", "Blocked")))
+    _check("every column has its own no-JS '+ Add card' form",
+           all(('data-pgcol-form="%s"' % k) in pg2
+               for k in ("todo", "in_progress", "for_review", "waiting_client",
+                         "revision", "completed", "blocked")))
+    # Adding from a column files straight into THAT column, with the client implied by the URL.
+    rcol = c.post("/w/%s/task-add" % CLIENT,
+                  data={"title": "FILED-INTO-BLOCKED", "stage": "blocked", "redirect": "progress"})
+    _col_task = [t for t in workspace.load_workspace(CLIENT).get("tasks", [])
+                 if t.get("title") == "FILED-INTO-BLOCKED"]
+    _check("'+ Add card' files into the column it was added from",
+           rcol.status_code in (301, 302, 303) and _col_task
+           and _col_task[0]["stage"] == "blocked" and _col_task[0]["client_facing"] is True)
+    _check("a junk stage can never 500 or lose the card (falls back to To Do)",
+           c.post("/w/%s/task-add" % CLIENT,
+                  data={"title": "JUNK-STAGE", "stage": "not-a-stage"}).get_json().get("ok") is True
+           and [t for t in workspace.load_workspace(CLIENT).get("tasks", [])
+                if t.get("title") == "JUNK-STAGE"][0]["stage"] == "todo")
+    # Legacy rows written under the OLD 4-stage keys must still land in a real column.
+    _check("a legacy stage key is translated, not dropped",
+           workspace.canon_stage("for_launch") == "for_review"
+           and workspace.canon_stage("launched") == "completed"
+           and workspace.canon_stage("") == "todo")
 
     # Back to the team: the open change request blocks closing, resolving unblocks it.
     with c.session_transaction() as s:
@@ -926,7 +952,7 @@ def run():
                                     radd2.get_json()["task_id"])["client_facing"] is True)
     _check("console board flags the client-filed request",
            "Client req" in c.get("/admin/atrium").get_data(as_text=True))
-    blocked = c.post("/w/%s/admin/task/move" % CLIENT, data={"task_id": task_id, "stage": "closed"})
+    blocked = c.post("/w/%s/admin/task/move" % CLIENT, data={"task_id": task_id, "stage": "completed"})
     _check("close is blocked while a change request is open",
            blocked.get_json().get("ok") is False and "change request" in blocked.get_json()["error"])
     _check("team resolves the change request",
@@ -935,7 +961,7 @@ def run():
                         "comment_id": chg_id}).get_json().get("open_changes") == 0)
     _check("close allowed once resolved",
            c.post("/w/%s/admin/task/move" % CLIENT,
-                  data={"task_id": task_id, "stage": "closed"}).get_json().get("ok") is True)
+                  data={"task_id": task_id, "stage": "completed"}).get_json().get("ok") is True)
 
     # Delete -> Bin -> restore round-trip.
     _check("task delete is a soft-delete",
@@ -971,7 +997,7 @@ def run():
     imp = dict(exported)
     imp_tasks = list(exported["clients"][CLIENT]["tasks"])
     imp_tasks[0] = dict(imp_tasks[0], title="Imported title change")
-    imp_tasks.append({"id": "tk_imported_new", "title": "Imported new task", "stage": "in_process"})
+    imp_tasks.append({"id": "tk_imported_new", "title": "Imported new task", "stage": "todo"})
     imp = {"version": 1, "clients": {CLIENT: {"name": "Riverdance", "tasks": imp_tasks},
                                      "ghostclient": {"tasks": [{"id": "x", "title": "skip me"}]}}}
     ri = c.post("/admin/atrium/tasks/import",
