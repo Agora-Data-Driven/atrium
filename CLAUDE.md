@@ -602,7 +602,11 @@ REPLACED the console's manual "Sync all dashboards" button (removed 2026-07: a b
 never trigger paid Windsor/Meta pulls); the console now shows a read-only "Last synced: Xh ago" from
 the same `sync_state.json`. Deploy/schedule it with `services/portal/dash/deploy_sync_refresh.ps1`
 (gated `SYNC_AUTO_ENABLED=1`, reuses the platform-dash image + web SA; `-Run` fires once now,
-`-Disable` turns it off). The dash service runs OPEN (no login) so it embeds in
+`-Disable` turns it off). ⚠️ The trigger POSTs `:run` **with env overrides** (`FORCE_REBUILD=1`),
+which needs `run.jobs.runWithOverrides` — `roles/run.invoker` does NOT carry it, so the web SA
+must hold **`roles/run.developer` on each `<c>-export` job** or every tick 403s while the IAM
+policy looks correct (riverdance sat 13 days stale this way, found 2026-07-27; the standup
+scripts' Step 6 now grants run.developer). The dash service runs OPEN (no login) so it embeds in
 the gated Atrium. Stand it up with `clients/client_riverdance/deploy_riverdance.ps1`. Treat it as the
 pattern for any connector whose data isn't (yet) flowing through `raw_windsor`.
 

@@ -9,10 +9,13 @@ consumed by the gated dash service — the "live and accurate" path.
 Shape written to the bucket (matched BY NAME to dash/dashboard.html's DATA.*):
   { client, location, dates[], rows[] (per ad-per-day, incl. `camp` = campaign name for the
     dash's campaign filter/table), creatives[] (with inlined image), campaign{}, source{},
-    logo, agora_logo }
+    demographics{}, activecampaign{} (email — see activecampaign.py), logo, agora_logo }
 
 Secrets/config:
   WINDSOR_API_KEY  — Windsor connector key (Secret Manager `riverdance-windsor-key`, mounted as env).
+  ACTIVECAMPAIGN_URL / ACTIVECAMPAIGN_API_KEY — email add-on (Secret Manager
+    `riverdance-activecampaign-key`); optional — absent ⇒ the email tab shows a "not configured"
+    state and the Meta export is unaffected (see activecampaign.py).
   GCS_BUCKET / DATA_OBJECT — output location (deploy script sets them; defaults derive from CLIENT).
   RIVERDANCE_LOCAL_OUT — if set, write the JSON to this local path instead of GCS (off-cloud test).
 
@@ -36,10 +39,11 @@ WINDSOR_ACCOUNT = os.environ.get("WINDSOR_ACCOUNT", "facebook__921953393594856")
 DATE_PRESET = os.environ.get("WINDSOR_DATE_PRESET", "last_180d")
 # Demographic/geographic breakdowns are SEPARATE pulls (Meta won't return them alongside the ad/day
 # rows, and rejects the 'omni' revenue field with a breakdown) — so these carry reach/engagement
-# metrics only (spend/impressions/clicks/link_clicks), aggregated over the window. Conversions (8
-# total) are far too sparse to split by demographic meaningfully.
-AGE_GENDER_FIELDS = ["age", "gender", "spend", "impressions", "clicks", "link_clicks"]
-REGION_FIELDS = ["region", "spend", "impressions", "clicks", "link_clicks"]
+# metrics only (spend/impressions/clicks/link_clicks). We pull them PER DAY (the `date` field) so the
+# dashboard's Audience section responds to the date-range picker; the frontend re-aggregates the
+# rows that fall in the selected window. Conversions are far too sparse to split by demographic.
+AGE_GENDER_FIELDS = ["date", "age", "gender", "spend", "impressions", "clicks", "link_clicks"]
+REGION_FIELDS = ["date", "region", "spend", "impressions", "clicks", "link_clicks"]
 FIELDS = ",".join([
     "account_name", "ad_name", "adcontent", "adset_name", "campaign", "clicks", "cpp",
     "datasource", "date", "frequency", "impressions", "link_clicks", "reach", "source",
@@ -92,16 +96,17 @@ def _fetch_windsor(api_key):
 
 
 def _demo_row(r, dims):
-    out = {"spend": round(_num(r.get("spend")), 2), "imps": int(_num(r.get("impressions"))),
-           "clicks": int(_num(r.get("clicks"))), "lclk": int(_num(r.get("link_clicks")))}
+    out = {"date": r.get("date"), "spend": round(_num(r.get("spend")), 2),
+           "imps": int(_num(r.get("impressions"))), "clicks": int(_num(r.get("clicks"))),
+           "lclk": int(_num(r.get("link_clicks")))}
     for d in dims:
         out[d] = r.get(d) or "Unknown"
     return out
 
 
 def _fetch_demographics(api_key):
-    """Age×gender + region breakdowns (aggregated over the window). Best-effort: a failed breakdown
-    pull yields [] rather than failing the whole export."""
+    """Age×gender + region breakdowns (per day — the dash re-aggregates over the selected range).
+    Best-effort: a failed breakdown pull yields [] rather than failing the whole export."""
     demo = {"age_gender": [], "region": []}
     try:
         demo["age_gender"] = [_demo_row(r, ["age", "gender"]) for r in _fetch(api_key, AGE_GENDER_FIELDS)]
@@ -198,29 +203,42 @@ def build(rows_in):
     }
 
 
+def _fetch_activecampaign():
+    """Best-effort ActiveCampaign (email) block — never fails the export (see activecampaign.py)."""
+    try:
+        import activecampaign
+        return activecampaign.fetch()
+    except Exception as e:  # noqa: BLE001 — AC is an add-on; a failure must not sink the Meta export
+        print("  activecampaign skip: %s" % str(e)[:120])
+        return {"enabled": False, "error": str(e)[:160]}
+
+
 def main():
     key = _api_key()
     rows_in = _fetch_windsor(key)
     data = build(rows_in)
     data["demographics"] = _fetch_demographics(key)
+    data["activecampaign"] = _fetch_activecampaign()
     body = json.dumps(data, separators=(",", ":"))
 
     local_out = os.environ.get("RIVERDANCE_LOCAL_OUT")
     if local_out:
         with open(local_out, "w", encoding="utf-8") as fh:
             fh.write(body)
-        print("[%s] wrote %s (%d rows, %d creatives, %d days, %d KB) — LOCAL"
+        print("[%s] wrote %s (%d rows, %d creatives, %d days, %d AC campaigns, %d KB) — LOCAL"
               % (CLIENT, local_out, len(data["rows"]), len(data["creatives"]),
-                 len(data["dates"]), len(body) // 1024))
+                 len(data["dates"]), len(data["activecampaign"].get("campaigns", [])),
+                 len(body) // 1024))
         return
 
     from google.cloud import storage
     blob = storage.Client(project=PROJECT).bucket(BUCKET).blob(DATA_OBJECT)
     blob.cache_control = "no-store"
     blob.upload_from_string(body, content_type="application/json")
-    print("[%s] uploaded gs://%s/%s (%d rows, %d creatives, %d days, %d KB)"
+    print("[%s] uploaded gs://%s/%s (%d rows, %d creatives, %d days, %d AC campaigns, %d KB)"
           % (CLIENT, BUCKET, DATA_OBJECT, len(data["rows"]), len(data["creatives"]),
-             len(data["dates"]), len(body) // 1024))
+             len(data["dates"]), len(data["activecampaign"].get("campaigns", [])),
+             len(body) // 1024))
 
 
 if __name__ == "__main__":

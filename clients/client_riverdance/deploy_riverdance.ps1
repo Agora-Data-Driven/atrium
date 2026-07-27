@@ -153,14 +153,17 @@ Must "deploy export job $EXPORT_JOB"
 gcloud run jobs execute $EXPORT_JOB --region $REGION --project $PROJECT --wait; Must "execute export job (initial)"
 Write-Host "[OK] initial live data export complete"
 
-# --- Step 6: make the job triggerable on demand (NO scheduler) ---------------
-# Refresh is manual, driven by the admin console's "Sync all dashboards" button (mirrors the
-# Bidbrain platform's /sync-all): the portal service account triggers each <c>-export via the
-# Run Admin API. So we grant the PORTAL web SA run.invoker on this job instead of a scheduler.
+# --- Step 6: make the job triggerable by the platform sync (NO scheduler of its own) ---------
+# Refresh is driven by the 6-hourly `sync-refresh` job (services/portal/dash/sync_refresh.py ->
+# sync_dash.trigger_all — it replaced the console's manual "Sync all dashboards" button): the
+# portal web SA POSTs this job's :run WITH env overrides (FORCE_REBUILD=1). Running with overrides
+# needs run.jobs.runWithOverrides, which roles/run.invoker does NOT carry — an invoker-only grant
+# makes every sync tick 403 while the IAM policy looks correct (bit us 2026-07-27; riverdance.json
+# sat stale for 13 days). So grant run.developer, scoped to this one job.
 $PORTAL_SA = "platform-dash-web@agora-data-driven.iam.gserviceaccount.com"
-Write-Host "[..] Granting the portal SA run.invoker on $EXPORT_JOB (for the admin Sync button)" -ForegroundColor Cyan
-gcloud run jobs add-iam-policy-binding $EXPORT_JOB --region $REGION --project $PROJECT --member "serviceAccount:$PORTAL_SA" --role "roles/run.invoker"; Must "grant run.invoker to portal SA"
-Write-Host "[OK] $EXPORT_JOB is on-demand only (admin Sync button); no scheduler"
+Write-Host "[..] Granting the portal SA run.developer on $EXPORT_JOB (for the sync-refresh trigger)" -ForegroundColor Cyan
+gcloud run jobs add-iam-policy-binding $EXPORT_JOB --region $REGION --project $PROJECT --member "serviceAccount:$PORTAL_SA" --role "roles/run.developer"; Must "grant run.developer to portal SA"
+Write-Host "[OK] $EXPORT_JOB is triggered by the 6-hourly sync-refresh; no scheduler of its own"
 
 # --- Step 7: JS gate + build + deploy the dash service -----------------------
 Write-Host "[..] Validating dashboard.html inline JS" -ForegroundColor Cyan

@@ -131,6 +131,9 @@ def trigger_all():
         url = "https://run.googleapis.com/v2/projects/%s/locations/%s/jobs/%s:run" % (PROJECT, REGION, job)
         # FORCE_REBUILD is a no-op for the always-fresh Windsor jobs, but keeps parity with the
         # BigQuery-gated jobs (which need it to bypass their freshness watermark).
+        # ⚠️ Running WITH overrides requires run.jobs.runWithOverrides, which roles/run.invoker
+        # does NOT carry — the web SA needs roles/run.developer ON EACH <c>-export job, or every
+        # trigger 403s while the IAM policy looks correct (riverdance sat stale 13 days, 2026-07).
         body = {"overrides": {"containerOverrides": [{"env": [{"name": "FORCE_REBUILD", "value": "1"}]}]}}
         try:
             r = sess.post(url, json=body, timeout=30)

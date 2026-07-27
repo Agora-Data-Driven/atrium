@@ -1250,7 +1250,15 @@ function renderAudience(){
     byG[k].imps += r.imps; byG[k].clicks += r.clicks; byG[k].spend += r.spend;
   });
   var genItems = GEN.filter(function(k){ return byG[k]; }).map(function(k){ return byG[k]; });
-  var regItems = rg.map(function(r){ return { label: r.region || "Unknown", imps: r.imps, clicks: r.clicks, spend: r.spend }; })
+  // Region rows arrive PER DAY (the job pulls the breakdown with a `date` field) — group by
+  // region before ranking, or the same region renders once per day.
+  var byReg = {};
+  rg.forEach(function(r){
+    var k = r.region || "Unknown";
+    if(!byReg[k]){ byReg[k] = { label: k, imps: 0, clicks: 0, spend: 0 }; }
+    byReg[k].imps += r.imps; byReg[k].clicks += r.clicks; byReg[k].spend += r.spend;
+  });
+  var regItems = Object.keys(byReg).map(function(k){ return byReg[k]; })
     .filter(function(r){ return r.imps > 0; })
     .sort(function(a, b){ return b.imps - a.imps; }).slice(0, 6);
   chartCatV("chartAge", ageItems);
