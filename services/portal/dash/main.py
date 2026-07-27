@@ -26,10 +26,13 @@ Org policy forbids public Cloud Run: deploy with --no-invoker-iam-check (never
 
 import datetime
 import gzip as _gzip
+import hashlib
+import hmac
 import json
 import os
 import re
 import secrets
+import time
 
 import requests
 from flask import (
@@ -1356,6 +1359,152 @@ def _progress_tasks(ws):
         # Soonest launch first (undated work sinks to the bottom of its column).
         col["tasks"].sort(key=lambda v: v.get("due_date") or "9999-99-99")
     return cols
+
+
+# --- Internal task bridge (Sentinel reads Atrium's board) ----------------------------------------
+# Atrium is the SOURCE OF TRUTH for client-facing tasks; Sentinel's internal board is the team's
+# cross-client window onto them. These endpoints are how Sentinel sees and moves that work, so a
+# task typed into a client's Atrium shows up on the internal board (and vice versa).
+#
+# Auth is the SAME HMAC scheme the rest of the platform already uses (mastery-engine ->
+# /api/internal/people, portal -> /api/internal/user-lookup): HMAC-SHA256 over "{purpose}:{ts}"
+# with the shared `platform-sso-key`, presented as X-Academy-Ts / X-Academy-Sig. NO new secret and
+# no cookie -- this is server-to-server only. Fail-CLOSED: unset secret / bad or stale signature
+# -> 401/503, never a partial answer.
+_INTERNAL_MAX_SKEW = 300
+
+
+def _internal_gate(purpose):
+    """Verify the HMAC header pair for `purpose`; return a Response to abort with, else None."""
+    secret = (SSO_SECRET or "").strip()
+    if not secret:
+        return Response('{"error":"internal auth not configured"}', status=503,
+                        mimetype="application/json")
+    ts = request.headers.get("X-Academy-Ts", "")
+    sig = request.headers.get("X-Academy-Sig", "")
+    if not ts or not sig:
+        return Response('{"error":"missing signature"}', status=401, mimetype="application/json")
+    try:
+        skew = abs(time.time() - int(ts))
+    except (TypeError, ValueError):
+        return Response('{"error":"bad timestamp"}', status=401, mimetype="application/json")
+    if skew > _INTERNAL_MAX_SKEW:
+        return Response('{"error":"stale request"}', status=401, mimetype="application/json")
+    expected = hmac.new(secret.encode("utf-8"), ("%s:%s" % (purpose, ts)).encode("utf-8"),
+                        hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        return Response('{"error":"bad signature"}', status=401, mimetype="application/json")
+    return None
+
+
+def _internal_task_view(client_key, client_name, t):
+    """One Atrium task in the shape Sentinel's board needs (internal surface -- full fields)."""
+    t = workspace.normalize_task(dict(t))
+    subs = workspace.task_subtasks(t)
+    return {
+        # Namespaced so Sentinel can tell an Atrium-owned card from one of its own rows and route
+        # edits back here instead of to its Postgres table.
+        "atrium_id": "%s:%s" % (client_key, t.get("id", "")),
+        "task_id": t.get("id", ""),
+        "client_key": client_key,
+        "client_name": client_name,
+        "title": t.get("title", ""),
+        "stage": t.get("stage", "todo"),
+        "status": TASK_STAGE_LABELS.get(t.get("stage", "todo"), "To Do"),
+        "priority": t.get("priority", "Medium"),
+        "labels": list(t.get("labels") or []),
+        "department": t.get("department", ""),
+        "lead_id": t.get("lead_id", ""),
+        "support_ids": list(t.get("support_ids") or []),
+        "due_date": t.get("due_date", ""),
+        "start_date": t.get("start_date", ""),
+        "client_facing": bool(t.get("client_facing")),
+        "on_hold": bool(t.get("on_hold")),
+        "reporter": t.get("reporter", "agora"),
+        "reporter_name": t.get("reporter_name", ""),
+        "comment_count": len(t.get("comments") or []),
+        "checklist_total": len(subs),
+        "checklist_done": len([s for s in subs if s.get("done")]),
+        "updated_at": (t.get("history") or [{}])[-1].get("at", "") or t.get("created_at", ""),
+        "created_at": t.get("created_at", ""),
+    }
+
+
+@app.route("/api/internal/tasks", methods=["GET"])
+def internal_tasks():
+    """Every client's Atrium tasks, for Sentinel's internal board. HMAC-gated, server-to-server."""
+    gate = _internal_gate("tasks")
+    if gate:
+        return gate
+    only = (request.args.get("client") or "").strip()
+    out = []
+    for c in store.list_clients():
+        key = c.get("key") or ""
+        if not key or (only and key != only):
+            continue
+        try:
+            ws = workspace.load_workspace(key) or {}
+        except Exception:
+            # One unreadable workspace must never blank the whole internal board.
+            continue
+        name = ws.get("display_name") or c.get("name") or key
+        for t in ws.get("tasks") or []:
+            out.append(_internal_task_view(key, name, t))
+    return jsonify(ok=True, tasks=out)
+
+
+@app.route("/api/internal/task-move", methods=["POST"])
+def internal_task_move():
+    """Move an Atrium task to a new stage from Sentinel's board (drag-and-drop write-back)."""
+    gate = _internal_gate("task-move")
+    if gate:
+        return gate
+    payload = request.get_json(silent=True) or {}
+    client_key = (payload.get("client_key") or "").strip()
+    task_id = (payload.get("task_id") or "").strip()
+    stage = workspace.canon_stage(payload.get("stage"))
+    actor = (payload.get("actor") or "sentinel").strip()
+    try:
+        task = workspace.move_task_stage(client_key, task_id, stage, actor=actor)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    except ValueError as exc:
+        # The completion guard (open sub-tasks / unresolved change requests) speaks for itself.
+        return jsonify(ok=False, error=str(exc)), 409
+    _audit(client_key, "moved task (from Sentinel)", task.get("title", ""))
+    return jsonify(ok=True, stage=task.get("stage"))
+
+
+@app.route("/api/internal/task-add", methods=["POST"])
+def internal_task_add():
+    """Create an Atrium task from Sentinel's board.
+
+    `client_facing` is the caller's choice here (unlike the client-surface quick-add, which is
+    always client-facing): this is how the team files INTERNAL work that clients never see."""
+    gate = _internal_gate("task-add")
+    if gate:
+        return gate
+    payload = request.get_json(silent=True) or {}
+    client_key = (payload.get("client_key") or "").strip()
+    title = (payload.get("title") or "").strip()
+    if not title:
+        return Response('{"error":"empty"}', status=400, mimetype="application/json")
+    fields = {
+        "title": title[:200],
+        "stage": workspace.canon_stage(payload.get("stage")),
+        "client_facing": bool(payload.get("client_facing")),
+        "priority": payload.get("priority") or "Medium",
+        "department": payload.get("department") or "",
+        "due_date": payload.get("due_date") or "",
+        "reporter": "agora",
+        "reporter_name": (payload.get("actor_name") or "AGORA"),
+    }
+    try:
+        task = workspace.add_task(client_key, fields, actor=payload.get("actor") or "sentinel")
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    _audit(client_key, "added task (from Sentinel)", task.get("title", ""))
+    return jsonify(ok=True, task_id=task["id"], stage=task["stage"])
 
 
 @app.route("/w/<client>/task-comment", methods=["POST"])
