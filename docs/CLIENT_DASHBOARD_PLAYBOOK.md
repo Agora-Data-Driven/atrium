@@ -77,12 +77,21 @@ if os.environ.get("FORCE_IPV4", "1") == "1":
     socket.getaddrinfo = _v4
 ```
 
-### 3.2 Buffered stdout makes a job look hung
+### 3.2 Thread the local preview server
+`socketserver.TCPServer` serves **one request at a time**, so a single browser holding a keep-alive
+connection — or a client that walks away mid-download of a multi-MB payload — wedges it forever.
+The failure is nasty because it does not look like a failure: the port still reports LISTENING and
+new connections still reach ESTABLISHED, they just never receive a byte. Use
+`ThreadingTCPServer` with `daemon_threads = True`, and test it with concurrent requests
+(one page load plus one full `data.json` download) rather than one at a time.
+
+### 3.3 Buffered stdout makes a job look hung
 Without `PYTHONUNBUFFERED=1` Python holds every `print` until exit. The first Honey Tribe run logged
 nothing for 15 minutes and was indistinguishable from a hang. Set it in the **Dockerfile** and the
-job env.
+job env. Same applies to any long-running script you background: `print(..., flush=True)`, or its
+startup banner never appears and a healthy process looks dead.
 
-### 3.3 Full crawls do not scale — go incremental
+### 3.4 Full crawls do not scale — go incremental
 Fine at 1,000 records, fatal at 10,000.
 
 - Fetch only `updated_at_min = now − N days` (30 is a good default) and **merge by the source's
@@ -94,26 +103,26 @@ Fine at 1,000 records, fatal at 10,000.
   returning customer whose first order predates the window is misclassified.
 - Keep a `FULL_SYNC=1` escape hatch; use it on the first run.
 
-### 3.4 Accumulate history the API won't give you in one call
+### 3.5 Accumulate history the API won't give you in one call
 Most APIs cap a wide-field pull to a recent window. Each run fetches what it can and **merges older
 rows forward** from the previous publication, keyed by a stable composite (e.g.
 `(date, campaign, adset, ad)`). The fresh pull stays authoritative for every day it covers, so
 restatements land correctly and history grows in the bucket instead of being capped.
 
-### 3.5 IAM: `run.developer`, not `run.invoker`
+### 3.6 IAM: `run.developer`, not `run.invoker`
 Triggering a Cloud Run job **with env overrides** needs `run.jobs.runWithOverrides`, which
 `roles/run.invoker` does **not** carry. An invoker-only grant 403s every tick while the policy looks
 correct — this left riverdance stale for 13 days.
 
-### 3.6 The esprima gate
+### 3.7 The esprima gate
 Inline dashboard JS is parsed by `tools/_validate_dash_js.py` (esprima 4.x): **no `?.`, no `??`** —
 use classic `&&` / `||`. Run it before every deploy.
 
-### 3.7 Windows + UTF-8
+### 3.8 Windows + UTF-8
 Never write JSON payloads in text mode on Windows — cp1252 turns a smart quote into `0x92` and the
 UTF-8 read blows up. Write bytes. Secret temp files: UTF-8, no BOM, no trailing newline.
 
-### 3.8 Small ones
+### 3.9 Small ones
 - `/healthz` is intercepted by Google's frontend on Cloud Run and 404s before reaching the
   container. Harmless — test an unknown path and confirm you get *Flask's* 404 instead.
 - Import `jsonify` if you use it: a route referencing a missing name imports fine and 500s on call.

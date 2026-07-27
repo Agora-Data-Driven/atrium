@@ -48,18 +48,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):   # keep the console readable
         if "200" not in (fmt % args):
             sys.stderr.write("  %s\n" % (fmt % args))
+            sys.stderr.flush()
+
+
+class Server(socketserver.ThreadingTCPServer):
+    """Threaded on purpose.
+
+    A single-threaded TCPServer serves exactly one request at a time, so ONE browser holding a
+    connection open (or a client that walks away mid-download of the ~5 MB payload) wedges the
+    server permanently: the port still shows LISTENING and new connections still get ESTABLISHED,
+    they just never receive a byte. That looked exactly like a crash and cost a debugging detour.
+    """
+    allow_reuse_address = True
+    daemon_threads = True       # never let a stray connection keep the process alive
 
 
 def main():
     if not os.path.exists(JSON):
-        print("[!] %s is missing — run job/build_local.py first." % JSON)
+        print("[!] %s is missing — run job/build_local.py first." % JSON, flush=True)
         return 1
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
+    with Server(("127.0.0.1", PORT), Handler) as httpd:
         url = "http://localhost:%d/" % PORT
-        print("Honey Tribe dashboard  ->  %s" % url)
-        print("   data: %s (%.1f MB)" % (JSON, os.path.getsize(JSON) / 1048576.0))
-        print("   Ctrl+C to stop.")
+        # flush: stdout is a pipe when run in the background, so buffered output makes a healthy
+        # server look like a silent/hung one (the same trap as PYTHONUNBUFFERED in the export job).
+        print("Honey Tribe dashboard  ->  %s" % url, flush=True)
+        print("   data: %s (%.1f MB)" % (JSON, os.path.getsize(JSON) / 1048576.0), flush=True)
+        print("   Ctrl+C to stop.", flush=True)
         try:
             webbrowser.open(url)
         except Exception:  # noqa: BLE001 — a headless box just prints the URL
