@@ -729,6 +729,8 @@
 <!-- ================================================================= TAB 4: DEMOGRAPHICS -->
 <div class="tab-pane wrap" id="pane-demo" hidden>
 
+  <div id="demoWindowNote"></div>
+
   <section>
     <div class="shead">
       <h2>The audience, by value not by volume</h2>
@@ -870,9 +872,13 @@ var ACCT = "";
 
 var ST = {
   from:null, to:null, bfrom:null, bto:null,
+  /* ONE campaign filter. It used to be two (`camp` from the dropdown, `campPick` from a table
+     row) which fought each other: with the dropdown set, clicking a row showed a chip and
+     changed nothing, because metaIn() read `camp || campPick`. The dropdown and the table row
+     are two ways to set the SAME thing, so they share one variable and the <select> is kept in
+     step with it. */
   camp:"", adq:"",
-  quizExp:"", quizTime:"",
-  campPick:""
+  quizExp:"", quizTime:""
 };
 
 /* Per-chart time grain. "auto" picks what the span can carry; an explicit Day/Week/Month is
@@ -1346,13 +1352,30 @@ function doSync(){
    so a number can never disagree with the chart next to it. */
 function metaIn(from, to){
   var rows = ((DATA.meta || {}).rows) || [];
-  var camp = ST.camp || ST.campPick, q = (ST.adq || "").toLowerCase();
+  var camp = ST.camp, q = (ST.adq || "").toLowerCase();
   var out = [];
   for(var i = 0; i < rows.length; i++){
     var r = rows[i];
     if(r.d < from || r.d > to){ continue; }
     if(ACCT && r.acct !== ACCT){ continue; }
     if(camp && r.camp !== camp){ continue; }
+    if(q && r.ad.toLowerCase().indexOf(q) < 0){ continue; }
+    out.push(r);
+  }
+  return out;
+}
+/* Everything EXCEPT the campaign filter — the campaign table is built from this so the source
+   stays browsable while one campaign is selected. Filtering a list by the thing you picked out
+   of it leaves a single row and no way to switch (playbook 7: dim rather than hide, and keep the
+   source unfiltered). */
+function metaInAllCampaigns(from, to){
+  var rows = ((DATA.meta || {}).rows) || [];
+  var q = (ST.adq || "").toLowerCase();
+  var out = [];
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    if(r.d < from || r.d > to){ continue; }
+    if(ACCT && r.acct !== ACCT){ continue; }
     if(q && r.ad.toLowerCase().indexOf(q) < 0){ continue; }
     out.push(r);
   }
@@ -1648,7 +1671,6 @@ function wireControls(){
   });
   byId("campsel").addEventListener("change", function(){
     ST.camp = byId("campsel").value;
-    ST.campPick = "";
     renderAll();
   });
   var deb = null;
@@ -1998,7 +2020,7 @@ function funnelKpiRail(cur, bch){
 }
 
 function campRows(){
-  var rows = metaIn(ST.from, ST.to);
+  var rows = metaInAllCampaigns(ST.from, ST.to);
   var by = {};
   for(var i = 0; i < rows.length; i++){
     var r = rows[i], k = r.camp || "(unnamed)";
@@ -2029,6 +2051,16 @@ function renderCampTable(){
   markSort("campTbl", st);
   var rows = sortRows(all, st);
   var shown = rows.slice(0, 10);
+  /* If the selected campaign sorts outside the top 10 it would vanish while its chip is still
+     showing — pin it so the selection is always visible and clickable-to-clear. */
+  if(ST.camp){
+    var inView = false, si = -1;
+    for(var q = 0; q < shown.length; q++){ if(shown[q].name === ST.camp){ inView = true; } }
+    if(!inView){
+      for(var z = 0; z < rows.length; z++){ if(rows[z].name === ST.camp){ si = z; } }
+      if(si >= 0){ shown = [rows[si]].concat(shown.slice(0, 9)); }
+    }
+  }
   var maxCpl = 0, minCpl = 0;
   shown.forEach(function(r){
     if(r.cpl > maxCpl){ maxCpl = r.cpl; }
@@ -2041,7 +2073,7 @@ function renderCampTable(){
   }
   shown.forEach(function(r){
     var tr = document.createElement("tr");
-    if(ST.campPick === r.name){ tr.className = "hl"; }
+    if(ST.camp === r.name){ tr.className = "hl"; }
     tr.innerHTML =
       '<td class="nm" title="' + esc(r.name) + '">' + esc(r.name) + "</td>" +
       '<td style="color:var(--muted);font-size:11.5px">' + esc(r.acct || "—") + "</td>" +
@@ -2058,23 +2090,38 @@ function renderCampTable(){
     tr.style.cursor = "pointer";
     /* Cross-filter: clicking a row scopes the tab; clicking it again clears (playbook 7). */
     tr.addEventListener("click", function(){
-      ST.campPick = (ST.campPick === r.name) ? "" : r.name;
+      /* same filter the dropdown drives — set it, keep the <select> in step, and clicking the
+         selected row again clears it */
+      ST.camp = (ST.camp === r.name) ? "" : r.name;
+      var sel = byId("campsel");
+      if(sel){ sel.value = ST.camp; }
       renderAll();
     });
     tb.appendChild(tr);
   });
-  setText("campFoot", shown.length < rows.length
-    ? "Top " + shown.length + " of " + rows.length + " campaigns — click a row to filter the tab; the totals above cover all " + rows.length + "."
-    : rows.length + " campaign" + (rows.length === 1 ? "" : "s") + " — click a row to filter the tab.");
+  var foot = (shown.length < rows.length
+    ? "Top " + shown.length + " of " + rows.length + " campaigns"
+    : rows.length + " campaign" + (rows.length === 1 ? "" : "s"));
+  foot += ST.camp
+    ? " — showing data for the highlighted campaign; click it again (or the ×) to clear."
+    : " — click a row to filter the whole tab to that campaign.";
+  setText("campFoot", foot);
 
   var chips = "";
-  if(ST.campPick){
-    chips = '<span class="chip">' + esc(ST.campPick.slice(0, 46)) +
+  if(ST.camp){
+    chips = '<span class="chip">' + esc(ST.camp.slice(0, 46)) +
             '<button type="button" data-x="camp">×</button></span>';
   }
   setHTML("campChips", chips);
   var x = document.querySelector('#campChips button[data-x="camp"]');
-  if(x){ x.addEventListener("click", function(){ ST.campPick = ""; renderAll(); }); }
+  if(x){
+    x.addEventListener("click", function(){
+      ST.camp = "";
+      var sel = byId("campsel");
+      if(sel){ sel.value = ""; }
+      renderAll();
+    });
+  }
 }
 
 function renderAdTable(){
@@ -3005,6 +3052,7 @@ function renderDemo(){
       "The demographics tab needs the Meta breakdown pulls. " + esc(B.note || "")));
     return;
   }
+  renderDemoWindowNote();
   var segs = demoSegments();
   renderScatter(segs);
   renderRank(segs);
@@ -3013,6 +3061,48 @@ function renderDemo(){
   renderCross();
   renderGeo();
   renderDemoInsights();
+}
+
+/* The breakdown pulls cover a SHORTER window than the main Meta pull (Meta will not return
+   breakdowns as far back), so with a long period selected this tab legitimately shows fewer leads
+   and less spend than the funnel tab — 6,054 vs 7,030 leads on all-time when this was written.
+   That gap has to be stated: an unexplained 14% shortfall between two tabs is exactly the kind of
+   thing that destroys trust in a dashboard. */
+function bdCoverage(){
+  var best = "";
+  var B = DATA.breakdowns || {};
+  var slugs = ["age_gender", "platform", "position", "device"];
+  for(var i = 0; i < slugs.length; i++){
+    var rows = ((B[slugs[i]] || {}).rows) || [];
+    for(var j = 0; j < rows.length; j++){
+      if(!best || rows[j].d < best){ best = rows[j].d; }
+    }
+  }
+  return best;
+}
+function renderDemoWindowNote(){
+  var from = bdCoverage();
+  var box = byId("demoWindowNote");
+  if(!box){ return; }
+  if(!from || from <= ST.from){
+    box.innerHTML = "";
+    return;
+  }
+  /* how much of the selected period this tab cannot see */
+  var missing = 0, total = 0;
+  var rows = metaIn(ST.from, ST.to);
+  for(var i = 0; i < rows.length; i++){
+    total += rows[i].leads;
+    if(rows[i].d < from){ missing += rows[i].leads; }
+  }
+  box.innerHTML = '<div class="empty" style="margin-bottom:18px">' +
+    "<h4>These breakdowns start " + prettyDate(from) + ", later than the rest of the dashboard</h4>" +
+    "<p>Meta will not return age, placement, device or region as far back as the per-ad data, so " +
+    "this tab covers <b>" + prettyDate(from) + " onward</b> while the Meta funnel tab covers " +
+    "from " + prettyDate(ST.from) + ". For the period you have selected that leaves <b>" +
+    num(missing) + "</b> of " + num(total) + " leads (<b>" +
+    pct(safe(missing, total) * 100, 0) + "</b>) out of the figures below. " +
+    "Shorten the period to " + prettyDate(from) + " or later and the two tabs agree.</p></div>";
 }
 
 /* ONE segment builder feeds the scatter, the rank chart, the share bars and the table — so every
