@@ -343,8 +343,13 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   `main._progress_tasks(ws)` (client_facing + client-safe fields ONLY — owners/priority/charge/
   internal notes never reach the client HTML; the breakdown arrives as owner-less **phases**;
   the modal shows a Started → Going live timeline; cards say "Launching <date>" / "Live"; columns
-  sort by soonest launch; client stage labels In progress / In review / Live / Completed); the one
-  client write is `POST /w/<c>/task-comment` (comment / request-changes; resolve is team-only).
+  sort by soonest launch; client stage labels In progress / In review / Live / Completed); the
+  client-surface writes are `POST /w/<c>/task-comment` (comment / request-changes; resolve is
+  team-only) and `POST /w/<c>/task-add` (the Progress quick-add composer, client AND team — the
+  reporter is AUTO-TAGGED from the session as agora|client + a derived `reporter_name`, never a
+  form choice; always client_facing, starts in_process, no internal fields accepted; client adds
+  fire `notify.client_task_added`, and client-filed tasks carry a "Requested by" chip on Progress
+  + a "Client req" pill on the console board).
   Notifications: `notify.client_task_commented/client_task_changes/
   team_task_commented/team_task_resolved`. **Delivery Calendar** = a 2nd Delivery nav pane
   (`data-section/pane="calendar"`) in `admin_atrium.html`: a month grid built CLIENT-SIDE from a

@@ -1471,7 +1471,7 @@
                       line in display caps, pills on the right: no extra color, just hierarchy. -#}
                   <div class="tk-top">
                     <span class="tk-client" title="{{ t.client_name }}">{{ t.client_name }}</span>
-                    {% if t.labels or t.on_hold or t.priority == 'Urgent' %}<div class="tk-pills">{% if t.priority == 'Urgent' and not t.on_hold %}<span class="tk-urgent" title="Urgent priority">URGENT</span>{% endif %}{% for l in t.labels %}<span class="tk-pill {{ {'Paid Media': 'lb-paid', 'Organic': 'lb-organic', 'Website': 'lb-web'}.get(l, 'lb-other') }}">{{ l }}</span>{% endfor %}{% if t.on_hold %}<span class="tk-hold" title="On hold{{ ': ' ~ t.hold_reason if t.hold_reason else '' }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>On hold</span>{% endif %}</div>{% endif %}
+                    {% if t.labels or t.on_hold or t.priority == 'Urgent' or t.reporter == 'client' %}<div class="tk-pills">{% if t.priority == 'Urgent' and not t.on_hold %}<span class="tk-urgent" title="Urgent priority">URGENT</span>{% endif %}{% if t.reporter == 'client' %}<span class="tk-pill lb-other" title="Requested by the client{{ ' (' ~ t.reporter_name ~ ')' if t.reporter_name else '' }}">Client req</span>{% endif %}{% for l in t.labels %}<span class="tk-pill {{ {'Paid Media': 'lb-paid', 'Organic': 'lb-organic', 'Website': 'lb-web'}.get(l, 'lb-other') }}">{{ l }}</span>{% endfor %}{% if t.on_hold %}<span class="tk-hold" title="On hold{{ ': ' ~ t.hold_reason if t.hold_reason else '' }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>On hold</span>{% endif %}</div>{% endif %}
                   </div>
                   <div class="tk-title">{{ t.title }}</div>
                   <div class="tk-meta">
@@ -1538,6 +1538,7 @@
                   {% if t.open_changes %}<span class="tkd-stat due-over">⚑ {{ t.open_changes }} open change request{{ 's' if t.open_changes != 1 else '' }}</span>{% endif %}
                   {% if t.client_facing %}<span class="tkd-stat sync-on">Syncs to Atrium</span>
                   {% else %}<span class="tkd-stat"><span class="k">Internal only</span></span>{% endif %}
+                  {% if t.reporter == 'client' %}<span class="tkd-stat sync-on">Requested by client{{ ' · ' ~ t.reporter_name if t.reporter_name else '' }}</span>{% endif %}
                 </div>
                 {#- On-hold banner (orthogonal to stage, shows above it). -#}
                 {% if t.on_hold %}<div class="tkd-ctx hold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>On hold{% if t.hold_reason %} &middot; {{ t.hold_reason }}{% endif %}</div>{% endif %}

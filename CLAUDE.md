@@ -471,10 +471,17 @@ auto-refresh (see those bullets below). Product name is one constant:
   `internal_notes`, and the account manager NEVER reach the client's HTML); the two-level
   breakdown reaches the client as **phases** (name + steps, no owners), the detail modal shows a
   **Started → Going live timeline**, cards say **"Launching <date>"** ("Live" once launched), and
-  columns sort by soonest launch. The ONE client write is
-  `POST /w/<c>/task-comment` (comment / request-changes — a `kind:"changes"` comment flags the
-  task on BOTH surfaces; resolving is team-only, `op=resolve`, which also notifies via the
-  `notify.py` task functions).
+  columns sort by soonest launch. TWO client-surface writes: `POST /w/<c>/task-comment`
+  (comment / request-changes — a `kind:"changes"` comment flags the task on BOTH surfaces;
+  resolving is team-only, `op=resolve`, which also notifies via the `notify.py` task functions)
+  and `POST /w/<c>/task-add` (the Progress tab's **quick-add composer**, rendered for client AND
+  team — built for live-call capture: share the workspace on screen and type requests as the
+  client says them. The **reporter is auto-tagged from the session** (`reporter` agora|client +
+  `reporter_name`, stored by `workspace.add_task`, never a form choice); quick-added tasks are
+  always client_facing, start in_process with no breakdown, and accept NO internal fields —
+  priority/charge/owners stay console-only. Client-filed requests show a "Requested by <name>"
+  chip on Progress and a "Client req" pill + overlay chip on the console board; a client add
+  fires `notify.client_task_added`).
 - **Nav labels vs tab keys:** the sidebar was regrouped 2026-07-13 — the `leadgen` tab is LABELED
   **"Paid Media"** (the key `leadgen` stays in every route/data shape, never rename it), Paid Media +
   Organic Content sit under an expandable **Campaigns** parent (head badge = combined awaiting

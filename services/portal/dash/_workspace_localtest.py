@@ -187,6 +187,13 @@ def run():
     }, actor="info@agoradatadriven.com")
     _check("task created with id + default stage",
            task["id"].startswith("tk_") and task["stage"] == "in_process")
+    _check("reporter defaults to agora (console adds carry no reporter)",
+           task["reporter"] == "agora" and task["reporter_name"] == "")
+    _rep = workspace.add_task(CLIENT, {"title": "Client ask", "reporter": "client",
+                                       "reporter_name": "Owner"})
+    _check("reporter + name stored when supplied; junk reporter falls back to agora",
+           _rep["reporter"] == "client" and _rep["reporter_name"] == "Owner"
+           and workspace.add_task(CLIENT, {"title": "x", "reporter": "evil"})["reporter"] == "agora")
     _check("task lead never duplicated into support", task["support_ids"] == ["ehjay@agoradatadriven.com"])
     _check("task history stamped created", task["history"][0]["field"] == "created")
     try:

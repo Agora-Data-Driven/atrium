@@ -874,10 +874,32 @@ def run():
     _check("client cannot comment on an internal-only task (404)",
            c.post("/w/%s/task-comment" % CLIENT,
                   data={"task_id": hidden_id, "body": "hi"}).status_code == 404)
+    # The client's OTHER write: quick-add a request from the Progress tab. The reporter is
+    # auto-tagged from the session (never a form choice) and the task is always client-facing.
+    radd = c.post("/w/%s/task-add" % CLIENT, data={"title": "CLIENT-ASKED-FOR-THIS"})
+    _check("client quick-adds a request",
+           radd.get_json().get("ok") is True and radd.get_json().get("reporter") == "client")
+    added = workspace._find_task(workspace.load_workspace(CLIENT), radd.get_json()["task_id"])
+    _check("client request is client-facing + In Process + reporter-tagged",
+           added["client_facing"] is True and added["stage"] == "in_process"
+           and added["reporter"] == "client" and added["reporter_name"] == "Owner")
+    _check("empty quick-add rejected",
+           c.post("/w/%s/task-add" % CLIENT, data={"title": "  "}).status_code == 400)
+    pg2 = c.get("/w/%s/progress" % CLIENT).get_data(as_text=True)
+    _check("progress renders the quick-add composer + the request's reporter chip",
+           "data-pgadd-input" in pg2 and "Requested by" in pg2)
 
     # Back to the team: the open change request blocks closing, resolving unblocks it.
     with c.session_transaction() as s:
         s.update(SUPER)
+    # Team quick-add from the same composer (live-call capture) files as agora.
+    radd2 = c.post("/w/%s/task-add" % CLIENT, data={"title": "TYPED-LIVE-ON-CALL"})
+    _check("team quick-add auto-tags reporter agora",
+           radd2.get_json().get("reporter") == "agora"
+           and workspace._find_task(workspace.load_workspace(CLIENT),
+                                    radd2.get_json()["task_id"])["client_facing"] is True)
+    _check("console board flags the client-filed request",
+           "Client req" in c.get("/admin/atrium").get_data(as_text=True))
     blocked = c.post("/w/%s/admin/task/move" % CLIENT, data={"task_id": task_id, "stage": "closed"})
     _check("close is blocked while a change request is open",
            blocked.get_json().get("ok") is False and "change request" in blocked.get_json()["error"])
