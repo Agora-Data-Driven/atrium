@@ -1270,7 +1270,16 @@ function doSync(){
       var triggered = res && res.ok;
       setSync("busy", triggered ? "Rebuilding…" : "Reloading…");
       return fetchData().then(function(j){
-        DATA = j; hydrate(); stampMeta(); renderAll();
+        /* Keep "through latest" views tracking the NEW data end: if a range ended at the old
+           max it was following the feed, so advance it — otherwise fresh rows past the old end
+           date stay invisible until a preset is re-clicked. */
+        var oldSalesMax = SALES_MAX, oldCrmMax = CRM_MAX;
+        DATA = j; hydrate();
+        if(S1.to === oldSalesMax){ S1.to = SALES_MAX; }
+        if(S2.to === oldCrmMax){ S2.to = CRM_MAX; }
+        buildSelects();          /* new agents/types/sources appear without a reload */
+        syncDates();
+        stampMeta(); renderAll();
         var secs = Math.max(1, Math.round((Date.now() - t0)/1000));
         setSync("ok", (triggered ? "Rebuilt" : "Up to date") + " · " + secs + "s");
         setTimeout(function(){ setSync("", "Sync"); }, 4000);
@@ -2712,6 +2721,12 @@ function hydrate(){
   CRM_MAX = DATA.crm.range[1];
 }
 function buildSelects(){
+  /* Idempotent: keep each select's "All …" option, rebuild the rest (doSync re-runs this
+     so a fresh pull's new agents/types/sources appear without a reload). */
+  ["s1agent","s1ast","s1ct","s2agent","s2src"].forEach(function(id){
+    var sel = byId(id);
+    while(sel.options.length > 1){ sel.remove(1); }
+  });
   /* tab 1 */
   var agents = {}, statuses = {}, cts = {};
   SL.forEach(function(l){
