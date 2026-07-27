@@ -280,6 +280,32 @@
   .insight .it{font-family:var(--display);font-weight:900;font-size:12.5px;margin-bottom:2px}
   .insight .ib{font-size:12px;color:var(--ink2)}
 
+  /* ---------- Colour shading pass (2026-07-28): blooms, washes, gradients ---------- */
+  svg.ch{background:radial-gradient(58% 68% at 50% 42%, rgba(255,210,0,.05), transparent 72%);border-radius:12px}
+  .kpi{background:linear-gradient(135deg, color-mix(in srgb, var(--accent, #FFD200) 10%, transparent), transparent 55%),
+                 linear-gradient(180deg,var(--card-1),var(--card-2))}
+  .hero{background:linear-gradient(135deg, rgba(255,210,0,.09), transparent 48%),
+                  linear-gradient(180deg,var(--card-1),var(--card-2))}
+  .cmp-head{background:linear-gradient(90deg,rgba(255,210,0,.16),rgba(255,210,0,.02) 70%,transparent)}
+  .insight{background:linear-gradient(135deg, rgba(255,210,0,.07), transparent 45%),
+                     linear-gradient(180deg,var(--card-1),var(--card-2))}
+  thead th{background:linear-gradient(180deg,#26251B,#171710);border-bottom:1px solid rgba(255,210,0,.35)}
+  .bar-cell .bg{background:linear-gradient(90deg, rgba(255,210,0,.10), rgba(255,210,0,.30))}
+  td.rank.top1{color:#FFD200;font-weight:700;text-shadow:0 0 10px rgba(255,210,0,.5)}
+  td.rank.top2{color:#E3C765;font-weight:700}
+  td.rank.top3{color:#BCA95E;font-weight:700}
+  .frow .fbar i{background-image:linear-gradient(180deg,rgba(255,255,255,.20),rgba(255,255,255,0) 60%)}
+  .frow .fbar{background:linear-gradient(90deg,rgba(255,255,255,.05),rgba(255,255,255,.02))}
+  #ctDonut path,#srcDonut path{filter:drop-shadow(0 3px 7px rgba(0,0,0,.5))}
+  .donut-legend .dl .sw,.lg .sw{box-shadow:0 0 7px -1px rgba(0,0,0,.6),0 1px 0 rgba(255,255,255,.08) inset}
+  .meter{background:linear-gradient(90deg,rgba(255,210,0,.14),rgba(255,210,0,.07))}
+  .st.good{background:linear-gradient(135deg,rgba(12,163,12,.28),rgba(12,163,12,.10))}
+  .st.warn{background:linear-gradient(135deg,rgba(250,178,25,.26),rgba(250,178,25,.10))}
+  .st.serious{background:linear-gradient(135deg,rgba(236,131,90,.28),rgba(236,131,90,.10))}
+  .st.bad{background:linear-gradient(135deg,rgba(230,103,103,.28),rgba(230,103,103,.10))}
+  .empty{background:linear-gradient(135deg, rgba(255,210,0,.05), transparent 55%),
+         repeating-linear-gradient(45deg,rgba(255,255,255,.02),rgba(255,255,255,.02) 9px,rgba(255,255,255,.045) 9px,rgba(255,255,255,.045) 18px)}
+
   @media (max-width:820px){
     .controls{position:static} .tabbar{position:static} header.top{position:static}
     .top-meta{display:none} .cmp-row{grid-template-columns:1fr}
@@ -970,6 +996,22 @@ function bindTip(node, html){
 var PALETTE = ["#c98500","#d55181","#008300","#9085e9","#e66767","#3987e5","#d95926","#199e70"];
 var SURFACE = "#14140E";   /* effective card colour: surface gaps + rings are cut in this */
 var INK = "#F4F3E6";
+/* Per-render gradient factory: every bar/area gets a soft shade cut from its own series
+   colour (opacity ramps read as light on the dark surface). frame() clears old defs. */
+var GRAD_SEQ = 0;
+function grad(f, color, dir, a0, a1){
+  var defs = f.svg.querySelector("defs");
+  if(!defs){ defs = el("defs"); f.svg.insertBefore(defs, f.svg.firstChild); }
+  var id = "gr" + (++GRAD_SEQ);
+  var g = el("linearGradient", dir === "h"
+    ? { id:id, x1:"0", y1:"0", x2:"1", y2:"0" }
+    : { id:id, x1:"0", y1:"0", x2:"0", y2:"1" });
+  var s0 = el("stop", { offset:"0", "stop-color":color, "stop-opacity":String(a0) });
+  var s1 = el("stop", { offset:"1", "stop-color":color, "stop-opacity":String(a1) });
+  g.appendChild(s0); g.appendChild(s1);
+  defs.appendChild(g);
+  return "url(#" + id + ")";
+}
 var STATUS = { good:"#0ca30c", warn:"#fab219", serious:"#ec835a", bad:"#d03b3b" };
 function niceMax(v){
   if(v <= 0){ return 1; }
@@ -1067,7 +1109,7 @@ function hbars(svgId, rows, opts){
     t.textContent = r.label.length > (opts.maxLab || 17) ? r.label.slice(0, (opts.maxLab || 17) - 1) + "…" : r.label;
     f.svg.appendChild(t);
     var rect = el("rect", { x:f.L, y:y + (rowH-bh)/2, width:w, height:bh, rx:4,
-                            fill:r.color || PALETTE[0] });
+                            fill:grad(f, r.color || PALETTE[0], "h", .55, 1) });
     if(r.tip){ bindTip(rect, r.tip); }
     if(r.onclick){ rect.style.cursor = "pointer"; rect.addEventListener("click", r.onclick); }
     f.svg.appendChild(rect);
@@ -1154,7 +1196,7 @@ function stackedColumns(svgId, buckets, series, grain, opts){
       var h = (f.B - f.T) * v / max;
       var gap = yCur === f.B ? 0 : 2;
       var rect = el("rect", { x:x, y:yCur - h, width:barW, height:Math.max(0, h - gap),
-                              rx:2, fill:series[si].color });
+                              rx:2, fill:grad(f, series[si].color, "v", 1, .62) });
       f.svg.appendChild(rect);
       yCur -= h;
     }
@@ -1586,6 +1628,11 @@ function renderKpiChart(){
       var frac = KPI_SCALE === "rel" ? v / maxOwn : v / famMax2;
       pts.push([f.L + bw*(i+.5), f.B - (f.B - f.T) * Math.min(1, frac)]);
     });
+    if(pts.length > 1){
+      var area = linePath(pts) + " L" + pts[pts.length-1][0].toFixed(1) + " " + f.B +
+                 " L" + pts[0][0].toFixed(1) + " " + f.B + "Z";
+      f.svg.appendChild(el("path", { d:area, fill:grad(f, s.def.color, "v", .20, 0) }));
+    }
     var dash = KPI_SCALE === "abs" && s.def.fam === "rate" ? "3 4" :
                KPI_SCALE === "abs" && s.def.fam === "money" ? "8 4" : "";
     var path = el("path", { d:linePath(pts), fill:"none", stroke:s.def.color, "stroke-width":2,
@@ -1764,7 +1811,7 @@ function renderModelTable(){
   tb.innerHTML = rows.map(function(r, i){
     var on = S1.model === r.m;
     return '<tr class="click' + (on ? " onrow" : "") + '" data-m="' + esc(r.m) + '">' +
-      '<td class="rank">' + (i+1) + "</td>" +
+      '<td class="rank' + (i < 3 ? " top" + (i+1) : "") + '">' + (i+1) + "</td>" +
       '<td class="bar-cell"><div class="bg" style="width:' + (100*r.u/maxU).toFixed(1) + '%"></div><span>' + esc(r.m) + "</span></td>" +
       '<td class="r">' + thousands(Math.round(r.u)) + "</td>" +
       '<td class="r">' + compact(r.r) + "</td>" +
@@ -1812,7 +1859,7 @@ function renderAgentTable(){
   tb.innerHTML = rows.map(function(r, i){
     var on = S1.agent === r.ag;
     return '<tr class="click' + (on ? " onrow" : "") + '" data-ag="' + esc(r.ag) + '">' +
-      '<td class="rank">' + (i+1) + "</td>" +
+      '<td class="rank' + (i < 3 ? " top" + (i+1) : "") + '">' + (i+1) + "</td>" +
       '<td class="bar-cell"><div class="bg" style="width:' + (100*Math.max(0,r.u)/maxU).toFixed(1) + '%"></div><span>' + esc(r.ag) + "</span></td>" +
       "<td>" + chip(r.as) + "</td>" +
       '<td class="r">' + thousands(Math.round(r.u)) + "</td>" +
@@ -1993,7 +2040,8 @@ function renderRiderChart(){
       var h = (f.B - f.T) * v / max;
       var barW = Math.min(24, Math.max(3, bw * .6));
       f.svg.appendChild(el("rect", { x:f.L + bw*(i+.5) - barW/2, y:f.B - h,
-                                     width:barW, height:h, rx:4, fill:PALETTE[0] }));
+                                     width:barW, height:h, rx:4,
+                                     fill:grad(f, PALETTE[0], "v", 1, .58) }));
     });
     hoverBands(f, buckets, function(i2, e){
       showTip('<div class="td">' + esc(bucketTip(buckets[i2], "month")) + "</div>" +
@@ -2010,7 +2058,7 @@ function renderRiderChart(){
     });
     var area = "M" + pts[0][0].toFixed(1) + " " + f.B + " L" + linePath(pts).slice(1) +
                " L" + pts[pts.length-1][0].toFixed(1) + " " + f.B + "Z";
-    f.svg.appendChild(el("path", { d:area, fill:PALETTE[0], opacity:.10 }));
+    f.svg.appendChild(el("path", { d:area, fill:grad(f, PALETTE[0], "v", .32, 0) }));
     f.svg.appendChild(el("path", { d:linePath(pts), fill:"none", stroke:PALETTE[0],
                                    "stroke-width":2, "stroke-linejoin":"round", "stroke-linecap":"round" }));
     var last = pts[pts.length-1];
@@ -2130,7 +2178,7 @@ function renderFunnel(){
     var conv = prev ? (prev > 0 ? v/prev : 0) : null;
     var w = Math.max(1.2, 100 * v / max);
     html += '<div class="frow"><div class="fl">' + esc(st) + "</div>" +
-      '<div class="fbar"><i style="width:' + w.toFixed(1) + "%;background:" + FUNNEL_RAMP[i2] + '"></i></div>' +
+      '<div class="fbar"><i style="width:' + w.toFixed(1) + "%;background-color:" + FUNNEL_RAMP[i2] + '"></i></div>' +
       '<div class="fv"><b>' + thousands(v) + "</b>" +
       (conv != null ? ' <span class="cv">' + pct(conv, 0) + " of prev</span>" : "") + "</div></div>";
   });
@@ -2249,7 +2297,7 @@ function renderStageNow(){
   keys.forEach(function(k){
     var w = W * acc[k] / total;
     var rect = el("rect", { x:x, y:f.T, width:Math.max(0, w-2), height:46, rx:4,
-                            fill:STAGE_COLORS[k] || "#6E6D60" });
+                            fill:grad(f, STAGE_COLORS[k] || "#6E6D60", "v", 1, .68) });
     bindTip(rect, '<div class="td">' + esc(k) + "</div>" +
       tipRow("People", thousands(acc[k])) + tipRow("Share", pct(acc[k]/total)));
     f.svg.appendChild(rect);
