@@ -1,0 +1,8 @@
+# The context drop contains LIVE credentials and possibly customer PII — never commit it.
+#   - Rooming_House_Expert.ipynb  -> API keys/tokens pasted into the Colab cells
+#   - RHE Context.docx            -> account identifiers / credentials
+#   - Rooming House Experts.xlsx  -> client report export, may carry contact data
+context/
+
+# Locally built data JSON (rebuilt from context/ by job/build_local.py)
+data/
