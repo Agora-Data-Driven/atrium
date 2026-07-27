@@ -239,6 +239,22 @@ not per-chart logic, so every chart behaves identically and a new chart is one l
   slivers.
 - **Do not offer a grain the data cannot support.** Shopify sessions are month-granular, so that
   chart stays monthly — offering Day there would fabricate precision.
+- **Grain is sticky, so guard it.** If an explicitly chosen grain would draw too many buckets for
+  the new span (Day + All time = ~2,100 points), step to the next coarser one and let the subtitle
+  report what was actually used. Don't silently reset the user's choice either.
+- **Zero-fill the buckets.** A day with no orders must plot as a zero, not vanish — otherwise a
+  7-day week renders 6 points and the quiet day silently disappears, which on a weekly review is
+  the opposite of useful. Cap the fill (~400 buckets) so forcing Day over years can't explode.
+- **Label day buckets with the weekday** ("Mon 20 Jul"), and the full name in tooltips. "Was that
+  spike a Monday or a Saturday" is usually the actual question.
+
+**Match the client's reporting ritual with one button.** Ask how they present. Honey Tribe presents
+every Monday: last week against the week before. So `Weekly review` sets *both* ranges at once —
+period = the last complete Mon–Sun the data covers, benchmark = the Mon–Sun before it — plus day
+grain. Note the two subtleties: snap to **complete ISO weeks** (walk back to the most recent Sunday
+the data actually covers, so a partial current week never sneaks in), and make the "previous week"
+relative to the **selected period start**, not to today, so the pairing survives moving the period.
+A rolling "7d" button is the wrong tool for this and should be relabelled to what it really does.
 
 **Scorecards as series toggles** — the strongest pattern we built. Click a KPI tile to add/remove
 its line from the chart beneath it. Rules that make it work:

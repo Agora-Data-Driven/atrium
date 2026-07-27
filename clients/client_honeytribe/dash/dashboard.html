@@ -97,6 +97,10 @@
   .preset:hover{border-color:var(--honey);color:var(--cocoa)}
   .preset.active{background:var(--cocoa);color:var(--cream);border-color:var(--cocoa)}
   .preset.bench.active{background:var(--clay);border-color:var(--clay);color:#fff}
+  /* the Monday-morning shortcut: sets period AND benchmark in one click */
+  .preset.wk{background:linear-gradient(135deg,var(--flame),var(--honey));border-color:var(--flame);
+             color:#fff;font-weight:900;letter-spacing:.2px}
+  .preset.wk:hover{filter:brightness(1.06);color:#fff}
   input[type=date],select,input[type=search]{font-family:var(--sans);font-size:12px;color:var(--ink);border:1px solid var(--line2);
           background:var(--white);border-radius:7px;padding:5px 9px;cursor:pointer;font-weight:600}
   input[type=search]{cursor:text;min-width:150px}
@@ -342,8 +346,12 @@
     <div class="controls-inner">
       <button type="button" class="ctuck" data-tuck="1" aria-label="Collapse or expand the filters"><span class="cv">&#9650;</span><span class="cl">Filters</span></button>
       <div class="cgroup">
+        <button type="button" class="preset wk" data-weekly="1"
+                title="Last complete week vs the week before it">&#9654; Weekly review</button>
+      </div>
+      <div class="cgroup">
         <span class="clabel">Period</span>
-        <button type="button" class="preset" data-p1="7">7d</button>
+        <button type="button" class="preset" data-p1="lastweek">Last week</button>
         <button type="button" class="preset" data-p1="30">30d</button>
         <button type="button" class="preset" data-p1="90">90d</button>
         <button type="button" class="preset" data-p1="365">12m</button>
@@ -354,6 +362,7 @@
       <div class="sep"></div>
       <div class="cgroup bench-group">
         <span class="clabel">KPI benchmark</span>
+        <button type="button" class="preset bench" data-b1="prevweek">Prev week</button>
         <button type="button" class="preset bench" data-b1="90">90d</button>
         <button type="button" class="preset bench" data-b1="365">Rolling 12m</button>
         <button type="button" class="preset bench active" data-b1="lastyear">Last year</button>
@@ -470,8 +479,12 @@
     <div class="controls-inner">
       <button type="button" class="ctuck" data-tuck="1" aria-label="Collapse or expand the filters"><span class="cv">&#9650;</span><span class="cl">Filters</span></button>
       <div class="cgroup">
+        <button type="button" class="preset wk" data-weekly="2"
+                title="Last complete week vs the week before it">&#9654; Weekly review</button>
+      </div>
+      <div class="cgroup">
         <span class="clabel">Current</span>
-        <button type="button" class="preset" data-p2="7">7d</button>
+        <button type="button" class="preset" data-p2="lastweek">Last week</button>
         <button type="button" class="preset active" data-p2="30">30d</button>
         <button type="button" class="preset" data-p2="90">90d</button>
         <button type="button" class="preset" data-p2="365">12m</button>
@@ -481,6 +494,7 @@
       <div class="sep"></div>
       <div class="cgroup bench-group">
         <span class="clabel">KPI benchmark</span>
+        <button type="button" class="preset bench" data-b2="prevweek">Prev week</button>
         <button type="button" class="preset bench" data-b2="90">90d</button>
         <button type="button" class="preset bench" data-b2="365">Rolling 12m</button>
         <button type="button" class="preset bench active" data-b2="lastyear">Last year</button>
@@ -847,12 +861,71 @@ function autoGrain(from, to){
 }
 function grainOf(key, from, to){
   var g = GRAIN[key];
-  return (!g || g === "auto") ? autoGrain(from, to) : g;
+  if(!g || g === "auto"){ return autoGrain(from, to); }
+  /* Guard an explicit choice that the span cannot carry: the grain is sticky, so picking Day for
+     a weekly review and then switching to All time would otherwise draw ~2,100 points. Step to
+     the next coarser grain instead — the subtitle then reports what was actually used. */
+  var days = daysBetween(from, to);
+  if(g === "day" && days > 400){ g = "week"; }
+  if(g === "week" && days > 2800){ g = "month"; }
+  return g;
 }
 function bucketOf(iso, g){
   return g === "day" ? iso : (g === "month" ? monthKey(iso) : weekStart(iso));
 }
-function bucketLabel(k, g){ return g === "month" ? monthLabel(k) : mday(k); }
+/* Day buckets carry the WEEKDAY: for a weekly review, "was that spike a Monday or a Saturday"
+   is the whole question, and a bare date makes you count on your fingers. */
+function dayLabel(iso){
+  var p = iso.split("-");
+  return DOW[dObj(iso).getUTCDay()].slice(0, 3) + " " + parseInt(p[2], 10) + " " + MON[parseInt(p[1], 10) - 1];
+}
+function dayFull(iso){
+  var p = iso.split("-");
+  return DOW[dObj(iso).getUTCDay()] + ", " + MON[parseInt(p[1], 10) - 1] + " " +
+         parseInt(p[2], 10) + " " + p[0];
+}
+function bucketLabel(k, g){
+  return g === "month" ? monthLabel(k) : (g === "day" ? dayLabel(k) : mday(k));
+}
+/* the longer form used in tooltips, where there is room */
+function bucketTip(k, g){
+  return g === "month" ? monthLabel(k)
+       : (g === "day" ? dayFull(k) : "Week of " + prettyDate(k));
+}
+
+/* ---------- Weekly-review windows ----------
+   The Monday routine is "last week vs the week before", so both need to be exact ISO
+   Mon-Sun blocks, not rolling 7-day windows. `lastCompleteWeek` walks back to the most recent
+   SUNDAY that the data actually covers, so a partial current week never sneaks in. */
+function lastCompleteWeek(maxIso, minIso){
+  var d = dObj(maxIso);
+  while(d.getUTCDay() !== 0){ d.setUTCDate(d.getUTCDate() - 1); }
+  var sun = isoOf(d), mon = shiftDays(sun, -6);
+  if(mon < minIso){ mon = minIso; }
+  return [mon, sun];
+}
+/* the Mon-Sun block immediately before whatever period is selected */
+function weekBefore(fromIso, minIso){
+  var mon = weekStart(fromIso);
+  var start = shiftDays(mon, -7);
+  if(start < minIso){ start = minIso; }
+  return [start, shiftDays(mon, -1)];
+}
+/* Every bucket in the range, including ones with no data. A day with no orders must plot as a
+   ZERO, not vanish -- otherwise a 7-day week renders 6 points and the quiet day silently
+   disappears, which on a weekly review is the opposite of useful. Capped so that forcing day
+   grain over years cannot generate thousands of points. */
+function denseBuckets(from, to, g, cap){
+  var out = [], seen = {}, guard = 0;
+  var lim = cap || 400;
+  var d = from;
+  while(d <= to && guard++ < 4000){
+    var k = bucketOf(d, g);
+    if(!seen[k]){ seen[k] = 1; out.push(k); }
+    d = shiftDays(d, 1);
+  }
+  return out.length > lim ? null : out;   /* null => caller keeps its sparse keys */
+}
 function grainNote(g, n){
   var word = g === "day" ? "day" : g === "month" ? "month" : "week";
   return n + " " + word + (n === 1 ? "" : "s");
@@ -878,6 +951,7 @@ function monthsBetween(a, b){ return Math.max(1, daysBetween(a, b) / 30.44); }
 function presetRange(days, maxIso, minIso){
   if(days === "all"){ return [minIso, maxIso]; }
   if(days === "ytd"){ return [maxIso.slice(0,4) + "-01-01", maxIso]; }
+  if(days === "lastweek"){ return lastCompleteWeek(maxIso, minIso); }
   if(days === "lastyear"){
     /* the whole of the PREVIOUS CALENDAR YEAR — a complete, seasonally balanced benchmark */
     var y = parseInt(maxIso.slice(0, 4), 10) - 1;
@@ -1221,6 +1295,15 @@ function setTuck(on){
   try { window.localStorage.setItem("ht_tuck", on ? "1" : "0"); } catch(e){ /* private mode */ }
 }
 
+/* highlight the matching button inside one segmented control */
+function markSeg(segId, attr, val){
+  var box = byId(segId);
+  if(!box){ return; }
+  box.querySelectorAll("button").forEach(function(b){
+    b.classList.toggle("on", b.getAttribute(attr) === val);
+  });
+}
+
 function setActive(sel, node){
   var g = document.querySelectorAll(sel);
   for(var i = 0; i < g.length; i++){ g[i].classList.remove("active"); }
@@ -1237,7 +1320,11 @@ function wireControls(){
   });
   document.querySelectorAll("[data-b1]").forEach(function(b){
     b.addEventListener("click", function(){
-      var r = presetRange(b.getAttribute("data-b1"), SHOP_MAX, DATA.shopify.range[0]);
+      var v = b.getAttribute("data-b1");
+      /* "Prev week" is relative to the SELECTED period, so the pairing stays correct
+         wherever the period is moved. */
+      var r = (v === "prevweek") ? weekBefore(S1.from, DATA.shopify.range[0])
+                                 : presetRange(v, SHOP_MAX, DATA.shopify.range[0]);
       S1.bfrom = r[0]; S1.bto = r[1];
       setActive("[data-b1]", b); syncDates(); renderS1();
     });
@@ -1277,7 +1364,9 @@ function wireControls(){
   });
   document.querySelectorAll("[data-b2]").forEach(function(b){
     b.addEventListener("click", function(){
-      var r = presetRange(b.getAttribute("data-b2"), META_MAX, DATA.meta.range[0]);
+      var v = b.getAttribute("data-b2");
+      var r = (v === "prevweek") ? weekBefore(S2.from, DATA.meta.range[0])
+                                 : presetRange(v, META_MAX, DATA.meta.range[0]);
       S2.bfrom = r[0]; S2.bto = r[1];
       setActive("[data-b2]", b); syncDates(); renderS2();
     });
@@ -1333,6 +1422,36 @@ function wireControls(){
       });
     });
   }
+  /* Weekly review: last complete Mon-Sun as the period, the Mon-Sun before it as the
+     benchmark, and day grain so each weekday is visible. One click, both ranges. */
+  document.querySelectorAll("[data-weekly]").forEach(function(b){
+    b.addEventListener("click", function(){
+      if(b.getAttribute("data-weekly") === "1"){
+        var r = lastCompleteWeek(SHOP_MAX, DATA.shopify.range[0]);
+        S1.from = r[0]; S1.to = r[1];
+        var p = weekBefore(S1.from, DATA.shopify.range[0]);
+        S1.bfrom = p[0]; S1.bto = p[1];
+        GRAIN.kpi = "day"; GRAIN.trend = "day"; GRAIN.nr = "day";
+        markSeg("kpiGrainSeg", "data-kgrain", "day");
+        markSeg("trendGrainSeg", "data-gv", "day");
+        markSeg("nrGrainSeg", "data-gv", "day");
+        setActive("[data-p1]", document.querySelector('[data-p1="lastweek"]'));
+        setActive("[data-b1]", document.querySelector('[data-b1="prevweek"]'));
+        syncDates(); renderS1();
+      } else {
+        var r2 = lastCompleteWeek(META_MAX, DATA.meta.range[0]);
+        S2.from = r2[0]; S2.to = r2[1];
+        var p2 = weekBefore(S2.from, DATA.meta.range[0]);
+        S2.bfrom = p2[0]; S2.bto = p2[1];
+        GRAIN.rev = "day"; GRAIN.eff = "day"; GRAIN.freq = "day";
+        ["rev", "eff", "freq"].forEach(function(k){ markSeg(k + "GrainSeg", "data-gv", "day"); });
+        setActive("[data-p2]", document.querySelector('[data-p2="lastweek"]'));
+        setActive("[data-b2]", document.querySelector('[data-b2="prevweek"]'));
+        syncDates(); renderS2();
+      }
+    });
+  });
+
   /* One tuck state for all three tabs' filter bars, remembered per browser. */
   document.querySelectorAll("[data-tuck]").forEach(function(b){
     b.addEventListener("click", function(){ setTuck(!isTucked()); });
@@ -1561,6 +1680,11 @@ function kpiSeries(){
     m[key].push(o);
   }
   ord.sort();
+  var dense = denseBuckets(S1.from, S1.to, g);
+  if(dense){
+    dense.forEach(function(k){ if(!m[k]){ m[k] = []; } });
+    ord = dense;
+  }
   /* merchandise units come from the LINE rows (order `q` also counts shipping protection and
      gift cards), so the series matches the Units tile and tab 3 exactly */
   var mu = {};
@@ -1723,7 +1847,7 @@ function renderKpiChart(){
     var bw = iw / N;
     var r = el("rect", { x:mL + bw * i3, y:mT, width:bw, height:ih, fill:"transparent" });
     (function(idx, rect){
-      var html = '<div class="td">' + esc(S.labels[idx]) + "</div>";
+      var html = '<div class="td">' + esc(bucketTip(S.keys[idx], S.grain)) + "</div>";
       series.forEach(function(s){
         var v = s.raw[idx];
         var shown = (s.m.unit === "money") ? money(v, v >= 1000 ? 0 : 2) : num(v);
@@ -1903,6 +2027,11 @@ function renderTrend(){
     if(o.cid){ m[k].cust[o.cid] = 1; }
   });
   ord.sort();
+  var dense = denseBuckets(S1.from, S1.to, g);
+  if(dense){
+    dense.forEach(function(k){ if(!m[k]){ m[k] = { w:k, sales:0, orders:0, cust:{} }; } });
+    ord = dense;
+  }
   var pts = ord.map(function(k){
     var r = m[k];
     r.customers = Object.keys(r.cust).length;
@@ -1945,7 +2074,7 @@ function renderTrend(){
   xLabels(svg, gg, labels);
   hoverBands(svg, gg, N, function(i){
     var r = pts[i];
-    return '<div class="td">' + esc(bucketLabel(r.w, g)) + "</div>" +
+    return '<div class="td">' + esc(bucketTip(r.w, g)) + "</div>" +
       tipRow("Sales", money(r.sales, 0)) + tipRow("Orders", num(r.orders)) +
       tipRow("Customers", num(r.customers)) + tipRow("AOV", money(r.aov, 2));
   });
@@ -1996,6 +2125,11 @@ function renderNewReturning(){
     if(o.ct === "first"){ m[k].first++; } else { m[k].ret++; }
   });
   ord.sort();
+  var denseNr = denseBuckets(S1.from, S1.to, g);
+  if(denseNr){
+    denseNr.forEach(function(k){ if(!m[k]){ m[k] = { first:0, ret:0 }; } });
+    ord = denseNr;
+  }
   /* bars need room: show the most recent 40 buckets rather than 1,100 slivers */
   var clipped = ord.length > 40;
   if(clipped){ ord = ord.slice(ord.length - 40); }
@@ -2017,7 +2151,7 @@ function renderNewReturning(){
   xLabelsBand(svg, gf, ord.map(function(k){ return bucketLabel(k, g); }));
   hoverBands(svg, gf, N, function(i){
     var r = m[ord[i]], t = r.first + r.ret;
-    return '<div class="td">' + bucketLabel(ord[i], g) + "</div>" +
+    return '<div class="td">' + esc(bucketTip(ord[i], g)) + "</div>" +
       tipRow("First-time", num(r.first)) + tipRow("Returning", num(r.ret)) +
       tipRow("Repeat share", pct(safe(r.ret, t) * 100, 1));
   });
@@ -2223,6 +2357,11 @@ function timeBuckets(rows, from, to, key){
     addM(m[k], r);
   });
   ord.sort();
+  var dense = denseBuckets(from, to, g);
+  if(dense){
+    dense.forEach(function(k){ if(!m[k]){ m[k] = blankM(); } });
+    ord = dense;
+  }
   return { keys:ord, map:m, grain:g,
            labels:ord.map(function(k){ return bucketLabel(k, g); }) };
 }
@@ -2261,7 +2400,7 @@ function renderRevChart(rows){
   xLabelsBand(svg, g, tb.labels);
   hoverBands(svg, g, N, function(i){
     var a = deriveM(tb.map[tb.keys[i]]);
-    return '<div class="td">' + tb.labels[i] + "</div>" +
+    return '<div class="td">' + esc(bucketTip(tb.keys[i], tb.grain)) + "</div>" +
       tipRow("Sales", money(a.rev, 0)) + tipRow("Spend", money(a.spend, 0)) +
       tipRow("ROAS", a.roas.toFixed(2) + "×") + tipRow("Orders", num(a.pur));
   });
@@ -2294,7 +2433,7 @@ function renderEffChart(rows){
   xLabels(svg, g, tb.labels);
   hoverBands(svg, g, N, function(i){
     var a = deriveM(tb.map[tb.keys[i]]);
-    return '<div class="td">' + tb.labels[i] + "</div>" +
+    return '<div class="td">' + esc(bucketTip(tb.keys[i], tb.grain)) + "</div>" +
       tipRow("ROAS", a.roas.toFixed(2) + "×") + tipRow("CPM", money(a.cpm, 2)) +
       tipRow("CTR", pct(a.ctr, 2)) + tipRow("Spend", money(a.spend, 0));
   });
@@ -2326,7 +2465,7 @@ function renderFreqChart(rows){
   xLabelsBand(svg, g, tb.labels);
   hoverBands(svg, g, N, function(i){
     var a = deriveM(tb.map[tb.keys[i]]);
-    return '<div class="td">' + tb.labels[i] + "</div>" + tipRow("Frequency", a.freq.toFixed(2)) +
+    return '<div class="td">' + esc(bucketTip(tb.keys[i], tb.grain)) + "</div>" + tipRow("Frequency", a.freq.toFixed(2)) +
       tipRow("Reach", num(a.reach)) + tipRow("Impressions", num(a.imps));
   });
 }
