@@ -380,8 +380,19 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   configured INSIDE the container in the GTM UI. The container ID ships from `deploy_dash_platform.ps1`
   (`$GTM_CONTAINER_ID`); reverse-proxied client dashboards (`/d/<c>/`) are skipped.
 - **Response pipeline / performance:** the single `@app.after_request` (`_finalize_response`) runs
-  `_inject_head` (the brand font + GTM + impersonation banner injection above; skips `/d/`) and then
-  `_maybe_gzip`. **gzip** compresses every text response (html/json/js/css/svg/xml ≥1 KB) when the
+  `_inject_head` (the brand font + GTM + impersonation banner injection above; skips `/d/`), then
+  **`_no_store_html`**, then `_maybe_gzip`.
+  🔴 **`_no_store_html` is why a deploy actually reaches users — do not remove it.** This app has
+  NO build step and NO asset hashing: every line of CSS/JS is INLINE in the one HTML document, so
+  a cached HTML page is a cached copy of the WHOLE APP and that browser keeps running the old
+  markup + old scripts forever. Portal HTML previously shipped with NO `Cache-Control` at all
+  (only `Vary: Cookie`), leaving browsers free to heuristically cache it — the "I deployed but it
+  didn't roll out" symptom (2026-07-27; Sentinel hit the identical bug, see its no-cache
+  middleware). Now every `text/html` response gets
+  `no-store, no-cache, must-revalidate, max-age=0` + `Pragma`/`Expires`. It is **HTML-only** and
+  never overrides an existing `Cache-Control`, so the authed `/creative/` + `/data.json` proxies
+  keep their `private, max-age=…`. Covered by the "no-store" + "creatives keep their own cache
+  policy" checks in `_atrium_smoketest.py`. **gzip** compresses every text response (html/json/js/css/svg/xml ≥1 KB) when the
   client sends `Accept-Encoding: gzip` — the biggest load-time win, since the atrium shell (~456 KB)
   and the ~1 MB client dashboards were shipped uncompressed (Cloud Run/gunicorn don't compress). It
   applies to the proxied `/d/` dashboards too (which `_inject_head` skips), sets `Content-Encoding` +

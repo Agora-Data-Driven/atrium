@@ -388,12 +388,38 @@ def _maybe_gzip(resp):
     return resp
 
 
+def _no_store_html(resp):
+    """Stop browsers serving a STALE page after a deploy -- the reason an edit "doesn't roll out".
+
+    This app has NO build step and NO asset hashing: every line of CSS and JS is inlined into the
+    one HTML document per page. So a cached HTML page is a cached COPY OF THE WHOLE APP -- a
+    browser holding one keeps running the old markup and the old scripts indefinitely, and a
+    deploy silently never reaches that user. With no Cache-Control and no Last-Modified, browsers
+    fall back to HEURISTIC caching and are free to do exactly that (Sentinel hit this same bug --
+    see its no-cache middleware).
+
+    HTML only: the authed /creative/ + /data.json proxies set their own explicit Cache-Control
+    (`private, max-age=...`) and are left alone, so image/video/data caching still works. Anything
+    that already declared a policy is respected. Rendered pages are per-session and cheap to
+    rebuild, so `no-store` costs nothing and makes every deploy reach every client immediately."""
+    ctype = (resp.content_type or "").split(";", 1)[0].strip().lower()
+    if ctype != "text/html":
+        return resp
+    if resp.headers.get("Cache-Control"):
+        return resp
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 @app.after_request
 def _finalize_response(resp):
-    """Post-process every response: inject the shared <head> chrome, then gzip it.
+    """Post-process every response: inject the shared <head> chrome, mark HTML no-store, then gzip.
 
-    Head injection is skipped for proxied /d/ pages; gzip applies to everything (see _maybe_gzip)."""
-    return _maybe_gzip(_inject_head(resp))
+    Head injection is skipped for proxied /d/ pages; the no-store marking and gzip apply to
+    everything (see _no_store_html / _maybe_gzip)."""
+    return _maybe_gzip(_no_store_html(_inject_head(resp)))
 
 
 def _inject_head(resp):

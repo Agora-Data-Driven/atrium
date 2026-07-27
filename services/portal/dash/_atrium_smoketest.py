@@ -110,6 +110,12 @@ def run():
     for tag in ("style", "script"):
         _check("every <%s> is closed (page can render)" % tag,
                body.count("<" + tag) == body.count("</" + tag + ">"))
+    # HTML must never be cached: all CSS/JS is INLINE, so a cached page is a cached copy of the
+    # whole app and a deploy would silently never reach that browser.
+    _check("HTML pages are no-store (a deploy always reaches the browser)",
+           "no-store" in (c.get("/w/%s/" % CLIENT).headers.get("Cache-Control") or ""))
+    _check("the login page is no-store too",
+           "no-store" in (c.get("/login").headers.get("Cache-Control") or ""))
     # The old top bar was removed: the page header (eyebrow + title + lede) now lives in the content
     # area, admin-console style. Assert that header renders instead of the retired greeting.
     _check("page header present", 'class="ax-pagehead"' in body and 'class="ax-top-eyebrow"' in body)
@@ -327,6 +333,10 @@ def run():
     served = c.get("/w/%s/creative/RVR-099" % CLIENT)
     _check("creative served via authed proxy",
            served.status_code == 200 and served.get_data() == png and served.mimetype == "image/png")
+    # The no-store rule is HTML-only: media keeps its own explicit caching policy.
+    _check("creatives keep their own cache policy (no-store is HTML-only)",
+           "max-age" in (served.headers.get("Cache-Control") or "")
+           and "no-store" not in (served.headers.get("Cache-Control") or ""))
     r = c.post("/w/%s/admin/remove-creative" % CLIENT, data={"content_id": "RVR-099"})
     _check("remove-creative ok", r.status_code == 200)
     _check("creative 404 after removal", c.get("/w/%s/creative/RVR-099" % CLIENT).status_code == 404)
