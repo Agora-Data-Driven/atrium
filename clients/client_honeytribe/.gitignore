@@ -1,0 +1,8 @@
+# The context drop contains LIVE credentials and customer PII — never commit it.
+#   - Honey tribe context.docx        -> Windsor API key in the connector URL
+#   - Honey_Tribe_Daily_Update.ipynb  -> Shopify Admin token (shpat_...)
+#   - Honey Tribe (1).xlsx            -> customer emails, names, addresses, phones
+context/
+
+# Locally built data JSON (rebuilt from context/ by job/build_local.py)
+data/
