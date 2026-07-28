@@ -100,8 +100,29 @@ BREAKDOWN_PRESET = os.environ.get("WINDSOR_BREAKDOWN_PRESET", "last_365d")
 # 365d) — those come back in a second, shallower pull and are joined on.
 DEEP_FIELDS = ["account_name", "actions_lead", "actions_like", "actions_post_reaction",
                "ad_created_time", "adset_bid_strategy", "adset_name", "campaign", "clicks",
-               "datasource", "date", "frequency", "impressions", "link_clicks", "name", "reach",
-               "spend", "title", "video_thruplay_watched_actions_video_view"]
+               "creative_id", "datasource", "date", "frequency", "impressions", "link_clicks",
+               "name", "reach", "spend", "title",
+               "video_thruplay_watched_actions_video_view"]
+
+# --- Creative gallery ---------------------------------------------------------
+# `creative_id` rides along on the DEEP pull for free — measured: 7,105 rows and identical spend
+# with and without it. That matters, because it lets the gallery aggregate over whatever date
+# range / campaign / ad-search the user has selected instead of being a static side panel.
+#
+# The creative's TEXT and IMAGE come from a second, small pull keyed by creative_id. Field names
+# were probed against these accounts (2026-07-28) — Windsor's `creative_*` family is EMPTY here,
+# the populated ones are the bare names:
+#     creative_id 100% · thumbnail_url 100% (fetchable) · image_url 30% · body 100%
+#     title 85% (unreliable — often the display link, e.g. "fb.me") · instagram_permalink_url 87%
+#   NOT populated: creative_title, creative_body, creative_thumbnail_url, creative_link_url,
+#                  link_url, permalink_url, object_story_id, video_id, preview_shareable_link
+CREATIVE_FIELDS = ["creative_id", "name", "title", "body", "thumbnail_url", "image_url",
+                   "instagram_permalink_url", "date", "impressions"]
+CREATIVE_PRESET = os.environ.get("WINDSOR_CREATIVE_PRESET", "last_365d")
+# Meta's CDN links expire once an ad stops, so the top creatives by impressions get their image
+# copied into our own bucket. Bounded because it is a download per creative.
+CREATIVE_CACHE_MAX = int(os.environ.get("CREATIVE_CACHE_MAX", "60"))
+CREATIVE_BODY_MAX = 1200
 UNIQUE_FIELDS = ["date", "campaign", "name", "unique_actions_lead",
                  "unique_actions_link_click", "unique_actions_post_reaction"]
 
@@ -193,6 +214,7 @@ def fetch_meta(api_key):
         if cur is None:
             cur = seen[key] = {
                 "d": d, "acct": acct, "camp": camp, "adset": adset, "ad": ad,
+                "cid": str(r.get("creative_id") or "") or None,
                 "title": (r.get("title") or "").strip(),
                 "created": str(r.get("ad_created_time") or "")[:10],
                 "bid": (r.get("adset_bid_strategy") or "").strip(),
@@ -330,6 +352,131 @@ def fetch_breakdowns(api_key):
     return out
 
 
+def _clean_headline(title, name):
+    """Meta's `title` is often the display LINK ("fb.me", "roominghouse.expert"), not a headline.
+    Those are useless as a card heading, so fall back to the ad name when the title looks like a
+    domain or is absurdly short."""
+    t = (title or "").strip()
+    looks_like_link = (t.lower().startswith(("http://", "https://", "www."))
+                       or (" " not in t and "." in t and len(t) < 40))
+    if not t or looks_like_link:
+        return (name or "").strip() or "(untitled creative)"
+    return t
+
+
+def fetch_creatives(api_key):
+    """One row per creative_id: the ad's text and image, so the gallery can show the ACTUAL ads.
+
+    Metrics deliberately are NOT stored here — the main `meta.rows` already carry `cid`, so the
+    dashboard aggregates delivery per creative over whatever period/campaign/ad-search is
+    selected. Keeping metrics in one place is what stops the gallery disagreeing with the tiles
+    above it.
+
+    Per creative the NEWEST non-empty value wins for each field, because Meta's CDN links rotate
+    and a stale row would otherwise pin an expired URL.
+    """
+    try:
+        rows = _windsor(api_key, CREATIVE_FIELDS, CREATIVE_PRESET)
+    except Exception as e:  # noqa: BLE001 — the gallery is a nice-to-have, never sink the export
+        print("  creatives: pull skipped (%s)" % str(e)[:140])
+        return {"enabled": False, "items": [], "error": str(e)[:200], "window": CREATIVE_PRESET}
+
+    best = {}
+    for r in sorted(rows, key=lambda x: str(x.get("date") or "")):   # oldest first, newest wins
+        cid = str(r.get("creative_id") or "").strip()
+        if not cid:
+            continue
+        cur = best.setdefault(cid, {"cid": cid, "name": "", "title": "", "body": "",
+                                    "thumb": "", "image": "", "link": ""})
+        for src, dst in (("name", "name"), ("title", "title"), ("body", "body"),
+                         ("thumbnail_url", "thumb"), ("image_url", "image"),
+                         ("instagram_permalink_url", "link")):
+            v = str(r.get(src) or "").strip()
+            if v:
+                cur[dst] = v
+
+    items = []
+    for cid, c in best.items():
+        body = c["body"]
+        items.append({
+            "cid": cid,
+            "head": _clean_headline(c["title"], c["name"]),
+            "ad": c["name"],
+            "body": body[:CREATIVE_BODY_MAX] + ("…" if len(body) > CREATIVE_BODY_MAX else ""),
+            # keep the live CDN url as a fallback for creatives we have not cached
+            "thumb": c["image"] or c["thumb"],
+            "link": c["link"],
+        })
+    print("  creatives: %d distinct (window %s)" % (len(items), CREATIVE_PRESET))
+    return {"enabled": bool(items), "items": items, "error": "", "window": CREATIVE_PRESET}
+
+
+def cache_creative_images(creatives, meta_rows):
+    """Copy the busiest creatives' images into our OWN bucket, because Meta's CDN links expire
+    the moment an ad stops running — after which the gallery would be a wall of grey boxes.
+
+    Only the top `CREATIVE_CACHE_MAX` by lifetime impressions are fetched (one download each), and
+    anything already cached is left alone: the copy we took while the link was live is the good
+    one. Marks each item `cached: true` so the dashboard knows to use /creative-img/<cid>.
+    Entirely best-effort — a miss just falls back to the live URL, then to a branded text tile.
+    """
+    items = creatives.get("items") or []
+    if not items:
+        return creatives
+    imps = collections.Counter()
+    for r in meta_rows:
+        if r.get("cid"):
+            imps[r["cid"]] += r["imps"]
+    order = sorted(items, key=lambda c: -imps.get(c["cid"], 0))[:CREATIVE_CACHE_MAX]
+
+    local_dir = os.environ.get("RHE_CREATIVE_LOCAL_DIR")
+    bucket = None
+    have = set()
+    if local_dir:
+        os.makedirs(local_dir, exist_ok=True)
+        have = {n for n in os.listdir(local_dir)}
+    else:
+        try:
+            from google.cloud import storage
+            bucket = storage.Client(project=PROJECT).bucket(BUCKET)
+            have = {b.name[len("creatives/"):] for b in bucket.list_blobs(prefix="creatives/")
+                    if b.name != "creatives/"}
+        except Exception as e:  # noqa: BLE001
+            print("  creatives: cache unavailable (%s)" % str(e)[:120])
+            return creatives
+
+    fetched = 0
+    for c in order:
+        cid, url = c["cid"], c.get("thumb")
+        if cid in have:
+            c["cached"] = True
+            continue
+        if not url:
+            continue
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = resp.read()
+                ctype = resp.headers.get("Content-Type", "image/jpeg")
+            if not (data and ctype.startswith("image/")):
+                continue
+            if local_dir:
+                with open(os.path.join(local_dir, cid), "wb") as fh:
+                    fh.write(data)
+            else:
+                bucket.blob("creatives/" + cid).upload_from_string(data, content_type=ctype)
+            c["cached"] = True
+            have.add(cid)
+            fetched += 1
+        except Exception as e:  # noqa: BLE001 — an expired link simply 403s; skip it
+            print("  creative %s: cache skip (%s)" % (cid, str(e)[:80]))
+    for c in items:
+        c.setdefault("cached", c["cid"] in have)
+    print("  creatives: %d newly cached, %d of %d have a permanent image"
+          % (fetched, sum(1 for c in items if c.get("cached")), len(items)))
+    return creatives
+
+
 def load_previous():
     """The JSON this job published last time, or None. Feeds history merge + AC watermarks."""
     local_out = os.environ.get("RHE_LOCAL_OUT")
@@ -366,6 +513,7 @@ def build():
           % (CLIENT, len(WINDSOR_ACCOUNTS), DEEP_PRESET, UNIQUE_PRESET))
     meta = merge_history(fetch_meta(wkey), previous)
     breakdowns = fetch_breakdowns(wkey)
+    creatives = cache_creative_images(fetch_creatives(wkey), meta["rows"])
 
     print("[%s] ActiveCampaign" % CLIENT)
     email = activecampaign.fetch(previous=(previous or {}).get("email"))
@@ -396,6 +544,7 @@ def build():
         },
         "meta": meta,
         "breakdowns": breakdowns,
+        "creatives": creatives,
         "email": email,
     }
 

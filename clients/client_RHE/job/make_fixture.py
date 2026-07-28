@@ -32,6 +32,10 @@ CAMPAIGNS = ["LEADS_RHE_URHCG - 12/2025", "LISTING LEADS_SCD_Pandanus Warragul-D
 ADS = ["Reel_StuartAI_Signup [jack]", "Reel1_ It's not a maybe one day development play_Download",
        "Static Images_LICENSED_Emma_0528", "Reel2_Waitlist_Learn More",
        "Static Image_Shipwright_0726", "Reel_CarSeat2_Download [brett]"]
+# one creative per ad, so the gallery has something to aggregate against. No real image is
+# referenced — `cached` is False and `thumb` empty, which exercises the branded-fallback tile.
+CREATIVES = [{"cid": "9%011d" % (i * 7919), "ad": a} for i, a in enumerate(ADS)]
+CID_OF = {c["ad"]: c["cid"] for c in CREATIVES}
 AGES = ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
 GENDERS = ["male", "female", "unknown"]
 REGIONS = ["Victoria", "New South Wales", "Queensland", "Western Australia", "South Australia",
@@ -78,7 +82,7 @@ for d in ALL_DAYS:
                 spend = round(imps * random.uniform(0.022, 0.055), 2)
                 meta_rows.append({
                     "d": d, "acct": acct, "camp": camp,
-                    "adset": camp + " / adset", "ad": ad,
+                    "adset": camp + " / adset", "ad": ad, "cid": CID_OF[ad],
                     "title": "Rooming house conversion", "created": "2026-01-29",
                     "bid": "LOWEST_COST_WITHOUT_CAP",
                     "spend": spend, "imps": imps,
@@ -119,6 +123,22 @@ breakdowns = {
     "platform": bd("platform", ["publisher_platform"], PLATFORMS),
     "position": bd("position", ["platform_position"], POSITIONS),
     "device": bd("device", ["impression_device"], DEVICES),
+}
+
+# --- creatives ----------------------------------------------------------------
+creatives = {
+    "enabled": True, "error": "", "window": "last_365d",
+    "items": [{
+        "cid": c["cid"],
+        "head": c["ad"].split("_")[0] + " — sovereign rooming-house returns",
+        "ad": c["ad"],
+        "body": ("Rooming house conversions look complex until someone maps it out for you. "
+                 "Fully managed, council-approved, cash-flow modelled before you commit.\n\n"
+                 "Tap to see the numbers on your own property."),
+        "thumb": "",          # no live URL in a fixture -> exercises the fallback tile
+        "link": "https://www.instagram.com/p/FIXTURE%s/" % c["cid"][-6:],
+        "cached": False,
+    } for c in CREATIVES],
 }
 
 # --- email -------------------------------------------------------------------
@@ -224,6 +244,7 @@ data = {
         "unique_from": "last_365d",
     },
     "breakdowns": breakdowns,
+    "creatives": creatives,
     "email": email,
 }
 

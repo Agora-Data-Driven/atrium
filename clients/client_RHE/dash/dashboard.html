@@ -243,6 +243,63 @@
   .cmp-row .cell .delta{font-size:11px;font-weight:700;margin-left:6px}
   .delta.up{color:var(--good)} .delta.dn{color:var(--bad)} .delta.flat{color:var(--muted)}
 
+  /* ---------- Creative gallery (the actual ads that ran) ---------- */
+  .cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:14px}
+  .ccard{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);
+         overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow-sm);
+         position:relative;transition:transform .16s, box-shadow .16s, border-color .16s}
+  .ccard::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--grad);opacity:.85}
+  .ccard.click{cursor:pointer}
+  .ccard.click:hover{transform:translateY(-3px);box-shadow:var(--shadow-lift);border-color:var(--purple)}
+  .ccard.click:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+  .cc-thumb{width:100%;aspect-ratio:1/1;object-fit:cover;background:var(--panel);display:block}
+  /* branded tile when Meta's link has expired and we hold no cached copy — shows what the ad
+     SAID rather than a blank grey box */
+  .cc-fb{width:100%;aspect-ratio:1/1;display:flex;flex-direction:column;align-items:center;
+         justify-content:center;gap:10px;text-align:center;padding:18px;
+         background:linear-gradient(155deg,rgba(190,91,246,.16),rgba(2,182,253,.10) 55%,rgba(3,136,16,.14))}
+  .cc-fb .mk{font-family:var(--display);font-size:9px;font-weight:600;letter-spacing:1.6px;
+             text-transform:uppercase;color:var(--purple)}
+  .cc-fb .hd{font-family:var(--display);font-size:14.5px;font-weight:500;color:var(--green-d);line-height:1.3;
+             display:-webkit-box;-webkit-line-clamp:5;line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+  .cc-b{padding:11px 13px 14px;display:flex;flex-direction:column;gap:6px;flex:1}
+  .cc-h{font-weight:900;font-size:12.5px;line-height:1.3;color:var(--ink);
+        display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .cc-copy{color:var(--muted);font-size:11px;line-height:1.4;
+           display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .cc-m{display:flex;flex-wrap:wrap;gap:3px 11px;font-size:10.5px;color:var(--muted);
+        border-top:1px solid var(--line);padding-top:8px;margin-top:auto}
+  .cc-m b{color:var(--green-d);font-weight:900;font-variant-numeric:tabular-nums}
+  /* lightbox */
+  .cmod{position:fixed;inset:0;background:rgba(16,28,24,.72);display:none;align-items:center;
+        justify-content:center;z-index:300;padding:26px;backdrop-filter:blur(3px)}
+  .cmod.on{display:flex}
+  .cmod-card{position:relative;width:100%;max-width:880px;max-height:90vh;overflow:auto;
+             background:var(--white);border-radius:18px;box-shadow:0 30px 90px rgba(16,28,24,.45)}
+  .cmod-x{position:absolute;top:12px;right:14px;z-index:2;border:1px solid var(--line2);
+          background:var(--white);color:var(--ink);width:32px;height:32px;border-radius:9px;
+          cursor:pointer;font-size:15px;line-height:1}
+  .cmod-x:hover{background:var(--purple);border-color:var(--purple);color:#fff}
+  .cmod-body{display:flex;gap:22px;padding:26px;flex-wrap:wrap}
+  .cm-media{flex:0 0 340px;max-width:100%}
+  .cm-media img{width:100%;border-radius:13px;display:block;background:var(--panel)}
+  .cm-noimg{width:100%;min-height:250px;display:flex;align-items:center;justify-content:center;
+            text-align:center;padding:22px;background:var(--panel);border-radius:13px;
+            color:var(--muted);font-size:12.5px;line-height:1.5}
+  .cm-info{flex:1;min-width:270px;display:flex;flex-direction:column;gap:13px}
+  .cm-info h3{font-size:19px;line-height:1.25}
+  .cm-ad{font-size:11px;color:var(--muted);letter-spacing:.3px}
+  .cm-body{white-space:pre-wrap;font-size:13px;line-height:1.6;color:var(--ink2);margin:0}
+  .cm-metrics{display:flex;flex-wrap:wrap;gap:9px 20px;font-size:12.5px;color:var(--muted);
+              border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:13px 0}
+  .cm-metrics b{color:var(--green-d);font-weight:900;font-variant-numeric:tabular-nums}
+  .cm-link{display:inline-block;padding:9px 15px;border-radius:9px;background:var(--green);color:#fff;
+           text-decoration:none;font-size:13px;font-weight:900;font-family:var(--display);
+           letter-spacing:.03em;text-transform:uppercase}
+  .cm-link:hover{background:var(--purple)}
+  .cm-nolink{font-size:12px;color:var(--muted)}
+  .cm-cap{font-size:10.5px;color:var(--muted);letter-spacing:.3px}
+
   /* ---------- Tables ---------- */
   .tblwrap{overflow-x:auto;border-radius:10px;border:1px solid var(--line)}
   table{border-collapse:collapse;width:100%;font-size:12.5px}
@@ -474,6 +531,23 @@
       <div>
         <div class="kpis" id="funnelKpis" style="grid-template-columns:1fr"></div>
       </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>The actual ads that ran</h2>
+      <span class="sub">the creatives behind the numbers above</span>
+      <span class="spacer"></span>
+      <div class="seg mini" id="seg-crank" data-seg="crank">
+        <span class="cap">Rank by</span>
+        <button data-v="imps" class="on">Impressions</button><button data-v="leads">Leads</button><button data-v="cpl">Cheapest lead</button><button data-v="spend">Spend</button>
+      </div>
+    </div>
+    <div class="card plain" style="padding:0;border:0;box-shadow:none;background:transparent">
+      <div class="note" id="galNote" style="margin:0 0 12px"></div>
+      <div class="cgrid" id="creativeGallery"></div>
+      <div class="tfoot" id="galFoot"></div>
     </div>
   </section>
 
@@ -830,6 +904,13 @@
 
 </main>
 
+<div class="cmod" id="cMod" role="dialog" aria-modal="true" aria-label="Creative preview">
+  <div class="cmod-card">
+    <button class="cmod-x" type="button" id="cModX" aria-label="Close">&#10005;</button>
+    <div class="cmod-body" id="cModBody"></div>
+  </div>
+</div>
+
 <div id="tip"></div>
 
 <script>
@@ -885,7 +966,7 @@ var ST = {
    respected but stepped coarser if the span would draw thousands of points. */
 var GRAIN = { leads:"auto", email:"auto", growth:"auto" };
 var SEG = { laxis:"rel", eaxis:"abs", creat:"spend", tpl:"10", agmet:"leads", geo:"spend",
-            demo:"age" };
+            demo:"age", crank:"imps" };
 var SORT = {
   camp:{ k:"spend", dir:-1 },
   ad:{ k:"spend", dir:-1 },
@@ -1635,6 +1716,14 @@ function wireControls(){
     setTuck(!byId("controls").classList.contains("tucked"));
   });
   byId("sync").addEventListener("click", doSync);
+  var cx = byId("cModX");
+  if(cx){ cx.addEventListener("click", closeCreative); }
+  var cm = byId("cMod");
+  /* click the backdrop (never the card itself) to dismiss */
+  if(cm){ cm.addEventListener("click", function(e){ if(e.target === cm){ closeCreative(); } }); }
+  document.addEventListener("keydown", function(e){
+    if(e.key === "Escape"){ closeCreative(); }
+  });
 
   var ps = document.querySelectorAll(".preset[data-p]");
   for(var i = 0; i < ps.length; i++){
@@ -1705,6 +1794,7 @@ function wireSegs(){
   segWire("seg-agmet",  function(v){ SEG.agmet = v; });
   segWire("seg-geo",    function(v){ SEG.geo = v; });
   segWire("seg-demo",   function(v){ SEG.demo = v; });
+  segWire("seg-crank",  function(v){ SEG.crank = v; });
 }
 /* EVERY column header on the dashboard is a sort control. Tables declare their state key with
    data-sort on the <table> and each sortable column with data-k on its <th>; this walks them all
@@ -1812,6 +1902,7 @@ function renderFunnel(){
   renderLeadsChart(cur, bch, wks);
   renderFunnelShape(cur, bch);
   funnelKpiRail(cur, bch);
+  renderCreatives();
   renderCampTable();
   renderAdTable();
   renderFunnelInsights(cur, bch, wks);
@@ -2178,6 +2269,188 @@ function renderAdTable(){
     " ads — click any column header to re-rank. Rows in red are seen 2.5+ times per person, the " +
     "point where click-through starts to decay" +
     (fatigued ? " (" + fatigued + " of " + list.length + " ads overall)." : "."));
+}
+
+/* ---------- Creative gallery -----------------------------------------------------------------
+   The ads themselves, ranked by whatever the user picks. Delivery is aggregated from the SAME
+   `meta.rows` every other number on this tab uses (rows carry `cid`), so the gallery can never
+   disagree with the tiles above it, and it re-computes with the date range, campaign and ad
+   search like everything else. The creative TEXT and IMAGE come from `DATA.creatives.items`.
+
+   Images: prefer our cached copy at /creative-img/<cid> (the export takes one while Meta's link
+   is live), fall back to the live CDN url, then to a branded tile carrying the ad's headline —
+   Meta expires these links the moment an ad stops, and a wall of grey boxes is worse than text. */
+var CGAL = [];
+var CRANK = { imps:"Impressions", leads:"Leads", cpl:"Cheapest cost per lead", spend:"Spend" };
+
+function creativeRows(){
+  var meta = ((DATA.creatives || {}).items) || [];
+  if(!meta.length){ return []; }
+  var info = {};
+  for(var i = 0; i < meta.length; i++){ info[meta[i].cid] = meta[i]; }
+  var agg = {};
+  var rows = metaIn(ST.from, ST.to);
+  for(var j = 0; j < rows.length; j++){
+    var r = rows[j];
+    if(!r.cid || !info[r.cid]){ continue; }
+    var a = agg[r.cid];
+    if(!a){
+      a = agg[r.cid] = { cid:r.cid, spend:0, imps:0, lclk:0, leads:0 };
+      var m = info[r.cid];
+      a.head = m.head; a.ad = m.ad; a.body = m.body;
+      a.thumb = m.thumb; a.link = m.link; a.cached = !!m.cached;
+    }
+    a.spend += r.spend; a.imps += r.imps; a.lclk += r.lclk; a.leads += r.leads;
+  }
+  var out = [];
+  for(var k in agg){
+    var c = agg[k];
+    if(!c.imps){ continue; }
+    c.cpl = c.leads ? c.spend / c.leads : 0;
+    c.ctr = safe(c.lclk, c.imps) * 100;
+    out.push(c);
+  }
+  var key = SEG.crank;
+  out.sort(function(a, b){
+    if(key === "cpl"){
+      /* cheapest first, but a creative with no leads has no CPL — park those at the end rather
+         than letting a 0 masquerade as the best result */
+      var av = a.leads ? a.cpl : Infinity, bv = b.leads ? b.cpl : Infinity;
+      return av - bv;
+    }
+    return (b[key] || 0) - (a[key] || 0);
+  });
+  return out;
+}
+
+function cThumbTag(c, cls){
+  var src = c.cached ? ("/creative-img/" + encodeURIComponent(c.cid)) : (c.thumb || "");
+  if(!src){ return ""; }
+  return '<img class="' + cls + '" loading="lazy" alt="" data-cid="' + esc(c.cid) +
+         '" src="' + esc(src) + '">';
+}
+function cFallback(c){
+  return '<div class="cc-fb"><div class="mk">Rooming House Expert &middot; Ad</div>' +
+         '<div class="hd">' + esc(c.head || c.body || "Creative") + "</div></div>";
+}
+/* Meta's link died between the export and this page load — swap the branded tile in, in place.
+   Wired as a listener (not an inline onerror) so nothing has to survive HTML quoting. */
+function wireImgFallback(img, big){
+  img.addEventListener("error", function(){
+    var cid = img.getAttribute("data-cid");
+    var c = null;
+    for(var i = 0; i < CGAL.length; i++){ if(CGAL[i].cid === cid){ c = CGAL[i]; } }
+    var wrap = document.createElement("div");
+    if(big){
+      wrap.className = "cm-noimg";
+      wrap.textContent = "The image for this ad has expired on Meta's side. The full copy is beside it.";
+    } else {
+      wrap.innerHTML = cFallback(c || { head:"Creative" });
+      wrap = wrap.firstChild;
+    }
+    if(img.parentNode){ img.parentNode.replaceChild(wrap, img); }
+  });
+}
+
+function renderCreatives(){
+  var box = byId("creativeGallery");
+  if(!box){ return; }
+  var C = DATA.creatives || {};
+  if(!C.enabled){
+    box.innerHTML = "";
+    setHTML("galNote", emptyCard("Creative previews are not available",
+      "This panel needs the Meta creative pull. " + esc(C.error || "")));
+    setText("galFoot", "");
+    return;
+  }
+  var all = creativeRows();
+  CGAL = all.slice(0, 12);
+  if(!CGAL.length){
+    box.innerHTML = "";
+    setHTML("galNote", '<div class="empty"><h4>No creatives ran in this period</h4>' +
+      "<p>Widen the date range or clear the campaign filter.</p></div>");
+    setText("galFoot", "");
+    return;
+  }
+  var html = "";
+  for(var i = 0; i < CGAL.length; i++){
+    var c = CGAL[i];
+    var media = cThumbTag(c, "cc-thumb") || cFallback(c);
+    html += '<div class="ccard click" role="button" tabindex="0" data-ci="' + i +
+            '" title="Click to enlarge this ad">' + media +
+      '<div class="cc-b">' +
+        '<div class="cc-h">' + esc(c.head) + "</div>" +
+        (c.body ? '<div class="cc-copy">' + esc(c.body) + "</div>" : "") +
+        '<div class="cc-m"><span><b>' + compactN(c.imps) + "</b> impr</span>" +
+          "<span><b>" + num(c.lclk) + "</b> clicks</span>" +
+          "<span><b>" + compact(c.spend) + "</b></span>" +
+          "<span><b>" + num(c.leads) + "</b> leads</span>" +
+          (c.leads ? "<span><b>" + money(c.cpl, 2) + "</b>/lead</span>" : "") +
+        "</div></div></div>";
+  }
+  box.innerHTML = html;
+  var imgs = box.querySelectorAll("img.cc-thumb");
+  for(var m2 = 0; m2 < imgs.length; m2++){ wireImgFallback(imgs[m2], false); }
+  var cards = box.querySelectorAll(".ccard");
+  for(var k = 0; k < cards.length; k++){
+    (function(el){
+      var idx = parseInt(el.getAttribute("data-ci"), 10);
+      el.addEventListener("click", function(){ openCreative(idx); });
+      el.addEventListener("keydown", function(e){
+        if(e.key === "Enter" || e.key === " "){ e.preventDefault(); openCreative(idx); }
+      });
+    })(cards[k]);
+  }
+  var cachedN = 0;
+  for(var z = 0; z < all.length; z++){ if(all[z].cached){ cachedN++; } }
+  setHTML("galNote",
+    "The <b>" + CGAL.length + "</b> creatives with the " +
+    (SEG.crank === "cpl" ? "most efficient cost per lead"
+                         : "highest " + esc((CRANK[SEG.crank] || "").toLowerCase())) +
+    " over the selected period, each with its own delivery. <b>Click any card</b> to read the full " +
+    "copy and open where the ad pointed. Images are copied into our own storage while Meta's link " +
+    "is live — Meta expires them once an ad stops, so a card without one falls back to the ad's " +
+    "headline rather than a blank box.");
+  setText("galFoot", all.length + " creative" + (all.length === 1 ? "" : "s") +
+    " ran in this period \u00b7 " + cachedN + " with a stored image \u00b7 ranked by " +
+    (CRANK[SEG.crank] || SEG.crank).toLowerCase() + ".");
+}
+
+function openCreative(i){
+  var c = CGAL[i];
+  if(!c){ return; }
+  var media = cThumbTag(c, "cm-img");
+  var mediaHtml = media ||
+    '<div class="cm-noimg">The image for this ad has expired on Meta\u2019s side. ' +
+    "The full copy is shown beside it.</div>";
+  var link = c.link
+    ? '<div><a class="cm-link" href="' + esc(c.link) +
+      '" target="_blank" rel="noopener noreferrer">Open the ad &#8599;</a></div>'
+    : '<div class="cm-nolink">No destination link recorded for this creative.</div>';
+  setHTML("cModBody",
+    '<div class="cm-media">' + mediaHtml + "</div>" +
+    '<div class="cm-info">' +
+      "<h3>" + esc(c.head) + "</h3>" +
+      (c.ad && c.ad !== c.head ? '<div class="cm-ad">Ad name: ' + esc(c.ad) + "</div>" : "") +
+      (c.body ? '<p class="cm-body">' + esc(c.body) + "</p>" : "") +
+      '<div class="cm-metrics">' +
+        "<span><b>" + num(c.imps) + "</b> impressions</span>" +
+        "<span><b>" + num(c.lclk) + "</b> link clicks</span>" +
+        "<span><b>" + pct(c.ctr, 2) + "</b> CTR</span>" +
+        "<span><b>" + money(c.spend, 0) + "</b> spend</span>" +
+        "<span><b>" + num(c.leads) + "</b> leads</span>" +
+        (c.leads ? "<span><b>" + money(c.cpl, 2) + "</b> per lead</span>" : "") +
+      "</div>" + link +
+      '<div class="cm-cap">Creative ID ' + esc(c.cid) +
+        " &middot; figures are for the selected period</div>" +
+    "</div>");
+  var mi = document.querySelector("#cModBody img.cm-img");
+  if(mi){ wireImgFallback(mi, true); }
+  byId("cMod").classList.add("on");
+}
+function closeCreative(){
+  var m = byId("cMod");
+  if(m){ m.classList.remove("on"); }
 }
 
 function renderFunnelInsights(cur, bch, wks){

@@ -11,6 +11,7 @@ Build/refresh the data first with:  python clients/client_RHE/job/main.py
 """
 import http.server
 import os
+import re
 import socketserver
 import sys
 import webbrowser
@@ -18,6 +19,9 @@ import webbrowser
 _HERE = os.path.dirname(os.path.abspath(__file__))
 HTML = os.path.join(_HERE, "dash", "dashboard.html")
 JSON = os.path.join(_HERE, "data", "RHE.json")
+# the export writes cached creative images here when RHE_CREATIVE_LOCAL_DIR is set;
+# serve them at the same path the deployed dash service uses
+CREATIVES = os.path.join(_HERE, "data", "creatives")
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8140
 
 
@@ -56,6 +60,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(HTML, "text/html; charset=utf-8")
         elif route in ("/data.json", "/RHE.json"):
             self._send(JSON, "application/json")
+        elif route.startswith("/creative-img/"):
+            cid = route[len("/creative-img/"):]
+            if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", cid or ""):
+                self._send(os.path.join(CREATIVES, cid), "image/jpeg")
+            else:
+                self.send_error(404)
         else:
             self.send_error(404, "not found")
 

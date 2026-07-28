@@ -401,7 +401,7 @@ def audit_email(data):
 
 
 def audit_live(data):
-    head("6. LIVE CROSS-CHECK AGAINST THE SOURCE APIs")
+    head("7. LIVE CROSS-CHECK AGAINST THE SOURCE APIs")
     wk = os.environ.get("WINDSOR_API_KEY", "")
     accounts = os.environ.get(
         "WINDSOR_ACCOUNTS",
@@ -481,6 +481,59 @@ def audit_live(data):
         warn("ActiveCampaign cross-check failed: %s" % str(e)[:140])
 
 
+def audit_creatives(data):
+    head("6. CREATIVE GALLERY")
+    C = data.get("creatives") or {}
+    if not C.get("enabled"):
+        warn("creative block disabled: %s" % (C.get("error") or "no items"))
+        return
+    items = C.get("items") or []
+    ok("%d creatives (window %s)" % (len(items), C.get("window")))
+
+    ids = [c.get("cid") for c in items]
+    if len(set(ids)) != len(ids):
+        fail("duplicate creative ids in the gallery")
+    else:
+        ok("every creative id is unique")
+
+    noheads = [c for c in items if not (c.get("head") or "").strip()]
+    if noheads:
+        fail("%d creative(s) have no headline to fall back on" % len(noheads))
+    else:
+        ok("every creative has a headline (ad name substituted where Meta's title is a link)")
+
+    # a headline that is still a bare link means _clean_headline let one through
+    linky = [c for c in items
+             if (c.get("head") or "").lower().startswith(("http://", "https://", "www."))]
+    if linky:
+        fail("%d headline(s) are raw links: %s" % (len(linky), [c["head"] for c in linky[:3]]))
+    else:
+        ok("no headline is a raw link")
+
+    cached = sum(1 for c in items if c.get("cached"))
+    ok("%d of %d have a permanent cached image (the rest fall back to Meta's live URL, then to "
+       "a branded tile)" % (cached, len(items)))
+
+    # the gallery joins on `cid` in meta.rows -- if that link breaks the gallery silently empties
+    rows = (data.get("meta") or {}).get("rows") or []
+    with_cid = sum(1 for r in rows if r.get("cid"))
+    known = set(ids)
+    joinable = sum(1 for r in rows if r.get("cid") in known)
+    if not with_cid:
+        fail("no meta row carries `cid` -- the gallery cannot aggregate delivery")
+    elif not joinable:
+        fail("no meta row's `cid` matches a gallery creative -- the join is broken")
+    else:
+        ok("%s of %s meta rows carry a cid; %s join to a gallery creative"
+           % (f"{with_cid:,}", f"{len(rows):,}", f"{joinable:,}"))
+
+    long_body = [c for c in items if len(c.get("body") or "") > 1400]
+    if long_body:
+        warn("%d creative bodies exceed the truncation cap" % len(long_body))
+    else:
+        ok("creative copy is within the size cap")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", default=DEFAULT_JSON)
@@ -505,6 +558,7 @@ def main():
         audit_funnel(rows)
         audit_breakdowns(data, rows)
     audit_email(data)
+    audit_creatives(data)
     if args.live:
         audit_live(data)
 
