@@ -114,10 +114,24 @@ auto-refresh (see those bullets below). Product name is one constant:
   stays out of scope). It degrades gracefully (a dead site is recorded in the result, never a 500).
   Routes: `POST /w/<c>/admin/website-health/{save,check}` (root-only). State lives under
   `ws["website_health"]` via `workspace.set_website_url`/`set_website_notes`/`save_website_check`.
-- **Watcher is a TEAM-ONLY tab (creator/competitor transcript archive):** paste a channel link and
-  Watcher lists EVERY video, then pulls each video's raw transcript (AI summaries are a later step).
+- **Watcher is a TEAM-ONLY tab (creator/competitor content archive):** paste a channel link and
+  Watcher lists EVERY video, then pulls each video's raw transcript — or paste a **website** and it
+  lists EVERY blog post, then pulls each post's full article text (AI summaries are a later step).
   Rendered/gated exactly like Website Health (`ATRIUM_TEAM_TABS`, never shown to clients), but
-  editing is any-admin (`is_superadmin()`), not root-only. `dash/watcher.py` does the fetching with
+  editing is any-admin (`is_superadmin()`), not root-only. **Two source types share ONE tab, ONE
+  archive shape and ONE set of routes** — a registry entry's `platform` (`youtube`|`blog`) is the
+  only thing that picks a fetcher; a blog post is stored in the very field a video transcript is
+  (`transcript`), so the cards, the reader modal, the counts and the Assistant index never branch.
+  **Websites (`dash/watcher_blog.py`, op `add_site`):** resolve the site (its origin becomes
+  `channel_id`) → list EVERY post **sitemap-first** (robots.txt `Sitemap:` → index → blog-named
+  children only; index-page crawl only as a fallback) → extract each post's readable text with a
+  stdlib readability-lite scorer (no new dependency), healing the title/date from the page's own
+  og:/JSON-LD metadata. robots.txt is honored with real wildcard + `Allow`-precedence matching
+  (🔴 a prefix-only reading of Shopify's `Disallow: /blogs/*+*` silently bans every post on the
+  site), and a **TLS cipher pin** in `_session` is load-bearing: Python's default handshake gets
+  `429 local_rate_limited` forever from Cloudflare-fronted Shopify while curl gets 200. Blogs need
+  NO proxy and NO Safe pull (Cloud Run isn't blocked by ordinary sites), so that button is hidden on
+  their cards. **YouTube (`dash/watcher.py`)** does the fetching with
   NO YouTube API key: channel page scrape → the public web `youtubei/v1/browse` endpoint pages the
   uploads playlist (handles BOTH the classic `playlistVideoRenderer` and the 2025+ `lockupViewModel`
   shapes, and captures each video's relative upload age → `published_text` +
@@ -129,7 +143,10 @@ auto-refresh (see those bullets below). Product name is one constant:
   registry lives in `ws["watcher"]["channels"]` (counts + classification only); each channel's full
   archive is its OWN object `workspace/watcher/<c>/<channel_id>.json` (transcripts run to MBs —
   same posture as creatives). Routes: `POST /w/<c>/admin/watcher` (`op`
-  add|add_video|fetch|refresh|meta|label|delete — fetch pulls MISSING transcripts in batches
+  add|**add_site**|add_video|fetch|refresh|meta|label|delete — **add_site** is the website twin of
+  add (list every blog post; the SAME fetch loop then pulls each article's text), **add_video
+  auto-detects** (a link with no YouTube video id is scraped as a blog post into a separate "Saved
+  articles" loose channel), fetch pulls MISSING bodies in batches
   (parallel `FETCH_WORKERS` waves behind a rotating proxy, else the serial politely-paced path) and
   the page JS loops it with a progress bar; **a YouTube rate-limit reports `blocked` WITHOUT marking
   any video failed** and the loop AUTO-RETRIES with backoff (~20s→2min, resets on progress) instead
@@ -212,7 +229,17 @@ auto-refresh (see those bullets below). Product name is one constant:
   with guidance) and a **Plan first** toggle (`stage=plan` → `assistant_ai.plan_stage` shows the
   planned sub-queries + sources and PAUSES for approve/steer BEFORE answering). Conversations are
   **session-scoped** now (`sessionStorage` — a new session/tab starts fresh). The non-streamed
-  `op=ask` stays for tests/fallback. Routes: `POST /w/<c>/admin/assistant` (`op`
+  `op=ask` stays for tests/fallback. **THREE model providers** back every AI surface in Atrium
+  (`intel_ai.MODELS` is the ONE registry — the Assistant, the intel brain, the Mail digest and the
+  Watcher auto-label all dispatch through `intel_ai._call`/`stream_call`): **gemini** (Vertex,
+  GCP-billed, the only one that can ground on live Google Search), **deepseek** (`DEEPSEEK_API_KEY`)
+  and **kimi** (`KIMI_API_KEY` — the Kimi Code coding-plan host `api.kimi.com/coding/v1`, a flat
+  weekly-quota subscription so it prices at $0/token; the lower-case `kimi-api-key` secret is the
+  separate VS Code / Claude Code launcher key — do NOT mount that one). Adding a model is a MODELS
+  entry + a `provider_configured` gate + a `_call_*`/`_stream_*` pair; both dropdowns render from
+  `available_models()`, so an unconfigured provider shows greyed-out "(not set up)" and nothing else
+  changes. Kimi is listed LAST so `default_model()` (first available) still resolves to Gemini Flash.
+  Routes: `POST /w/<c>/admin/assistant` (`op`
   ask|settings|reindex) + `POST /w/<c>/admin/assistant/stream`, gated `is_superadmin()`; tab gated
   like the other team tabs. The dashboard-data
   source needs a one-time grant: `services/portal/dash/enable_assistant_dash_data.ps1` gives the
@@ -394,7 +421,7 @@ auto-refresh (see those bullets below). Product name is one constant:
     <client>") line. Same engine as Gemini chat — broad + on-topic, NOT a Google-News re-rank.
     `research` returns `(entries, error)`; **NO fallback** — a failure shows the reason and adds
     nothing. **Grounding is Gemini-only** (`intel_ai.model_supports_grounding`): a non-Gemini model
-    (DeepSeek) reports "can't do live web research — pick a Gemini model" and adds nothing. (The old
+    (DeepSeek or Kimi) reports "can't do live web research — pick a Gemini model" and adds nothing. (The old
     retrieve-then-curate `intel_ai.curate` + `intel_feed` RSS scrape is LEGACY — kept as a helper +
     for tests, no longer wired into the refresh.) Vertex Gemini (`gemini-2.5-flash`/`-pro`) is
     GCP-billed via the runtime SA's metadata token, gated `VERTEX_GEMINI_ENABLED=1` +
@@ -425,7 +452,7 @@ auto-refresh (see those bullets below). Product name is one constant:
     job no-ops unless `INTEL_AUTO_ENABLED=1`; it REUSES the platform-dash image + web SA. New infra:
     the scheduler job (impersonates the **web SA**, not the cloudscheduler service agent — owners
     can't actAs that agent) + `roles/aiplatform.user` on the web SA + the optional `DEEPSEEK_API_KEY`
-    secret. Redeploy `services/portal/dash/deploy_intel_refresh.ps1` (`-Disable` OFF, `-Run` fires
+    and `KIMI_API_KEY` secrets. Redeploy `services/portal/dash/deploy_intel_refresh.ps1` (`-Disable` OFF, `-Run` fires
     now; **rerun after any `intel_feed`/`intel_refresh`/`intel_ai` change** — image-pinned) AND
     `deploy_dash_platform.ps1` (the web service's Refresh-now runs `refresh_client` in-process).
     Off-cloud tests: `dash/_intel_feed_localtest.py` + `dash/_intel_ai_localtest.py` (inject fetchers).

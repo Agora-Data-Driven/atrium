@@ -2,7 +2,7 @@
 
 Gated + graceful, mirroring feedback_ai.py and intel_feed.py. Uses `requests` directly (already
 pinned) against each provider's REST endpoint -- there is NO SDK dependency and an unconfigured
-provider is simply unavailable (never an import error). Two providers are supported, chosen per
+provider is simply unavailable (never an import error). Three providers are supported, chosen per
 client by the team from inside the workspace (the model dropdown):
 
   * gemini    -- **Vertex AI** generateContent (`{loc}-aiplatform.googleapis.com`). Models:
@@ -13,6 +13,13 @@ client by the team from inside the workspace (the model dropdown):
   * deepseek  -- OpenAI-compatible /chat/completions (api.deepseek.com). Models: deepseek-v4-pro,
                  deepseek-v4-flash. Needs DEEPSEEK_API_KEY (the same Secret-Manager secret + model
                  ids mastery-engine's lib/deepseek.js uses).
+  * kimi      -- OpenAI-compatible /chat/completions on the **Kimi Code** host
+                 (api.kimi.com/coding/v1). Models: k3, kimi-for-coding-highspeed. Needs
+                 KIMI_API_KEY -- the SERVICES key (Secret Manager `KIMI_API_KEY`), NOT the
+                 lower-case `kimi-api-key` secret, which is the separate VS Code / Claude Code
+                 launcher key. Mirrors mastery-engine's lib/kimi.js: it is a weekly-quota CODING
+                 SUBSCRIPTION, so its keys authenticate ONLY against that host (api.moonshot.ai
+                 returns 401) and there is no per-token bill.
 
 Every model call returns `(text, error)`: on failure `error` is a SHORT human reason (e.g. "out of
 quota/credits", "auth failed") so the tab can show WHY instead of silently filling with junk. There
@@ -44,6 +51,10 @@ MODELS = (
     {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "provider": "gemini"},
     {"id": "deepseek-v4-flash", "label": "DeepSeek V4 Flash", "provider": "deepseek"},
     {"id": "deepseek-v4-pro", "label": "DeepSeek V4 Pro", "provider": "deepseek"},
+    # Kimi goes LAST on purpose: default_model() picks the first AVAILABLE model, so adding a
+    # provider here must never change which brain an existing deploy defaults to (Gemini Flash).
+    {"id": "k3", "label": "Kimi K3", "provider": "kimi"},
+    {"id": "kimi-for-coding-highspeed", "label": "Kimi K2.7 Fast", "provider": "kimi"},
 )
 
 # Approximate USD per 1,000,000 tokens, "in" = prompt, "out" = completion (thinking bills as
@@ -54,6 +65,11 @@ PRICING = {
     "gemini-2.5-pro": {"in": 1.25, "out": 10.0},
     "deepseek-v4-flash": {"in": 0.28, "out": 0.42},
     "deepseek-v4-pro": {"in": 0.55, "out": 2.19},
+    # Kimi Code is a flat weekly-quota SUBSCRIPTION, not per-token billing, so its marginal cost is
+    # genuinely $0 (mirrors mastery-engine lib/usage.js). Tokens are still counted in the tally --
+    # the spend pill just shows $0.00 for them, which is the truth, not a missing price.
+    "k3": {"in": 0.0, "out": 0.0},
+    "kimi-for-coding-highspeed": {"in": 0.0, "out": 0.0},
     # Retrieval embeddings (the Assistant's hybrid search). Input-only; ~$0.025/1M tokens.
     "text-embedding-005": {"in": 0.025, "out": 0.0},
 }
@@ -115,6 +131,10 @@ def count_of(cfg):
 
 
 _DEEPSEEK_BASE = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+# Kimi Code (the coding SUBSCRIPTION, console at platform.kimi.ai) -- an `sk-kimi-…` key authenticates
+# ONLY against this host; pointing it at Moonshot's pay-per-token PaaS (api.moonshot.ai) returns 401.
+# Overridable for the same reason DeepSeek's is (tuning without a code change).
+_KIMI_BASE = os.environ.get("KIMI_BASE_URL", "https://api.kimi.com/coding/v1").rstrip("/")
 _TIMEOUT = 60          # seconds; a slow model must never hang the whole refresh run.
 # Grounded research is a MUCH slower call: the model plans, runs several live Google searches, reads
 # real pages, then curates -- and with the "show reasoning" toggle on (includeThoughts) it is slower
@@ -168,17 +188,21 @@ def provider_configured(provider):
 
     * deepseek -- DEEPSEEK_API_KEY present.
     * gemini   -- Vertex enabled (VERTEX_GEMINI_ENABLED=1); the deploy sets this once the runtime SA
-                  has roles/aiplatform.user, so it doubles as the "Gemini is wired" gate."""
+                  has roles/aiplatform.user, so it doubles as the "Gemini is wired" gate.
+    * kimi     -- KIMI_API_KEY present (the services key; the deploy mounts the Secret-Manager
+                  secret of the same name when it exists)."""
     if provider == "deepseek":
         return bool(os.environ.get("DEEPSEEK_API_KEY", "").strip())
     if provider == "gemini":
         return os.environ.get("VERTEX_GEMINI_ENABLED", "") in ("1", "true", "True")
+    if provider == "kimi":
+        return bool(os.environ.get("KIMI_API_KEY", "").strip())
     return False
 
 
 def _provider_keys():
     """The set of provider keys we know how to gate (used by any_provider_configured)."""
-    return ("gemini", "deepseek")
+    return ("gemini", "deepseek", "kimi")
 
 
 def model_meta(model_id):
@@ -405,6 +429,55 @@ def _call_deepseek(model_id, system, user, fetcher, max_tokens, capture=False, u
         return "", "DeepSeek returned an unexpected response", ""
 
 
+def _call_kimi(model_id, system, user, fetcher, max_tokens, capture=False, usage_out=None,
+               think=None):
+    """Kimi Code chat/completions (OpenAI-compatible). Returns (text, error, thinking).
+
+    Deliberately does NOT send `response_format: json_object` (unlike the DeepSeek path): the Kimi
+    Code endpoint rejects/ignores it for some prompts, and a couple of callers here need a top-level
+    JSON ARRAY, which json_object forbids outright. We prompt for JSON instead and let the lenient
+    parsers handle a Markdown fence -- `_parse_json` strips fences and `assistant_ai._parse_answer`
+    falls back to the raw text, so a fenced reply is never shown to a user.
+
+    The Kimi Code models are thinking-first (reasoning defaults ON) but honour an explicit opt-out,
+    so `think` is tri-state exactly like DeepSeek's: False sends the disabled flag (the fast path),
+    True leaves the model's own reasoning on, None leaves the payload untouched. Reasoning arrives
+    as `reasoning_content`, surfaced only when `capture` is set."""
+    key = os.environ.get("KIMI_API_KEY", "").strip()
+    if not key:
+        return "", "Kimi not configured", ""
+    payload = {
+        "model": model_id,
+        "max_tokens": max_tokens,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "stream": False,
+    }
+    if think is False:
+        payload["thinking"] = {"type": "disabled"}
+    headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
+    fn = fetcher or _requests_post
+    try:
+        resp = fn(_KIMI_BASE + "/chat/completions", headers, payload, _TIMEOUT)
+    except Exception as exc:
+        return "", "could not reach Kimi (%s)" % type(exc).__name__, ""
+    if getattr(resp, "status_code", 0) >= 400:
+        return "", _short_error(resp, "Kimi error"), ""
+    try:
+        data = resp.json()
+        msg = data["choices"][0]["message"]
+        if usage_out is not None:
+            u = data.get("usage") or {}
+            usage_out["input_tokens"] = int(u.get("prompt_tokens") or 0)
+            usage_out["output_tokens"] = int(u.get("completion_tokens") or 0)
+        thinking = (msg.get("reasoning_content") or "").strip() if capture else ""
+        return (msg.get("content") or "").strip(), "", thinking
+    except Exception:
+        return "", "Kimi returned an unexpected response", ""
+
+
 def _call_vertex_gemini(model_id, system, user, fetcher, max_tokens, token_fetcher=None, capture=False,
                         usage_out=None, think=None):
     """Vertex AI Gemini :generateContent (GCP-billed, SA-token auth). Returns (text, error, thinking).
@@ -482,6 +555,8 @@ def _call(model, system, user, fetcher, max_tokens, token_fetcher=None, capture=
     if model["provider"] == "gemini":
         return _call_vertex_gemini(model["id"], system, user, fetcher, max_tokens, token_fetcher,
                                    capture, usage_out, think)
+    if model["provider"] == "kimi":
+        return _call_kimi(model["id"], system, user, fetcher, max_tokens, capture, usage_out, think)
     return "", "unknown provider", ""
 
 
@@ -831,18 +906,71 @@ def _stream_deepseek(model_id, system, user, think, max_tokens, fetcher):
                    "output_tokens": int(u.get("completion_tokens") or 0)}
 
 
+def _stream_kimi(model_id, system, user, think, max_tokens, fetcher):
+    """Stream Kimi Code chat/completions (stream=True). Yields the normalised event dicts.
+
+    Same OpenAI delta shape as DeepSeek -- `reasoning_content` deltas are the thinking panel,
+    `content` deltas the answer -- so the Assistant's live reasoning works unchanged. Reasoning is
+    ON by default on these models; only `think is False` opts out (mirrors _call_kimi)."""
+    key = os.environ.get("KIMI_API_KEY", "").strip()
+    if not key:
+        yield {"type": "error", "message": "Kimi not configured"}
+        return
+    payload = {
+        "model": model_id,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    if think is False:
+        payload["thinking"] = {"type": "disabled"}
+    headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
+    fn = fetcher or _requests_post_stream
+    try:
+        resp = fn(_KIMI_BASE + "/chat/completions", headers, payload, _TIMEOUT)
+    except Exception as exc:
+        yield {"type": "error", "message": "could not reach Kimi (%s)" % type(exc).__name__}
+        return
+    if getattr(resp, "status_code", 0) >= 400:
+        yield {"type": "error", "message": _short_error(resp, "Kimi error")}
+        return
+    for data in _sse_data_lines(resp):
+        try:
+            chunk = json.loads(data)
+        except ValueError:
+            continue
+        for ch in (chunk.get("choices") or []):
+            delta = ch.get("delta") or {}
+            rc = delta.get("reasoning_content")
+            if rc:
+                yield {"type": "thinking", "text": rc}
+            c = delta.get("content")
+            if c:
+                yield {"type": "answer", "text": c}
+        u = chunk.get("usage")
+        if u:
+            yield {"type": "usage",
+                   "input_tokens": int(u.get("prompt_tokens") or 0),
+                   "output_tokens": int(u.get("completion_tokens") or 0)}
+
+
 def stream_call(model, system, user, show_thinking=True, think_budget=1024, think=None,
                 max_tokens=4096, token_fetcher=None, fetcher=None):
     """Stream `model` (a MODELS dict). Yields normalised event dicts (see the section header).
 
-    `show_thinking` + `think_budget` shape the visible reasoning (Gemini); `think` is DeepSeek's
-    reasoning switch. Never raises -- transport failures are yielded as an {"type":"error"} event."""
+    `show_thinking` + `think_budget` shape the visible reasoning (Gemini); `think` is the
+    DeepSeek/Kimi reasoning switch. Never raises -- transport failures are yielded as an
+    {"type":"error"} event."""
     if model["provider"] == "gemini":
         for ev in _stream_vertex(model["id"], system, user, show_thinking, think_budget, max_tokens,
                                  token_fetcher, fetcher):
             yield ev
     elif model["provider"] == "deepseek":
         for ev in _stream_deepseek(model["id"], system, user, think, max_tokens, fetcher):
+            yield ev
+    elif model["provider"] == "kimi":
+        for ev in _stream_kimi(model["id"], system, user, think, max_tokens, fetcher):
             yield ev
     else:
         yield {"type": "error", "message": "unknown provider"}

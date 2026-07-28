@@ -1,6 +1,6 @@
 """Local smoke test for the Market Intelligence AI brain -- runs entirely off-cloud, no network.
 
-Exercises intel_ai (model registry + availability gating, Vertex + DeepSeek transports, the
+Exercises intel_ai (model registry + availability gating, Vertex + DeepSeek + Kimi transports, the
 retrieve-then-curate mapping onto REAL articles, error surfacing, NO news-feed fallback), the bulk
 favourite/delete data layer, and intel_refresh end-to-end with injected transports. Proves:
   * a fabricated/out-of-range article index from the model is DROPPED (never a hallucinated link),
@@ -21,7 +21,7 @@ import tempfile
 
 _TMP = tempfile.mkdtemp(prefix="intel_ai_localtest_")
 os.environ["WORKSPACE_LOCAL_DIR"] = _TMP
-for _k in ("DEEPSEEK_API_KEY", "VERTEX_GEMINI_ENABLED", "GEMINI_API_KEY",
+for _k in ("DEEPSEEK_API_KEY", "VERTEX_GEMINI_ENABLED", "GEMINI_API_KEY", "KIMI_API_KEY",
            "VERTEX_ACCESS_TOKEN", "ASSISTANT_EMBED_ENABLED", "ASSISTANT_RERANK_ENABLED"):
     os.environ.pop(_k, None)
 
@@ -68,6 +68,17 @@ def _vertex_fetcher(url, headers, payload, timeout):
     return _Resp({"candidates": [{"content": {"parts": [{"text": _MODEL_JSON}]}}]})
 
 
+def _kimi_fetcher(url, headers, payload, timeout):
+    # Kimi is the coding-plan host, and (unlike DeepSeek) must NOT be sent json_object mode --
+    # some callers here need a top-level JSON array, which that mode forbids.
+    assert "kimi.com/coding" in url, "kimi must hit the Kimi Code host, got %s" % url
+    assert "response_format" not in payload, "kimi must not force json_object mode"
+    # A fenced reply is the realistic Kimi shape without JSON mode; the parser must cope.
+    return _Resp({"choices": [{"message": {"content": "```json\n" + _MODEL_JSON + "\n```",
+                                           "reasoning_content": "weighing the items"}}],
+                  "usage": {"prompt_tokens": 11, "completion_tokens": 6}})
+
+
 def _quota_fetcher(url, headers, payload, timeout):
     return _Resp({"error": {"message": "Your prepayment credits are depleted."}}, status=429)
 
@@ -89,13 +100,19 @@ def _check(label, condition):
 def run():
     print("[intel-ai-localtest] WORKSPACE_LOCAL_DIR = %s" % _TMP)
 
-    # 1. Registry + gating: gemini gated on Vertex flag, deepseek on its key.
-    _check("four models offered", len(intel_ai.MODELS) == 4)
+    # 1. Registry + gating: gemini gated on Vertex flag, deepseek + kimi each on their own key.
+    _check("six models offered", len(intel_ai.MODELS) == 6)
     _check("no config -> nothing available", all(not m["available"] for m in intel_ai.available_models()))
     _check("no config -> default_model ''", intel_ai.default_model() == "")
     os.environ["DEEPSEEK_API_KEY"] = "sk-test"
     _check("deepseek key -> deepseek available", intel_ai.model_available("deepseek-v4-pro"))
     _check("gemini still unavailable (no Vertex)", not intel_ai.model_available("gemini-2.5-pro"))
+    _check("kimi unavailable without its key", not intel_ai.model_available("k3"))
+    os.environ["KIMI_API_KEY"] = "sk-kimi-test"
+    _check("kimi key -> both kimi models available",
+           intel_ai.model_available("k3") and intel_ai.model_available("kimi-for-coding-highspeed"))
+    _check("kimi is priced at $0 (flat subscription, not per-token)",
+           intel_ai.cost_of("k3", 1000000, 1000000) == 0.0)
     os.environ["VERTEX_GEMINI_ENABLED"] = "1"
     _check("VERTEX_GEMINI_ENABLED -> gemini available", intel_ai.model_available("gemini-2.5-flash"))
     _check("default_model prefers first available (gemini flash)", intel_ai.default_model() == "gemini-2.5-flash")
@@ -116,6 +133,22 @@ def run():
     gout, gerr = intel_ai.curate("media_buying", "Aitest Co", ["ppc"], _CANDS,
                                  model="gemini-2.5-flash", fetcher=_vertex_fetcher, token_fetcher=_token)
     _check("vertex curate maps to real links", gerr == "" and gout and gout[0]["link"] == "https://sel.com/a1")
+
+    # 4b. curate via Kimi Code -- same contract, and a ```json-FENCED reply still parses (Kimi runs
+    # without json_object mode, so the fence is the realistic shape, not an edge case).
+    _trace = {}
+    kout, kerr = intel_ai.curate("media_buying", "Aitest Co", ["ppc"], _CANDS,
+                                 model="k3", fetcher=_kimi_fetcher, capture_thinking=True,
+                                 trace=_trace)
+    _check("kimi curate ok through a ```json fence",
+           kerr == "" and kout is not None and len(kout) == 2
+           and kout[0]["link"] == "https://sel.com/a1")
+    _check("kimi reasoning surfaced when captured", _trace.get("thinking") == "weighing the items")
+    _kusage = {}
+    intel_ai._call(intel_ai.model_meta("kimi-for-coding-highspeed"), "s", "u", _kimi_fetcher,
+                   1024, usage_out=_kusage)
+    _check("kimi reports token usage",
+           _kusage.get("input_tokens") == 11 and _kusage.get("output_tokens") == 6)
 
     # 5. Error surfacing (NO fallback -> (None, reason)).
     e1 = intel_ai.curate("media_buying", "X", [], _CANDS, model="", fetcher=_deepseek_fetcher)
@@ -151,6 +184,7 @@ def run():
         return _Resp({"choices": [{"message": {"content": _SUGGEST_JSON}}]})
 
     os.environ.pop("VERTEX_GEMINI_ENABLED", None)   # only DeepSeek left -> plain JSON-mode call
+    os.environ.pop("KIMI_API_KEY", None)
     sd, sderr = intel_ai.suggest_config("RV Co", "", model="", fetcher=_suggest_deepseek_fetcher)
     _check("suggest falls back to the default available model", sderr == "" and sd["topics"])
     os.environ["VERTEX_GEMINI_ENABLED"] = "1"
@@ -159,8 +193,10 @@ def run():
     _check("suggest surfaces a model failure", sq is None and "quota" in sqerr)
     os.environ.pop("DEEPSEEK_API_KEY", None)
     os.environ.pop("VERTEX_GEMINI_ENABLED", None)
+    os.environ.pop("KIMI_API_KEY", None)            # every provider off -> the feature no-ops
     sn, snerr = intel_ai.suggest_config("RV Co", "")
     _check("suggest with no provider -> (None, reason)", sn is None and "configured" in snerr)
+    _check("no provider at all -> any_provider_configured False", not intel_ai.any_provider_configured())
     os.environ["DEEPSEEK_API_KEY"] = "sk-test"
     os.environ["VERTEX_GEMINI_ENABLED"] = "1"
 
@@ -407,6 +443,30 @@ def run():
            "".join(e["text"] for e in dse if e["type"] == "thinking") == "hmm"
            and "".join(e["text"] for e in dse if e["type"] == "answer") == "Hi there")
 
+    _kimi_lines = [
+        b'data: {"choices":[{"delta":{"reasoning_content":"planning"}}]}',
+        b'data: {"choices":[{"delta":{"content":"Kimi"}}]}',
+        b'data: {"choices":[{"delta":{"content":" here"}}]}',
+        b'data: {"usage":{"prompt_tokens":9,"completion_tokens":3}}',
+        b'data: [DONE]',
+    ]
+
+    def _kimi_stream_fetcher(url, headers, payload, timeout):
+        assert "kimi.com/coding" in url, "kimi stream must hit the Kimi Code host"
+        assert payload.get("stream") is True, "kimi stream must set stream=true"
+        # Reasoning is ON by default on these models -- only think=False opts out.
+        assert "thinking" not in payload, "kimi stream must not disable thinking unasked"
+        return _StreamResp(_kimi_lines)
+
+    os.environ["KIMI_API_KEY"] = "sk-kimi-test"
+    kse = list(intel_ai.stream_call(intel_ai.model_meta("k3"), "s", "u",
+                                    fetcher=_kimi_stream_fetcher))
+    _check("kimi stream splits reasoning vs answer",
+           "".join(e["text"] for e in kse if e["type"] == "thinking") == "planning"
+           and "".join(e["text"] for e in kse if e["type"] == "answer") == "Kimi here")
+    _check("kimi stream reports usage",
+           [e for e in kse if e["type"] == "usage"][-1]["input_tokens"] == 9)
+
     def _err_stream_fetcher(url, headers, payload, timeout):
         return _StreamResp([], status=500)
 
@@ -429,7 +489,7 @@ def main():
         return 1
     finally:
         shutil.rmtree(_TMP, ignore_errors=True)
-    print("\n[PASS] intel AI brain: Vertex/DeepSeek, real-link mapping, no-fallback errors, bulk/favourite")
+    print("\n[PASS] intel AI brain: Vertex/DeepSeek/Kimi, real-link mapping, no-fallback errors, bulk/favourite")
     return 0
 
 
