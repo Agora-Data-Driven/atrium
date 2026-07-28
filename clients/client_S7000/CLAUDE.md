@@ -19,7 +19,7 @@ job/build_local.py  (data dict key)  ->  dash/dashboard.html  (DATA.* key)
 ## The one requirement that outranks everything else
 
 **INTO and Service 7000 must never see each other's data.** One pipeline writes **three separate
-objects**, `internal.json`, `into.json`, `service7000.json`: and **three** Cloud Run services each
+objects**: `internal.json`, `into.json` and `service7000.json`. **Three** Cloud Run services each
 pin `DATA_OBJECT` to one of them. Never ship a combined payload and filter in the browser: the full
 thing stays visible in devtools and network logs, which is a data leak, not a cosmetic issue.
 `build_local.scope_payload()` is the isolation boundary and `verify_isolation()` greps each client
@@ -65,13 +65,15 @@ tool adds over Ads Manager.
 payload, so the rendered verdict and any future alert email read the same numbers. Upstream
 contributes only `flag_state[<rule>:<entityId>]`, the **first-detected** timestamps, which a single
 snapshot cannot know. Rule 4 dedupes an ad-set end date that merely mirrors the campaign's, and
-`lifetimeEntities()` dedupes a campaign-budget-optimisation budget reported at both levels, without those, the same finding appears two or three times and the list looks padded.
+`lifetimeEntities()` dedupes a campaign-budget-optimisation budget reported at both levels.
+Without those, the same finding appears two or three times and the list looks padded.
 
 ## Brand: one file, three themes
 
 `THEMES` in `dashboard.html` carries the brand slots for `into` / `service7000` / `internal`;
 `applyTheme()` rewrites the CSS custom properties and lazily loads **only that theme's** fonts.
-**The traffic lights (`--ok/--warn/--crit/--stale/--off`) are FIXED across all three themes**: a client who learns "red means stopped" must not have red mean "Service 7000" on one route. Service
+**The traffic lights (`--ok/--warn/--crit/--stale/--off`) are FIXED across all three themes.**
+A client who learns "red means stopped" must not have red mean "Service 7000" on one route. Service
 7000's brand red `#E30613` is therefore used for nothing but the logo. Colour is never the only
 signal: every status carries a distinct glyph and a word. Logos are cropped from the supplied brand
 boards into `job/assets/` and inlined as data URIs.
@@ -113,7 +115,8 @@ relatively and the isolation stays server-side locally too. Validate JS with
 
 `deploy_s7000.ps1`: one-shot, idempotent, no dataset and no views. Builds ONE image and deploys
 **three** services from it. `-SeedDemoData` publishes the synthetic payloads; `-DashOnly` is the fast
-redeploy. Never Cloud Build from a laptop; never `--allow-unauthenticated` (org policy forbids it, the app does its own password/SSO auth behind `--no-invoker-iam-check`).
+redeploy. Never Cloud Build from a laptop; never `--allow-unauthenticated` (org policy forbids
+it, so the app does its own password/SSO auth behind `--no-invoker-iam-check`).
 
 Derived names: bucket `agora-data-driven-s7000-dash` · services `s7000-{internal,into,service}-dash`
 · SAs `s7000-{internal,into,service}-web@…` · secrets `s7000-<scope>-dash-{password,session-key}`.

@@ -7,8 +7,9 @@ THE DATA-ISOLATION POSTURE, read this before changing anything here.
     brief calls that "the single most important technical requirement in this document".
 
     So the scoping is not done in this service and it is certainly not done in the browser. One
-    export job writes THREE separate objects, `internal.json`, `into.json`, `service7000.json`:     each containing only that scope's rows, and THREE copies of this service are deployed, one per
-    scope, each with `DATA_OBJECT` pinned to its own object by an environment variable. A client's
+    export job writes THREE separate objects: `internal.json`, `into.json` and
+    `service7000.json`, each containing only that scope's rows. THREE copies of this service are
+    deployed, one per scope, each with `DATA_OBJECT` pinned to its own object by an env var. A client's
     service has no code path that can read another client's object:
 
         s7000-into-dash        DATA_OBJECT=into.json         -> into.agoradatadriven.com
@@ -35,6 +36,7 @@ The org forbids public Cloud Run, so this deploys with --no-invoker-iam-check (n
 import datetime
 import hmac
 import os
+from urllib.parse import quote
 
 from flask import (
     Flask,
@@ -80,6 +82,20 @@ app.config.update(
 # rejects oversized bodies cheaply.
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
 
+# The brand colour for this scope, used only for the favicon and the login button. The dashboard
+# itself themes from the payload; this exists because the LOGIN page renders before any payload
+# has been fetched, and a generic grey login in front of a branded dashboard looks broken.
+BRAND = {
+    "into.json": "#0A6B63",
+    "service7000.json": "#0A4EA3",
+}.get(DATA_OBJECT, "#4FA84A")
+
+# Served for /favicon.ico. Without it every first visit to the login page logs a 404 in the
+# console, which is noise an operator has to learn to ignore, and learning to ignore console
+# errors on a monitoring tool is a bad habit to teach.
+FAVICON = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
+           "<rect width='32' height='32' rx='7' fill='%s'/></svg>" % BRAND)
+
 # dashboard.html is baked into the image; read it relative to THIS file so the working directory
 # at runtime is irrelevant.
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -110,9 +126,10 @@ LOGIN_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ scope }}, sign in</title>
+<title>Sign in: {{ scope }}</title>
+<link rel="icon" href="data:image/svg+xml,{{ favicon }}">
 <style>
-  :root{ --brand:#0A4EA3; --ink:#12171D; --muted:#7C8794; --line:#E6EAEF; --crit:#C42B2B; }
+  :root{ --brand:{{ brand }}; --ink:#12171D; --muted:#7C8794; --line:#E6EAEF; --crit:#C42B2B; }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{background:#F2F4F7;color:var(--ink);display:flex;align-items:center;justify-content:center;
@@ -157,7 +174,8 @@ def index():
         # no-store: never let an intermediary or the browser cache the authenticated page.
         return Response(DASHBOARD_HTML, mimetype="text/html",
                         headers={"Cache-Control": "no-store"})
-    return render_template_string(LOGIN_HTML, error=None, scope=SCOPE_NAME)
+    return render_template_string(LOGIN_HTML, error=None, scope=SCOPE_NAME,
+                                  brand=BRAND, favicon=quote(FAVICON))
 
 
 @app.route("/login", methods=["POST"])
@@ -167,7 +185,8 @@ def login():
     if DASH_PASSWORD and hmac.compare_digest(submitted, DASH_PASSWORD):
         session["ok"] = True
         return redirect("/")
-    return render_template_string(LOGIN_HTML, error="Incorrect password.", scope=SCOPE_NAME), 401
+    return render_template_string(LOGIN_HTML, error="Incorrect password.", scope=SCOPE_NAME,
+                                  brand=BRAND, favicon=quote(FAVICON)), 401
 
 
 @app.route("/logout", methods=["GET"])
@@ -240,6 +259,15 @@ def refresh():
         return jsonify({"ok": True, "job": job})
     except Exception as e:  # noqa: BLE001, Sync must degrade to a reload, never 500
         return jsonify({"ok": False, "reason": str(e)[:160]})
+
+
+@app.route("/favicon.ico", methods=["GET"])
+def favicon():
+    # Public on purpose: it is a coloured square, not data. Without this route every first visit
+    # to the login page logs a 404, and teaching an operator to ignore console errors on a
+    # monitoring tool is a bad habit to build.
+    return Response(FAVICON, mimetype="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.route("/healthz", methods=["GET"])
