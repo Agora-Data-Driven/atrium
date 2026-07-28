@@ -164,6 +164,18 @@ auto-refresh (see those bullets below). Product name is one constant:
   polls it (~12s) to show what's fetching now / cooldowns / idle-since + a progress bar, instead of
   "check back later". Off-cloud test: `dash/_watcher_localtest.py` (in CI; stubs GCS + the YouTube
   fetchers).
+  - **Internal read bridge (Sentinel's Mentor Library, 2026-07-28):** three HMAC-gated,
+    server-to-server, READ-ONLY routes let Sentinel's Growth hub import a transcript Watcher
+    already archived instead of hand-pasting one: `GET /api/internal/watcher/channels?client=<c>`
+    (light channel list), `GET /api/internal/watcher/videos?client=<c>&channel=<id>` (light video
+    list, no transcript body), `GET /api/internal/watcher/transcript?client=<c>&channel=<id>&video=<id>`
+    (the one video's full text, on demand). Same `_internal_gate` HMAC scheme as the task bridge
+    just above (`platform-sso-key`, X-Academy-Ts/X-Academy-Sig) — no new secret. Sentinel COPIES
+    the transcript in on import; these routes never write to a workspace. Mentor content isn't any
+    one client's, so Sentinel is configured (`ATRIUM_WATCHER_CLIENT_KEY`, default `agora`) to read
+    the **`agora`** workspace's Watcher archive — add creators like Nic Saraev / Carson Reed there
+    for them to show up in Sentinel's picker. See `sentinel/backend/app/services/atrium_watcher.py`
+    (the caller) and `atrium_bridge.py` (the shared signing transport, also used by `atrium_tasks.py`).
 - **Assistant is a TEAM-ONLY tab (RAG chat over the WHOLE workspace):** grounded Q&A across every
   source the portal holds for a client — campaigns + content (incl. comments), workspace metrics,
   Market Intelligence, the calendar, client conversations, website health, every Watcher
