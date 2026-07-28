@@ -1368,7 +1368,7 @@
     .ax-wt-addmsg { margin-top: 10px; font-size: 13.5px; font-weight: 600; color: #c0322f; }
     .ax-wt-addmsg.is-busy { color: var(--ax-sub); }
     .ax-wt-addmsg.is-ok { color: #2f7a2c; }
-    .ax-wt-vidcard { margin-top: -4px; }
+    .ax-wt-sitecard, .ax-wt-vidcard { margin-top: -4px; }
     /* Filter bar: search + platform + industry + type + sort. */
     .ax-wt-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
     .ax-wt-fsearch { flex: 1 1 220px; min-width: 160px; }
@@ -3494,7 +3494,7 @@
         <!-- ============ WATCHER (team-only: YouTube channel transcript archive) ============ -->
         {% if is_superadmin %}
         <section class="ax-pane {{ 'is-active' if view.active_tab=='watcher' else '' }}" data-pane="watcher">
-          <p class="ax-lede">Watch creators and competitors across platforms (YouTube for now) and archive the transcript of everything they publish. Paste a <strong>channel</strong> link to list every video, auto-label the industry, and pull the raw transcripts, or paste a <strong>single video</strong> link to grab just that one transcript (saved under &ldquo;Saved videos&rdquo;).</p>
+          <p class="ax-lede">Watch creators and competitors across platforms and archive everything they publish. Paste a <strong>YouTube channel</strong> to list every video and pull the raw transcripts, paste a <strong>website</strong> to list every blog post and pull the full article text, or paste a <strong>single video or article</strong> link to grab just that one (saved under &ldquo;Saved videos&rdquo; / &ldquo;Saved articles&rdquo;).</p>
 
           <div class="ax-panel ax-wt-addcard">
             <div class="ax-wt-addrow">
@@ -3505,11 +3505,21 @@
             <div class="ax-wt-addmsg" id="ax-wt-addmsg" hidden></div>
           </div>
 
-          <!-- Single-video scraper: paste ONE link, get its transcript, saved under "Saved videos". -->
+          <!-- Website blog archive: paste a site, list EVERY blog post, pull each article's text. -->
+          <div class="ax-panel ax-wt-addcard ax-wt-sitecard">
+            <div class="ax-wt-addrow">
+              <span class="ax-wt-eye">{{ ic('watcher') }}</span>
+              <input class="ax-editbox ax-wt-url" id="ax-wt-surl" type="url" inputmode="url" placeholder="Or paste a WEBSITE: example.com (archives every blog post on it)">
+              <button class="ax-btn violet" id="ax-wt-sadd" type="button">Archive blog</button>
+            </div>
+            <div class="ax-wt-addmsg" id="ax-wt-smsg" hidden></div>
+          </div>
+
+          <!-- Single-item scraper: paste ONE video OR article link (auto-detected by the route). -->
           <div class="ax-panel ax-wt-addcard ax-wt-vidcard">
             <div class="ax-wt-addrow">
               <span class="ax-wt-eye">{{ ic('watcher') }}</span>
-              <input class="ax-editbox ax-wt-url" id="ax-wt-vurl" type="url" inputmode="url" placeholder="Or paste ONE video link: youtube.com/watch?v=&hellip; (grabs just that transcript)">
+              <input class="ax-editbox ax-wt-url" id="ax-wt-vurl" type="url" inputmode="url" placeholder="Or paste ONE video or article link (grabs just that one)">
               <button class="ax-btn" id="ax-wt-vget" type="button">Get transcript</button>
             </div>
             <div class="ax-wt-addmsg" id="ax-wt-vmsg" hidden></div>
@@ -3521,7 +3531,7 @@
             <select class="ax-wt-fsel" id="ax-wt-fplatform" title="Platform">
               <option value="">All platforms</option>
               {% for p in watcher|map(attribute='platform')|unique|sort %}
-              <option value="{{ p }}">{{ 'YouTube' if p == 'youtube' else p|title }}</option>
+              <option value="{{ p }}">{{ 'YouTube' if p == 'youtube' else ('Website' if p == 'blog' else p|title) }}</option>
               {% endfor %}
             </select>
             <select class="ax-wt-fsel" id="ax-wt-findustry" title="Industry">
@@ -3570,7 +3580,7 @@
                 {% endif %}
               </div>
               <div class="ax-wt-chips">
-                <span class="ax-wt-chip plat">{{ 'YouTube' if ch.platform == 'youtube' else ch.platform|title }}</span>
+                <span class="ax-wt-chip plat">{{ ch.labels.platform }}</span>
                 {% if ch.loose %}
                 <span class="ax-wt-chip">Individually saved</span>
                 {% else %}
@@ -3583,19 +3593,21 @@
                 {% endif %}
               </div>
               <div class="ax-wt-chmeta">
-                {% if not ch.loose %}<a href="{{ ch.url }}" target="_blank" rel="noopener noreferrer">Open channel</a>
-                &middot; {% endif %}{{ ch.video_count }} video{{ '' if ch.video_count == 1 else 's' }}
-                &middot; {{ ch.transcript_count }} transcript{{ '' if ch.transcript_count == 1 else 's' }}
+                {% if not ch.loose %}<a href="{{ ch.url }}" target="_blank" rel="noopener noreferrer">{{ ch.labels.open }}</a>
+                &middot; {% endif %}{{ ch.video_count }} {{ ch.labels.item if ch.video_count == 1 else ch.labels.item_plural }}
+                &middot; {{ ch.transcript_count }} {{ ch.labels.body if ch.transcript_count == 1 else ch.labels.body_plural }}
                 {% if ch.failed_count %} &middot; {{ ch.failed_count }} unavailable{% endif %}
               </div>
               <div class="ax-wt-chactions">
                 {% if ch.transcript_count < ch.video_count %}
                 <button class="ax-btn violet" type="button" data-wtfetch="{{ ch.id }}">Fetch missing</button>
+                {% if ch.can_safe_pull %}
                 {% if ch.safe_queued %}
                 <button class="ax-btn" type="button" disabled>Safe pull queued &#10003;</button>
                 {% else %}
                 <button class="ax-btn" type="button" data-wtsafe="{{ ch.id }}"
                         title="Queue this channel for the slow safe scraper. It never gets rate-limited, transcripts land automatically">Safe pull</button>
+                {% endif %}
                 {% endif %}
                 {% endif %}
                 {% if not ch.loose %}
@@ -3614,18 +3626,18 @@
                 <div class="ax-wt-vrow {{ 'is-ready' if v.has_transcript }}" data-wtvideo="{{ v.id }}" data-wtchan="{{ ch.id }}" data-wtpub="{{ v.published }}"
                      {% if v.has_transcript %}role="button" tabindex="0" title="Read the full transcript"{% endif %}>
                   <div class="ax-wt-vrt">{{ v.title }}</div>
-                  <div class="ax-wt-vrm">{% if v.published_text %}{{ v.published_text }} &middot; {% endif %}{% if v.has_transcript %}<span class="ok">{{ v.words }} words</span>{% elif v.error %}<span class="bad">no transcript</span>{% else %}pending{% endif %}</div>
+                  <div class="ax-wt-vrm">{% if v.published_text %}{{ v.published_text }} &middot; {% endif %}{% if v.has_transcript %}<span class="ok">{{ v.words }} words</span>{% elif v.error %}<span class="bad">{{ ch.labels.missing }}</span>{% else %}pending{% endif %}</div>
                 </div>
                 {% endfor %}
               </div>
               {% if ch.videos|length > 4 %}
               <button class="ax-btn ax-wt-expandbtn" type="button" data-wtexpand="{{ ch.id }}"
-                      data-labelopen="Show all {{ ch.videos|length }} videos" data-labelclose="Collapse">Show all {{ ch.videos|length }} videos</button>
+                      data-labelopen="Show all {{ ch.videos|length }} {{ ch.labels.item_plural }}" data-labelclose="Collapse">Show all {{ ch.videos|length }} {{ ch.labels.item_plural }}</button>
               {% endif %}
 
               <div class="ax-wt-full" data-wtfull="{{ ch.id }}" hidden>
                 {% if ch.videos|length > 8 %}
-                <input class="ax-editbox ax-wt-search" type="search" data-wtsearch="{{ ch.id }}" placeholder="Search video titles&hellip;">
+                <input class="ax-editbox ax-wt-search" type="search" data-wtsearch="{{ ch.id }}" placeholder="Search {{ ch.labels.item }} titles&hellip;">
                 {% endif %}
                 <div class="ax-wt-grid">
                   {% for v in ch.videos %}
@@ -3638,13 +3650,13 @@
                     {% elif v.error %}
                     <div class="ax-wt-vprev is-err">{{ v.error }}</div>
                     {% else %}
-                    <div class="ax-wt-vprev is-dim">Transcript not fetched yet.</div>
+                    <div class="ax-wt-vprev is-dim">{{ ch.labels.empty }}</div>
                     {% endif %}
                     <div class="ax-wt-vfoot">
                       {% if v.has_transcript %}
                       <span class="ax-wt-chip ok">{{ v.words }} words</span>
                       {% elif v.error %}
-                      <span class="ax-wt-chip bad">No transcript</span>
+                      <span class="ax-wt-chip bad">{{ ch.labels.missing|capitalize }}</span>
                       {% else %}
                       <span class="ax-wt-chip">Pending</span>
                       {% endif %}
@@ -3660,18 +3672,18 @@
           {% else %}
           <div class="ax-panel ax-wt-empty">
             {{ ic('watcher') }}
-            <div>No creators are being watched yet. Paste a YouTube channel link above and click <strong>Watch channel</strong>. Watcher will list every video, auto-label the industry, then pull each transcript.</div>
+            <div>Nothing is being watched yet. Paste a YouTube channel and click <strong>Watch channel</strong>, or paste a website and click <strong>Archive blog</strong>. Watcher lists everything the source has published, auto-labels the industry, then pulls each transcript or article.</div>
           </div>
           {% endif %}
 
           <!-- Full-transcript reader: opened by clicking any video card. -->
           <div class="ax-wt-modal" id="ax-wt-modal" hidden>
-            <div class="ax-wt-mbox" role="dialog" aria-modal="true" aria-label="Video transcript">
+            <div class="ax-wt-mbox" role="dialog" aria-modal="true" aria-label="Archived text">
               <div class="ax-wt-mhead">
                 <div class="ax-wt-mtitle" id="ax-wt-mtitle"></div>
                 <div class="ax-wt-mactions">
-                  <a class="ax-btn" id="ax-wt-mopen" href="#" target="_blank" rel="noopener noreferrer">Watch on YouTube</a>
-                  <button class="ax-btn" id="ax-wt-mcopy" type="button">Copy transcript</button>
+                  <a class="ax-btn" id="ax-wt-mopen" href="#" target="_blank" rel="noopener noreferrer">Open source</a>
+                  <button class="ax-btn" id="ax-wt-mcopy" type="button">Copy text</button>
                   <button class="ax-btn" id="ax-wt-mclose" type="button">Close</button>
                 </div>
               </div>
@@ -4289,7 +4301,46 @@
       });
     }
 
-    // Single-video scraper: paste ONE video link -> resolve its title, pull its transcript inline,
+    // Website blog archive: paste a site -> list EVERY blog post (sitemap-first) and store the
+    // archive. Post bodies are pulled by the SAME "Fetch missing" loop a channel uses, so this
+    // handler only has to create the card and reload.
+    var sAdd = document.getElementById("ax-wt-sadd");
+    var sMsg = document.getElementById("ax-wt-smsg");
+    function showSiteMsg(text, busy) {
+      if (!sMsg) { return; }
+      sMsg.hidden = !text;
+      sMsg.textContent = text || "";
+      sMsg.classList.toggle("is-busy", !!busy);
+    }
+    if (sAdd) {
+      sAdd.addEventListener("click", function () {
+        var input = document.getElementById("ax-wt-surl");
+        var url = input ? input.value.replace(/^\s+|\s+$/g, "") : "";
+        if (!url) { showSiteMsg("Paste a website address first.", false); return; }
+        sAdd.setAttribute("disabled", "disabled");
+        showSiteMsg("Finding the site's blog, listing every post, and labeling the industry. This can take a minute…", true);
+        post("/admin/watcher", { op: "add_site", url: url })
+          .then(function (data) {
+            if (!data || data.ok === false) {
+              sAdd.removeAttribute("disabled");
+              showSiteMsg((data && data.message) || "Could not archive that website.", false);
+              return;
+            }
+            try {
+              sessionStorage.setItem("ax-wt-site", JSON.stringify({
+                msg: "Found " + data.posts + " blog posts on " + (data.title || "that site") +
+                     " ✓ — click “Fetch missing” on its card to pull the article text." }));
+            } catch (e) {}
+            window.location.reload();
+          })
+          .catch(function () {
+            sAdd.removeAttribute("disabled");
+            showSiteMsg("Could not archive that website. Please try again.", false);
+          });
+      });
+    }
+
+    // Single-item scraper: paste ONE video link -> resolve its title, pull its transcript inline,
     // and save it under the per-client "Saved videos" pseudo-channel. On success we stash a note +
     // the video id and reload; the load-time hook at the end of this IIFE shows the note and pops the
     // transcript reader (the fresh "Saved videos" card is now in the grid). A rate-limit or a video
@@ -4308,9 +4359,9 @@
       vGet.addEventListener("click", function () {
         var input = document.getElementById("ax-wt-vurl");
         var url = input ? input.value.replace(/^\s+|\s+$/g, "") : "";
-        if (!url) { showVidMsg("Paste a single YouTube video link first.", "err"); return; }
+        if (!url) { showVidMsg("Paste a single video or article link first.", "err"); return; }
         vGet.setAttribute("disabled", "disabled");
-        showVidMsg("Fetching the transcript…", "busy");
+        showVidMsg("Fetching the text…", "busy");
         post("/admin/watcher", { op: "add_video", url: url })
           .then(function (data) {
             if (!data || data.ok === false) {
@@ -4323,10 +4374,10 @@
               note = { msg: (data.already ? "Re-fetched ✓, " : "Saved to your archive ✓, ") + data.words + " words.",
                        ok: true, open: true, chan: data.channel, vid: data.video_id };
             } else if (data.blocked) {
-              note = { msg: "YouTube is rate-limiting this server right now, but the video is saved. Click “Safe pull” on the Saved videos card below and the transcript lands automatically.",
+              note = { msg: "The source is rate-limiting this server right now, but the item is saved. Click “Fetch missing” (or “Safe pull” on a YouTube card) below and the text lands automatically.",
                        ok: false, open: false };
             } else {
-              note = { msg: "Saved, but no transcript: " + (data.error || "none is available for this video."),
+              note = { msg: "Saved, but no text: " + (data.error || "none is available for this one."),
                        ok: false, open: false };
             }
             try { sessionStorage.setItem("ax-wt-scrape", JSON.stringify(note)); } catch (e) {}
@@ -4764,17 +4815,22 @@
           return resp.json();
         })
         .then(function (data) {
-          mTitle.textContent = data.title || "Transcript";
-          if (mOpen) { mOpen.href = data.url || "#"; }
+          var isBlog = data.platform === "blog";
+          mTitle.textContent = data.title || (isBlog ? "Article" : "Transcript");
+          if (mOpen) {
+            mOpen.href = data.url || "#";
+            mOpen.textContent = isBlog ? "Read on the site" : "Watch on YouTube";
+          }
           var bits = [];
           if (data.published_text) { bits.push("Published " + data.published_text); }
           if (data.language) { bits.push("captions: " + data.language); }
           if (data.fetched_at) { bits.push("fetched " + data.fetched_at.slice(0, 10)); }
           mMeta.textContent = bits.join(" · ");
-          mBody.textContent = data.transcript || data.error || "No transcript stored for this video.";
+          mBody.textContent = data.transcript || data.error ||
+            (isBlog ? "No article text stored for this post." : "No transcript stored for this video.");
         })
         .catch(function () {
-          mTitle.textContent = "Could not load the transcript";
+          mTitle.textContent = "Could not load the text";
           mBody.textContent = "Please try again.";
         });
     }
@@ -4793,7 +4849,7 @@
         var text = mBody ? mBody.textContent : "";
         function copied() {
           mCopy.textContent = "Copied ✓";
-          window.setTimeout(function () { mCopy.textContent = "Copy transcript"; }, 1800);
+          window.setTimeout(function () { mCopy.textContent = "Copy text"; }, 1800);
         }
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(text).then(copied, function () { fallbackCopy(text, copied); });
@@ -4803,7 +4859,7 @@
       });
     }
 
-    // After a single-video scrape reloaded us: surface the saved-note and pop the transcript reader.
+    // After a single-item scrape reloaded us: surface the saved-note and pop the reader.
     try {
       var scrapeNote = sessionStorage.getItem("ax-wt-scrape");
       if (scrapeNote) {
@@ -4811,6 +4867,13 @@
         var sn = JSON.parse(scrapeNote);
         if (sn && sn.msg) { showVidMsg(sn.msg, sn.ok ? "ok" : "err"); }
         if (sn && sn.open && sn.vid) { openVideo(sn.chan, sn.vid); }
+      }
+      // Same, for the website-blog add (which only ever reports how many posts were listed).
+      var siteNote = sessionStorage.getItem("ax-wt-site");
+      if (siteNote) {
+        sessionStorage.removeItem("ax-wt-site");
+        var sitn = JSON.parse(siteNote);
+        if (sitn && sitn.msg) { showSiteMsg(sitn.msg, false); }
       }
     } catch (e) {}
   })();

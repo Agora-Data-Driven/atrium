@@ -189,6 +189,14 @@ def _status_for(client, channel, videos, phase, current_video="", fetched_here=0
 
 
 def scrape_channel(client, channel):
+    # 🔴 YouTube channels ONLY. A blog channel's archive holds page URLs keyed by a hash id, not
+    # 11-char video ids -- handing those to watcher.fetch_transcript would mark every post
+    # permanently failed. Websites don't block Cloud Run anyway, so the app fetches them itself and
+    # this scraper simply skips them (both the full sweep and the queue land here).
+    if (channel.get("platform") or "youtube") == "blog":
+        log("%s: website blog -- fetched by the app, not the safe scraper; skipping"
+            % channel.get("title", "?"))
+        return 0
     arch_gs = "%s/workspace/watcher/%s/%s.json" % (BUCKET, client, channel["id"])
     videos = gcs_download_json(arch_gs, "in_%s.json" % channel["id"]).get("videos") or []
     pending = [v for v in videos if not v.get("transcript") and not v.get("error")]

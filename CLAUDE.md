@@ -137,8 +137,8 @@ auto-refresh (see those bullets below). Product name is one constant:
   shapes, and captures each video's relative upload age → `published_text` +
   `watcher.published_estimate` ISO date) → `youtube-transcript-api` (pinned in dash requirements,
   imported LAZILY so tests/CI run without it) per video. **Classification:** each channel carries
-  `platform` (youtube-only today; the field exists so other source types can join), `industry`
-  (auto-labeled on add from the video titles via `intel_ai.classify_text` — the intel brain's
+  `platform` (the SOURCE TYPE, and what decides which fetcher runs: `youtube` or `blog`), `industry`
+  (auto-labeled on add from the video/post titles via `intel_ai.classify_text` — the intel brain's
   default model — and hand-editable), and `kind` creator|competitor. State: the small channel
   registry lives in `ws["watcher"]["channels"]` (counts + classification only); each channel's full
   archive is its OWN object `workspace/watcher/<c>/<channel_id>.json` (transcripts run to MBs —
