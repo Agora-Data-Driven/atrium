@@ -3573,7 +3573,7 @@ function renderSessions(){
   var s = DATA.sessions;
   if(s && s.enabled && s.rows && s.rows.length){
     var m = {};
-    s.rows.forEach(function(r){ m[r.src || "Unknown"] = (m[r.src || "Unknown"] || 0) + r.sessions; });
+    s.rows.forEach(function(r){ m[r.plat || "Unknown"] = (m[r.plat || "Unknown"] || 0) + r.sessions; });
     var arr = [];
     for(var k in m){ arr.push({ n:k, v:m[k] }); }
     arr.sort(function(a, b){ return b.v - a.v; });
