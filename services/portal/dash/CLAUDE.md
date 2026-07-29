@@ -124,6 +124,29 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   once a channel clears the queue. ⚠️ `scrape_channel` **skips `platform=="blog"` channels** — their
   archives hold page URLs, not video ids, and the app fetches them itself. Test:
   `python _watcher_localtest.py`.
+  **Sentinel reads this archive over the internal bridge** (`GET /api/internal/watcher/{channels,
+  videos,transcript}` in `main.py`, HMAC-gated by `_internal_gate` exactly like the task bridge):
+  Sentinel's Growth hub → Mentor Library imports a transcript instead of making a worker paste one.
+  READ-ONLY — Sentinel *copies* the text into its own table, so an Atrium outage never breaks an
+  already-imported transcript. 🔴 **Cross-workspace by default, like `/api/internal/tasks`:** a
+  MENTOR is nobody's client, so `?client=` is an OPTIONAL narrowing filter, never a required scope.
+  Channel ids come back namespaced **`"<client_key>:<channel_id>"`** (`_internal_watcher_split`
+  parses them back) because `videos`/`transcript` need the client key to locate
+  `workspace/watcher/<c>/<channel_id>.json`. `videos` deliberately omits transcript bodies (an
+  archive runs to MBs); an archived-but-unfetched item 404s `no_transcript` so Sentinel reports
+  "not available yet" rather than importing an empty string.
+  **`GET /api/internal/watcher/transcripts`** is the BULK leg behind Sentinel's "Import all": one
+  channel's whole archive, bodies included, in a single call. The bodies are FREE here —
+  `read_watcher_videos` already downloads the entire archive object to answer the light `videos`
+  listing, so fetching one transcript at a time re-downloads those same megabytes **once per
+  video** (199 GCS reads for one creator). Bounded by a **byte budget**
+  (`_INTERNAL_TRANSCRIPTS_BUDGET`, 8 MiB) rather than a fixed page size, since item sizes vary
+  hugely; a response that hits it returns `next_offset` to resume from (`0` = done) and never emits
+  an empty page — so every response stays under Cloud Run's ~32 MiB fixed-length cap while usually
+  finishing in ONE trip. Offsets index the RAW archive list so they stay stable across calls.
+  Measured live: 104 transcripts / 6.3 MB of text → 2.1 MB gzipped in ~4 s.
+  Gating, the namespacing and the paging walk are covered
+  in `_watcher_localtest.py`.
 - **`watcher_blog.py`** — the **WEBSITE twin of `watcher.py`**: paste a site, archive EVERY blog
   post's full article text. Same tab, same archive object, same UI, same Assistant index — the ONLY
   difference is which fetcher runs, chosen by the registry entry's `platform` (`youtube`|`blog`).
@@ -321,10 +344,14 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   sync trigger: the manual "Sync all dashboards" button was removed (a browser refresh must never
   fire the paid Windsor/Meta pulls); the console shows a read-only "Last synced: Xh ago" via
   `GET /admin/atrium/sync-status`. Deploy: `deploy_sync_refresh.ps1` (`-Run` once now, `-Disable` off).
-- **Task tracker (Delivery board + client Progress tab):** `ws["tasks"]` per client, helpers in
-  `workspace.py` (stages `in_process|for_launch|launched|closed` — keys canonical; lead +
-  `support_ids` never overlap; `move_task_stage` blocks `closed` while sub-tasks/change-requests
-  are open). Work is TWO-LEVEL: `maintasks[]` (named groups, each with an `assignee_id` + its own
+- **Task tracker (Delivery board + client Tasks tab):** `ws["tasks"]` per client, helpers in
+  `workspace.py` (stages `todo|in_progress|blocked|revision|completed` — keys canonical; For
+  Review + Waiting for Client were removed 2026-07-29, both fold into Blocked, and retired keys
+  incl. the old `in_process|for_launch|launched|closed` set land on a live column via
+  `_STAGE_ALIASES`/`canon_stage`; lead +
+  `support_ids` never overlap; `move_task_stage` is UNGUARDED since 2026-07-28 — it used to refuse
+  `completed` while sub-tasks/change-requests were open, but a bounced drop reads as a broken board,
+  so blockers are surfaced, not enforced). Work is TWO-LEVEL: `maintasks[]` (named groups, each with an `assignee_id` + its own
   `subs[]` of owner-carrying sub-tasks); legacy flat `subtasks[]` migrates in place via
   `normalize_task` (called by `_find_task`) and `task_subtasks()` flattens for counts/guards.
   **Service templates auto-build the breakdown (`service_templates.py`):** the New-Service form's
@@ -392,11 +419,23 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   script REOPENS the same detail overlay on the same tab after the redirect (params scrubbed via
   replaceState; the Delete form deliberately carries none). The filter bar has a client-side
   **sort selector** (`#tk-f-sort` Priority / Launch date / Client, reordering cards via
-  `data-priority/data-due/data-cname`; the default matches the server order). Client side: the `progress` tab renders
+  `data-priority/data-due/data-cname`; the default matches the server order). Client side: the `progress` tab (nav LABEL
+  "Tasks" since 2026-07-29 — the key stays `progress` in every route, never rename it) renders
   `main._progress_tasks(ws)` (client_facing + client-safe fields ONLY — owners/priority/charge/
   internal notes never reach the client HTML; the breakdown arrives as owner-less **phases**;
   the modal shows a Started → Going live timeline; cards say "Launching <date>" / "Live"; columns
-  sort by soonest launch; client stage labels In progress / In review / Live / Completed); the
+  sort by soonest launch; both surfaces share the `TASK_STAGE_META` stage labels).
+  **On that same board the TEAM gets drag-to-move + a per-card delete ✕ (2026-07-28)** — rendered
+  `{% if is_superadmin %}` only (a `.ax-pg-cardwrap` draggable wrapper per card because the card is
+  a `<button>` and a ✕ can't nest inside one; `data-pgcol` drop targets; `data-pgdel` buttons) and
+  wired in **its own IIFE** in `atrium.html`, deliberately NOT sharing the board IIFE's
+  `if (!root || !veil || !storeBox) return;` guard — the same lesson the quick-add composer records.
+  It posts the existing `/admin/task/move` + `/admin/task/delete` routes (optimistic move, rolled
+  back + alerted on failure; delete confirms, then soft-deletes to the Bin). The per-stage count
+  TILES above the board were removed in the same change (the column heads already show the counts).
+  🔴 **Never key team-only CSS off `[data-admin="1"]`** — the stylesheet ships to every viewer, so
+  the literal string lands in a client's HTML and trips `_atrium_smoketest`'s no-leak assertion
+  (cost a test round; that CSS keys off `[data-pgcol]`, which is itself team-only markup). The
   client-surface writes are `POST /w/<c>/task-comment` (comment / request-changes; resolve is
   team-only) and `POST /w/<c>/task-add` (the Progress quick-add composer, client AND team — the
   reporter is AUTO-TAGGED from the session as agora|client + a derived `reporter_name`, never a
@@ -412,7 +451,29 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   JSON → reload with the input refocused; fetch failure → `form.submit()` so a typed request is
   never lost. Covered by the "no-JS form post" checks in `_atrium_smoketest.py`.
   Notifications: `notify.client_task_commented/client_task_changes/
-  team_task_commented/team_task_resolved`. **Delivery Calendar** = a 2nd Delivery nav pane
+  team_task_commented/team_task_resolved`.
+  **THE INTERNAL BRIDGE IS TWO-WAY (2026-07-29) — Sentinel edits these cards in place.** Its board
+  already LISTED them (`GET /api/internal/tasks`); it can now open, edit, delete and comment on one
+  without leaving its own board, because "open it in Atrium to edit" is a dead end, not an answer.
+  Routes (all `_internal_gate`-HMAC'd, fail-CLOSED, **no session**): `GET /api/internal/task`
+  (`_internal_task_detail` = the board view PLUS every internal field, the two-level breakdown, the
+  comment thread and the history — wrapped by `_internal_task_envelope` with the roster/department/
+  stage vocabularies so the caller's form can render Atrium's OWN pickers), and `POST
+  /api/internal/task-{update,delete,comment}` alongside the older `-move`/`-add`. Purposes:
+  `task-detail` · `task-update` · `task-delete` · `task-comment`.
+  🔴 **Every one of them calls the SAME `workspace.py` helper the console form calls** —
+  `update_task` / `set_task_hold` / `set_task_maintasks` / `move_task_stage` / `delete_task` /
+  `add_task_comment` / `resolve_task_comment` — so the stored shape, the auto-derived
+  `TASK_DEPT_LABEL`, the history entries, the client notifications and the Bin are identical
+  whichever app the edit came from. Two details that only matter for a foreign caller: the delete
+  calls `audit.trash_put` DIRECTLY (not `_trash`, which stamps the session actor — there is no
+  session, so the Bin would credit "system"), and `_internal_audit` logs the Sentinel user's email
+  with role `sentinel`. `workspace.set_task_maintasks` is the array-shaped breakdown setter that
+  exists FOR this caller (Sentinel PATCHes the whole breakdown): an id this task doesn't already
+  hold is **re-minted** here, and a sub-task keeping its id **keeps its internal `dod`**, which
+  Sentinel neither sees nor sends. Covered end-to-end in `_atrium_smoketest.py` (gating, field
+  round-trip, label derivation, dod preservation, Bin) + `_workspace_localtest.py` (the setter).
+  **Delivery Calendar** = a 2nd Delivery nav pane
   (`data-section/pane="calendar"`) in `admin_atrium.html`: a month grid built CLIENT-SIDE from a
   hidden `#cal-store` of `.cal-ev` nodes (one per service WITH a `due_date`, server-rendered from
   `task_cols`), plotting each service on its **launch date**, discipline-tinted, ⏸ for on-hold;

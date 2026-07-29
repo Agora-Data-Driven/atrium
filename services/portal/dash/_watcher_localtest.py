@@ -40,6 +40,7 @@ os.environ["REGISTRY_LOCAL_DIR"] = _TMP
 os.environ["SESSION_SECRET"] = "test-secret"
 
 import seed_workspace   # noqa: E402
+import store            # noqa: E402
 import watcher          # noqa: E402
 import watcher_blog     # noqa: E402
 import workspace        # noqa: E402
@@ -695,6 +696,91 @@ def run():
            and st["agent"]["phase"] == "fetching"
            and st["agent"]["current_video"] == "How to model churn")
     workspace._delete_object(workspace.safe_pull_status_name())
+
+    # --- The internal Watcher bridge (Sentinel's Mentor Library imports from this archive) --------
+    # HMAC-gated, cross-workspace, and the channel id comes back namespaced "<client>:<channel_id>"
+    # so the follow-up calls can find the archive object without the caller tracking workspaces.
+    import hashlib as _hashlib
+    import hmac as _hmac
+    import time as _time
+    real_secret = main.SSO_SECRET
+    main.SSO_SECRET = "bridge-test-secret"
+    store.add_client(CLIENT, "Riverdance RV")     # list_clients() is what the bridge iterates
+
+    def _signed(purpose, path):
+        ts = str(int(_time.time()))
+        sig = _hmac.new(main.SSO_SECRET.encode(), ("%s:%s" % (purpose, ts)).encode(),
+                        _hashlib.sha256).hexdigest()
+        return c.get(path, headers={"X-Academy-Ts": ts, "X-Academy-Sig": sig})
+
+    _check("unsigned internal watcher call is refused",
+           c.get("/api/internal/watcher/channels").status_code == 401)
+    _check("a wrong signature is refused",
+           c.get("/api/internal/watcher/channels",
+                 headers={"X-Academy-Ts": str(int(_time.time())),
+                          "X-Academy-Sig": "0" * 64}).status_code == 401)
+
+    chans = _signed("watcher-channels", "/api/internal/watcher/channels").get_json()["channels"]
+    mine = [ch for ch in chans if ch["channel_key"] == chan]
+    _check("channels come back namespaced <client>:<channel_id> with their workspace",
+           len(mine) == 1 and mine[0]["id"] == "%s:%s" % (CLIENT, chan)
+           and mine[0]["client_key"] == CLIENT and mine[0]["client_name"])
+    _check("channel carries the counts + classification the picker renders",
+           mine[0]["transcript_count"] >= 1 and mine[0]["video_count"] >= 1
+           and mine[0]["kind"] and mine[0]["platform"] == "youtube")
+    _check("an unrelated ?client= filter narrows it away",
+           _signed("watcher-channels",
+                   "/api/internal/watcher/channels?client=nobody").get_json()["channels"] == [])
+
+    ns = "%s:%s" % (CLIENT, chan)
+    vids = _signed("watcher-videos",
+                   "/api/internal/watcher/videos?channel=%s" % ns).get_json()["videos"]
+    fetched = [v for v in vids if v["has_transcript"]]
+    _check("videos list is light (has_transcript + words, NO transcript body)",
+           fetched and "transcript" not in fetched[0] and fetched[0]["words"] > 0)
+
+    got = _signed("watcher-transcript", "/api/internal/watcher/transcript?channel=%s&video=%s"
+                  % (ns, fetched[0]["id"])).get_json()
+    _check("transcript returns the full text Sentinel copies in",
+           got["ok"] and got["transcript"] and got["title"])
+    pending = [v for v in vids if not v["has_transcript"]]
+    if pending:
+        _check("an unfetched item 404s (Sentinel says 'not available yet', imports nothing)",
+               _signed("watcher-transcript", "/api/internal/watcher/transcript?channel=%s&video=%s"
+                       % (ns, pending[0]["id"])).status_code == 404)
+    _check("an unknown video 404s",
+           _signed("watcher-transcript",
+                   "/api/internal/watcher/transcript?channel=%s&video=nope" % ns).status_code == 404)
+    _check("a channel with no workspace to resolve it is a 400, not a 500",
+           _signed("watcher-videos",
+                   "/api/internal/watcher/videos?channel=%s" % chan).status_code == 400)
+
+    # Bulk: the whole channel in one call (what Sentinel's "Import all" uses).
+    bulk = _signed("watcher-transcripts",
+                   "/api/internal/watcher/transcripts?channel=%s" % ns).get_json()
+    _check("bulk returns every FETCHED transcript, bodies included",
+           bulk["ok"] and len(bulk["transcripts"]) == len(fetched)
+           and all(t["transcript"] for t in bulk["transcripts"]))
+    _check("bulk reports total + a next_offset of 0 when it is done",
+           bulk["total"] == len(fetched) and bulk["next_offset"] == 0)
+    _check("bulk skips unfetched items rather than emitting empty transcripts",
+           len(bulk["transcripts"]) <= len(vids))
+    # Squeeze the byte budget so paging actually engages, then walk it like the client does.
+    real_budget = main._INTERNAL_TRANSCRIPTS_BUDGET
+    main._INTERNAL_TRANSCRIPTS_BUDGET = 1        # 1 byte -> one item per page
+    walked, off, hops = [], 0, 0
+    while hops < 20:
+        hops += 1
+        page = _signed("watcher-transcripts",
+                       "/api/internal/watcher/transcripts?channel=%s&offset=%d" % (ns, off)).get_json()
+        walked.extend(page["transcripts"])
+        off = page["next_offset"]
+        if off <= 0:
+            break
+    _check("a squeezed budget pages instead of truncating (same items, never an empty page)",
+           [t["id"] for t in walked] == [t["id"] for t in bulk["transcripts"]] and hops > 1)
+    main._INTERNAL_TRANSCRIPTS_BUDGET = real_budget
+    main.SSO_SECRET = real_secret
 
     # --- Team-only gating: a client must never see or touch Watcher ------------------------------
     with c.session_transaction() as s:

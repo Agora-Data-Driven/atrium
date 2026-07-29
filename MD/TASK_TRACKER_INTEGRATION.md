@@ -164,6 +164,11 @@ Port from `task_tracker_prototype.html` — its CSS already uses those tokens.
 billing/paid or launch conditions met; block `→ closed` while any sub-task/task is still open. Show a
 clear message listing what to resolve.
 
+> **As built (2026-07-28): there are NO stage guards.** The close guard shipped, then came out —
+> a drop that bounces back reads as a broken board. Blockers are surfaced on the card (progress
+> bar, "Changes requested" tag), never enforced. `move_task_stage` still raises `ValueError` in
+> principle and both routes still catch it, so re-introducing a guard needs no route change.
+
 ---
 
 ## 6. Surface B — Client "Progress" tab (client-facing, read-only + comment)

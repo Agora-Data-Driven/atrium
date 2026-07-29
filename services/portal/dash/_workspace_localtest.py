@@ -265,30 +265,62 @@ def run():
     _check("task resumed clears the reason",
            th2["on_hold"] is False and th2["hold_reason"] == "" and th2["history"][-1]["new"] == "resumed")
 
-    # A client change request blocks closing until the team resolves it (and open sub-tasks block too).
+    # A client change request is RECORDED and surfaced -- but it no longer vetoes a stage move
+    # (2026-07-28: the board drags freely; see move_task_stage).
     _task, chg = workspace.add_task_comment(CLIENT, task["id"], "client", "Daniela",
                                             "Please swap the hero image.", kind="changes")
     _check("change request recorded unresolved", chg["resolved"] is False)
     _check("open-changes flag derives from the thread",
            len(workspace.task_open_changes(t3)) == 0 and
            len(workspace.task_open_changes(workspace._find_task(workspace.load_workspace(CLIENT), task["id"]))) == 1)
-    try:
-        workspace.move_task_stage(CLIENT, task["id"], "completed")
-        _check("close blocked while sub-task + change request open", False)
-    except ValueError as exc:
-        _check("close blocked while sub-task + change request open",
-               "Create info pack" in str(exc) and "change request" in str(exc))
+    workspace.move_task_stage(CLIENT, task["id"], "completed")
+    _check("close allowed with an open sub-task + change request (no guard)",
+           workspace._find_task(workspace.load_workspace(CLIENT), task["id"])["stage"] == "completed"
+           and len(workspace.task_open_changes(
+               workspace._find_task(workspace.load_workspace(CLIENT), task["id"]))) == 1)
     workspace.move_task_stage(CLIENT, task["id"], "in_progress", actor="info@agoradatadriven.com")
     t4 = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
     _check("stage move recorded in history",
-           t4["stage"] == "in_progress" and t4["history"][-1]["old"] == "todo"
+           t4["stage"] == "in_progress" and t4["history"][-1]["old"] == "completed"
            and t4["history"][-1]["new"] == "in_progress")
     workspace.resolve_task_comment(CLIENT, task["id"], chg["id"])
     workspace.set_subtask_done(CLIENT, task["id"], sub2["id"], True)
     workspace.set_subtask_done(CLIENT, task["id"], sub3["id"], True)
     workspace.move_task_stage(CLIENT, task["id"], "closed")
-    _check("close allowed once sub-tasks done + changes resolved",
+    _check("the legacy 'closed' stage key still lands on completed",
            workspace._find_task(workspace.load_workspace(CLIENT), task["id"])["stage"] == "completed")
+
+    # set_task_maintasks: the whole breakdown in ONE write, for a caller that edits it as an array
+    # (Sentinel's drawer). Two rules make that safe to accept from another system: an id this task
+    # doesn't already hold is re-minted here, and a sub-task that keeps its id keeps the internal
+    # `dod` the other side can neither see nor send. On its own task, so nothing else is disturbed.
+    bd_task = workspace.add_task(CLIENT, {"title": "Breakdown-by-array", "stage": "todo"})
+    _bd, bd_main = workspace.add_maintask(CLIENT, bd_task["id"], "Build", "zhen@100.digital")
+    _bd, bd_sub = workspace.add_subtask(CLIENT, bd_task["id"], "Draft it",
+                                        maintask_id=bd_main["id"], dod="Signed off by the lead")
+    t_bd = workspace.set_task_maintasks(CLIENT, bd_task["id"], [
+        {"id": bd_main["id"], "text": "Build", "assignee_id": "ian@100.digital",
+         "subs": [{"id": bd_sub["id"], "text": "Draft it v2", "done": True},
+                  {"id": "st_new_from_sentinel", "text": "Brand new step"},
+                  {"id": "", "text": "   "}]},
+        {"id": "", "text": "", "subs": []},
+    ], actor="leo@agora.ph")
+    _check("set_task_maintasks replaces the whole breakdown in one write",
+           [m["text"] for m in t_bd["maintasks"]] == ["Build", "Untitled"]
+           and t_bd["maintasks"][0]["assignee_id"] == "ian@100.digital")
+    _check("a sub-task that keeps its id keeps its dod, and takes the new text/done",
+           t_bd["maintasks"][0]["subs"][0]["id"] == bd_sub["id"]
+           and t_bd["maintasks"][0]["subs"][0]["dod"] == "Signed off by the lead"
+           and t_bd["maintasks"][0]["subs"][0]["text"] == "Draft it v2"
+           and t_bd["maintasks"][0]["subs"][0]["done"] is True)
+    _check("a foreign placeholder id is re-minted, and a blank step is dropped",
+           len(t_bd["maintasks"][0]["subs"]) == 2
+           and t_bd["maintasks"][0]["subs"][1]["id"] != "st_new_from_sentinel"
+           and t_bd["maintasks"][0]["subs"][1]["id"].startswith("st_"))
+    _check("the breakdown edit is stamped in history",
+           t_bd["history"][-1]["field"] == "breakdown"
+           and t_bd["history"][-1]["actor"] == "leo@agora.ph")
+    workspace.delete_task(CLIENT, bd_task["id"])
 
     workspace.delete_subtask(CLIENT, task["id"], sub2["id"])
     _check("sub-task deleted",
@@ -393,18 +425,24 @@ def run():
     _t, edited = workspace.edit_subtask(CLIENT, seeded["id"], sub["id"], dod="")
     _check("edit_subtask can clear the done-when", edited["dod"] == "" and edited["text"] == "Final QA pass")
 
-    # 11. A service with NO sub-tasks can't be completed (nothing was tracked as done).
+    # 11. Stage moves are UNGUARDED (2026-07-28): a service with no sub-tasks at all completes too.
+    # This used to raise; the board drags freely now and the blockers are only surfaced, not enforced.
     empty = workspace.add_task(CLIENT, {"title": "Empty custom service", "department": "development"})
-    _blocked = False
-    try:
-        workspace.move_task_stage(CLIENT, empty["id"], "completed")
-    except ValueError as exc:
-        _blocked = "no sub-tasks" in str(exc)
-    _check("closing an empty (no sub-task) service is blocked", _blocked)
-    # It can still move forward through the earlier stages (only 'completed' is guarded).
+    workspace.move_task_stage(CLIENT, empty["id"], "completed")
+    _check("an empty (no sub-task) service can be completed",
+           workspace._find_task(workspace.load_workspace(CLIENT), empty["id"])["stage"] == "completed")
+    workspace.move_task_stage(CLIENT, empty["id"], "revision")
+    _check("an empty service can still move to Revision Needed",
+           workspace._find_task(workspace.load_workspace(CLIENT), empty["id"])["stage"] == "revision")
+    # The 2026-07-29 stage trim: For Review / Waiting for Client are retired keys that both meant
+    # "blocked on someone" -- a move under either key (e.g. a stale Sentinel bridge write) lands
+    # the task on Blocked instead of erroring or vanishing off the board.
     workspace.move_task_stage(CLIENT, empty["id"], "for_review")
-    _check("an empty service can still advance to For Review",
-           workspace._find_task(workspace.load_workspace(CLIENT), empty["id"])["stage"] == "for_review")
+    _check("the retired 'for_review' stage key lands on blocked",
+           workspace._find_task(workspace.load_workspace(CLIENT), empty["id"])["stage"] == "blocked")
+    workspace.move_task_stage(CLIENT, empty["id"], "waiting_client")
+    _check("the retired 'waiting_client' stage key lands on blocked",
+           workspace._find_task(workspace.load_workspace(CLIENT), empty["id"])["stage"] == "blocked")
 
     print("[localtest] PASS")
     return 0

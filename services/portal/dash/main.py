@@ -1352,7 +1352,6 @@ def _progress_tasks(ws):
             "pct": (int(round(100.0 * done / len(subs))) if subs else 0),
             "open_changes": len(workspace.task_open_changes(t)),
             "comments": comments, "comment_count": len(comments),
-            "in_review": stage == "for_review",
         }
         (by_key.get(stage) or cols[0])["tasks"].append(view)
     for col in cols:
@@ -1507,77 +1506,410 @@ def internal_task_add():
     return jsonify(ok=True, task_id=task["id"], stage=task["stage"])
 
 
-# --- Internal watcher bridge (Sentinel builds a personal "mentor library" from Watcher) -----------
-# Lets a worker import a full transcript already archived by Atrium's Watcher (paste-a-channel,
-# auto-fetch every video, no copy-pasting) into their Sentinel Growth hub instead of hand-pasting
-# text. Same HMAC scheme as the task bridge above. READ-ONLY: Sentinel copies a transcript in on
-# request; it never writes back to a workspace here.
+# --- Internal task bridge, WRITE half: Sentinel edits an Atrium card in place --------------------
+# A card the team can see but not edit is a dead end -- "open it in the other app" is a bug report
+# waiting to happen, and it was one (2026-07-29). Sentinel's board is a full editing surface for
+# Atrium-owned work now: these four routes are the detail read + the three mutations its drawer
+# needs (patch fields, delete, comment/resolve). Same HMAC gate, same fail-CLOSED posture, and the
+# SAME workspace helpers the console's own forms call -- so an edit from either app is one code
+# path with one audit trail. Sentinel never learns Atrium's storage: the wire format here is
+# Atrium's own field names, and Sentinel translates on its side (services/atrium_tasks.py).
+
+def _internal_audit(client_key, actor, action, detail=""):
+    """Audit a mutation that arrived over the bridge. There is no session on an internal call, so
+    the actor is the Sentinel user's email carried in the payload (role 'sentinel' makes the origin
+    obvious in the Activity feed). Best-effort, exactly like `_audit`."""
+    who = (actor or "").strip() or "sentinel"
+    audit.log_activity(client_key, who, "sentinel", action, detail)
+    notify.activity_alert(who, "sentinel", client_key, action, detail)
+
+
+def _internal_find_task(client_key, task_id):
+    """(workspace, task) for one client's task -- (ws, None) when it's gone, ({}, None) on a
+    workspace that can't be read. Normalized, so the two-level breakdown is always present."""
+    try:
+        ws = workspace.load_workspace(client_key) or {}
+    except Exception:
+        return {}, None
+    task = next((t for t in workspace.tasks_of(ws) if t.get("id") == task_id), None)
+    return ws, task
+
+
+def _internal_task_detail(client_key, client_name, t):
+    """One Atrium task in FULL -- the shape Sentinel's detail drawer renders.
+
+    A superset of `_internal_task_view` (the board card): every internal field the team may edit,
+    plus the work breakdown, the comment thread and the activity history. Owner ids are the
+    roster's EMAILS; each row carries its resolved name so the reading side needs no lookup table.
+    """
+    t = workspace.normalize_task(dict(t))
+    names = {p["id"]: p["name"] for p in _team_roster()}
+    view = _internal_task_view(client_key, client_name, t)
+    view.update({
+        "campaign": t.get("campaign", ""),
+        "content_type": t.get("content_type", ""),
+        "service_charge": t.get("service_charge", ""),
+        "service_charge_label": _money_label(t.get("service_charge")),
+        "client_note": t.get("client_note", ""),
+        "internal_notes": t.get("internal_notes", ""),
+        "deliverable_url": t.get("deliverable_url", ""),
+        "hold_reason": t.get("hold_reason", ""),
+        "account_manager_id": t.get("account_manager_id", ""),
+        "department_label": dict(TASK_DEPARTMENTS).get(t.get("department", ""), ""),
+        "lead_name": names.get(t.get("lead_id", ""), ""),
+        "support_names": [names.get(s, s) for s in (t.get("support_ids") or [])],
+        "open_changes": len(workspace.task_open_changes(t)),
+        "maintasks": [{
+            "id": m.get("id", ""), "text": m.get("text", ""),
+            "assignee_id": m.get("assignee_id", ""),
+            "assignee_name": names.get(m.get("assignee_id", ""), ""),
+            "subs": [{
+                "id": s.get("id", ""), "text": s.get("text", ""), "done": bool(s.get("done")),
+                "assignee_id": s.get("assignee_id", ""),
+                "assignee_name": names.get(s.get("assignee_id", ""), ""),
+                "dod": s.get("dod", ""),
+            } for s in (m.get("subs") or [])],
+        } for m in (t.get("maintasks") or [])],
+        "comments": [{
+            "id": c.get("id", ""), "sender": c.get("sender", ""),
+            "sender_name": c.get("sender_name", ""), "body": c.get("body", ""),
+            "created_at": c.get("created_at", ""), "kind": c.get("kind", "comment"),
+            "resolved": bool(c.get("resolved")),
+        } for c in (t.get("comments") or [])],
+        "history": [{
+            "actor": h.get("actor", ""), "field": h.get("field", ""),
+            "old": h.get("old", ""), "new": h.get("new", ""), "at": h.get("at", ""),
+        } for h in (t.get("history") or [])],
+    })
+    return view
+
+
+def _internal_task_envelope(client_key, task, ws=None):
+    """The full answer both the detail read and the update write return: the task PLUS the pickers'
+    vocabularies (roster / departments / stages), so the caller's drawer can re-render an edited
+    task without a second round trip just to refresh its dropdowns. `ws` is the already-loaded
+    workspace when the caller has one (the display name is the only thing it's read for)."""
+    reg = store.get_client(client_key) or {}
+    name = (ws or {}).get("display_name") or reg.get("name") or client_key
+    return {
+        "ok": True,
+        "task": _internal_task_detail(client_key, name, task),
+        "roster": _team_roster(),
+        "departments": [{"key": k, "label": lbl} for k, lbl in TASK_DEPARTMENTS],
+        "stages": [{"key": k, "label": lbl} for k, lbl in TASK_STAGE_META],
+    }
+
+
+@app.route("/api/internal/task", methods=["GET"])
+def internal_task_detail():
+    """ONE Atrium task in full, plus the pickers' vocabularies. HMAC-gated, server-to-server.
+
+    Fail-CLOSED on purpose, unlike the board LIST: a list that degrades to [] still renders a
+    board, but a drawer that degrades to "nothing here" on an unreachable Atrium would look
+    exactly like a deleted card. The caller needs to be able to tell those apart."""
+    gate = _internal_gate("task-detail")
+    if gate:
+        return gate
+    client_key = (request.args.get("client") or "").strip()
+    task_id = (request.args.get("task") or "").strip()
+    ws, task = _internal_find_task(client_key, task_id)
+    if task is None:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    return jsonify(**_internal_task_envelope(client_key, task, ws))
+
+
+# What `/api/internal/task-update` will patch. Deliberately NOT the whole of workspace._TASK_FIELDS:
+# `labels` is auto-derived from the department here (as it is on the console form), and on_hold /
+# hold_reason / maintasks each go through their own helper below so their history entries are right.
+_INTERNAL_TASK_PATCH = ("title", "department", "lead_id", "support_ids", "priority", "campaign",
+                        "content_type", "start_date", "due_date", "service_charge",
+                        "client_facing", "client_note", "deliverable_url", "internal_notes")
+
+
+@app.route("/api/internal/task-update", methods=["POST"])
+def internal_task_update():
+    """Edit an Atrium task from Sentinel's board -- the write half of the detail drawer.
+
+    Every field the console's own edit form owns, plus the work breakdown and the hold switch.
+    Each group goes through the SAME workspace helper the console form calls, so the stored shape,
+    the guards and the history entries are identical no matter which app the edit came from."""
+    gate = _internal_gate("task-update")
+    if gate:
+        return gate
+    payload = request.get_json(silent=True) or {}
+    client_key = (payload.get("client_key") or "").strip()
+    task_id = (payload.get("task_id") or "").strip()
+    actor = (payload.get("actor") or "sentinel").strip()
+    raw = payload.get("fields") if isinstance(payload.get("fields"), dict) else {}
+    fields = {k: raw[k] for k in _INTERNAL_TASK_PATCH if k in raw}
+    if "department" in fields:
+        # The label follows the department, exactly as _task_fields_from_form derives it.
+        lbl = TASK_DEPT_LABEL.get((fields["department"] or "").strip())
+        fields["labels"] = [lbl] if lbl else []
+    if "service_charge" in fields:
+        fields["service_charge"] = str(fields["service_charge"] or "").replace("$", "").replace(",", "").strip()
+    task = None
+    try:
+        if fields:
+            task = workspace.update_task(client_key, task_id, fields, actor=actor)
+        if "on_hold" in raw:
+            # Sentinel's edit form posts the hold switch on EVERY save. Only a real change goes
+            # through set_task_hold, or each save would stamp a bogus "resumed" history entry.
+            _ws0, cur = _internal_find_task(client_key, task_id)
+            if cur is not None and (bool(raw.get("on_hold")) != bool(cur.get("on_hold"))
+                                    or (raw.get("hold_reason") or "") != (cur.get("hold_reason") or "")):
+                task = workspace.set_task_hold(client_key, task_id, bool(raw.get("on_hold")),
+                                               raw.get("hold_reason") or "", actor=actor)
+        if isinstance(raw.get("maintasks"), list):
+            task = workspace.set_task_maintasks(client_key, task_id, raw["maintasks"], actor=actor)
+        if "stage" in raw:
+            task = workspace.move_task_stage(client_key, task_id,
+                                             workspace.canon_stage(raw.get("stage")), actor=actor)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 409
+    ws = None
+    if task is None:                      # nothing recognisable to change -- report the task as-is
+        ws, task = _internal_find_task(client_key, task_id)
+        if task is None:
+            return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    else:
+        _internal_audit(client_key, actor, "edited task (from Sentinel)", task.get("title", ""))
+    return jsonify(**_internal_task_envelope(client_key, task, ws))
+
+
+@app.route("/api/internal/task-delete", methods=["POST"])
+def internal_task_delete():
+    """Delete an Atrium task from Sentinel's board -> the console Bin (restorable, 30 days).
+
+    Soft-deletes exactly like the console's own delete, so a card removed from the wrong board is
+    still recoverable from the app that owns it."""
+    gate = _internal_gate("task-delete")
+    if gate:
+        return gate
+    payload = request.get_json(silent=True) or {}
+    client_key = (payload.get("client_key") or "").strip()
+    task_id = (payload.get("task_id") or "").strip()
+    actor = (payload.get("actor") or "sentinel").strip()
+    try:
+        removed = workspace.delete_task(client_key, task_id)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    # Straight to audit.trash_put rather than `_trash`, which stamps the SESSION actor -- there is
+    # no session on an internal call, so the Bin would credit the deletion to "system".
+    audit.trash_put(client_key, "task", removed.get("title") or task_id, removed,
+                    actor=(actor or "sentinel"), role="sentinel")
+    _internal_audit(client_key, actor, "deleted task (from Sentinel)", removed.get("title", ""))
+    return jsonify(ok=True, trash_ttl_days=audit.TRASH_TTL_DAYS)
+
+
+@app.route("/api/internal/task-comment", methods=["POST"])
+def internal_task_comment():
+    """Comment on an Atrium task from Sentinel, or resolve a client's change request (op=add|resolve).
+
+    A comment from the internal board is a TEAM comment (sender "agora"), so on a client-facing
+    task it lands in the client's Progress thread and notifies them -- identical to the console."""
+    gate = _internal_gate("task-comment")
+    if gate:
+        return gate
+    payload = request.get_json(silent=True) or {}
+    client_key = (payload.get("client_key") or "").strip()
+    task_id = (payload.get("task_id") or "").strip()
+    actor = (payload.get("actor") or "sentinel").strip()
+    op = (payload.get("op") or "add").strip()
+    if op == "resolve":
+        try:
+            task, _c, open_left = workspace.resolve_task_comment(
+                client_key, task_id, (payload.get("comment_id") or "").strip())
+        except KeyError:
+            return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+        if task.get("client_facing"):
+            notify.team_task_resolved(client_key, workspace.load_workspace(client_key), task)
+        _internal_audit(client_key, actor, "resolved task change request (from Sentinel)",
+                        task.get("title", ""))
+        return jsonify(ok=True, open_changes=open_left)
+    body = (payload.get("body") or "").strip()
+    if not body:
+        return Response('{"error":"empty"}', status=400, mimetype="application/json")
+    sender_name = (payload.get("actor_name") or "").strip() or _admin_sender_name(actor)
+    try:
+        task, comment = workspace.add_task_comment(client_key, task_id, "agora", sender_name, body)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    if task.get("client_facing"):
+        notify.team_task_commented(client_key, workspace.load_workspace(client_key), task, body,
+                                   sender_name)
+    _internal_audit(client_key, actor, "commented on task (from Sentinel)", task.get("title", ""))
+    return jsonify(ok=True, comment=comment, comment_count=len(task.get("comments") or []),
+                   open_changes=len(workspace.task_open_changes(task)))
+
+
+# --- Internal Watcher bridge (Sentinel's Mentor Library reads this archive) ----------------------
+# Watcher already fetches every watched creator's full transcripts; Sentinel's Growth hub imports
+# one of those instead of making a worker hand-paste it (sentinel/app/services/atrium_watcher.py).
+# READ-ONLY -- Sentinel COPIES the text into its own table, so nothing here ever mutates.
+#
+# 🔴 Cross-workspace BY DEFAULT, exactly like /api/internal/tasks. Watcher's registry is per-client,
+# but a MENTOR is nobody's client: the creators a worker learns from sit in whichever workspace the
+# team happened to add them to. So `client` is an OPTIONAL narrowing filter, never a required scope
+# -- omit it and every workspace's channels come back. (Sentinel used to pin ONE workspace key,
+# defaulting to "agora"; no such workspace has ever existed, so the picker was permanently empty
+# while 15 creators sat archived across four other workspaces.)
+#
+# Each channel id comes back namespaced "<client_key>:<channel_id>" -- the same trick
+# `_internal_task_view` uses for `atrium_id` -- because the follow-up videos/transcript calls need
+# the client key to locate the archive object (workspace/watcher/<c>/<channel_id>.json).
+def _internal_watcher_split(raw, fallback_client=""):
+    """"<client>:<channel_id>" -> (client, channel_id). A bare id falls back to `fallback_client`,
+    so a caller that pins one workspace can still pass the plain id it already had."""
+    raw = (raw or "").strip()
+    if ":" in raw:
+        client_key, _, channel_id = raw.partition(":")
+        return client_key.strip(), channel_id.strip()
+    return (fallback_client or "").strip(), raw
+
+
 @app.route("/api/internal/watcher/channels", methods=["GET"])
 def internal_watcher_channels():
-    """Every watched channel in one client workspace, light fields only."""
+    """Every watched channel, across every workspace (or one, with `?client=`). HMAC-gated."""
     gate = _internal_gate("watcher-channels")
     if gate:
         return gate
-    client = (request.args.get("client") or "").strip()
-    if not client:
-        return Response('{"error":"missing client"}', status=400, mimetype="application/json")
-    try:
-        ws = workspace.load_workspace(client) or {}
-    except Exception:
-        return jsonify(ok=True, channels=[])
-    out = [{
-        "id": ch.get("id", ""),
-        "title": ch.get("title", ""),
-        "kind": ch.get("kind", "creator"),
-        "industry": ch.get("industry", ""),
-        "video_count": ch.get("video_count", 0),
-        "transcript_count": ch.get("transcript_count", 0),
-    } for ch in workspace.watcher_channels(ws)]
+    only = (request.args.get("client") or "").strip()
+    out = []
+    for c in store.list_clients():
+        key = c.get("key") or ""
+        if not key or (only and key != only):
+            continue
+        try:
+            ws = workspace.load_workspace(key) or {}
+        except Exception:
+            # One unreadable workspace must never blank the whole picker.
+            continue
+        name = ws.get("display_name") or c.get("name") or key
+        for ch in workspace.watcher_channels(ws):
+            channel_id = ch.get("id") or ""
+            if not channel_id:
+                continue
+            out.append({
+                "id": "%s:%s" % (key, channel_id),
+                "channel_key": channel_id,
+                "client_key": key,
+                "client_name": name,
+                "title": ch.get("title") or "",
+                "url": ch.get("url") or "",
+                "platform": ch.get("platform") or "youtube",
+                "industry": ch.get("industry") or "",
+                "kind": ch.get("kind") or "creator",
+                "video_count": int(ch.get("video_count") or 0),
+                "transcript_count": int(ch.get("transcript_count") or 0),
+                "last_fetch": ch.get("last_fetch") or "",
+            })
+    # Most-fetched first: a channel with transcripts is the one worth importing from.
+    out.sort(key=lambda ch: (-ch["transcript_count"], (ch["title"] or "").lower()))
     return jsonify(ok=True, channels=out)
 
 
 @app.route("/api/internal/watcher/videos", methods=["GET"])
 def internal_watcher_videos():
-    """One channel's videos, light fields only (no transcript body -- see .../transcript)."""
+    """One channel's archived items -- LIGHT fields only.
+
+    Deliberately no transcript bodies: a channel's archive runs to megabytes, and the picker only
+    needs to know which items HAVE text. The chosen one is fetched singly below."""
     gate = _internal_gate("watcher-videos")
     if gate:
         return gate
-    client = (request.args.get("client") or "").strip()
-    channel_id = (request.args.get("channel") or "").strip()
-    if not client or not channel_id:
-        return Response('{"error":"missing client/channel"}', status=400, mimetype="application/json")
+    client_key, channel_id = _internal_watcher_split(request.args.get("channel"),
+                                                     request.args.get("client"))
+    if not client_key or not channel_id:
+        return Response('{"error":"missing channel"}', status=400, mimetype="application/json")
     out = []
-    for v in workspace.read_watcher_videos(client, channel_id):
+    for v in workspace.read_watcher_videos(client_key, channel_id):
         text = v.get("transcript") or ""
         out.append({
             "id": v.get("id", ""),
             "title": v.get("title", ""),
             "url": v.get("url", ""),
             "has_transcript": bool(text),
-            "words": len(text.split()) if text else 0,
+            "words": len(text.split()),
             "published": v.get("published", ""),
+            "published_text": v.get("published_text", ""),
         })
+    out.sort(key=lambda v: v.get("published") or "", reverse=True)
     return jsonify(ok=True, videos=out)
 
 
 @app.route("/api/internal/watcher/transcript", methods=["GET"])
 def internal_watcher_transcript():
-    """One video's full transcript -- fetched on demand, the moment Sentinel imports it."""
+    """One item's FULL text -- what Sentinel copies into its own mentor_transcripts row."""
     gate = _internal_gate("watcher-transcript")
     if gate:
         return gate
-    client = (request.args.get("client") or "").strip()
-    channel_id = (request.args.get("channel") or "").strip()
+    client_key, channel_id = _internal_watcher_split(request.args.get("channel"),
+                                                     request.args.get("client"))
     video_id = (request.args.get("video") or "").strip()
-    if not client or not channel_id or not video_id:
-        return Response('{"error":"missing client/channel/video"}', status=400, mimetype="application/json")
-    for v in workspace.read_watcher_videos(client, channel_id):
+    if not client_key or not channel_id or not video_id:
+        return Response('{"error":"missing channel or video"}', status=400,
+                        mimetype="application/json")
+    for v in workspace.read_watcher_videos(client_key, channel_id):
         if v.get("id") == video_id:
-            if not v.get("transcript"):
-                return Response('{"error":"no_transcript"}', status=404, mimetype="application/json")
+            text = v.get("transcript") or ""
+            if not text:
+                # Archived but never fetched (or permanently unavailable). Sentinel reads 404 as
+                # "not available yet" and says so, rather than importing an empty transcript.
+                return Response('{"error":"no_transcript"}', status=404,
+                                mimetype="application/json")
             return jsonify(ok=True, title=v.get("title", ""), url=v.get("url", ""),
-                           transcript=v.get("transcript", ""))
+                           transcript=text)
     return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+
+
+# One channel's WHOLE archive in a single call -- what Sentinel's "Import all" uses. Reading the
+# bodies costs nothing extra: read_watcher_videos already downloads the entire archive object to
+# answer the light /videos listing, so the alternative (Sentinel fetching one transcript at a time)
+# re-downloads those same megabytes once PER VIDEO -- 199 GCS reads for one creator.
+#
+# Bounded by a byte budget rather than a fixed page size, because item sizes vary wildly (a short
+# clip vs a 90-minute talk). A response that hits the budget returns `next_offset` for the caller to
+# resume from; `next_offset == 0` means done. Keeps every response well under Cloud Run's ~32 MiB
+# fixed-length cap while still usually finishing in ONE round trip.
+_INTERNAL_TRANSCRIPTS_BUDGET = 8 * 1024 * 1024
+
+
+@app.route("/api/internal/watcher/transcripts", methods=["GET"])
+def internal_watcher_transcripts():
+    """Every FETCHED transcript in one channel (bodies included), from `offset`, budget-bounded."""
+    gate = _internal_gate("watcher-transcripts")
+    if gate:
+        return gate
+    client_key, channel_id = _internal_watcher_split(request.args.get("channel"),
+                                                     request.args.get("client"))
+    if not client_key or not channel_id:
+        return Response('{"error":"missing channel"}', status=400, mimetype="application/json")
+    try:
+        offset = max(0, int(request.args.get("offset") or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    videos = workspace.read_watcher_videos(client_key, channel_id)
+    out = []
+    spent = 0
+    next_offset = 0
+    # Offsets index the RAW archive list (not the filtered one) so they stay stable across calls.
+    for i in range(offset, len(videos)):
+        v = videos[i]
+        text = v.get("transcript") or ""
+        if not text:
+            continue
+        if out and spent + len(text) > _INTERNAL_TRANSCRIPTS_BUDGET:
+            next_offset = i           # resume here; never return an empty page for one huge item
+            break
+        spent += len(text)
+        out.append({"id": v.get("id", ""), "title": v.get("title", ""), "url": v.get("url", ""),
+                    "transcript": text, "words": len(text.split()),
+                    "published": v.get("published", "")})
+    return jsonify(ok=True, transcripts=out, next_offset=next_offset,
+                   total=len([v for v in videos if v.get("transcript")]))
 
 
 @app.route("/w/<client>/task-comment", methods=["POST"])
@@ -3951,9 +4283,9 @@ def atrium_admin_reply_inline(client):
 
 # --- Task tracker: the internal delivery board (spec: TASK_TRACKER_INTEGRATION.md) ---------------
 # Cross-client team board in the operator console (Delivery -> Task Board) + the client-facing
-# read-only Progress tab in each workspace. One data source: ws["tasks"] per client (workspace.py).
-# Departments come from the accounts roster; stage KEYS are canonical (workspace.TASK_STAGES) and
-# the client sees friendlier labels (In progress / In review / Live / Completed) on their tab.
+# Tasks tab (tab key `progress` -- canonical, never rename) in each workspace. One data source:
+# ws["tasks"] per client (workspace.py). Departments come from the accounts roster; stage KEYS are
+# canonical (workspace.TASK_STAGES) and both surfaces show the same TASK_STAGE_META labels.
 TASK_DEPARTMENTS = (("acquisition", "Acquisition"), ("lifecycle", "Lifecycle"),
                     ("data", "Data Analyst"), ("development", "Development"),
                     ("bidbrain", "Bidbrain"))
@@ -3977,13 +4309,13 @@ def _discipline(labels):
         if lbl in TASK_DISC_CLASS:
             return lbl, TASK_DISC_CLASS[lbl]
     return "", ""
-# Stage columns MIRROR SENTINEL'S BOARD exactly (sentinel constants.TASK_STATUSES) so the internal
-# board and the client Progress board are the same interface with the same words -- the whole point
-# of the 2026-07-27 change. Keys are canonical (workspace.TASK_STAGES); labels are Sentinel's.
+# Stage columns, in board order. Wording matches Sentinel's board (2026-07-27); on 2026-07-29
+# For Review + Waiting for Client were removed -- both meant "blocked on someone", so they fold
+# into Blocked (workspace._STAGE_ALIASES lands old rows there) and Blocked moved up to sit right
+# after In Progress. Keys are canonical (workspace.TASK_STAGES).
 TASK_STAGE_META = (("todo", "To Do"), ("in_progress", "In Progress"),
-                   ("for_review", "For Review"), ("waiting_client", "Waiting for Client"),
-                   ("revision", "Revision Needed"), ("completed", "Completed"),
-                   ("blocked", "Blocked"))
+                   ("blocked", "Blocked"), ("revision", "Revision Needed"),
+                   ("completed", "Completed"))
 TASK_STAGE_LABELS = dict(TASK_STAGE_META)
 # The client sees the SAME column names now (previously friendlier relabels). Kept as its own tuple
 # so a client-only wording change stays a one-line edit.
@@ -4289,7 +4621,8 @@ def atrium_admin_task_hold(client):
 
 @app.route("/w/<client>/admin/task/move", methods=["POST"])
 def atrium_admin_task_move(client):
-    """Move a task to another stage (TEAM only; the close-guard message passes through verbatim)."""
+    """Move a task to another stage (TEAM only). Every stage move is allowed -- see
+    workspace.move_task_stage; the ValueError branch stays so a future guard needs no route change."""
     gate = _atrium_admin_json_gate(client)
     if gate:
         return gate
