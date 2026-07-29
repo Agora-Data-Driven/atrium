@@ -431,7 +431,23 @@ def cache_creative_images(creatives, meta_rows):
             fetched += 1
         except Exception as e:  # noqa: BLE001 - an expired link just 403s
             print("  creative %s: cache skip (%s)" % (cid, str(e)[:80]))
+    # A creative with NO usable image must not be marked cached even when a blob survives from a
+    # run that predates the link-preview rule — otherwise we keep serving Meta's grey placeholder
+    # out of our own bucket, where it never expires. Drop the stale object instead.
     for c in items:
+        if not c.get("thumb"):
+            if c["cid"] in have:
+                try:
+                    if local_dir:
+                        os.remove(os.path.join(local_dir, c["cid"]))
+                    else:
+                        bucket.blob("creatives/" + c["cid"]).delete()
+                    print("  creative %s: dropped a stale placeholder image" % c["cid"])
+                except Exception as e:  # noqa: BLE001 — a failed purge just leaves it in place
+                    print("  creative %s: purge skip (%s)" % (c["cid"], str(e)[:80]))
+                have.discard(c["cid"])
+            c["cached"] = False
+            continue
         c.setdefault("cached", c["cid"] in have)
     print("  creatives: %d newly cached, %d of %d have a permanent image"
           % (fetched, sum(1 for c in items if c.get("cached")), len(items)))

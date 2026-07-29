@@ -85,6 +85,18 @@ def run(label, pkg, envvar, fails):
                   "REUSED artwork sharing bytes is still cached (not read as a placeholder)")
             check(not by["c"].get("cached"), "a creative with no usable image is not cached")
             check(sorted(os.listdir(tmp)) == ["a", "b"], "exactly the two real images hit storage")
+
+            # A blob left behind by a run that predates the link-preview rule must be PURGED,
+            # not re-flagged as cached -- otherwise we serve Meta's grey tile out of our own
+            # bucket, where (unlike Meta's CDN link) it never expires.
+            with open(os.path.join(tmp, "c"), "wb") as fh:
+                fh.write(PNG)
+            again = {c["cid"]: c for c in job.cache_creative_images(
+                {"enabled": True, "items": [{"cid": "c", "thumb": "", "head": "C"}]},
+                [{"cid": "c", "imps": 100}])["items"]}
+            check(not again["c"].get("cached"), "a stale placeholder is not re-flagged as cached")
+            check(not os.path.exists(os.path.join(tmp, "c")),
+                  "the stale placeholder object is deleted from storage")
         finally:
             urllib.request.urlopen = orig
             os.environ.pop(envvar, None)
