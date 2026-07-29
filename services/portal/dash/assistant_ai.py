@@ -1,6 +1,11 @@
 """The Atrium Assistant (team-only tab): retrieval-augmented chat over EVERYTHING in a workspace.
 
 Sources it reads (all already in the portal's hands, no new database):
+  * The Company profile          -- who the client IS: the facts, the brand guide, the story
+                                    sections and the product catalogue, each its own chunk
+                                    (digest.company_sections). The grounding every other answer
+                                    leans on -- a campaign question is answered better by a model
+                                    that knows the company behind the campaign.
   * Watcher transcript archives  -- every video's transcript, chunked ~1000 words, PLUS a cached
                                     per-video AI summary (digest chunk) once summarize_videos ran
   * Market Intelligence          -- every briefing entry (both sections) + a rolling digest
@@ -71,10 +76,11 @@ _STOP = frozenset(
 CHUNK_WORDS = 1000          # transcript chunk size (words)
 TOP_K = 18                  # excerpts handed to the model per question
 MAX_CONTEXT_CHARS = 90000   # hard cap on packed context (stays well inside Gemini's window)
-INDEX_VERSION = 4           # bump to force a one-time rebuild when the index SHAPE changes
+INDEX_VERSION = 5           # bump to force a one-time rebuild when the index SHAPE changes
                             # (v4: the distilled layer -- dashboard digests instead of raw JSON,
                             #  communications/tasks/reports indexed, video summary chunks with
                             #  parent pointers for small-to-big expansion)
+                            # (v5: the Company profile -- facts/brand/story/products indexed)
 
 
 def _tokens(text):
@@ -126,6 +132,15 @@ def build_chunks(ws, archives, dash_data=None, mail_threads=None):
             if level:
                 c["level"] = level
             chunks.append(c)
+
+    # The Company profile: who the client IS -- the facts, the brand guide, each story section and
+    # the product catalogue, each its own chunk (digest.company_sections). This is the only source
+    # that answers "what do they sell?" / "what tone do we write in?" / "how long have they traded?",
+    # and it grounds every other answer: a campaign question is answered better by a model that
+    # knows the company behind the campaign. Deliberately UNDATED -- a date-range scope on
+    # transcripts must never make the client's own identity invisible.
+    for sid, title, text in digest.company_sections(ws):
+        add("company:%s" % sid, "company", title, text)
 
     # Watcher transcripts. Each video with a cached AI summary gets a compact DIGEST chunk (the
     # usual retrieval target); the raw transcript stays indexed as FULL chunks under the same
@@ -306,7 +321,11 @@ def fingerprint(ws, archives, dash_stamp=None):
     caller) -- without it a refreshed dashboard never re-indexed until some other source moved."""
     import hashlib
     intel = ws.get("intel") or {}
+    company = ws.get("company") or {}
     desc = {
+        # The company profile is small, so hash its whole derived text -- any edit to a fact, the
+        # brand guide, a story section or a product re-indexes, with no per-field bookkeeping.
+        "company": digest.company_brief(ws) if company else "",
         "watcher": [(ch.get("id"), ch.get("transcript_count"), ch.get("last_fetch"))
                     for ch, _v in archives or []],
         # Cached per-video AI summaries change the chunk set without touching the registry entry.
@@ -444,7 +463,7 @@ def has_embeddings(index):
 # --- 2c. Metadata filtering -----------------------------------------------------------------------
 # All source kinds the chunker emits (used to validate an inferred single-source filter).
 _KINDS = {"video", "intel", "campaign", "content", "metrics", "calendar", "conversation",
-          "website", "email", "dashboard", "comms", "task", "report"}
+          "website", "email", "dashboard", "comms", "task", "report", "company"}
 
 # Conservative source inference: a phrase group -> the chunk kinds it means. Pre-filtering is
 # POWERFUL but dangerous (wrongly excluding relevant chunks), so we only ever apply it when EXACTLY
@@ -462,6 +481,9 @@ _KIND_HINTS = (
      {"comms", "email", "conversation"}),
     (("task", "tasks", "deliverable", "blocked", "to-do", "delivery board"), {"task"}),
     (("report", "presentation", "deck", "slides"), {"report"}),
+    (("brand voice", "tone of voice", "their products", "product catalogue", "product catalog",
+      "what do they sell", "company history", "about the company", "brand guide", "founded",
+      "positioning", "who are they"), {"company"}),
 )
 
 
@@ -751,8 +773,9 @@ def _system_prompt(client_name, depth=DEFAULT_DEPTH, as_json=True):
             "NOT wrap your answer in JSON or code fences — just write the answer.")
     return (
         "You are the AGORA team's Atrium assistant for the client \"%s\". You answer questions "
-        "using ONLY the numbered context excerpts provided — the client's campaigns, metrics, "
-        "market intelligence, watched-creator video transcripts, and dashboard data. "
+        "using ONLY the numbered context excerpts provided — the client's company profile (who "
+        "they are, their brand guide, their products), campaigns, metrics, market intelligence, "
+        "watched-creator video transcripts, and dashboard data. "
         "Quote numbers and names from the excerpts. When you use an excerpt, mention its source "
         "naturally (e.g. 'in Carson Reed's video ...', 'per the dashboard KPIs'). "
         "Comparative or analytical questions deserve real synthesis: when asked about "

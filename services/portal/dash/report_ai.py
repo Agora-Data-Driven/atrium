@@ -1,26 +1,42 @@
 """Report maker: the client meeting deck, drafted from the same distilled layer the Assistant reads.
 
-One report = one self-contained HTML deck (scroll-snap slides, zero JS, no external assets) stored
-as its own object and listed date-first on the Reports tab. HTML over Google Slides on purpose:
-no new infra/APIs/credentials, it opens in one click inside the authed portal, and it matches the
-house pattern (the Riverdance media-buying deck is already a scroll-snap HTML deck).
+One report = one self-contained HTML deck (a fixed 16:9 stage, scaled to the window, arrow-key
+navigable, printable to PDF) stored as its own object and listed date-first on the Reports tab.
+HTML over Google Slides on purpose: no new infra/APIs/credentials, it opens in one click inside the
+authed portal, and it matches the house pattern (the hand-built Riverdance deck is HTML too).
 
-The fixed slide structure (the agreed meeting flow):
-  1. Cover                -- the presentation DATE front and center, client + deck title under it.
-  2. The Landscape        -- Business Research | Media Buying News | Market Voices (what watched
-                             competitors/creators are talking about) -- one slide, three blocks.
-  3. What Happened        -- the numbers (stat tiles + a short narrative), with a clearly marked
-                             "What's Working" subsection (creative/audience wins).
-  4. Why It Happened      -- the drivers: what we did, what the industry did, what we noticed.
-  5. What We Should Do    -- the optimization recommendations.
-  6. What We Need From You -- asks on the client + anything currently blocked.
+WHAT A DECK IS MADE OF (rebuilt 2026-07-29 -- the old fixed six-slide shape could only hold
+`{title, body}` bullets, so every chart, table and before/after in a hand-built deck collapsed into
+prose):
 
-Split of labor (mirrors the intel brain): `gather` assembles source material from digest.py +
-the workspace (pure), `generate` asks the configured model for the slide payload (JSON contract,
-parsed leniently), `draft_payload` is the NO-AI fallback so a default deploy still produces an
-honest draft, `revise` applies a team instruction to an existing payload (the Assistant's
-edit-report action), and `render_html` turns any payload into the deck. Everything degrades,
-nothing raises: (payload, error) out of every AI path.
+  payload = {"meta":   {headline, subhead, period, sources},
+             "facts":  {key: fact, ...},        # server-COMPUTED datasets (see below)
+             "slides": [{kind, eyebrow, title, subtitle, tone, source, blocks: [...]}]}
+
+  kind   = cover | section | content | closing        (one layout each, same block list)
+  blocks = text | bullets | cards | callout | action | chips | kpis | chart | table | compare
+
+🔴 **Numbers in a visual are never model-written.** `build_facts` derives every series, table,
+before/after and KPI tile from the dashboard export in plain Python; a `chart`/`table`/`compare`
+block only carries a `fact` KEY, and the renderer draws from the stored fact. The model chooses
+WHICH fact a slide shows and writes the argument around it. A hallucinated key renders nothing
+rather than a wrong number, and because the facts ride inside the payload the deck re-renders
+identically forever (the lazy re-render path after a Trash restore).
+
+Split of labor (mirrors the intel brain): `gather` assembles source material from digest.py + the
+workspace + `build_facts` (pure), `generate` asks the configured model for the slide payload (JSON
+contract, parsed leniently), `draft_payload` is the NO-AI fallback -- and it is a real deck now, not
+a stub, because the facts alone carry the whole numeric story -- `revise` applies a team instruction
+to an existing payload (the Assistant's edit-report action), and `render_html` turns any payload
+into the deck. Everything degrades, nothing raises: (payload, error) out of every AI path.
+
+BRANDING: the deck wears the client's identity -- their crest from `ws["brand"]["client_logo"]` and
+a palette parsed out of the Company tab's brand guide (`company.brand.colors`), falling back to the
+AGORA house palette. `brand_kit(ws)` is the one call that assembles it.
+
+LEGACY: decks written before the rebuild stored the old `{landscape, what_happened, why,
+recommendations, asks}` payload. `normalize_payload` converts that shape to slides on read, so every
+stored report keeps rendering (`_legacy_slides`).
 """
 
 import datetime
@@ -33,8 +49,14 @@ import digest
 # The client-facing name for the watched-creators/competitors section of the Landscape slide.
 VOICES_LABEL = "Market Voices"
 
+# The deck is a fixed 16:9 stage scaled to the viewer's window -- a slide is a slide, not a
+# reflowing web page, so what the team previews is what the client sees on the call.
+STAGE_W = 1280
+STAGE_H = 720
+
 _MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August",
            "September", "October", "November", "December")
+_MON_SHORT = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 def date_label(iso):
@@ -46,7 +68,444 @@ def date_label(iso):
     return "%s %d, %d" % (_MONTHS[d.month - 1], d.day, d.year)
 
 
-# --- 1. Gather: the source pack -------------------------------------------------------------------
+def short_date(iso):
+    """'2026-07-20' -> '20 Jul' (chart axis labels; falls back to the raw string)."""
+    try:
+        d = datetime.date.fromisoformat((iso or "")[:10])
+    except ValueError:
+        return iso or ""
+    return "%d %s" % (d.day, _MON_SHORT[d.month - 1])
+
+
+def period_label(first, last):
+    """'13 May - 27 Jul 2026' from two ISO dates (either side may be missing)."""
+    if not first or not last:
+        return short_date(first) or short_date(last) or ""
+    try:
+        a = datetime.date.fromisoformat(first[:10])
+        b = datetime.date.fromisoformat(last[:10])
+    except ValueError:
+        return "%s - %s" % (first, last)
+    if a.year == b.year:
+        return "%d %s - %d %s %d" % (a.day, _MON_SHORT[a.month - 1],
+                                     b.day, _MON_SHORT[b.month - 1], b.year)
+    return "%s - %s" % (date_label(first), date_label(last))
+
+
+# --- 0. Number formatting (the deck's own, so a tile and a chart label always agree) --------------
+def _num(v):
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _money(v, cents=True):
+    return "$%s" % format(round(_num(v), 2 if cents else 0), ",.2f" if cents else ",.0f")
+
+
+def _int_fmt(v):
+    return format(int(round(_num(v))), ",d")
+
+
+def _pct(part, whole, places=2):
+    return ("%.*f%%" % (places, 100.0 * part / whole)) if whole else "n/a"
+
+
+def _ratio(a, b):
+    return ("%.2fx" % (a / b)) if b else "n/a"
+
+
+def _delta_pct(now, before):
+    """Signed percent change 'now vs before', or '' when there is no baseline."""
+    if not before:
+        return ""
+    return "%+.0f%%" % (100.0 * (now - before) / before)
+
+
+def _div(a, b):
+    return (a / b) if b else 0.0
+
+
+# --- 1. Facts: the deterministic datasets every visual is drawn from ------------------------------
+# A fact is a small self-describing dataset:
+#   {"key", "kind": series|table|compare|tiles, "title", "subtitle", "summary", ...payload}
+# `summary` is the one-line form the MODEL reads (so it can quote the numbers in prose); the rest is
+# what the RENDERER draws. Nothing here is ever asked of the model.
+_FACT_KINDS = ("series", "table", "compare", "tiles")
+
+
+def _roll(rows, key=None):
+    """Aggregate Windsor-live rows, optionally grouped by `key`.
+
+    digest._roll exists for the same shape, but the deck quotes reach and booking-initiated on its
+    KPI tiles and digest's line format carries neither -- so this one keeps the wider field set.
+    Returns {name: agg} when grouped, a single agg dict otherwise."""
+    def blank():
+        return {"spend": 0.0, "imps": 0, "clicks": 0, "lclk": 0, "reach": 0,
+                "pur": 0.0, "rev": 0.0, "init": 0.0}
+
+    out = {}
+    for r in rows or []:
+        name = (r.get(key) or "(unlabeled)") if key else "all"
+        agg = out.setdefault(name, blank())
+        agg["spend"] += _num(r.get("spend"))
+        agg["imps"] += int(_num(r.get("imps")))
+        agg["clicks"] += int(_num(r.get("clicks")))
+        agg["lclk"] += int(_num(r.get("lclk")))
+        agg["reach"] += int(_num(r.get("reach")))
+        agg["pur"] += _num(r.get("pur"))
+        agg["rev"] += _num(r.get("rev"))
+        agg["init"] += _num(r.get("book_init"))
+    if key:
+        return out
+    return out.get("all") or {"spend": 0.0, "imps": 0, "clicks": 0, "lclk": 0, "reach": 0,
+                              "pur": 0.0, "rev": 0.0, "init": 0.0}
+
+
+def _derive(a):
+    """Every derived metric the deck quotes, from one aggregate."""
+    clicks = a["lclk"] or a["clicks"]        # link clicks when Meta reports them, else all clicks
+    return {
+        "spend": a["spend"], "revenue": a["rev"], "purchases": a["pur"],
+        "impressions": a["imps"], "clicks": a["clicks"], "link_clicks": a["lclk"],
+        "reach": a["reach"], "initiated": a["init"],
+        "roas": _div(a["rev"], a["spend"]),
+        "ctr": _div(a["clicks"], a["imps"]),
+        "cpc": _div(a["spend"], clicks),
+        "cpm": _div(1000.0 * a["spend"], a["imps"]),
+        "aov": _div(a["rev"], a["pur"]),
+        "cpa": _div(a["spend"], a["pur"]),
+        "rev_per_click": _div(a["rev"], clicks),
+    }
+
+
+def _weeks(rows):
+    """[(monday_iso, agg)] over Windsor-live rows, chronological."""
+    buckets = {}
+    for r in rows or []:
+        try:
+            d = datetime.date.fromisoformat((r.get("date") or "")[:10])
+        except ValueError:
+            continue
+        wk = (d - datetime.timedelta(days=d.weekday())).isoformat()
+        buckets.setdefault(wk, []).append(r)
+    return [(wk, _roll(buckets[wk])) for wk in sorted(buckets)]
+
+
+def _series(key, title, subtitle, points, orient="columns", best="high"):
+    """A chartable series. `points` = [{label, value, text, note}]; the best point is marked so the
+    renderer can highlight it without deciding anything."""
+    points = [p for p in points if p.get("text")]
+    if len(points) < 2:
+        return None
+    values = [_num(p.get("value")) for p in points]
+    target = max(values) if best == "high" else min(values)
+    for p in points:
+        p["best"] = bool(best) and _num(p.get("value")) == target
+    return {"key": key, "kind": "series", "title": title, "subtitle": subtitle,
+            "orient": orient, "points": points,
+            "summary": "%s: %s." % (title, ", ".join("%s %s" % (p["label"], p["text"])
+                                                     for p in points))}
+
+
+def _table(key, title, subtitle, columns, rows, note=""):
+    """A tabular fact. `columns` = [{key,label,align}], `rows` = [{colkey: text, "_tone": ...}]."""
+    if not rows:
+        return None
+    head = " | ".join(c["label"] for c in columns)
+    lines = [" | ".join(str(r.get(c["key"], "")) for c in columns) for r in rows]
+    return {"key": key, "kind": "table", "title": title, "subtitle": subtitle,
+            "columns": columns, "rows": rows, "note": note,
+            "summary": "%s: %s -- %s" % (title, head, "; ".join(lines))}
+
+
+def _tiles(key, title, items, subtitle=""):
+    items = [i for i in items if i.get("value")]
+    if not items:
+        return None
+    return {"key": key, "kind": "tiles", "title": title, "subtitle": subtitle, "items": items,
+            "summary": "%s: %s." % (title, ", ".join("%s %s" % (i["label"], i["value"])
+                                                     for i in items))}
+
+
+def _tone_rows(rows, tone_key, direction="low_good"):
+    """Mark the best/worst row on a numeric column so a table reads at a glance. The renderer never
+    decides tone -- it just paints what is stamped here."""
+    vals = [(_num(r.get("_" + tone_key)), r) for r in rows if r.get("_" + tone_key) is not None]
+    if len(vals) < 2:
+        return rows
+    ordered = sorted(vals, key=lambda kv: kv[0])
+    best, worst = (ordered[0], ordered[-1]) if direction == "low_good" else (ordered[-1], ordered[0])
+    best[1]["_tone"] = "good"
+    worst[1]["_tone"] = "bad"
+    return rows
+
+
+def _window_compare(rows, dates, span=14):
+    """The last `span` days against the `span` before them -- the like-for-like slide's numbers."""
+    if len(dates) < span + 2:
+        return None
+    after_days, before_days = set(dates[-span:]), set(dates[-2 * span:-span])
+    if not before_days:
+        return None
+    after = _derive(_roll([r for r in rows if (r.get("date") or "")[:10] in after_days]))
+    before = _derive(_roll([r for r in rows if (r.get("date") or "")[:10] in before_days]))
+    n_before, n_after = len(before_days), len(after_days)
+
+    def side(d, days, first, last):
+        rev_day = _div(d["revenue"], days)
+        out = [{"label": "Spend", "value": _money(d["spend"], cents=False)}]
+        if d["revenue"]:
+            out += [{"label": "Revenue", "value": _money(d["revenue"], cents=False)},
+                    {"label": "Revenue / day", "value": _money(rev_day)},
+                    {"label": "Average order", "value": _money(d["aov"], cents=False)},
+                    {"label": "ROAS", "value": "%.2fx" % d["roas"]}]
+        out.append({"label": "Link CTR", "value": "%.2f%%" % (100.0 * d["ctr"])})
+        return {"title": period_label(first, last), "subtitle": "%d days" % days, "rows": out}
+
+    b_days = sorted(before_days)
+    a_days = sorted(after_days)
+    headline = _delta_pct(_div(after["revenue"], n_after), _div(before["revenue"], n_before))
+    metric = "revenue per day"
+    if not after["revenue"] and not before["revenue"]:
+        headline = _delta_pct(_div(after["clicks"], n_after), _div(before["clicks"], n_before))
+        metric = "clicks per day"
+    return {"key": "recent_vs_prior", "kind": "compare",
+            "title": "The last %d days against the %d before" % (n_after, n_before),
+            "subtitle": "Like for like, %s spend against %s"
+                        % (_money(after["spend"], cents=False), _money(before["spend"], cents=False)),
+            "before": side(before, n_before, b_days[0], b_days[-1]),
+            "after": side(after, n_after, a_days[0], a_days[-1]),
+            "delta": {"headline": headline or "flat", "label": metric,
+                      "tone": "good" if headline.startswith("+") else
+                              ("bad" if headline.startswith("-") else "neutral")},
+            "summary": "Last %d days vs the %d before: %s %s (spend %s vs %s)."
+                       % (n_after, n_before, headline or "flat", metric,
+                          _money(after["spend"], cents=False), _money(before["spend"], cents=False))}
+
+
+def _facts_windsor(data):
+    """Facts for the Windsor-live per-ad/day export (the riverdance shape)."""
+    rows = data.get("rows") or []
+    dates = sorted({(r.get("date") or "")[:10] for r in rows if r.get("date")})
+    facts = []
+    total = _derive(_roll(rows))
+    has_rev = total["revenue"] > 0
+
+    # Two tiers on purpose (the hand-built decks do the same): the money story as big tiles, the
+    # delivery metrics as a compact strip underneath. Eleven equal tiles is a wall, not a headline.
+    tiles = [{"key": "spend", "label": "Ad spend", "value": _money(total["spend"], cents=False),
+              "note": "Total media investment", "tier": "primary"}]
+    if has_rev:
+        tiles = [{"key": "revenue", "label": "Revenue", "value": _money(total["revenue"], cents=False),
+                  "note": "Tracked purchase value from ads", "tier": "primary"}] + tiles
+        tiles += [{"key": "roas", "label": "Return on ad spend", "value": "%.2fx" % total["roas"],
+                   "note": "%s back per $1 invested" % _money(total["roas"]), "tier": "primary"},
+                  {"key": "purchases", "label": "Purchases", "value": _int_fmt(total["purchases"]),
+                   "note": "%s each" % _money(total["cpa"], cents=False), "tier": "primary"},
+                  {"key": "aov", "label": "Average order", "value": _money(total["aov"], cents=False),
+                   "note": "Tracked purchase value", "tier": "primary"}]
+    tiles += [{"key": "impressions", "label": "Impressions", "value": _int_fmt(total["impressions"]),
+               "note": "", "tier": "secondary"},
+              {"key": "reach", "label": "People reached", "value": _int_fmt(total["reach"]),
+               "note": "", "tier": "secondary"},
+              {"key": "clicks", "label": "Link clicks",
+               "value": _int_fmt(total["link_clicks"] or total["clicks"]), "note": "",
+               "tier": "secondary"},
+              {"key": "ctr", "label": "CTR", "value": "%.2f%%" % (100.0 * total["ctr"]),
+               "note": "", "tier": "secondary"},
+              {"key": "cpc", "label": "Cost / click", "value": _money(total["cpc"]),
+               "note": "", "tier": "secondary"},
+              {"key": "cpm", "label": "CPM", "value": _money(total["cpm"]),
+               "note": "", "tier": "secondary"}]
+    facts.append(_tiles("totals", "The campaign to date", tiles,
+                        subtitle=period_label(dates[0], dates[-1]) if dates else ""))
+
+    weeks = _weeks(rows)
+    if len(weeks) >= 2:
+        wk_lab = [short_date(wk) for wk, _a in weeks]
+        d = [_derive(a) for _wk, a in weeks]
+        facts.append(_series("weekly_spend", "Ad spend, by week", "Weeks beginning Monday",
+                             [{"label": lab, "value": x["spend"], "text": _money(x["spend"], cents=False)}
+                              for lab, x in zip(wk_lab, d)], best=""))
+        if has_rev:
+            facts.append(_series("weekly_revenue", "Revenue, by week", "Weeks beginning Monday",
+                                 [{"label": lab, "value": x["revenue"],
+                                   "text": _money(x["revenue"], cents=False)}
+                                  for lab, x in zip(wk_lab, d)]))
+            facts.append(_series("weekly_roas", "Return on ad spend, by week",
+                                 "Weeks beginning Monday",
+                                 [{"label": lab, "value": x["roas"], "text": "%.2fx" % x["roas"]}
+                                  for lab, x in zip(wk_lab, d)]))
+            facts.append(_series("weekly_aov", "Average order value, by week",
+                                 "Weeks beginning Monday",
+                                 [{"label": lab, "value": x["aov"],
+                                   "text": _money(x["aov"], cents=False)}
+                                  for lab, x in zip(wk_lab, d) if x["aov"]]))
+        facts.append(_series("weekly_ctr", "Click-through rate, by week", "Weeks beginning Monday",
+                             [{"label": lab, "value": x["ctr"], "text": "%.2f%%" % (100.0 * x["ctr"])}
+                              for lab, x in zip(wk_lab, d)]))
+
+    facts.append(_window_compare(rows, dates))
+
+    ads = _roll(rows, "ad")
+    if len(ads) > 1:
+        ranked = sorted(ads.items(), key=lambda kv: -kv[1]["spend"])[:8]
+        cols = [{"key": "ad", "label": "Ad"},
+                {"key": "spend", "label": "Spend", "align": "right"},
+                {"key": "ctr", "label": "CTR", "align": "right"},
+                {"key": "cpc", "label": "Cost / click", "align": "right"}]
+        if has_rev:
+            cols += [{"key": "rev", "label": "Revenue", "align": "right"},
+                     {"key": "roas", "label": "ROAS", "align": "right"}]
+        trows = []
+        for name, a in ranked:
+            x = _derive(a)
+            trows.append({"ad": name, "spend": _money(x["spend"], cents=False),
+                          "ctr": "%.2f%%" % (100.0 * x["ctr"]), "cpc": _money(x["cpc"]),
+                          "rev": _money(x["revenue"], cents=False), "roas": "%.2fx" % x["roas"],
+                          "_cpc": x["cpc"], "_roas": x["roas"]})
+        _tone_rows(trows, "roas" if has_rev else "cpc",
+                   "high_good" if has_rev else "low_good")
+        facts.append(_table("ads", "Every ad, ranked by spend", "Full flight", cols, trows))
+
+    camps = _roll(rows, "camp")
+    if len(camps) > 1:
+        ranked = sorted(camps.items(), key=lambda kv: -kv[1]["spend"])[:8]
+        trows = []
+        for name, a in ranked:
+            x = _derive(a)
+            trows.append({"camp": name, "spend": _money(x["spend"], cents=False),
+                          "ctr": "%.2f%%" % (100.0 * x["ctr"]), "cpc": _money(x["cpc"]),
+                          "roas": "%.2fx" % x["roas"], "_roas": x["roas"]})
+        cols = [{"key": "camp", "label": "Campaign"},
+                {"key": "spend", "label": "Spend", "align": "right"},
+                {"key": "ctr", "label": "CTR", "align": "right"},
+                {"key": "cpc", "label": "Cost / click", "align": "right"}]
+        if has_rev:
+            cols.append({"key": "roas", "label": "ROAS", "align": "right"})
+            _tone_rows(trows, "roas", "high_good")
+        facts.append(_table("campaigns", "Every campaign, ranked by spend", "Full flight",
+                            cols, trows))
+
+    demo = data.get("demographics") or {}
+    facts.append(_breakdown_table("age", demo.get("age_gender"), "age",
+                                  "Every age band, ranked by cost per click", "Age band"))
+    facts.append(_breakdown_table("gender", demo.get("age_gender"), "gender",
+                                  "Delivery by gender", "Gender"))
+    facts.append(_breakdown_table("region", demo.get("region"), "region",
+                                  "Where the budget goes", "Region"))
+    if demo.get("region"):
+        share = _roll(demo["region"], "region")
+        spend_all = sum(a["spend"] for a in share.values())
+        pts = [{"label": n, "value": a["spend"], "text": _pct(a["spend"], spend_all, 1)}
+               for n, a in sorted(share.items(), key=lambda kv: -kv[1]["spend"])[:6]]
+        facts.append(_series("region_share", "Share of spend by region", "Full flight",
+                             pts, orient="rows", best=""))
+
+    ac = data.get("activecampaign") or {}
+    camps_ac = ac.get("campaigns") or []
+    if ac.get("enabled") and camps_ac:
+        trows = []
+        for c in camps_ac[:8]:
+            sent = _num(c.get("sent") or c.get("send_amt"))
+            opens = _num(c.get("opens") or c.get("uniqueopens"))
+            clicks = _num(c.get("clicks") or c.get("uniquelinkclicks"))
+            trows.append({"name": c.get("name") or "(untitled)",
+                          "date": short_date((c.get("date") or c.get("sdate") or "")[:10]),
+                          "sent": _int_fmt(sent), "open": _pct(opens, sent, 1),
+                          "click": _pct(clicks, sent, 1), "_click": _div(clicks, sent)})
+        _tone_rows(trows, "click", "high_good")
+        facts.append(_table("email", "Email sends, most recent first", "ActiveCampaign",
+                            [{"key": "name", "label": "Campaign"},
+                             {"key": "date", "label": "Sent", "align": "right"},
+                             {"key": "sent", "label": "Recipients", "align": "right"},
+                             {"key": "open", "label": "Open rate", "align": "right"},
+                             {"key": "click", "label": "Click rate", "align": "right"}], trows))
+    return facts
+
+
+def _breakdown_table(key, raw, group, title, label):
+    """A demographic/region breakdown as a table: share of spend, CTR and cost per click.
+
+    Meta rejects revenue on a breakdown query, so these are DELIVERY metrics only -- the subtitle
+    says so on the slide, because a client reading a table with no ROAS column deserves the reason.
+    """
+    if not raw:
+        return None
+    agg = _roll(raw, group)
+    spend_all = sum(a["spend"] for a in agg.values())
+    if not spend_all:
+        return None
+    rows = []
+    for name, a in sorted(agg.items(), key=lambda kv: _div(kv[1]["spend"], kv[1]["lclk"] or
+                                                           kv[1]["clicks"] or 1)):
+        x = _derive(a)
+        rows.append({group: name, "share": _pct(a["spend"], spend_all, 1),
+                     "ctr": "%.2f%%" % (100.0 * x["ctr"]), "cpc": _money(x["cpc"]),
+                     "_cpc": x["cpc"]})
+    _tone_rows(rows, "cpc", "low_good")
+    return _table(key, title, "Delivery only, no revenue (Meta does not report it on a breakdown)",
+                  [{"key": group, "label": label},
+                   {"key": "share", "label": "Share of spend", "align": "right"},
+                   {"key": "ctr", "label": "CTR", "align": "right"},
+                   {"key": "cpc", "label": "Cost / click", "align": "right"}], rows)
+
+
+def _facts_template(data):
+    """Facts for the standard client shape: {kpis: {...}, daily: [{date, ...}]}."""
+    facts = []
+    kpis = data.get("kpis")
+    if isinstance(kpis, dict) and kpis:
+        items = [{"key": str(k), "label": str(k).replace("_", " ").title(),
+                  "value": format(v, ",") if isinstance(v, (int, float)) else str(v), "note": ""}
+                 for k, v in list(kpis.items())[:12]]
+        facts.append(_tiles("totals", "Headline numbers", items))
+    daily = [r for r in (data.get("daily") or []) if isinstance(r, dict)]
+    if daily:
+        weeks = {}
+        for row in daily:
+            try:
+                d = datetime.date.fromisoformat(str(row.get("date") or "")[:10])
+            except ValueError:
+                continue
+            wk = (d - datetime.timedelta(days=d.weekday())).isoformat()
+            agg = weeks.setdefault(wk, {})
+            for k, v in row.items():
+                if k != "date" and isinstance(v, (int, float)):
+                    agg[k] = agg.get(k, 0) + v
+        ordered = sorted(weeks)
+        columns = sorted({k for agg in weeks.values() for k in agg},
+                         key=lambda k: -sum(_num(weeks[w].get(k)) for w in ordered))[:4]
+        for col in columns:
+            pts = [{"label": short_date(w), "value": _num(weeks[w].get(col)),
+                    "text": format(round(_num(weeks[w].get(col)), 2), ",g")} for w in ordered]
+            facts.append(_series("weekly_%s" % col, "%s, by week" % str(col).replace("_", " ").title(),
+                                 "Weeks beginning Monday", pts))
+    return facts
+
+
+def build_facts(dash_data):
+    """The deck's computed datasets, keyed: {key: fact}. Handles BOTH dashboard shapes (the
+    Windsor-live per-ad/day export and the template `kpis`/`daily` contract); unknown/empty -> {}."""
+    data = dash_data if isinstance(dash_data, dict) else {}
+    facts = _facts_windsor(data) if data.get("rows") else _facts_template(data)
+    return {f["key"]: f for f in facts if f}
+
+
+def facts_catalogue(facts, cap=700):
+    """The fact pack as text for the model: what each key holds, and its numbers to quote."""
+    lines = []
+    for key, f in (facts or {}).items():
+        summary = (f.get("summary") or "").replace("\n", " ")
+        if len(summary) > cap:
+            summary = summary[:cap] + "..."
+        lines.append("%s [%s] %s" % (key, f.get("kind") or "?", summary))
+    return lines
+
+
+# --- 2. Gather: the source pack -------------------------------------------------------------------
 def _intel_lines(entries, cap=6):
     out = []
     for e in sorted(entries or [], key=lambda x: x.get("date") or "", reverse=True)[:cap]:
@@ -83,7 +542,7 @@ def _voices_lines(archives, cap=8):
 
 
 def _asks(ws):
-    """(needed_from_client, blocked) -- the task-slide raw material."""
+    """(needed_from_client, blocked) -- the closing slide's raw material."""
     needed, blocked = [], []
     for t in ws.get("tasks") or []:
         title = t.get("title") or "(untitled)"
@@ -105,12 +564,28 @@ def _asks(ws):
     return needed, blocked
 
 
+def _period_of(dash_data):
+    """The flight's first/last date out of either dashboard shape ('' when undated)."""
+    data = dash_data if isinstance(dash_data, dict) else {}
+    dates = sorted({(r.get("date") or "")[:10]
+                    for r in (data.get("rows") or data.get("daily") or [])
+                    if isinstance(r, dict) and r.get("date")})
+    return (dates[0], dates[-1]) if dates else ("", "")
+
+
 def gather(ws, archives, dash_data):
-    """The report's source material: text blocks from the distilled layer + the structured bits
-    the no-AI fallback needs. Pure -- the caller loads archives/dash_data."""
+    """The report's source material: the computed fact pack + text blocks from the distilled layer.
+    Pure -- the caller loads archives/dash_data."""
     intel = ws.get("intel") or {}
     needed, blocked = _asks(ws)
+    first, last = _period_of(dash_data)
     return {
+        # The numbers, computed. Every chart/table/before-after in the deck is drawn from these.
+        "facts": build_facts(dash_data),
+        "period": period_label(first, last),
+        # Who the client is (Company tab) -- so the deck speaks in their language about their
+        # actual products, instead of generic agency prose. Same distilled layer the Assistant reads.
+        "company": digest.company_brief(ws),
         "business": _intel_lines(intel.get("business_research")),
         "media": _intel_lines(intel.get("media_buying")),
         "voices": _voices_lines(archives),
@@ -122,46 +597,80 @@ def gather(ws, archives, dash_data):
     }
 
 
-# --- 2. Generate: model -> slide payload (with a deterministic no-AI draft) -----------------------
-_SHAPE = ("{\"landscape\": {\"business\": [{\"title\": \"...\", \"body\": \"...\"}], "
-          "\"media\": [{\"title\": \"...\", \"body\": \"...\"}], "
-          "\"voices\": [{\"title\": \"...\", \"body\": \"...\"}]}, "
-          "\"what_happened\": {\"summary\": \"...\", "
-          "\"numbers\": [{\"label\": \"Spend\", \"value\": \"$12,345\", \"note\": \"+8% vs prior\"}], "
-          "\"whats_working\": [\"...\"]}, "
-          "\"why\": [\"...\"], \"recommendations\": [\"...\"], "
-          "\"asks\": {\"needed\": [\"...\"], \"blocked\": [\"...\"]}}")
+# --- 3. Generate: model -> slide payload (with a deterministic no-AI deck) ------------------------
+_SHAPE = (
+    '{"meta": {"headline": "...", "subhead": "...", "period": "...", "sources": "..."}, '
+    '"slides": [ '
+    '{"kind": "cover", "eyebrow": "Performance review", "title": "One sentence claim.", '
+    '"subtitle": "...", "blocks": [{"type": "chips", "items": [{"label": "Window", '
+    '"value": "..."}]}]}, '
+    '{"kind": "content", "eyebrow": "...", "title": "A claim with the number in it", '
+    '"subtitle": "...", "tone": "good", "source": "Meta Ads via Windsor.ai, 13 May - 27 Jul 2026", '
+    '"blocks": [{"type": "text", "body": "..."}, {"type": "kpis", "fact": "totals"}, '
+    '{"type": "chart", "fact": "weekly_roas", "caption": "..."}, '
+    '{"type": "table", "fact": "age", "caption": "..."}, '
+    '{"type": "compare", "fact": "recent_vs_prior", "caption": "..."}, '
+    '{"type": "cards", "items": [{"eyebrow": "Decision one", "title": "...", "body": "..."}]}, '
+    '{"type": "bullets", "items": ["..."], "ordered": false}, '
+    '{"type": "callout", "tone": "warn", "body": "..."}, '
+    '{"type": "action", "body": "exclude 18-34 and skew delivery female, live this week"}]}, '
+    '{"kind": "section", "eyebrow": "Part two", "title": "Where the next gains are.", '
+    '"subtitle": "...", "blocks": [{"type": "kpis", "items": [{"value": "+63%", '
+    '"label": "more clicks", "note": "from the same budget"}]}]}, '
+    '{"kind": "closing", "title": "...", "subtitle": "..."} ]}')
 
 _GEN_SYSTEM = (
-    "You write a marketing agency's client performance-review deck. From the source material "
-    "produce JSON ONLY, exactly this shape: " + _SHAPE + " Rules: every number must come from the "
-    "source material, never invented, and quote the strongest few (spend, revenue, ROAS, CTR, "
-    "purchases) as the `numbers` tiles with a short comparison note when the material gives one. "
-    "landscape.business = the most impactful industry/competitor items; landscape.media = the "
-    "most impactful media-buying/platform news; landscape.voices = what watched creators and "
-    "competitors are talking about (2-4 items each, one tight sentence of body). what_happened."
-    "summary = 2-3 sentences on the period in plain client-facing language; whats_working = the "
-    "creative/audience/channel wins with their evidence. why = 3-5 bullets connecting the results "
-    "to causes (what we changed, what the market did, what the data shows). recommendations = "
-    "3-5 concrete next optimizations, imperative voice. asks.needed = what we need FROM the "
-    "client; asks.blocked = work stuck and why. Keep bullets under 30 words, no jargon, no em "
-    "dashes (use commas or hyphens), and leave a list empty when the sources give nothing -- "
-    "never pad.")
+    "You are the strategist presenting a marketing agency's performance review to the client. "
+    "Write the deck. Return JSON ONLY, exactly this shape: " + _SHAPE + "\n"
+    "HOW TO WRITE IT:\n"
+    "1. Every slide title is a CLAIM, not a label. 'We doubled daily revenue in two weeks', not "
+    "'Performance summary'. Put the number in the title when there is one. The cover title is the "
+    "single most important thing you learned from the material.\n"
+    "2. Build the argument in this order: what happened (with the evidence), why it happened, then "
+    "ONE SLIDE PER OPPORTUNITY, each with its evidence and its own `action` block starting with "
+    "the work we will do. Finish with an ordered plan slide, how we will measure it, and what we "
+    "need from the client. Use a `section` slide to divide results from opportunities.\n"
+    "3. 10 to 16 slides. A slide carries ONE idea and at most 4 blocks. Prose is short: a `text` "
+    "block is 1 to 3 sentences, a bullet is under 25 words.\n"
+    "4. THE NUMBERS ARE GIVEN TO YOU. The FACT PACK below lists computed datasets by key. To show "
+    "one, emit a block with its `fact` key ({\"type\": \"chart\", \"fact\": \"weekly_roas\"}) and "
+    "write the interpretation in a nearby `text` block or the `caption`. NEVER retype a fact's "
+    "numbers into a table or chart of your own, and never use a key that is not in the pack.\n"
+    "5. Any number in your PROSE must appear in the source material verbatim. Invent nothing. If "
+    "the material does not support a claim, drop the claim.\n"
+    "6. `source` on a content slide names where its numbers came from, in the client's words.\n"
+    "7. Say what we will DO, not what could be considered. Imperative, specific, owned by us.\n"
+    "8. No jargon, no em dashes (use commas or hyphens), no filler slides. If a section of the "
+    "material is empty, leave that slide out rather than padding it.")
+
+_REVISE_SYSTEM = (
+    "You edit a marketing agency's client deck. You get the deck's current JSON payload and the "
+    "team's edit instruction. Apply the instruction and return the FULL updated payload as JSON "
+    "ONLY, keeping exactly this shape: " + _SHAPE + " Change only what the instruction asks for; "
+    "keep every other slide and block verbatim. Fact keys in chart/table/compare blocks refer to "
+    "computed datasets you cannot see - keep them as they are unless the instruction is about "
+    "them, and never invent a new key. No em dashes in any text.")
 
 
 def _material_text(client_name, when, inputs):
-    lines = ["Client: %s" % client_name, "Report date: %s" % when, ""]
+    lines = ["Client: %s" % client_name, "Report date: %s" % when]
+    if inputs.get("period"):
+        lines.append("Reporting window: %s" % inputs["period"])
+    lines.append("")
 
     def block(title, rows):
         if rows:
             lines.append("=== %s ===" % title)
             lines.extend(rows if isinstance(rows, list) else [rows])
             lines.append("")
+    block("FACT PACK -- the computed datasets you may show with a `fact` key",
+          facts_catalogue(inputs.get("facts")))
+    block("WHO THE CLIENT IS (company profile, brand guide, products)", inputs.get("company"))
+    for _sid, title, text in inputs.get("dashboard") or []:
+        block("DASHBOARD: %s" % title.upper(), text)
     block("MARKET INTELLIGENCE: BUSINESS RESEARCH", inputs.get("business"))
     block("MARKET INTELLIGENCE: MEDIA BUYING NEWS", inputs.get("media"))
     block("MARKET VOICES (watched creators and competitors)", inputs.get("voices"))
-    for _sid, title, text in inputs.get("dashboard") or []:
-        block("DASHBOARD: %s" % title.upper(), text)
     block("DELIVERY BOARD", inputs.get("tasks"))
     block("RECENT COMMUNICATIONS", inputs.get("comms"))
     block("OPEN ASKS ON THE CLIENT", inputs.get("needed"))
@@ -189,87 +698,263 @@ def _parse_json(raw):
     return None
 
 
-def _items(v, cap=6):
-    """A list of {title, body} out of whatever the model produced (strings tolerated)."""
-    out = []
-    for it in (v if isinstance(v, list) else [])[:cap]:
-        if isinstance(it, dict):
-            title = str(it.get("title") or "").strip()
-            body = str(it.get("body") or "").strip()
-            if title or body:
-                out.append({"title": title, "body": body})
-        elif isinstance(it, str) and it.strip():
-            out.append({"title": "", "body": it.strip()})
-    return out
+# --- Normalization: coerce anything into the canonical payload the renderer trusts ----------------
+_SLIDE_KINDS = ("cover", "section", "content", "closing")
+_TONES = ("good", "warn", "bad", "neutral")
+_FACT_BLOCKS = {"chart": ("series",), "table": ("table",), "compare": ("compare",),
+                "kpis": ("tiles",)}
 
 
-def _strs(v, cap=8):
+def _s(v, cap=400):
+    out = str(v if v is not None else "").strip()
+    return out[:cap]
+
+
+def _strs(v, cap=10, length=300):
     out = []
     for it in (v if isinstance(v, list) else [])[:cap]:
         if isinstance(it, str) and it.strip():
-            out.append(it.strip())
+            out.append(_s(it, length))
         elif isinstance(it, dict):
-            s = " ".join(str(x) for x in it.values() if x)
-            if s.strip():
-                out.append(s.strip())
+            joined = " ".join(str(x) for x in it.values() if x)
+            if joined.strip():
+                out.append(_s(joined, length))
     return out
 
 
-def normalize_payload(p):
-    """Coerce any parsed payload into the canonical shape the renderer trusts."""
-    p = p if isinstance(p, dict) else {}
-    landscape = p.get("landscape") if isinstance(p.get("landscape"), dict) else {}
+def _norm_block(b, facts):
+    """One block, or None when it is unknown / references a fact that does not exist.
+
+    Dropping a bad fact key is deliberate: an invented key must render NOTHING, never an empty
+    chart frame that reads on the call as a missing number."""
+    if not isinstance(b, dict):
+        return None
+    kind = _s(b.get("type"), 20).lower()
+    if kind in _FACT_BLOCKS:
+        key = _s(b.get("fact"), 60)
+        fact = (facts or {}).get(key)
+        if fact and fact.get("kind") in _FACT_BLOCKS[kind]:
+            return {"type": kind, "fact": key, "caption": _s(b.get("caption"), 300)}
+        if kind != "kpis":
+            return None
+        # A `kpis` block may also carry hand-written tiles (a derived headline like "+168%").
+    if kind == "kpis":
+        items = []
+        for it in (b.get("items") if isinstance(b.get("items"), list) else [])[:8]:
+            if isinstance(it, dict) and (it.get("value") or it.get("label")):
+                items.append({"label": _s(it.get("label"), 60), "value": _s(it.get("value"), 40),
+                              "note": _s(it.get("note"), 120),
+                              "tone": _s(it.get("tone"), 10) if it.get("tone") in _TONES else ""})
+        return {"type": "kpis", "items": items} if items else None
+    if kind == "text":
+        body = _s(b.get("body") or b.get("text"), 700)
+        return {"type": "text", "body": body} if body else None
+    if kind == "bullets":
+        items = _strs(b.get("items"), cap=8)
+        return {"type": "bullets", "items": items,
+                "ordered": bool(b.get("ordered"))} if items else None
+    if kind == "chips":
+        items = []
+        for it in (b.get("items") if isinstance(b.get("items"), list) else [])[:6]:
+            if isinstance(it, dict) and (it.get("value") or it.get("label")):
+                items.append({"label": _s(it.get("label"), 40), "value": _s(it.get("value"), 120)})
+        return {"type": "chips", "items": items} if items else None
+    if kind == "cards":
+        items = []
+        for it in (b.get("items") if isinstance(b.get("items"), list) else [])[:4]:
+            if not isinstance(it, dict):
+                continue
+            card = {"eyebrow": _s(it.get("eyebrow"), 40), "title": _s(it.get("title"), 120),
+                    "subtitle": _s(it.get("subtitle"), 120), "body": _s(it.get("body"), 500)}
+            if card["title"] or card["body"]:
+                items.append(card)
+        return {"type": "cards", "items": items} if items else None
+    if kind == "callout":
+        body = _s(b.get("body") or b.get("text"), 400)
+        tone = _s(b.get("tone"), 10)
+        return {"type": "callout", "tone": tone if tone in _TONES else "neutral",
+                "body": body} if body else None
+    if kind == "action":
+        body = _s(b.get("body") or b.get("text"), 400)
+        return {"type": "action", "body": body} if body else None
+    return None
+
+
+def _norm_slide(s, facts):
+    if not isinstance(s, dict):
+        return None
+    kind = _s(s.get("kind"), 12).lower()
+    if kind not in _SLIDE_KINDS:
+        kind = "content"
+    tone = _s(s.get("tone"), 10)
+    blocks = []
+    for b in (s.get("blocks") if isinstance(s.get("blocks"), list) else [])[:6]:
+        nb = _norm_block(b, facts)
+        if nb:
+            blocks.append(nb)
+    slide = {"kind": kind, "eyebrow": _s(s.get("eyebrow"), 80), "title": _s(s.get("title"), 200),
+             "subtitle": _s(s.get("subtitle"), 300),
+             "tone": tone if tone in _TONES else "neutral",
+             "source": _s(s.get("source"), 200), "blocks": blocks}
+    return slide if (slide["title"] or blocks) else None
+
+
+def _legacy_slides(p):
+    """The pre-2026-07-29 payload ({landscape, what_happened, why, recommendations, asks}) as
+    slides, so every deck stored under the old contract still renders."""
+    def items(v):
+        out = []
+        for it in (v if isinstance(v, list) else [])[:6]:
+            if isinstance(it, dict):
+                out.append({"eyebrow": "", "title": _s(it.get("title"), 120), "subtitle": "",
+                            "body": _s(it.get("body"), 500)})
+            elif isinstance(it, str) and it.strip():
+                out.append({"eyebrow": "", "title": "", "subtitle": "", "body": _s(it, 500)})
+        return out
+
+    land = p.get("landscape") if isinstance(p.get("landscape"), dict) else {}
     wh = p.get("what_happened") if isinstance(p.get("what_happened"), dict) else {}
     asks = p.get("asks") if isinstance(p.get("asks"), dict) else {}
-    numbers = []
-    for n in (wh.get("numbers") if isinstance(wh.get("numbers"), list) else [])[:8]:
-        if isinstance(n, dict) and (n.get("label") or n.get("value")):
-            numbers.append({"label": str(n.get("label") or "").strip(),
-                            "value": str(n.get("value") or "").strip(),
-                            "note": str(n.get("note") or "").strip()})
-    return {
-        "landscape": {"business": _items(landscape.get("business")),
-                      "media": _items(landscape.get("media")),
-                      "voices": _items(landscape.get("voices"))},
-        "what_happened": {"summary": str(wh.get("summary") or "").strip(),
-                          "numbers": numbers,
-                          "whats_working": _strs(wh.get("whats_working"))},
-        "why": _strs(p.get("why")),
-        "recommendations": _strs(p.get("recommendations")),
-        "asks": {"needed": _strs(asks.get("needed")),
-                 "blocked": _strs(asks.get("blocked"))},
-    }
+    slides = []
+
+    cards = items(land.get("business")) + items(land.get("media")) + items(land.get("voices"))
+    if cards:
+        slides.append({"kind": "content", "eyebrow": "", "title": "The Landscape", "subtitle": "",
+                       "tone": "neutral", "source": "",
+                       "blocks": [{"type": "cards", "items": cards[:4]}]})
+    blocks = []
+    if wh.get("summary"):
+        blocks.append({"type": "text", "body": _s(wh["summary"], 700)})
+    tiles = [{"label": _s(n.get("label"), 60), "value": _s(n.get("value"), 40),
+              "note": _s(n.get("note"), 120), "tone": ""}
+             for n in (wh.get("numbers") if isinstance(wh.get("numbers"), list) else [])[:8]
+             if isinstance(n, dict) and (n.get("label") or n.get("value"))]
+    if tiles:
+        blocks.append({"type": "kpis", "items": tiles})
+    working = _strs(wh.get("whats_working"))
+    if working:
+        blocks.append({"type": "bullets", "items": working, "ordered": False})
+    if blocks:
+        slides.append({"kind": "content", "eyebrow": "", "title": "What Happened", "subtitle": "",
+                       "tone": "good", "source": "", "blocks": blocks})
+    for title, rows, ordered in (("Why It Happened", _strs(p.get("why")), False),
+                                 ("What We Should Do", _strs(p.get("recommendations")), True)):
+        if rows:
+            slides.append({"kind": "content", "eyebrow": "", "title": title, "subtitle": "",
+                           "tone": "neutral", "source": "",
+                           "blocks": [{"type": "bullets", "items": rows, "ordered": ordered}]})
+    ask_blocks = []
+    if _strs(asks.get("needed")):
+        ask_blocks.append({"type": "bullets", "items": _strs(asks.get("needed")), "ordered": False})
+    if _strs(asks.get("blocked")):
+        ask_blocks.append({"type": "callout", "tone": "warn",
+                           "body": "Currently blocked: " + "; ".join(_strs(asks.get("blocked")))})
+    slides.append({"kind": "closing", "eyebrow": "", "title": "What We Need From You",
+                   "subtitle": "" if ask_blocks else "Nothing is waiting on you right now.",
+                   "tone": "neutral", "source": "", "blocks": ask_blocks})
+    return slides
 
 
-def draft_payload(inputs):
-    """The deterministic no-AI draft: honest source material in the right slots, no invented
-    analysis (why/recommendations stay empty rather than fake)."""
-    def to_items(rows):
+def normalize_payload(p, facts=None):
+    """Coerce any parsed payload into the canonical shape the renderer trusts.
+
+    Accepts the new slide payload, a legacy six-slide payload, or junk. `facts` seeds the fact pack
+    when the payload does not carry one (a freshly generated deck); a stored payload keeps its own,
+    which is what makes the lazy re-render byte-identical."""
+    p = p if isinstance(p, dict) else {}
+    pack = p.get("facts") if isinstance(p.get("facts"), dict) else (facts or {})
+    pack = {k: v for k, v in pack.items()
+            if isinstance(v, dict) and v.get("kind") in _FACT_KINDS}
+    meta_in = p.get("meta") if isinstance(p.get("meta"), dict) else {}
+    meta = {"headline": _s(meta_in.get("headline"), 200), "subhead": _s(meta_in.get("subhead"), 300),
+            "period": _s(meta_in.get("period"), 120), "sources": _s(meta_in.get("sources"), 200)}
+
+    raw_slides = p.get("slides") if isinstance(p.get("slides"), list) else None
+    if raw_slides is None:
+        raw_slides = _legacy_slides(p) if any(
+            k in p for k in ("landscape", "what_happened", "why", "recommendations", "asks")) else []
+    slides = []
+    for s in raw_slides[:24]:
+        ns = _norm_slide(s, pack)
+        if ns:
+            slides.append(ns)
+    return {"meta": meta, "facts": pack, "slides": slides}
+
+
+# --- The no-AI deck: honest, and now a real one --------------------------------------------------
+def _fact_slide(facts, key, title, eyebrow="", subtitle="", extra=None, source=""):
+    """One content slide built around a single computed fact (skipped when the fact is absent)."""
+    if key not in (facts or {}):
+        return None
+    fact = facts[key]
+    block_type = {"series": "chart", "table": "table", "compare": "compare",
+                  "tiles": "kpis"}[fact["kind"]]
+    blocks = [{"type": block_type, "fact": key}]
+    blocks.extend(extra or [])
+    return {"kind": "content", "eyebrow": eyebrow, "title": title or fact.get("title") or "",
+            "subtitle": subtitle, "tone": "neutral", "source": source, "blocks": blocks}
+
+
+def draft_payload(inputs, client_name="", when=""):
+    """The deterministic no-AI deck: the computed facts in the right order, the landscape as cards,
+    the real asks -- and NO invented analysis (no 'why', no recommendations, because nothing in the
+    material can honestly produce them without a model)."""
+    facts = (inputs or {}).get("facts") or {}
+    period = (inputs or {}).get("period") or ""
+    slides = [{
+        "kind": "cover", "eyebrow": "Performance review",
+        "title": client_name or "Performance review",
+        "subtitle": "What the numbers say for %s" % (period or date_label(when) or "this period"),
+        "tone": "neutral", "source": "",
+        "blocks": [{"type": "chips", "items": [c for c in (
+            {"label": "Client", "value": _s(client_name, 120)} if client_name else None,
+            {"label": "Window", "value": _s(period, 120)} if period else None,
+            {"label": "Prepared", "value": date_label(when)} if when else None) if c]}],
+    }]
+    for key, title, eyebrow in (
+            ("totals", "", "The campaign to date"),
+            ("recent_vs_prior", "", "Like for like"),
+            ("weekly_revenue", "", "Week by week"),
+            ("weekly_roas", "", "Week by week"),
+            ("ads", "", "Creative"),
+            ("age", "", "Audience"),
+            ("region", "", "Geography"),
+            ("email", "", "Email")):
+        slide = _fact_slide(facts, key, title, eyebrow=eyebrow)
+        if slide:
+            slides.append(slide)
+
+    def cards(rows, cap=3):
         out = []
-        for r in rows or []:
+        for r in (rows or [])[:cap]:
             head, _sep, tail = r.partition(": ")
-            out.append({"title": head if tail else "", "body": tail or head})
-        return out[:4]
-    summary = ""
-    numbers = []
-    for sid, _title, text in inputs.get("dashboard") or []:
-        if sid in ("overview", "kpis"):
-            summary = text
-            break
-    return normalize_payload({
-        "landscape": {"business": to_items(inputs.get("business")),
-                      "media": to_items(inputs.get("media")),
-                      "voices": to_items(inputs.get("voices"))},
-        "what_happened": {"summary": summary, "numbers": numbers, "whats_working": []},
-        "why": [], "recommendations": [],
-        "asks": {"needed": inputs.get("needed") or [], "blocked": inputs.get("blocked") or []},
-    })
+            out.append({"eyebrow": "", "title": _s(head if tail else "", 120), "subtitle": "",
+                        "body": _s(tail or head, 500)})
+        return out
+
+    land = cards(inputs.get("business")) + cards(inputs.get("media")) + cards(inputs.get("voices"))
+    if land:
+        slides.append({"kind": "content", "eyebrow": "The market", "title": "The Landscape",
+                       "subtitle": "Industry news, platform changes and what the market is saying",
+                       "tone": "neutral", "source": "",
+                       "blocks": [{"type": "cards", "items": land[:4]}]})
+    ask_blocks = []
+    if inputs.get("needed"):
+        ask_blocks.append({"type": "bullets", "items": _strs(inputs["needed"]), "ordered": False})
+    if inputs.get("blocked"):
+        ask_blocks.append({"type": "callout", "tone": "warn",
+                           "body": "Currently blocked: " + "; ".join(_strs(inputs["blocked"]))})
+    slides.append({"kind": "closing", "eyebrow": "", "title": "What We Need From You",
+                   "subtitle": "" if ask_blocks else "Nothing is waiting on you right now.",
+                   "tone": "neutral", "source": "", "blocks": ask_blocks})
+    return normalize_payload({"meta": {"period": period}, "slides": slides}, facts)
 
 
 def generate(client_name, when, inputs, caller):
     """The slide payload for `inputs`. Returns (payload, error): with a working `caller(system,
     user) -> (text, err)` the model writes it; on any failure (or caller None) the deterministic
-    draft comes back with the reason -- a deck ALWAYS renders."""
+    deck comes back with the reason -- a deck ALWAYS renders."""
+    facts = (inputs or {}).get("facts") or {}
     if caller is not None:
         try:
             raw, err = caller(_GEN_SYSTEM, _material_text(client_name, when, inputs))
@@ -278,27 +963,31 @@ def generate(client_name, when, inputs, caller):
         if not err:
             parsed = _parse_json(raw)
             if parsed is not None:
-                return normalize_payload(parsed), ""
-            err = "the model did not return usable JSON"
+                payload = normalize_payload(parsed, facts)
+                if payload["slides"]:
+                    return payload, ""
+                err = "the model returned no usable slides"
+            else:
+                err = "the model did not return usable JSON"
     else:
         err = "no AI model configured"
-    return draft_payload(inputs), err
-
-
-_REVISE_SYSTEM = (
-    "You edit a marketing agency's client report. You get the report's current JSON payload and "
-    "the team's edit instruction. Apply the instruction and return the FULL updated payload as "
-    "JSON ONLY, keeping exactly this shape: " + _SHAPE + " Change only what the instruction asks "
-    "for; keep everything else verbatim. No em dashes in any text.")
+    return draft_payload(inputs, client_name=client_name, when=when), err
 
 
 def revise(payload, instruction, caller):
     """Apply a team edit instruction to an existing payload. Returns (new_payload, error);
-    on any failure the ORIGINAL payload comes back with the reason (never a broken deck)."""
+    on any failure the ORIGINAL payload comes back with the reason (never a broken deck).
+
+    The fact pack is stripped from what the model sees (it is data, often large, and editing it is
+    never the instruction) and re-attached to the result, so a revise can never lose the numbers."""
     if caller is None:
         return payload, "no AI model configured"
-    user = "Current report JSON:\n%s\n\nEdit instruction:\n%s" % (
-        json.dumps(payload, indent=1), (instruction or "").strip())
+    current = normalize_payload(payload)
+    facts = current["facts"]
+    visible = {"meta": current["meta"], "slides": current["slides"],
+               "available_fact_keys": sorted(facts)}
+    user = "Current deck JSON:\n%s\n\nEdit instruction:\n%s" % (
+        json.dumps(visible, indent=1), (instruction or "").strip())
     try:
         raw, err = caller(_REVISE_SYSTEM, user)
     except Exception as e:
@@ -308,148 +997,587 @@ def revise(payload, instruction, caller):
     parsed = _parse_json(raw)
     if parsed is None:
         return payload, "the model did not return usable JSON"
-    return normalize_payload(parsed), ""
+    revised = normalize_payload(parsed, facts)
+    if not revised["slides"]:
+        return payload, "the edit produced no usable slides"
+    return revised, ""
 
 
-# --- 3. Render: payload -> the self-contained deck ------------------------------------------------
-# Zero JS (nothing for the esprima gate, nothing to break), pure CSS scroll-snap, system-safe font
-# stack, brand accents only as decoration: values wear ink, labels wear muted gray -- identity and
-# meaning never ride on color alone (deltas carry explicit +/- text).
+# --- 4. Brand: the deck wears the client's identity ----------------------------------------------
+# The AGORA house palette (website design system) is the floor; a client's own colours, when the
+# Company tab's brand guide lists them, take the accent slots. Identity never rides on colour alone:
+# every tone also carries text (a +/- delta, a "best week" tag), so the deck reads in grayscale.
+HOUSE_PALETTE = {
+    "ink": "#101410", "body": "#333c33", "muted": "#7b857b", "line": "#e2e8e2",
+    "canvas": "#e8ebe6", "paper": "#ffffff", "panel": "#fbfdfb",
+    "accent": "#4FA84A", "accent2": "#6A6AEA", "on_accent": "#ffffff",
+    "good": "#2E7D43", "warn": "#9a6314", "bad": "#9F2D20",
+}
+_HEX_RE = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b")
+
+
+def _rgb(hex_color):
+    h = hex_color.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _luminance(hex_color):
+    r, g, b = _rgb(hex_color)
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+
+
+def palette_of(colors_text):
+    """The deck palette, from the free-text `colors` field of the Company tab's brand guide.
+
+    The field is prose ("Deep pine #21582B, cream #F7F5E7, gold accent"), so we simply take the hex
+    codes in the order they are written: first = accent, second = the secondary accent, and the
+    darkest of them becomes the headline ink when it is dark enough to read as type. Anything not
+    supplied stays the house value, so a blank brand guide is a perfectly good deck."""
+    pal = dict(HOUSE_PALETTE)
+    found = _HEX_RE.findall(colors_text or "")
+    if not found:
+        return pal
+    pal["accent"] = found[0]
+    if len(found) > 1:
+        pal["accent2"] = found[1]
+    dark = [c for c in found if _luminance(c) < 0.28]
+    if dark:
+        pal["ink"] = dark[0]
+    pal["on_accent"] = "#ffffff" if _luminance(pal["accent"]) < 0.62 else pal["ink"]
+    return pal
+
+
+_MARK_RE = re.compile(r"^\s*<(svg|img)\b", re.I)
+
+
+def _mark(markup):
+    """A stored logo, if it is the self-contained markup we wrote (an inline <svg> or a data: <img>).
+
+    Logos live INSIDE the workspace JSON as markup (seed_workspace.brand_for / set_client_logo), so
+    they are inlined verbatim rather than escaped -- this gate is what keeps that safe."""
+    m = (markup or "").strip()
+    if not _MARK_RE.match(m):
+        return ""
+    low = m.lower()
+    if "<script" in low or "javascript:" in low or "onerror" in low or "onload" in low:
+        return ""
+    if low.startswith("<img") and "src=\"data:image/" not in low and "src='data:image/" not in low:
+        return ""
+    return m
+
+
+def brand_kit(ws):
+    """Everything the deck needs to wear the client's identity: their crest, the AGORA mark, and a
+    palette from the Company tab's brand guide. Safe on a bare/None workspace."""
+    ws = ws or {}
+    b = ws.get("brand") if isinstance(ws.get("brand"), dict) else {}
+    company = ws.get("company") if isinstance(ws.get("company"), dict) else {}
+    cbrand = company.get("brand") if isinstance(company.get("brand"), dict) else {}
+    return {"client_logo": _mark(b.get("client_logo")),
+            "agora_logo": _mark(b.get("agora_logo")),
+            "palette": palette_of(cbrand.get("colors"))}
+
+
+# --- 5. Render: payload -> the self-contained deck ------------------------------------------------
+# A fixed 1280x720 stage scaled to the window (--k), one slide visible at a time, arrow keys / click
+# / dots to move, `p` to print. The ONLY JS in the document is that navigator, and it is written
+# esprima-4.x-safe (no `?.`, no `??`) like every other script in this repo. Everything else -- the
+# charts, the tables, the tone colours -- is CSS over server-rendered markup, so the deck prints and
+# survives with scripting off (@media print reveals every slide).
 _CSS = """
 *{margin:0;padding:0;box-sizing:border-box}
-html{scroll-snap-type:y mandatory}
-body{font-family:Archivo,Lato,'Segoe UI',system-ui,sans-serif;color:#101410;background:#fff}
-.slide{min-height:100vh;scroll-snap-align:start;display:flex;flex-direction:column;
-  justify-content:center;padding:8vh 9vw;position:relative}
-.slide+.slide{border-top:1px solid #e7ece7}
-.eyebrow{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#4FA84A;
-  font-weight:700;margin-bottom:14px}
-h1{font-size:clamp(44px,9vw,110px);line-height:1.02;font-weight:800;letter-spacing:-.02em}
-h2{font-size:clamp(30px,4.6vw,54px);font-weight:800;letter-spacing:-.02em;margin-bottom:26px}
-h3{font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:#6A6AEA;font-weight:700;
-  margin:0 0 10px}
-.cover .who{font-size:clamp(20px,2.6vw,30px);font-weight:700;margin-top:26px}
-.cover .what{font-size:17px;color:#5b675b;margin-top:6px}
-.cover .rule{width:88px;height:6px;background:#4FA84A;border-radius:3px;margin-top:34px}
-.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:34px}
-.item{margin-bottom:16px}
-.item .t{font-weight:700;margin-bottom:3px}
-.item .b,li,.summary{font-size:16px;line-height:1.55;color:#333c33}
-.lede{font-size:14px;color:#8a948a;margin:-18px 0 24px}
-.summary{font-size:18px;max-width:62ch;margin-bottom:30px}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;
-  margin-bottom:34px}
-.tile{border:1px solid #e2e8e2;border-radius:14px;padding:18px 20px;background:#fbfdfb}
-.tile .l{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#788278;
-  font-weight:700}
-.tile .v{font-size:clamp(24px,3vw,34px);font-weight:800;letter-spacing:-.01em;margin-top:6px}
-.tile .n{font-size:13px;color:#5b675b;margin-top:4px}
-.sub{margin-top:8px;border-left:4px solid #4FA84A;padding:6px 0 6px 22px}
-.sub h3{color:#4FA84A}
-ul,ol{padding-left:22px}
-li{margin-bottom:12px;max-width:70ch}
-ol li::marker{color:#6A6AEA;font-weight:700}
-ul li::marker{color:#4FA84A}
-.page{position:absolute;bottom:26px;right:9vw;font-size:12px;color:#aab3aa}
-.foot{position:absolute;bottom:26px;left:9vw;font-size:12px;letter-spacing:.14em;
-  text-transform:uppercase;color:#aab3aa;font-weight:700}
-@media print{.slide{min-height:auto;page-break-after:always;padding:40px 48px}}
+html,body{height:100%}
+body{background:var(--canvas);color:var(--body);overflow:hidden;
+  font-family:'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3{color:var(--ink);letter-spacing:-.02em;line-height:1.1;font-weight:800}
+.stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+.slide{position:absolute;width:var(--sw);height:var(--sh);background:var(--paper);display:none;
+  flex-direction:column;overflow:hidden;transform:scale(var(--k,1));transform-origin:center center;
+  box-shadow:0 18px 60px rgba(0,0,0,.28)}
+.slide.on{display:flex}
+.chrome{flex:none;display:flex;align-items:center;gap:20px;padding:13px 44px;
+  border-bottom:1px solid var(--line)}
+.chrome .crest{width:38px;height:38px;flex:none;display:flex;align-items:center;
+  justify-content:center;border:1px solid var(--line);border-radius:8px;background:#fff;padding:3px}
+.chrome .crest svg,.chrome .crest img{max-width:100%;max-height:100%;display:block}
+.chrome .mid{flex:1;min-width:0}
+.chrome .mid .t{font-weight:700;color:var(--ink);font-size:14px}
+.chrome .mid .s{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);
+  margin-top:2px}
+.chrome .by{flex:none;display:flex;align-items:center;gap:9px}
+.chrome .by .lbl{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  text-align:right;line-height:1.3}
+.chrome .by .mark{width:88px;height:22px;display:flex;align-items:center;justify-content:flex-end}
+.chrome .by .mark svg,.chrome .by .mark img{max-width:100%;max-height:100%;display:block}
+.body{flex:1;min-height:0;padding:26px 44px 14px;display:flex;flex-direction:column;gap:14px}
+.foot{flex:none;display:flex;align-items:center;justify-content:space-between;gap:20px;
+  padding:0 44px 15px;font-size:10.5px;color:var(--muted)}
+.foot .src{font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.foot .no{font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;flex:none}
+
+.shead{flex:none;border-bottom:1px solid var(--line);padding-bottom:11px}
+.shead .eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:800;
+  color:var(--accent);margin-bottom:7px}
+.shead h2{font-size:29px;display:flex;align-items:flex-start;gap:13px}
+.shead h2::before{content:'';flex:none;width:4px;align-self:stretch;min-height:26px;
+  background:var(--accent);border-radius:2px}
+.shead.good h2::before{background:var(--good)}
+.shead.warn h2::before{background:var(--warn)}
+.shead.bad h2::before{background:var(--bad)}
+.shead .sub{font-size:13px;color:var(--muted);margin-top:8px;max-width:96ch}
+.blocks{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;
+  gap:13px;overflow:hidden}
+
+/* Cover / section / closing */
+.big{flex:1;display:flex;flex-direction:column;justify-content:center;gap:0}
+.big .eyebrow{font-size:12px;letter-spacing:.19em;text-transform:uppercase;font-weight:800;
+  color:var(--accent);margin-bottom:20px}
+.big h1{font-size:64px;max-width:22ch}
+.big .sub{font-size:17px;color:var(--body);margin-top:20px;max-width:74ch;line-height:1.5}
+.big .rule{width:92px;height:6px;border-radius:3px;background:var(--accent);
+  margin:26px 0}
+.slide.section{background:var(--ink)}
+.slide.section .chrome{border-bottom-color:rgba(255,255,255,.16)}
+.slide.section .chrome .mid .t{color:#fff}
+.slide.section h1,.slide.section .kpi .v{color:#fff}
+.slide.section .sub{color:rgba(255,255,255,.78)}
+.slide.section .kpi{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.18)}
+.slide.section .kpi .l,.slide.section .kpi .n{color:rgba(255,255,255,.72)}
+.slide.section .foot,.slide.section .foot .no{color:rgba(255,255,255,.6)}
+/* The stored AGORA mark is the dark-on-light one; knock it out to white on the dark divider
+   rather than shipping a second asset into the workspace JSON. */
+.slide.section .chrome .by .mark svg,.slide.section .chrome .by .mark img{
+  filter:brightness(0) invert(1)}
+.slide.section .chrome .by .lbl{color:rgba(255,255,255,.6)}
+.slide.section .big .rule{background:#fff;opacity:.85}
+
+/* Blocks */
+.text{font-size:15px;line-height:1.62;color:var(--body);max-width:104ch}
+.text b,.text strong{color:var(--ink)}
+.kpis{display:flex;flex-wrap:wrap;gap:12px}
+.kpi{flex:1 1 0;min-width:150px;border:1px solid var(--line);border-radius:13px;padding:14px 16px;
+  background:var(--panel)}
+.kpi .l{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;color:var(--muted)}
+.kpi .v{font-size:31px;font-weight:800;color:var(--ink);line-height:1.06;margin-top:6px;
+  letter-spacing:-.025em;font-variant-numeric:tabular-nums}
+.kpi .n{font-size:11.5px;color:var(--muted);margin-top:5px;line-height:1.4}
+.kpi.good .v{color:var(--good)}
+.kpi.warn .v{color:var(--warn)}
+.kpi.bad .v{color:var(--bad)}
+.strip{display:flex;flex-wrap:wrap;gap:10px}
+.strip .s{flex:1 1 0;min-width:112px;border:1px solid var(--line);border-radius:11px;
+  padding:9px 12px;background:var(--panel)}
+.strip .s .l{font-size:9px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;
+  color:var(--muted)}
+.strip .s .v{font-size:17px;font-weight:800;color:var(--ink);margin-top:3px;
+  letter-spacing:-.015em;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:34px}
+.chip .l{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;color:var(--muted)}
+.chip .v{font-size:14px;color:var(--ink);font-weight:700;margin-top:4px}
+ul.list,ol.list{padding-left:22px;display:flex;flex-direction:column;gap:9px}
+ul.list li,ol.list li{font-size:14.5px;line-height:1.55;max-width:96ch}
+ul.list li::marker{color:var(--accent)}
+ol.list li::marker{color:var(--accent2);font-weight:800}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+.card{border:1px solid var(--line);border-radius:13px;padding:15px 16px;background:var(--panel)}
+.card .e{font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;font-weight:800;
+  color:var(--accent2);margin-bottom:6px}
+.card h3{font-size:15px;margin-bottom:4px}
+.card .s{font-size:11.5px;color:var(--muted);margin-bottom:7px}
+.card .b{font-size:13px;line-height:1.55;color:var(--body)}
+.callout{display:flex;gap:11px;align-items:flex-start;border-radius:11px;padding:12px 15px;
+  font-size:13.5px;line-height:1.5;border:1px solid var(--line);background:var(--panel);color:var(--body)}
+.callout .tag{flex:none;font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;
+  padding-top:2px;color:var(--muted)}
+.callout.good{background:#eef5ef;border-color:#c6ddca;color:#1d5b30}
+.callout.good .tag{color:var(--good)}
+.callout.warn{background:#fdf4e8;border-color:#f0dcbb;color:#7a4e10}
+.callout.warn .tag{color:var(--warn)}
+.callout.bad{background:#f9eae8;border-color:#eec9c3;color:#84291d}
+.callout.bad .tag{color:var(--bad)}
+.action{display:flex;gap:11px;align-items:baseline;border-left:4px solid var(--accent);
+  padding:7px 0 7px 16px;font-size:14.5px;line-height:1.5;color:var(--ink)}
+.action .tag{flex:none;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent)}
+.cap{font-size:11.5px;color:var(--muted)}
+
+/* Chart: columns (a trend) or rows (a ranking). Bars are CSS, values are always written out too. */
+.figure{display:flex;flex-direction:column;gap:9px;min-height:0;flex:none}
+.figure.fill{flex:1}
+.figure .ftitle{font-size:12.5px;font-weight:800;color:var(--ink)}
+.figure .fsub{font-size:11px;color:var(--muted);margin-top:-6px}
+.cols{flex:1;min-height:96px;display:flex;align-items:stretch;gap:12px}
+.cols .col{flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:6px;text-align:center}
+.cols .cv{font-size:13px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+.cols .barwrap{display:flex;align-items:flex-end;min-height:44px}
+.cols .bar{width:100%;border-radius:5px 5px 0 0;background:var(--accent);opacity:.42;min-height:3px}
+.cols .col.best .bar{opacity:1}
+.cols .col.best .cv{color:var(--accent)}
+.cols .cl{font-size:10.5px;color:var(--muted);letter-spacing:.02em}
+.cols .cn{font-size:9.5px;color:var(--accent);font-weight:800;text-transform:uppercase;
+  letter-spacing:.08em}
+.rows{display:flex;flex-direction:column;gap:8px}
+.rows .row{display:grid;grid-template-columns:160px 1fr 74px;align-items:center;gap:12px}
+.rows .rl{font-size:12.5px;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.rows .track{height:15px;border-radius:8px;background:var(--line);overflow:hidden}
+.rows .fill{height:100%;border-radius:8px;background:var(--accent);opacity:.85;min-width:2px}
+.rows .rv{font-size:12.5px;font-weight:800;color:var(--ink);text-align:right;
+  font-variant-numeric:tabular-nums}
+
+/* Table */
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);font-weight:800;
+  text-align:left;padding:0 12px 8px 0;border-bottom:1px solid var(--line)}
+td{font-size:13px;color:var(--body);padding:8px 12px 8px 0;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+th.r,td.r{text-align:right;padding-right:0}
+td.name{color:var(--ink);font-weight:600;max-width:320px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+tr.good td.name::after{content:' BEST';font-size:9px;font-weight:800;color:var(--good);
+  letter-spacing:.1em}
+tr.bad td.name::after{content:' WEAKEST';font-size:9px;font-weight:800;color:var(--bad);
+  letter-spacing:.1em}
+tr.good td{background:rgba(46,125,67,.06)}
+tr.bad td{background:rgba(159,45,32,.05)}
+
+/* Before / after */
+.compare{display:grid;grid-template-columns:1fr auto 1fr;align-items:stretch;gap:16px}
+.side{border:1px solid var(--line);border-radius:13px;padding:14px 16px;background:var(--panel)}
+.side .st{font-size:13px;font-weight:800;color:var(--ink)}
+.side .ss{font-size:10.5px;color:var(--muted);margin-bottom:9px}
+.side .r{display:flex;justify-content:space-between;gap:12px;padding:5px 0;font-size:13px;
+  border-top:1px solid var(--line)}
+.side .r .k{color:var(--muted)}
+.side .r .v{font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+.side.after{border-color:var(--accent)}
+.delta{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:0 6px;text-align:center}
+.delta .d{font-size:30px;font-weight:800;letter-spacing:-.03em;color:var(--ink)}
+.delta.good .d{color:var(--good)}
+.delta.bad .d{color:var(--bad)}
+.delta .dl{font-size:10.5px;color:var(--muted);max-width:12ch;line-height:1.3;margin-top:3px}
+
+/* Navigator (the only JS in the document) */
+.nav{position:fixed;left:0;right:0;bottom:0;height:52px;display:flex;align-items:center;
+  justify-content:center;gap:14px}
+.nav button{border:1px solid var(--line);background:var(--paper);color:var(--ink);width:30px;height:30px;
+  border-radius:50%;cursor:pointer;font-size:14px;line-height:1}
+.dots{display:flex;gap:6px;align-items:center}
+.dots .dot{width:7px;height:7px;border-radius:50%;border:0;padding:0;cursor:pointer;
+  background:rgba(0,0,0,.22)}
+.dots .dot.on{background:var(--accent);transform:scale(1.35)}
+
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;display:block}
+  .nav{display:none}
+  .slide{display:flex !important;position:relative;transform:none;box-shadow:none;
+    page-break-after:always;break-after:page}
+}
 """
+
+
+def _css(palette):
+    """The stylesheet for one deck: the palette (and the stage size) as custom properties in front
+    of the fixed sheet. Injecting via `var(--token)` rather than string-formatting the whole sheet
+    keeps every literal `%` in the CSS a real percentage."""
+    root = ";".join("--%s:%s" % (k, v) for k, v in sorted(palette.items()))
+    return ("@page{size:%dpx %dpx;margin:0}:root{%s;--sw:%dpx;--sh:%dpx}%s"
+            % (STAGE_W, STAGE_H, root, STAGE_W, STAGE_H, _CSS))
 
 
 def _esc(s):
     return html.escape(str(s or ""), quote=True)
 
 
-def _item_html(items):
-    out = []
-    for it in items:
-        title = ("<div class=\"t\">%s</div>" % _esc(it["title"])) if it.get("title") else ""
-        out.append("<div class=\"item\">%s<div class=\"b\">%s</div></div>"
-                   % (title, _esc(it.get("body"))))
-    return "\n".join(out)
+def _pctw(value, top):
+    """A bar length as a percentage string, floored so a real-but-tiny value still shows."""
+    if top <= 0:
+        return "0%"
+    return "%.1f%%" % max(1.5, min(100.0, 100.0 * value / top))
 
 
-def _list_html(rows, ordered=False):
-    tag = "ol" if ordered else "ul"
-    return "<%s>%s</%s>" % (tag, "".join("<li>%s</li>" % _esc(r) for r in rows), tag)
+def _fig_head(fact, slide_title=""):
+    """The figure's own caption line -- minus its title when the SLIDE is already titled with it
+    (a slide built around one figure must not say the same thing twice)."""
+    head = ""
+    if (fact.get("title") or "").strip().lower() != (slide_title or "").strip().lower():
+        head = "<div class=\"ftitle\">%s</div>" % _esc(fact.get("title"))
+    if fact.get("subtitle"):
+        head += "<div class=\"fsub\">%s</div>" % _esc(fact["subtitle"])
+    return head
 
 
-def _slide(body, number, label="AGORA Data Driven"):
-    return ("<section class=\"slide\">%s<div class=\"foot\">%s</div>"
-            "<div class=\"page\">%02d</div></section>" % (body, _esc(label), number))
+def _chart_html(fact, caption="", slide_title=""):
+    points = fact.get("points") or []
+    values = [_num(p.get("value")) for p in points]
+    top = max(values + [0.0])
+    if fact.get("orient") == "rows":
+        rows = "".join(
+            "<div class=\"row\"><div class=\"rl\">%s</div>"
+            "<div class=\"track\"><div class=\"fill\" style=\"width:%s\"></div></div>"
+            "<div class=\"rv\">%s</div></div>"
+            % (_esc(p.get("label")), _pctw(_num(p.get("value")), top), _esc(p.get("text")))
+            for p in points)
+        return ("<div class=\"figure\">%s<div class=\"rows\">%s</div>%s</div>"
+                % (_fig_head(fact, slide_title), rows, caption))
+    cols = "".join(
+        "<div class=\"col%s\"><div class=\"cv\">%s</div>"
+        "<div class=\"barwrap\"><div class=\"bar\" style=\"height:%s\"></div></div>"
+        "<div><div class=\"cl\">%s</div>%s</div></div>"
+        % (" best" if p.get("best") else "", _esc(p.get("text")),
+           _pctw(_num(p.get("value")), top), _esc(p.get("label")),
+           ("<div class=\"cn\">best</div>" if p.get("best") else ""))
+        for p in points)
+    # Only a column chart claims the leftover height -- a ranking or a table must stay welded to
+    # the prose under it, or the caption floats to the bottom of the slide on its own.
+    return ("<div class=\"figure fill\">%s<div class=\"cols\">%s</div>%s</div>"
+            % (_fig_head(fact, slide_title), cols, caption))
 
 
-def render_html(client_name, payload, when, title=""):
-    """The full deck HTML for a normalized `payload`. `when` is the presentation date (ISO),
-    `title` the deck title shown under the date. Empty sections skip their slides; the cover and
-    the asks slide always render (an empty asks slide honestly says nothing is needed)."""
-    p = normalize_payload(payload)
-    when_label = date_label(when)
-    title = title or "Performance Review"
-    n = 1
-    slides = [_slide(
-        "<div class=\"cover\"><div class=\"eyebrow\">Client performance review</div>"
-        "<h1>%s</h1><div class=\"who\">%s</div><div class=\"what\">%s</div>"
-        "<div class=\"rule\"></div></div>" % (_esc(when_label), _esc(client_name), _esc(title)),
-        n)]
+def _table_html(fact, caption="", slide_title=""):
+    cols = fact.get("columns") or []
+    head = "".join("<th%s>%s</th>" % (" class=\"r\"" if c.get("align") == "right" else "",
+                                      _esc(c.get("label"))) for c in cols)
+    body = []
+    for r in fact.get("rows") or []:
+        tone = r.get("_tone") or ""
+        cells = []
+        for i, c in enumerate(cols):
+            cls = "r" if c.get("align") == "right" else ("name" if i == 0 else "")
+            cells.append("<td%s>%s</td>" % ((" class=\"%s\"" % cls) if cls else "",
+                                            _esc(r.get(c.get("key"), ""))))
+        body.append("<tr%s>%s</tr>" % ((" class=\"%s\"" % tone) if tone else "", "".join(cells)))
+    out = ["<div class=\"figure\">%s" % _fig_head(fact, slide_title)]
+    out.append("<table><thead><tr>%s</tr></thead><tbody>%s</tbody></table>%s</div>"
+               % (head, "".join(body), caption))
+    return "".join(out)
 
-    land = p["landscape"]
-    if land["business"] or land["media"] or land["voices"]:
-        n += 1
-        cols = []
-        for key, label, lede in (("business", "Business Research", "Industry and competitor news"),
-                                 ("media", "Media Buying News", "Platform and ad-product updates"),
-                                 ("voices", VOICES_LABEL,
-                                  "What competitors and creators are talking about")):
-            if land[key]:
-                cols.append("<div><h3>%s</h3><div class=\"lede\">%s</div>%s</div>"
-                            % (_esc(label), _esc(lede), _item_html(land[key])))
-        slides.append(_slide("<h2>The Landscape</h2><div class=\"cols\">%s</div>"
-                             % "\n".join(cols), n))
 
-    wh = p["what_happened"]
-    if wh["summary"] or wh["numbers"] or wh["whats_working"]:
-        n += 1
-        tiles = "".join(
-            "<div class=\"tile\"><div class=\"l\">%s</div><div class=\"v\">%s</div>"
+def _compare_html(fact, caption="", slide_title=""):
+    def side(d, cls):
+        rows = "".join("<div class=\"r\"><span class=\"k\">%s</span><span class=\"v\">%s</span></div>"
+                       % (_esc(r.get("label")), _esc(r.get("value"))) for r in d.get("rows") or [])
+        return ("<div class=\"side %s\"><div class=\"st\">%s</div><div class=\"ss\">%s</div>%s</div>"
+                % (cls, _esc(d.get("title")), _esc(d.get("subtitle")), rows))
+
+    delta = fact.get("delta") or {}
+    tone = delta.get("tone") if delta.get("tone") in _TONES else "neutral"
+    return ("<div class=\"figure\">%s<div class=\"compare\">%s"
+            "<div class=\"delta %s\"><div class=\"d\">%s</div><div class=\"dl\">%s</div></div>"
+            "%s</div>%s</div>"
+            % (_fig_head(fact, slide_title), side(fact.get("before") or {}, "before"), tone,
+               _esc(delta.get("headline")), _esc(delta.get("label")),
+               side(fact.get("after") or {}, "after"), caption))
+
+
+def _kpis_html(items):
+    """Headline tiles, plus a compact strip for anything marked `tier: secondary` (a computed fact
+    can carry a dozen metrics; only the money story deserves a full tile)."""
+    primary = [it for it in items if it.get("tier") != "secondary"]
+    secondary = [it for it in items if it.get("tier") == "secondary"]
+    out = ""
+    if primary:
+        out += "<div class=\"kpis\">%s</div>" % "".join(
+            "<div class=\"kpi%s\"><div class=\"l\">%s</div><div class=\"v\">%s</div>"
             "<div class=\"n\">%s</div></div>"
-            % (_esc(t["label"]), _esc(t["value"]), _esc(t["note"])) for t in wh["numbers"])
-        body = "<h2>What Happened</h2>"
-        if wh["summary"]:
-            body += "<p class=\"summary\">%s</p>" % _esc(wh["summary"])
-        if tiles:
-            body += "<div class=\"tiles\">%s</div>" % tiles
-        if wh["whats_working"]:
-            body += ("<div class=\"sub\"><h3>What's Working</h3>%s</div>"
-                     % _list_html(wh["whats_working"]))
-        slides.append(_slide(body, n))
+            % ((" " + it["tone"]) if it.get("tone") else "", _esc(it.get("label")),
+               _esc(it.get("value")), _esc(it.get("note")))
+            for it in primary)
+    if secondary:
+        out += "<div class=\"strip\">%s</div>" % "".join(
+            "<div class=\"s\"><div class=\"l\">%s</div><div class=\"v\">%s</div></div>"
+            % (_esc(it.get("label")), _esc(it.get("value"))) for it in secondary)
+    return out
 
-    if p["why"]:
-        n += 1
-        slides.append(_slide("<h2>Why It Happened</h2>%s" % _list_html(p["why"]), n))
 
-    if p["recommendations"]:
-        n += 1
-        slides.append(_slide("<h2>What We Should Do</h2>%s"
-                             % _list_html(p["recommendations"], ordered=True), n))
+def _block_html(b, facts, slide_title=""):
+    kind = b.get("type")
+    caption = ("<div class=\"cap\">%s</div>" % _esc(b["caption"])) if b.get("caption") else ""
+    if kind in _FACT_BLOCKS and b.get("fact"):
+        fact = (facts or {}).get(b["fact"])
+        if not fact:
+            return ""
+        if kind == "chart":
+            return _chart_html(fact, caption, slide_title)
+        if kind == "table":
+            return _table_html(fact, caption, slide_title)
+        if kind == "compare":
+            return _compare_html(fact, caption, slide_title)
+        if kind == "kpis":
+            return _kpis_html(fact.get("items") or []) + caption
+    if kind == "kpis":
+        return _kpis_html(b.get("items") or [])
+    if kind == "text":
+        return "<div class=\"text\">%s</div>" % _esc(b.get("body"))
+    if kind == "bullets":
+        tag = "ol" if b.get("ordered") else "ul"
+        return "<%s class=\"list\">%s</%s>" % (
+            tag, "".join("<li>%s</li>" % _esc(x) for x in b.get("items") or []), tag)
+    if kind == "chips":
+        return "<div class=\"chips\">%s</div>" % "".join(
+            "<div class=\"chip\"><div class=\"l\">%s</div><div class=\"v\">%s</div></div>"
+            % (_esc(it.get("label")), _esc(it.get("value"))) for it in b.get("items") or [])
+    if kind == "cards":
+        cards = []
+        for it in b.get("items") or []:
+            bits = []
+            if it.get("eyebrow"):
+                bits.append("<div class=\"e\">%s</div>" % _esc(it["eyebrow"]))
+            if it.get("title"):
+                bits.append("<h3>%s</h3>" % _esc(it["title"]))
+            if it.get("subtitle"):
+                bits.append("<div class=\"s\">%s</div>" % _esc(it["subtitle"]))
+            if it.get("body"):
+                bits.append("<div class=\"b\">%s</div>" % _esc(it["body"]))
+            cards.append("<div class=\"card\">%s</div>" % "".join(bits))
+        return "<div class=\"cards\">%s</div>" % "".join(cards)
+    if kind == "callout":
+        tone = b.get("tone") if b.get("tone") in _TONES else "neutral"
+        tag = {"good": "Working", "warn": "Watch", "bad": "Risk"}.get(tone, "Note")
+        return ("<div class=\"callout %s\"><span class=\"tag\">%s</span><span>%s</span></div>"
+                % (tone, tag, _esc(b.get("body"))))
+    if kind == "action":
+        return ("<div class=\"action\"><span class=\"tag\">We'll action</span>"
+                "<span>%s</span></div>" % _esc(b.get("body")))
+    return ""
 
-    n += 1
-    asks = p["asks"]
-    ask_body = "<h2>What We Need From You</h2>"
-    if asks["needed"] or asks["blocked"]:
-        cols = []
-        if asks["needed"]:
-            cols.append("<div><h3>Waiting on you</h3>%s</div>" % _list_html(asks["needed"]))
-        if asks["blocked"]:
-            cols.append("<div><h3>Currently blocked</h3>%s</div>" % _list_html(asks["blocked"]))
-        ask_body += "<div class=\"cols\">%s</div>" % "\n".join(cols)
+
+def _slide_html(slide, facts, number, total, client_name, deck_title, marks):
+    blocks = "".join(_block_html(b, facts, slide.get("title"))
+                     for b in slide.get("blocks") or [])
+    if slide["kind"] in ("cover", "section", "closing"):
+        head = []
+        if slide.get("eyebrow"):
+            head.append("<div class=\"eyebrow\">%s</div>" % _esc(slide["eyebrow"]))
+        head.append("<h1>%s</h1>" % _esc(slide.get("title")))
+        if slide.get("subtitle"):
+            head.append("<div class=\"sub\">%s</div>" % _esc(slide["subtitle"]))
+        head.append("<div class=\"rule\"></div>")
+        # A cover's blocks are its meta strip and belong at the foot of the slide; a section or
+        # closing slide's blocks are hero stats and belong with the title, not adrift below it.
+        body = ("<div class=\"big\">%s</div>%s" % ("".join(head), blocks)
+                if slide["kind"] == "cover"
+                else "<div class=\"big\">%s%s</div>" % ("".join(head), blocks))
     else:
-        ask_body += "<p class=\"summary\">Nothing is waiting on you right now.</p>"
-    slides.append(_slide(ask_body, n))
+        head = []
+        if slide.get("eyebrow"):
+            head.append("<div class=\"eyebrow\">%s</div>" % _esc(slide["eyebrow"]))
+        head.append("<h2>%s</h2>" % _esc(slide.get("title")))
+        if slide.get("subtitle"):
+            head.append("<div class=\"sub\">%s</div>" % _esc(slide["subtitle"]))
+        tone = slide.get("tone") if slide.get("tone") in _TONES else "neutral"
+        body = ("<div class=\"shead %s\">%s</div><div class=\"blocks\">%s</div>"
+                % (tone, "".join(head), blocks))
+    chrome = ("<div class=\"chrome\"><div class=\"crest\">%s</div>"
+              "<div class=\"mid\"><div class=\"t\">%s</div><div class=\"s\">%s</div></div>"
+              "<div class=\"by\"><div class=\"lbl\">Prepared<br>by</div>"
+              "<div class=\"mark\">%s</div></div></div>"
+              % (marks.get("client_logo") or "", _esc(client_name), _esc(deck_title),
+                 marks.get("agora_logo") or "AGORA"))
+    foot = ("<div class=\"foot\"><div class=\"src\">%s</div><div class=\"no\">%02d / %02d</div></div>"
+            % (_esc(slide.get("source")), number, total))
+    return ("<section class=\"slide %s%s\">%s<div class=\"body\">%s</div>%s</section>"
+            % (slide["kind"], " on" if number == 1 else "", chrome, body, foot))
 
+
+# The navigator. esprima-4.x-safe on purpose (no `?.`, no `??`) -- the repo's JS gate parses every
+# inline script with esprima 4, and the deck is validated the same way in _report_localtest.py.
+_JS = """
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var dotsBox = document.getElementById('dots');
+  var i = 0;
+  if (!slides.length) { return; }
+  slides.forEach(function(s, n){
+    var b = document.createElement('button');
+    b.className = 'dot' + (n === 0 ? ' on' : '');
+    b.type = 'button';
+    b.setAttribute('aria-label', 'Go to slide ' + (n + 1));
+    b.addEventListener('click', function(){ go(n); });
+    dotsBox.appendChild(b);
+  });
+  var dots = Array.prototype.slice.call(dotsBox.children);
+  function go(n){
+    if (n < 0) { n = 0; }
+    if (n > slides.length - 1) { n = slides.length - 1; }
+    slides[i].classList.remove('on');
+    dots[i].classList.remove('on');
+    i = n;
+    slides[i].classList.add('on');
+    dots[i].classList.add('on');
+  }
+  function fit(){
+    var k = Math.min(window.innerWidth / %(w)d, (window.innerHeight - 62) / %(h)d);
+    document.documentElement.style.setProperty('--k', k);
+  }
+  window.addEventListener('resize', fit);
+  fit();
+  document.getElementById('prev').addEventListener('click', function(){ go(i - 1); });
+  document.getElementById('next').addEventListener('click', function(){ go(i + 1); });
+  document.addEventListener('keydown', function(e){
+    var k = e.key;
+    if (k === 'ArrowRight' || k === 'PageDown' || k === ' ') { go(i + 1); e.preventDefault(); }
+    else if (k === 'ArrowLeft' || k === 'PageUp') { go(i - 1); e.preventDefault(); }
+    else if (k === 'Home') { go(0); e.preventDefault(); }
+    else if (k === 'End') { go(slides.length - 1); e.preventDefault(); }
+    else if (k === 'p' || k === 'P') { window.print(); }
+  });
+  document.querySelector('.stage').addEventListener('click', function(e){
+    if (e.target.closest('.nav')) { return; }
+    go(i + 1);
+  });
+})();
+"""
+
+
+def render_html(client_name, payload, when, title="", brand=None):
+    """The full deck HTML for a payload (new shape, legacy shape or junk -- see normalize_payload).
+
+    `when` is the presentation date (ISO), `title` the deck title, `brand` the client's identity kit
+    from `brand_kit(ws)` (omit it and the deck wears the AGORA house palette with no crest)."""
+    p = normalize_payload(payload)
+    kit = brand if isinstance(brand, dict) else {}
+    palette = kit.get("palette") if isinstance(kit.get("palette"), dict) else HOUSE_PALETTE
+    palette = dict(HOUSE_PALETTE, **palette)
+    when_label = date_label(when)
+    deck_title = title or "Performance Review"
+    slides = list(p["slides"])
+
+    # The cover always exists: a deck with no slides at all still opens on something honest.
+    if not slides or slides[0]["kind"] != "cover":
+        meta = p["meta"]
+        chips = [c for c in ({"label": "Window", "value": meta["period"]} if meta["period"] else None,
+                             {"label": "Prepared", "value": when_label} if when_label else None,
+                             {"label": "Sources", "value": meta["sources"]} if meta["sources"] else None)
+                 if c]
+        slides.insert(0, {
+            "kind": "cover", "eyebrow": "Client performance review",
+            "title": meta["headline"] or when_label or deck_title,
+            "subtitle": meta["subhead"] or ("%s, %s" % (client_name, deck_title)),
+            "tone": "neutral", "source": "",
+            "blocks": [{"type": "chips", "items": chips}] if chips else []})
+    if len(slides) == 1:
+        slides.append({"kind": "closing", "eyebrow": "", "title": "Nothing to report yet",
+                       "subtitle": "This deck was generated before the workspace held any data.",
+                       "tone": "neutral", "source": "", "blocks": []})
+
+    total = len(slides)
+    body = "\n".join(_slide_html(s, p["facts"], n + 1, total, client_name, deck_title, kit)
+                     for n, s in enumerate(slides))
+    css = _css(palette)
+    js = _JS % {"w": STAGE_W, "h": STAGE_H}
     return ("<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
             "<meta name=\"robots\" content=\"noindex\">"
-            "<title>%s - %s</title><style>%s</style></head><body>%s</body></html>"
-            % (_esc(client_name), _esc(when_label), _CSS, "\n".join(slides)))
+            "<title>%s - %s</title><style>%s</style></head><body>"
+            "<div class=\"stage\">%s</div>"
+            "<div class=\"nav\"><button id=\"prev\" type=\"button\" aria-label=\"Previous slide\">"
+            "&#8249;</button><div class=\"dots\" id=\"dots\"></div>"
+            "<button id=\"next\" type=\"button\" aria-label=\"Next slide\">&#8250;</button></div>"
+            "<script>%s</script></body></html>"
+            % (_esc(client_name), _esc(when_label), css, body, js))

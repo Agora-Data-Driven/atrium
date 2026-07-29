@@ -118,6 +118,57 @@ Great, excited to start!
     assert ev["participants"] == ["Lorenzo Marchese", "Ian Gabriel Fernandez"], ev["participants"]
     assert "sent an offer" not in ev["title"], ev["title"]
 
+    # Meeting/Zoom/milestone event variants (seen in a real 2026-07 thread) are events too.
+    MEETING_EVENTS = """Monday, Jul 20
+Daniela Marquez created a Zoom meeting
+2:00 PM
+Zoom meeting
+Ian Gabriel Fernandez wants to schedule a 60-minute meeting
+2:05 PM
+Pick a time
+Ian Gabriel Fernandez scheduled a meeting
+2:06 PM
+Jul 22, 9:00 AM
+Ian Gabriel Fernandez rescheduled a meeting
+2:10 PM
+Jul 23, 9:00 AM
+Ian Gabriel Fernandez canceled a meeting
+2:11 PM
+Canceled
+Daniela Marquez activated the milestone
+2:15 PM
+Milestone 2
+Daniela Marquez created a recorded Zoom meeting
+2:20 PM
+Recording available
+Daniela Marquez
+2:30 PM
+Great call today, thanks!
+"""
+    mev = upwork_import.parse_upwork(MEETING_EVENTS, agora_names=["Ian Gabriel Fernandez"], year=2026)
+    assert [m["from"] for m in mev["messages"]] == ["Daniela Marquez"], mev["messages"]
+    assert mev["participants"] == ["Daniela Marquez"], mev["participants"]
+
+    # --- "Today" / "Yesterday" day separators resolve against the paste day --------------------
+    from datetime import date as _date
+    REL = """Yesterday
+Daniela Marquez
+9:00 AM
+Quick update from yesterday.
+Today
+Ian Gabriel Fernandez
+8:30 AM
+And a reply today.
+"""
+    rel = upwork_import.parse_upwork(REL, agora_names=["Ian"], year=2026, today=_date(2026, 7, 29))
+    assert rel["messages"][0]["date"] == "2026-07-28T09:00", rel["messages"][0]["date"]
+    assert rel["messages"][1]["date"] == "2026-07-29T08:30", rel["messages"][1]["date"]
+    assert rel["latest_date"] == "2026-07-29T08:30", rel["latest_date"]
+    # A "Today" on Jan 1 puts "Yesterday" in the PREVIOUS year.
+    ny = upwork_import.parse_upwork("Yesterday\nDaniela Marquez\n11:00 PM\nHappy almost new year!\n",
+                                    agora_names=["Ian"], year=2027, today=_date(2027, 1, 1))
+    assert ny["messages"][0]["date"] == "2026-12-31T23:00", ny["messages"][0]["date"]
+
     # --- normalize_chat_thread heals an OLD import (all-client roles + an event msg + jumbled) ----
     stored = {
         "subject": "Upwork conversation with Lorenzo Marchese, Lorenzo Marchese sent an offer",

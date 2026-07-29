@@ -76,6 +76,27 @@ _ACTIONS = {
                    "entry": {"req": True}},
         "gate": "admin",
     },
+    "add_company_section": {
+        "desc": "add_company_section(heading*, body*) - add a story section (About/History/"
+                "Mission/Positioning...) to the client's Company profile",
+        "params": {"heading": {"req": True}, "body": {"req": True}},
+        "gate": "admin",
+    },
+    "add_company_product": {
+        "desc": "add_company_product(name*, summary?, price?, audience?, url?, status?) - add a "
+                "product or service to the client's Company profile",
+        "params": {"name": {"req": True}, "summary": {}, "price": {}, "audience": {}, "url": {},
+                   "status": {}},
+        "gate": "admin",
+    },
+    "set_company_facts": {
+        "desc": "set_company_facts(one_liner?, industry?, founded?, hq?, website?, size?, "
+                "customers?) - update the Company profile's at-a-glance facts (only the ones you "
+                "pass change)",
+        "params": {"one_liner": {}, "industry": {}, "founded": {}, "hq": {}, "website": {},
+                   "size": {}, "customers": {}},
+        "gate": "admin",
+    },
     "log_communication": {
         "desc": "log_communication(channel*, title*, summary?, date?, people?, audience?) - add a "
                 "card to the Communications timeline (channel email|upwork|slack|meeting|call|"
@@ -185,6 +206,12 @@ def _label(name, params):
         return "Edit Market Intelligence entry \"%s\"" % p.get("entry", "")
     if name == "delete_intel":
         return "Delete Market Intelligence entry \"%s\"" % p.get("entry", "")
+    if name == "add_company_section":
+        return "Add \"%s\" to the Company profile" % p.get("heading", "")
+    if name == "add_company_product":
+        return "Add product \"%s\" to the Company profile" % p.get("name", "")
+    if name == "set_company_facts":
+        return "Update the Company profile facts (%s)" % (", ".join(sorted(p)) or "nothing")
     if name == "log_communication":
         return "Log %s \"%s\" in Communications" % (p.get("channel", "note"), p.get("title", ""))
     if name == "run_website_check":
@@ -293,6 +320,27 @@ def execute(client, clean, ctx):
             return True, "Added \"%s\" to the calendar on %s." % (params.get("label"),
                                                                   params.get("date"))
 
+        if name == "add_company_section":
+            item = workspace.add_company_item(
+                client, "sections",
+                {"heading": params.get("heading"), "body": params.get("body")})
+            return True, "Added \"%s\" to the Company profile." % item.get("heading")
+
+        if name == "add_company_product":
+            fields = {k: params.get(k, "") for k in
+                      ("name", "summary", "price", "audience", "url", "status")}
+            item = workspace.add_company_item(client, "products", fields)
+            return True, "Added product \"%s\" to the Company profile." % item.get("name")
+
+        if name == "set_company_facts":
+            # Only the facts the model actually proposed are passed through, so an approval never
+            # silently blanks a field the team filled in by hand.
+            given = {k: v for k, v in params.items() if k in workspace.COMPANY_PROFILE_FIELDS}
+            if not given:
+                return False, "no company facts were given"
+            workspace.set_company_profile(client, given)
+            return True, "Updated the Company profile facts: %s." % ", ".join(sorted(given))
+
         if name == "add_intel":
             entry = {k: params.get(k, "") for k in ("title", "body", "source", "link", "date")}
             workspace.add_intel_entry(client, params["section"], entry)
@@ -347,7 +395,7 @@ def execute(client, clean, ctx):
             entry = workspace.add_report(client, title, when, payload=payload,
                                          origin="assistant")
             html_doc = report_ai.render_html(ws.get("display_name") or client, payload,
-                                             when, title=title)
+                                             when, title=title, brand=report_ai.brand_kit(ws))
             workspace.write_report_html(client, entry["id"], html_doc)
             note = " (draft without AI: %s)" % gen_err if gen_err else ""
             return True, "Report \"%s\" (%s) is on the Reports tab%s." % (title, when, note)
@@ -373,7 +421,8 @@ def execute(client, clean, ctx):
                 entry = workspace.update_report(client, hit["id"], {"payload": payload})
             html_doc = report_ai.render_html(ws.get("display_name") or client,
                                              entry.get("payload") or {}, entry.get("date") or "",
-                                             title=entry.get("title") or "")
+                                             title=entry.get("title") or "",
+                                             brand=report_ai.brand_kit(ws))
             workspace.write_report_html(client, entry["id"], html_doc)
             verb = "Renamed" if name == "rename_report" else "Updated"
             return True, "%s report \"%s\"." % (verb, entry.get("title"))

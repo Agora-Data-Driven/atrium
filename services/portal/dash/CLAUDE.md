@@ -74,6 +74,21 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   (`DEV_NOAUTH`) auto-signs in as `SUPER_ADMIN_EMAIL`.
 - **`templates/*.html`** — big self-contained pages. Inline JS must be **esprima-4.x-safe** (no `?.`
   / `??`; classic `&&`/`||`). No Jinja inside `<script>` — JS reads state from the DOM.
+  🔴 **One stylesheet, no scoping — a reused class name silently hijacks the older component.**
+  `atrium.html` is ~1,900 lines of CSS in ONE `<style>`, so two rules with the same bare `.foo`
+  selector have equal specificity and **later source order wins, property by property**. This bit
+  us hard (fixed 2026-07-29): the content card's inline decision ribbon and the branded
+  `window.confirm` replacement were BOTH `.ax-confirm`, so the dialog's
+  `position:fixed; inset:0; z-index:200` leaked onto every "Approved / Changes requested" ribbon
+  and turned it into a full-viewport click-eating veil — opening any approved content card left
+  the whole workspace dark and dead (only Escape got out). The ribbon is now **`.ax-decided`**;
+  `.ax-confirm` means the overlay dialog and nothing else. **Before adding a CSS rule, grep for a
+  bare `.<name> {` already in the file** — and never "fix" a hijacked inline element by adding
+  `hidden` to it (that just deletes it via the dialog's `[hidden]` rule). A known-latent twin of
+  the same trap still exists: **`.ax-ch-meta`** is declared twice (the card-head ref line and the
+  chat-message meta line — `ax-ch-` means two different namespaces); it is cosmetic only today
+  because neither rule sets `position`/`z-index`, but adding a layout property to either one
+  will break the other component.
 - **`atrium_docs.py` / `feedback_ai.py`** — the opt-in Google-Doc → AI strategy feature (gated, degrades).
 - **`atrium_health.py`** — the team-only Website Health tab: fetches the client's live site + detects
   installed marketing tags (GTM/GA4/pixels) by scanning the page HTML (no GTM API, infra-free, degrades).
@@ -293,9 +308,13 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   (oldest→newest via `sort_messages`), role-tagged (agora vs client by the team's display name),
   de-duplicated (quoted reply-backs + avatar-initials + attachment-count lines stripped) list of
   `{from,to:"",date,role,body}` messages + `title`/`participants`/`latest_date`. **Upwork
-  SYSTEM-EVENT lines** ("<Name> sent/withdrew/updated/accepted an offer", contract/invitation/…) are
+  SYSTEM-EVENT lines** ("<Name> sent/withdrew/updated/accepted an offer", contract/invitation/
+  milestone/payment — and the meeting family: "created a (recorded) Zoom meeting", "wants to
+  schedule a 60-minute meeting", "re/scheduled|canceled a meeting", "activated the milestone") are
   matched by `RE_EVENT` and dropped — they used to be mis-parsed as chat messages (polluting the
-  list + the derived participants/title). `main.py` stores it as a Mail thread archive object (key
+  list + the derived participants/title). Upwork's most recent day separators are a bare
+  **"Today"/"Yesterday"** line (`RE_DAY_REL`, resolved against the paste day) — unmatched, they made
+  fresh messages inherit the previous dated header's stale day. `main.py` stores it as a Mail thread archive object (key
   `up_<id>` via `workspace.write_mail_thread`) so the EXISTING `/w/<c>/mail/thread/<key>` reader
   modal renders it, and adds an `upwork`-channel timeline card whose summary is
   `mailroom.summarize_thread` (`fallback_summary` when no model). **"Us" = the right side of the
@@ -304,16 +323,22 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   lands on the right even when the name field is left blank. **`normalize_chat_thread(thread,
   agora_names)`** re-cleans a STORED thread idempotently (drop event lines, RE-TAG roles from the
   roster, re-order, recompute participants/subject) — the thread route calls it on read for any
-  `up_`/`origin=="upwork"` thread and persists only when it changed, so OLD imports render correctly
-  (right-side team, no event noise) with NO re-import. The reader modal (`atrium.html`) renders a
+  `up_`/`origin=="upwork"` thread and persists only when it changed, **also mirroring the healed
+  subject/participants onto the owning timeline card** (title/people only — a read never moves the
+  card's date), so OLD imports render correctly with NO re-import. The reader modal (`atrium.html`) renders a
   chat thread oldest→newest, **opens scrolled to the newest message** with a floating **"↓ Latest"**
   jump pill, and **groups consecutive same-sender messages** (`ax-ch-cont`: follow-ups drop the
   avatar/name, stack tight). **Add newer messages to an existing conversation** (op `update_upwork`,
   team-only): the reader modal's **"＋ Add newer messages"** button (Upwork threads only) takes a
   re-paste of the fuller thread; `upwork_import.merge_messages(existing, incoming)` folds in ONLY the
   genuinely-new messages (dedupe by date+sender+trimmed-body signature, returns an `added` count),
-  then `normalize_chat_thread` re-tags/re-orders and the card's date/people/subject are refreshed —
-  no duplicate card, idempotent (a re-paste adds 0). Test: `python _upwork_import_localtest.py`.
+  then `normalize_chat_thread` re-tags/re-orders and the card's people/subject are refreshed.
+  **When messages were actually added the card is stamped with the UPDATE moment
+  (`workspace.now_iso()`) — the card's date means "last updated", never the first import's date —
+  and the recap is RE-WRITTEN over the whole merged thread** (same `summarize_thread` voice-by-
+  audience flow as import; on AI failure the existing summary is kept, never downgraded). No
+  duplicate card, idempotent (a re-paste adds 0 and leaves date/summary alone).
+  Test: `python _upwork_import_localtest.py`.
 - **`intel_ai.py`** — the ONE model registry + transport for every AI surface in this app (the
   Assistant, the intel research brain, the Mail digest, the Watcher auto-label). `MODELS` lists what
   the dropdowns offer; `provider_configured()` gates each provider on its env; `_call`/`stream_call`
@@ -332,6 +357,58 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   the three deploy scripts (`deploy_dash_platform.ps1`, `deploy_intel_refresh.ps1`,
   `deploy_mail_refresh.ps1` — the jobs run this same code and need the key too). Test:
   `python _intel_ai_localtest.py`.
+- **The Company tab (`ws["company"]`, 2026-07-29)** — the client's own identity, and the grounding
+  every AI surface in this app leans on. Four blocks in ONE workspace key: `profile` (at-a-glance
+  facts), `brand` (voice/tone/personality/colours/fonts/dos/donts/assets link), an ORDERED
+  `sections[]` story and an ORDERED `products[]` catalogue. Writers are the usual `workspace.py`
+  monopoly: `_ensure_company` (normalizes on EVERY read, so an old workspace upgrades silently and
+  the template needs no `default` filters), `company_profile`/`company_is_empty`/`company_items`
+  (reads), `set_company_profile`/`set_company_brand` (patch ONLY the fields given -- a partial form
+  post must never blank the rest) and the five list helpers keyed by `kind`
+  (`add`/`update`/`delete`/`insert`/`move_company_item`, `COMPANY_LISTS` is the valid-kind guard).
+  🔴 **The lists are HAND-ORDERED, not date-sorted** -- a company story reads top to bottom, so add
+  APPENDS (unlike intel/communications, which insert newest-first) and `move_company_item` is a
+  first-class writer with its own ↑/↓ controls. Route `POST /w/<c>/admin/company`
+  (op profile|brand|add|edit|delete|move|draft, gated `is_superadmin()`); deletes soft-delete to the
+  Bin as `company_section`/`company_product` (restored through `insert_company_item`, which appends
+  -- the original index is long gone by restore time). **The tab itself is CLIENT-VISIBLE in full**
+  (it is the client's own company): only the edit affordances are `{% if is_superadmin %}` and only
+  the route is gated -- the inverse of Website Health/Watcher. `op=draft` calls
+  `intel_ai.draft_company` (the Company twin of `suggest_config`): the model researches the company
+  -- grounded on live Google Search when the model is Gemini -- and the panel writes the drafts INTO
+  the on-screen inputs and opens the editors, **saving nothing**; a field it cannot establish comes
+  back "" on purpose. **Everything on the tab is what the AI knows the client BY:**
+  `digest.company_sections` derives it into titled chunks (facts / brand / each story section /
+  catalogue) feeding BOTH `assistant_ai.build_chunks` (kind `company`, undated on purpose so a
+  transcript date-range can't hide the client's identity; `INDEX_VERSION` 5 forces the one-time
+  rebuild) and `report_ai.gather` -> the deck's "WHO THE CLIENT IS" block. The Assistant can also
+  propose `add_company_section` / `add_company_product` / `set_company_facts`. Front end: the pane +
+  `.ax-co-*` styles in `atrium.html`, wired inside the `if (isAdmin)` block next to the intel
+  wiring (`data-coedit`/`data-coform` share a key -- "facts", "brand", "s-<id>", "p-<id>" -- so one
+  pair of loops serves all four blocks). Tests: `_workspace_localtest.py` §12 +
+  `_atrium_smoketest.py` (routes, gating, the client no-leak render, Bin round trip, indexing, and
+  the nav grouping).
+- **`report_ai.py` / `digest.py`** — the Reports tab's deck maker. A deck is a **fixed 1280x720
+  stage** (scaled to the window, one slide shown, arrow keys / dots / click to move, `p` prints;
+  `@media print` reveals every slide). Payload = `{meta, facts, slides:[{kind, eyebrow, title,
+  subtitle, tone, source, blocks}]}` — `kind` cover|section|content|closing, `blocks` text |
+  bullets | cards | callout | **action** | chips | kpis | chart | table | compare. 🔴 **Charts,
+  tables, before/afters and KPI tiles are drawn from `build_facts(dash_data)`, not from the
+  model**: every series/table/compare/tile set is computed in Python (both dashboard shapes; the
+  Windsor-live one yields totals, five weekly series, a 14-vs-14 compare, and ranked ads /
+  campaigns / age / gender / region / email tables), the model emits only a **fact key**, and
+  `normalize_payload` drops a block whose key is unknown or mismatched — so an invented key renders
+  NOTHING rather than a wrong number. The facts are stored INSIDE the payload, which is what makes
+  the lazy re-render (`GET /w/<c>/report/<id>` after a Trash restore) byte-identical, and what lets
+  `revise` strip them from the model's view and re-attach them afterwards. `brand_kit(ws)` supplies
+  the client crest (`ws["brand"]["client_logo"]`, gated by `_mark` to our own self-contained
+  `<svg>`/`data:` markup, inlined NOT escaped) and a palette parsed from the Company tab's
+  `company.brand.colors` free text (blank ⇒ `HOUSE_PALETTE`); `render_html(..., brand=kit)` takes
+  it, and all four call sites (two in `main.py`, two in `assistant_actions.py`) pass it. The
+  stylesheet injects the palette as CSS custom properties — do NOT go back to `%`-formatting the
+  sheet, every literal `%` in it is a real percentage. The deck's ONE inline script is the slide
+  navigator and must stay esprima-4.x-safe (`_report_localtest.py` parses it with esprima).
+  Test: `python _report_localtest.py`.
 - **`intel_feed.py` / `intel_refresh.py`** — the DAILY Market Intelligence auto-refresh (opt-in,
   `INTEL_AUTO_ENABLED=1`). `intel_feed` parses Google News RSS + publisher feeds (keyless, stdlib
   `xml.etree` + lazy `requests`, degrades to `[]`); `intel_refresh.main()` is the Cloud Run **job**

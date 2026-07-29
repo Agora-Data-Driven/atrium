@@ -444,8 +444,81 @@ def run():
     _check("the retired 'waiting_client' stage key lands on blocked",
            workspace._find_task(workspace.load_workspace(CLIENT), empty["id"])["stage"] == "blocked")
 
+    # 12. The Company profile (2026-07-29): the client's own identity -- facts, brand guide, an
+    # ORDERED story, an ORDERED catalogue. The two rules that matter are (a) a patch only writes
+    # the fields it was given, so a partial form post can never blank the rest, and (b) the lists
+    # are hand-ordered, so add APPENDS and move_company_item is a first-class writer.
+    blank = workspace.company_profile(workspace.load_workspace(CLIENT))
+    _check("a workspace with no company key still reads a fully-shaped profile",
+           set(blank) == {"profile", "brand", "sections", "products"}
+           and blank["profile"]["one_liner"] == "" and blank["sections"] == [])
+    _check("company_is_empty is true before anything is written",
+           workspace.company_is_empty(workspace.load_workspace(CLIENT)))
+
+    workspace.set_company_profile(CLIENT, {"one_liner": "Boutique RV rentals in the Rockies",
+                                           "industry": "Travel", "founded": "2016"})
+    workspace.set_company_profile(CLIENT, {"hq": "Denver, CO"})     # a partial patch...
+    prof = workspace.company_profile(workspace.load_workspace(CLIENT))["profile"]
+    _check("set_company_profile persists the facts it was given",
+           prof["one_liner"].startswith("Boutique") and prof["founded"] == "2016")
+    _check("a partial profile patch never blanks the fields it omitted",
+           prof["industry"] == "Travel" and prof["hq"] == "Denver, CO")
+    _check("company_is_empty is false once anything is written",
+           not workspace.company_is_empty(workspace.load_workspace(CLIENT)))
+
+    workspace.set_company_brand(CLIENT, {"voice": "Warm, plain-spoken, never salesy",
+                                         "colors": "#1F4D3A, #F4E9D8"})
+    workspace.set_company_brand(CLIENT, {"tone": "Practical"})
+    brand = workspace.company_profile(workspace.load_workspace(CLIENT))["brand"]
+    _check("a partial brand patch keeps the rest of the brand guide",
+           brand["voice"].startswith("Warm") and brand["tone"] == "Practical")
+
+    about = workspace.add_company_item(CLIENT, "sections",
+                                       {"heading": "About", "body": "We started with one van."})
+    history = workspace.add_company_item(CLIENT, "sections",
+                                         {"heading": "Our history", "body": "Then came twelve."})
+    order = [s["heading"] for s in workspace.company_items(workspace.load_workspace(CLIENT), "sections")]
+    _check("story sections APPEND in the order they were written (not newest-first)",
+           order == ["About", "Our history"])
+    workspace.move_company_item(CLIENT, "sections", history["id"], -1)
+    order = [s["heading"] for s in workspace.company_items(workspace.load_workspace(CLIENT), "sections")]
+    _check("move_company_item reorders the story", order == ["Our history", "About"])
+    workspace.move_company_item(CLIENT, "sections", history["id"], -1)
+    order = [s["heading"] for s in workspace.company_items(workspace.load_workspace(CLIENT), "sections")]
+    _check("a move past the top edge is a no-op, never an error", order == ["Our history", "About"])
+
+    workspace.update_company_item(CLIENT, "sections", about["id"], {"body": "One van, then twelve."})
+    edited = [s for s in workspace.company_items(workspace.load_workspace(CLIENT), "sections")
+              if s["id"] == about["id"]][0]
+    _check("update_company_item edits in place and keeps the untouched fields",
+           edited["body"] == "One van, then twelve." and edited["heading"] == "About")
+
+    prod = workspace.add_company_item(CLIENT, "products",
+                                      {"name": "Weekender", "price": "from $249/night"})
+    _check("a product persists with its own field set",
+           workspace.company_items(workspace.load_workspace(CLIENT), "products")[0]["price"]
+           == "from $249/night")
+
+    removed, rest = workspace.delete_company_item(CLIENT, "products", prod["id"])
+    _check("delete returns the removed payload so the route can Bin it",
+           removed["name"] == "Weekender" and rest == [])
+    workspace.insert_company_item(CLIENT, "products", removed)
+    _check("insert_company_item restores it from the Bin payload",
+           workspace.company_items(workspace.load_workspace(CLIENT), "products")[0]["name"]
+           == "Weekender")
+    _check("an unknown company list raises rather than silently no-opping",
+           _raises_keyerror(lambda: workspace.add_company_item(CLIENT, "nope", {})))
+
     print("[localtest] PASS")
     return 0
+
+
+def _raises_keyerror(fn):
+    try:
+        fn()
+    except KeyError:
+        return True
+    return False
 
 
 def main():

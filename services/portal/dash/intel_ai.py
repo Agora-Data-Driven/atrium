@@ -1378,3 +1378,99 @@ def suggest_config(client_name, context="", model=None, fetcher=None, token_fetc
     if not any(out.values()):
         return None, "the model returned nothing usable"
     return out, ""
+
+
+# ================================================================================================
+# COMPANY DRAFTING -- the Company tab's "Draft with AI" button: research the client and fill it in.
+# ================================================================================================
+# Same posture as suggest_config directly above: the model drafts, NOTHING is saved, and the panel
+# fills the on-screen fields for the admin to review + Save. A grounding-capable model (Gemini)
+# looks the company UP on live Google Search first, so a brand-new workspace can be populated from
+# the client's public footprint in one click instead of an hour of typing. Every drafted field maps
+# 1:1 to an input that is already on screen, so "review before save" is literal.
+
+_COMPANY_FIELD_MAX = {
+    "one_liner": 300, "industry": 120, "founded": 60, "hq": 120, "size": 80, "customers": 300,
+    "website": 200, "tagline": 160, "voice": 400, "tone": 300, "personality": 300,
+    "about_heading": 80, "about": 2000,
+}
+
+
+def _company_system_prompt(client_name, grounded):
+    """The drafting contract for the Company profile + the locked JSON shape."""
+    name = client_name or "the client"
+    search_step = (
+        "First, use Google Search to look this company up -- their own website and About page, "
+        "their product/pricing pages, their social profiles, any press or directory listings -- so "
+        "every field is FACTUAL and specific to them.\n\n"
+        if grounded else "")
+    return (
+        "You are briefing AGORA, a marketing agency, on their client \"%s\". Draft the company "
+        "profile the agency's team will keep on file and their AI assistant will answer from.\n\n"
+        "%s"
+        "Fields:\n"
+        "  one_liner   -- one sentence: what the company does and for whom.\n"
+        "  industry    -- their industry/category in a few words.\n"
+        "  founded     -- the year they started, if you can establish it.\n"
+        "  hq          -- where they are based (city, country).\n"
+        "  size        -- rough team size or scale, if known.\n"
+        "  customers   -- who they serve: the customer this business is actually for.\n"
+        "  website     -- their primary website URL.\n"
+        "  tagline     -- their own tagline/slogan if they have one.\n"
+        "  voice       -- how their brand SPEAKS (1-2 sentences a copywriter could follow).\n"
+        "  tone        -- a few adjectives for their tone.\n"
+        "  personality -- the brand's character in a short phrase.\n"
+        "  about_heading -- a heading for the story section, e.g. \"About %s\".\n"
+        "  about       -- 2-4 short paragraphs: what they do, their history and how they got "
+        "here, what makes them different. Plain prose, no marketing puff, no invented awards.\n\n"
+        "RULES: leave a field as an empty string when you cannot establish it -- an empty field is "
+        "correct and expected; a plausible guess is a lie the team will act on. No em dashes.\n\n"
+        "Return STRICT JSON and nothing else (no markdown, no code fences, no commentary):\n"
+        "{\"one_liner\": \"...\", \"industry\": \"...\", \"founded\": \"...\", \"hq\": \"...\", "
+        "\"size\": \"...\", \"customers\": \"...\", \"website\": \"...\", \"tagline\": \"...\", "
+        "\"voice\": \"...\", \"tone\": \"...\", \"personality\": \"...\", "
+        "\"about_heading\": \"...\", \"about\": \"...\"}"
+        % (name, search_step, name)
+    )
+
+
+def draft_company(client_name, context="", model=None, fetcher=None, token_fetcher=None,
+                  max_tokens=4096):
+    """Draft a client's Company profile. Returns (fields, error).
+
+    `fields` holds every key in `_COMPANY_FIELD_MAX` (a field the model could not establish comes
+    back ""), or None with a SHORT human reason. Gated + graceful like every call in this module:
+    no configured model is a plain message, never an exception. Nothing here writes anything."""
+    mid = model if model_available(model) else default_model()
+    if not mid:
+        return None, "no AI model is configured on the server"
+    meta = model_meta(mid)
+    grounded = model_supports_grounding(mid)
+    system = _company_system_prompt(client_name, grounded)
+    user = (
+        "Company: %s.\nWhat the agency already knows about them:\n%s\n\n"
+        "Draft the company profile now and return the JSON."
+        % (client_name or "the client",
+           (context or "").strip() or "(very little yet -- just the name; research what you can)"))
+    if grounded:
+        raw, err, _thinking, _grounding = _call_vertex_grounded(
+            meta["id"], system, user, fetcher, token_fetcher, capture=False, max_tokens=max_tokens)
+    else:
+        raw, err, _thinking = _call(meta, system, user, fetcher, max_tokens, token_fetcher)
+    if err:
+        return None, err
+    obj = _parse_json(raw)
+    if not isinstance(obj, dict):
+        return None, "the model returned nothing usable"
+    out = {}
+    for field, cap in _COMPANY_FIELD_MAX.items():
+        v = obj.get(field)
+        if isinstance(v, (list, tuple)):        # tolerate a field coming back as a JSON array
+            v = " ".join(str(x).strip() for x in v if str(x).strip())
+        v = (str(v) if v is not None else "").strip()
+        if len(v) > cap:
+            v = v[:cap].rsplit(" ", 1)[0] + "…"
+        out[field] = v
+    if not any(out.values()):
+        return None, "the model returned nothing usable"
+    return out, ""

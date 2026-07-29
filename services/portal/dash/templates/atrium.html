@@ -45,6 +45,9 @@
 {%- elif name == 'campaigns' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l17-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
 {%- elif name == 'insights' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 21.5h4"/><path d="M12 2.5a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3a7 7 0 0 0-4-12.7z"/></svg>
 {%- elif name == 'progress' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>
+{%- elif name == 'company' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V6.5a1 1 0 0 1 .7-.95l7-2.33a1 1 0 0 1 1.3.95V21"/><path d="M14 21V10h4.3a1 1 0 0 1 1 1v10"/><path d="M8 8.5h3M8 12h3M8 15.5h3"/></svg>
+{%- elif name == 'brand' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-.9 2-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="11" cy="7.5" r="1.2"/><circle cx="15.5" cy="9.5" r="1.2"/></svg>
+{%- elif name == 'box' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8.5l-9-5-9 5v7l9 5 9-5z"/><path d="M3 8.5l9 5 9-5M12 13.5V20"/></svg>
 {%- elif name == 'reports' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="18" height="12.5" rx="2"/><path d="M12 16v3.5M8 22.5l4-3 4 3"/><path d="M7 12.5v-2M12 12.5V7.5M17 12.5V10"/></svg>
 {%- else -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/></svg>
 {%- endif -%}
@@ -113,11 +116,11 @@
 {%- set _sel = (current.split(' · ') if current else []) -%}
 {%- for x in _sel %}{%- if x %}<span class="ax-platone">{{ plat_ic(x) }}<span>{{ x }}</span></span>{%- endif %}{%- endfor %}
 {%- endmacro %}
-{% set tab_titles = {'overview':'Overview','dashboard':'Dashboard','leadgen':'Paid Media','organic':'Organic Content','calendar':'Content Calendar','conversations':'Communications','intel':'Market Intelligence','reports':'Reports','progress':'Tasks','settings':'Notification settings','website-health':'Website Health','watcher':'Watcher','assistant':'Assistant'} %}
+{% set tab_titles = {'overview':'Overview','dashboard':'Dashboard','company':'Company','leadgen':'Paid Media','organic':'Organic Content','calendar':'Content Calendar','conversations':'Communications','intel':'Market Intelligence','reports':'Reports','progress':'Tasks','settings':'Notification settings','website-health':'Website Health','watcher':'Watcher','assistant':'Assistant'} %}
 {#- Top-bar subtitles: the one-line description shown under the page title in the header. Set ONLY
    for tabs whose in-pane <h1> merely repeated the title (that duplicate is now removed); tabs with a
    distinct in-pane heading (overview greeting, calendar, campaigns) keep an empty subtitle. -#}
-{% set tab_subtitles = {'overview':"Everything, visible: what's working, what's live, and what's coming next.",'dashboard':'Your live campaign data, updated automatically.','calendar':'Tracking the work from kickoff to delivered, paid and organic publish dates included.','conversations':'One running record of every conversation so nothing gets lost.','intel':"Your weekly briefing: what's moving in your industry and the platform updates worth acting on.",'reports':'Every meeting deck in one place, newest first.','progress':"Everything we're building for you and exactly where each piece stands.",'settings':'Choose what AGORA emails you about. Everything still appears here in your workspace either way.'} %}
+{% set tab_subtitles = {'overview':"Everything, visible: what's working, what's live, and what's coming next.",'dashboard':'Your live campaign data, updated automatically.','company':'Who you are, what you sell, and how your brand sounds, so every piece of work starts from the same page.','calendar':'Tracking the work from kickoff to delivered, paid and organic publish dates included.','conversations':'One running record of every conversation so nothing gets lost.','intel':"Your weekly briefing: what's moving in your industry and the platform updates worth acting on.",'reports':'Every meeting deck in one place, newest first.','progress':"Everything we're building for you and exactly where each piece stands.",'settings':'Choose what AGORA emails you about. Everything still appears here in your workspace either way.'} %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -722,8 +725,13 @@
     .ax-btn.violet:hover { background: #4A3BB4; }
     .ax-btn[disabled] { opacity: .55; cursor: default; }
     .ax-savehint { font-size: 12px; color: var(--ax-green-d); font-weight: 600; }
-    .ax-confirm { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 9px 13px; background: var(--ax-green-bg); color: var(--ax-green-d); border-radius: 10px; font-size: 12.5px; font-weight: 700; }
-    .ax-confirm .ax-ic { width: 16px; height: 16px; }
+    /* The inline decision ribbon on a content card ("Approved / Changes requested - you can change
+       this anytime"). It is called .ax-decided, NOT .ax-confirm: .ax-confirm is the fixed-overlay
+       confirm DIALOG far below, and when both shared this name the later dialog rule won on equal
+       specificity and turned every ribbon into a full-viewport z-index:200 click-eating veil -- the
+       card pop-up opened and the whole workspace went dark and dead. Keep the two names apart. */
+    .ax-decided { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 9px 13px; background: var(--ax-green-bg); color: var(--ax-green-d); border-radius: 10px; font-size: 12.5px; font-weight: 700; }
+    .ax-decided .ax-ic { width: 16px; height: 16px; }
 
     /* AI summary */
     .ax-ai { background: var(--ax-violet-bg); border: 1px solid #CFE0FE; border-radius: var(--ax-radius); padding: 16px 18px; display: flex; gap: 13px; margin-top: 6px; }
@@ -1115,6 +1123,84 @@
     .ax-cm-form .ax-cm-row .ax-editbox { margin-bottom: 0; }
     .ax-cm-form .ax-cm-fill { flex: 1 1 220px; }
     .ax-cm-form .ax-cm-narrow { flex: 0 0 160px; }
+    /* Company: the client's own profile -- facts, story, products, brand guide. Reads as a
+       document (generous measure, quiet labels), not a dashboard. Same edit affordances as every
+       other in-place surface: hidden forms revealed by an Edit button, team-gated in the markup. */
+    .ax-co-adminbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+      background: var(--ax-violet-bg); border: 1px solid #cfe0fd; border-radius: var(--ax-radius);
+      padding: 12px 16px; margin-bottom: 20px; }
+    .ax-co-adminlede { font-size: 12.5px; color: #1b3f7a; flex: 1 1 260px; }
+    .ax-co-draftmsg { font-size: 12.5px; color: var(--ax-sub); flex: 1 1 100%; }
+    .ax-co-block { padding: 22px 24px; margin-bottom: 22px; }
+    .ax-co-blockhead { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .ax-co-blockhead h2, .ax-co-blockhead h3 { display: flex; align-items: center; gap: 9px;
+      font-size: 16px; font-weight: 800; margin: 0; flex: 1 1 auto; color: var(--ax-ink); }
+    .ax-co-blockhead h3 { font-size: 15px; }
+    .ax-co-blockhead h2 .ax-ic { width: 18px; height: 18px; padding: 7px; border-radius: 10px;
+      box-sizing: content-box; color: var(--ax-violet-d); background: var(--ax-violet-bg); }
+    .ax-co-sec { margin-bottom: 26px; }
+    .ax-co-sechead { margin-bottom: 14px; }
+    .ax-co-sechead h2 { display: flex; align-items: center; gap: 9px; font-size: 16px;
+      font-weight: 800; margin: 0; }
+    .ax-co-sechead h2 .ax-ic { width: 18px; height: 18px; padding: 7px; border-radius: 10px;
+      box-sizing: content-box; color: var(--ax-violet-d); background: var(--ax-violet-bg); }
+    .ax-co-lede { font-size: 13px; color: var(--ax-sub); margin: 6px 0 0; }
+    .ax-co-oneliner { font-size: 17px; line-height: 1.5; font-weight: 600; color: var(--ax-ink);
+      margin: 0 0 16px; max-width: 62ch; }
+    .ax-co-tagline { font-size: 17px; line-height: 1.5; font-style: italic; color: var(--ax-ink);
+      margin: 0 0 16px; max-width: 62ch; }
+    /* Facts read as a definition list: a quiet label above the value, wrapping into columns. */
+    .ax-co-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px 22px; margin: 0; }
+    .ax-co-facts-tight { gap: 8px 16px; margin-top: 10px; }
+    .ax-co-fact dt { font-size: 10.5px; font-weight: 800; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--ax-sub); margin-bottom: 3px; }
+    .ax-co-fact dd { font-size: 13.5px; line-height: 1.5; color: #2b2f38; margin: 0;
+      overflow-wrap: anywhere; }
+    .ax-co-fact dd a { color: var(--ax-violet-d); text-decoration: none; font-weight: 600; }
+    .ax-co-fact dd a:hover { text-decoration: underline; }
+    .ax-co-fact dd a .ax-ic { width: 13px; height: 13px; vertical-align: -2px; }
+    .ax-co-story { padding: 20px 24px; margin-bottom: 14px; }
+    .ax-co-body { font-size: 14px; line-height: 1.68; color: #2b2f38; white-space: pre-wrap;
+      max-width: 72ch; }
+    /* Reorder arrows: the story and the catalogue are hand-ordered, not date-sorted. */
+    .ax-co-order { display: inline-flex; gap: 4px; flex: 0 0 auto; }
+    .ax-co-arrow { width: 26px; height: 26px; line-height: 1; border-radius: 6px; cursor: pointer;
+      border: 1px solid var(--ax-line); background: var(--ax-white); color: var(--ax-sub);
+      font-size: 13px; }
+    .ax-co-arrow:hover:not([disabled]) { border-color: var(--ax-violet); color: var(--ax-violet-d); }
+    .ax-co-arrow[disabled] { opacity: .35; cursor: default; }
+    .ax-co-prodgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px; align-items: start; }
+    .ax-co-prod { padding: 18px 20px; }
+    .ax-co-prodtop { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+    .ax-co-prodtop h3 { font-size: 15px; font-weight: 800; margin: 0; flex: 1 1 auto;
+      color: var(--ax-ink); }
+    .ax-co-pill { font-size: 10.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--ax-green-d); background: var(--ax-green-bg); border-radius: var(--ax-pill);
+      padding: 3px 9px; flex: 0 0 auto; }
+    .ax-co-prodsum { font-size: 13.5px; line-height: 1.55; color: #2b2f38; margin: 0;
+      white-space: pre-wrap; }
+    .ax-co-prodlink { display: inline-flex; align-items: center; gap: 5px; margin-top: 12px;
+      font-size: 12.5px; font-weight: 700; color: var(--ax-violet-d); text-decoration: none; }
+    .ax-co-prodlink:hover { text-decoration: underline; }
+    .ax-co-prodlink .ax-ic { width: 14px; height: 14px; }
+    .ax-co-colors { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .ax-co-colorlab { font-size: 10.5px; font-weight: 800; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--ax-sub); }
+    .ax-co-swatch { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px;
+      color: #2b2f38; border: 1px solid var(--ax-line); border-radius: var(--ax-pill);
+      padding: 4px 11px 4px 5px; }
+    .ax-co-swatch i { width: 16px; height: 16px; border-radius: 50%; display: inline-block;
+      border: 1px solid rgba(16, 24, 40, .12); }
+    .ax-co-form { margin-top: 14px; border-top: 1px solid var(--ax-line); padding-top: 14px; }
+    .ax-co-lab { display: block; font-size: 11.5px; font-weight: 700; color: var(--ax-sub);
+      margin-bottom: 10px; }
+    .ax-co-lab .ax-editbox { margin-top: 5px; }
+    .ax-co-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+    @media (max-width: 620px) { .ax-co-grid2 { grid-template-columns: 1fr; } }
+    .ax-co-bodybox { font-family: inherit; line-height: 1.6; }
+    .ax-co-add { display: block; margin-top: 12px; }
     /* Market Intelligence: two side-by-side, labelled sections of briefing cards (team-written, client-read). */
     .ax-intel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
     @media (max-width: 860px) { .ax-intel-grid { grid-template-columns: 1fr; } }
@@ -1231,7 +1317,10 @@
     .ax-modal-x { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--ax-canvas); color: var(--ax-sub); font-size: 20px; line-height: 1; cursor: pointer; }
     .ax-modal-x:hover { background: var(--ax-line); color: var(--ax-ink); }
 
-    /* Branded confirm dialog (replaces the native window.confirm()) -- centered, Atrium-themed. */
+    /* Branded confirm dialog (replaces the native window.confirm()) -- centered, Atrium-themed.
+       .ax-confirm is THIS full-screen overlay and nothing else -- never reuse the name for an inline
+       chip. The card's decision ribbon is .ax-decided (see above); while it also answered to
+       .ax-confirm, this rule silently hijacked it into a page-blocking veil. */
     .ax-confirm { position: fixed; inset: 0; z-index: 200; background: rgba(10,12,20,.55); display: grid; place-items: center; padding: 24px; }
     .ax-confirm[hidden] { display: none; }
     .ax-confirm-card { position: relative; background: var(--ax-white); border-radius: var(--ax-radius); box-shadow: var(--ax-shadow-lg); padding: 26px 26px 22px; width: 100%; max-width: 420px; text-align: left; animation: axConfirmIn .14s ease-out; }
@@ -1948,18 +2037,34 @@
         </div>
       </div>
 
+      {#- ================= SIDEBAR NAV =================
+         Regrouped 2026-07-29. Eleven surfaces would be an unreadable flat list, so the nav is
+         organised by the QUESTION each answers rather than by which feature shipped when:
+           Dashboard      -- how are we doing?          (flat: the landing tab)
+           Company        -- who are we working for?    (flat: the client's own profile)
+           Campaigns      -- what is going out?         (Paid Media / Organic / Content Calendar)
+           Insights       -- what have we learned?      (Market Intelligence / Reports + team tools)
+           Communications -- what has been said?        (flat)
+           Tasks          -- what is being built?       (flat)
+         Two moves came with it: the Content Calendar joined Campaigns (it IS the campaign content,
+         plotted by date -- a dated content piece literally mirrors into it), and Reports joined
+         Insights (a meeting deck is the synthesis of everything the Insights group holds). That
+         takes the top level from 7 rows to 6 while making both groups worth opening.
+         The group heads are expand/collapse buttons ONLY -- they never navigate -- and auto-open
+         when one of their children is the active tab. The collapsed icon rail and the phone strip
+         flatten the groups away entirely (see the .nav-collapsed / mobile CSS). -#}
       <nav class="ax-nav" id="ax-nav">
-        {% for key, label in [('dashboard','Dashboard')] %}
+        {% for key, label in [('dashboard','Dashboard'),('company','Company')] %}
         <a href="{{ '/w/' ~ view.client ~ '/' ~ key }}" data-tab="{{ key }}" title="{{ label }}" class="{{ 'is-active' if view.active_tab == key else '' }}">
           {{ ic(key) }}<span>{{ label }}</span>
         </a>
         {% endfor %}
 
-        {#- Campaigns: an expandable parent grouping the two campaign streams. The head badge is the
-           COMBINED awaiting count (so nothing is missed while the group is closed); each sub-tab
-           keeps its own count. Opens automatically when one of its tabs is active. -#}
+        {#- Campaigns: the work going out the door -- the two campaign streams plus the calendar
+           that plots them. The head badge is the COMBINED awaiting count (so nothing is missed
+           while the group is closed); each stream keeps its own count. -#}
         {% set camp_awaiting = ws.campaigns|map(attribute='content')|sum(start=[])|selectattr('status','equalto','awaiting')|list|length %}
-        {% set camp_open = view.active_tab in ('leadgen','organic') %}
+        {% set camp_open = view.active_tab in ('leadgen','organic','calendar') %}
         <div class="ax-nav-group {{ 'is-open' if camp_open else '' }}">
           <button class="ax-nav-ghead" type="button" title="Campaigns" aria-expanded="{{ 'true' if camp_open else 'false' }}">
             {{ ic('campaigns') }}<span>Campaigns</span>
@@ -1974,13 +2079,17 @@
               {% if ac > 0 %}<span class="ax-count">{{ ac }}</span>{% endif %}
             </a>
             {% endfor %}
+            <a href="{{ '/w/' ~ view.client ~ '/calendar' }}" data-tab="calendar" title="Content Calendar" class="{{ 'is-active' if view.active_tab == 'calendar' else '' }}">
+              {{ ic('calendar') }}<span>Content Calendar</span>
+            </a>
           </div>
         </div>
 
-        {#- Insights: the research/monitoring surfaces. Market Intelligence is client-visible;
-           Website Health + Watcher stay TEAM-ONLY (admins + super-admins, hidden from clients
-           entirely), the nav, the panes, AND the routes all gate on is_superadmin. -#}
-        {% set tools_open = view.active_tab in ('intel', 'website-health', 'watcher') %}
+        {#- Insights: what we have learned and what we have presented. Market Intelligence and
+           Reports are client-visible; Website Health + Watcher stay TEAM-ONLY (admins +
+           super-admins, hidden from clients entirely) -- the nav, the panes, AND the routes all
+           gate on is_superadmin. -#}
+        {% set tools_open = view.active_tab in ('intel', 'reports', 'website-health', 'watcher') %}
         <div class="ax-nav-group {{ 'is-open' if tools_open else '' }}">
           <button class="ax-nav-ghead" type="button" title="Insights" aria-expanded="{{ 'true' if tools_open else 'false' }}">
             {{ ic('insights') }}<span>Insights</span>
@@ -1989,6 +2098,9 @@
           <div class="ax-nav-sub">
             <a href="{{ '/w/' ~ view.client ~ '/intel' }}" data-tab="intel" title="Market Intelligence" class="{{ 'is-active' if view.active_tab == 'intel' else '' }}">
               {{ ic('intel') }}<span>Market Intelligence</span>
+            </a>
+            <a href="{{ '/w/' ~ view.client ~ '/reports' }}" data-tab="reports" title="Reports" class="{{ 'is-active' if view.active_tab == 'reports' else '' }}">
+              {{ ic('reports') }}<span>Reports</span>
             </a>
             {% if is_superadmin %}
             <a href="{{ '/w/' ~ view.client ~ '/website-health' }}" data-tab="website-health" title="Website Health" class="{{ 'is-active' if view.active_tab == 'website-health' else '' }}">
@@ -2001,11 +2113,9 @@
           </div>
         </div>
 
-        {% for key, label in [('calendar','Content Calendar'),('conversations','Communications'),('reports','Reports')] %}
-        <a href="{{ '/w/' ~ view.client ~ '/' ~ key }}" data-tab="{{ key }}" title="{{ label }}" class="{{ 'is-active' if view.active_tab == key else '' }}">
-          {{ ic(key) }}<span>{{ label }}</span>
+        <a href="{{ '/w/' ~ view.client ~ '/conversations' }}" data-tab="conversations" title="Communications" class="{{ 'is-active' if view.active_tab == 'conversations' else '' }}">
+          {{ ic('conversations') }}<span>Communications</span>
         </a>
-        {% endfor %}
 
         {#- Tasks (tab key `progress` -- canonical, never rename): the client-facing delivery
            board, every client-facing task and where it stands. -#}
@@ -2317,6 +2427,234 @@
           {% endif %}
         </section>
 
+        {#- ============ COMPANY (client-visible, team-written) ============
+           Who the client IS: the facts, the story, what they sell, how the brand sounds. One
+           workspace key (ws["company"], fully shaped by workspace.company_profile -> `company`),
+           four blocks. CLIENT-VISIBLE in full -- it is the client's own company, so nothing here is
+           filtered; only the EDIT affordances are team-gated (`is_superadmin`), exactly like Market
+           Intelligence. Everything on this tab is indexed by the Assistant (digest.company_sections)
+           and fed to the report writer, so filling it in is what makes both speak the client's
+           language instead of generic agency prose. -#}
+        {% set co_facts = [('one_liner','What they do'),('industry','Industry'),('founded','Founded'),('hq','Based in'),('size','Size'),('customers','Who they serve'),('website','Website')] %}
+        {% set co_brand_rows = [('voice','Brand voice'),('tone','Tone'),('personality','Personality'),('dos','Always'),('donts','Never')] %}
+        <section class="ax-pane {{ 'is-active' if view.active_tab=='company' else '' }}" data-pane="company">
+
+          {% if is_superadmin %}
+          <div class="ax-co-adminbar">
+            <span class="ax-co-adminlede">This profile grounds the Assistant and every generated report. The more it knows, the less generic the work.</span>
+            <button class="ax-btn violet small" type="button" data-codraft>{{ ic('sparkle') }} Draft with AI</button>
+            <span class="ax-co-draftmsg" data-codraftmsg></span>
+          </div>
+          {% elif company_empty %}
+          <div class="ax-empty">Your AGORA team is still putting this together. It will hold your company profile, your story, what you sell, and your brand guide.</div>
+          {% endif %}
+
+          <!-- 1. At a glance: the facts, one line each. -->
+          <div class="ax-card ax-co-block">
+            <div class="ax-co-blockhead">
+              <h2>{{ ic('company') }} At a glance</h2>
+              {% if is_superadmin %}<button class="ax-btn admin small" type="button" data-coedit="facts">Edit</button>{% endif %}
+            </div>
+            {% if company.profile.one_liner %}<p class="ax-co-oneliner">{{ company.profile.one_liner }}</p>{% endif %}
+            <dl class="ax-co-facts">
+              {% for key, label in co_facts if key != 'one_liner' and company.profile[key] %}
+              <div class="ax-co-fact">
+                <dt>{{ label }}</dt>
+                {#- No trailing arrow on the website: a long URL wraps, and the arrow would land
+                   alone on its own line. The link colour already carries the affordance. -#}
+                <dd>{% if key == 'website' %}<a href="{{ company.profile[key] if '://' in company.profile[key] else 'https://' ~ company.profile[key] }}" target="_blank" rel="noopener noreferrer">{{ company.profile[key] }}</a>{% else %}{{ company.profile[key] }}{% endif %}</dd>
+              </div>
+              {% endfor %}
+            </dl>
+            {% if is_superadmin %}
+            <div class="ax-edit-hidden ax-co-form" data-coform="facts">
+              <label class="ax-co-lab">In one sentence, what do they do?
+                <textarea class="ax-editbox" data-cofact="one_liner" rows="2" placeholder="A boutique RV rental company for families exploring the Rockies.">{{ company.profile.one_liner }}</textarea>
+              </label>
+              <div class="ax-co-grid2">
+                {% for key, label in [('industry','Industry'),('founded','Founded'),('hq','Based in'),('size','Size')] %}
+                <label class="ax-co-lab">{{ label }}<input class="ax-editbox" data-cofact="{{ key }}" value="{{ company.profile[key] }}"></label>
+                {% endfor %}
+              </div>
+              <label class="ax-co-lab">Who they serve
+                <input class="ax-editbox" data-cofact="customers" value="{{ company.profile.customers }}" placeholder="Families and retirees renting for 3-10 day trips">
+              </label>
+              <label class="ax-co-lab">Website
+                <input class="ax-editbox" data-cofact="website" value="{{ company.profile.website }}" placeholder="https://…">
+              </label>
+              <div class="ax-actions">
+                <button class="ax-btn violet small" type="button" data-cosave="facts">Save</button>
+                <button class="ax-btn ghost small" type="button" data-cocancel="facts">Cancel</button>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+
+          <!-- 2. The story: hand-ordered narrative sections (About / History / Mission / …). -->
+          <div class="ax-co-sec">
+            <div class="ax-co-sechead">
+              <h2>{{ ic('doc') }} The story</h2>
+              <p class="ax-co-lede">How the company started, what it stands for, and what makes it different.</p>
+            </div>
+            {% if company.sections %}
+            {% for s in company.sections %}
+            <div class="ax-card ax-co-story" data-costory="{{ s.id }}">
+              <div class="ax-co-blockhead">
+                <h3>{{ s.heading or 'About' }}</h3>
+                {% if is_superadmin %}
+                <span class="ax-co-order">
+                  <button class="ax-co-arrow" type="button" data-comove="{{ s.id }}" data-codir="up" data-cokind="sections" title="Move up" aria-label="Move up"{{ ' disabled' if loop.first else '' }}>&#8593;</button>
+                  <button class="ax-co-arrow" type="button" data-comove="{{ s.id }}" data-codir="down" data-cokind="sections" title="Move down" aria-label="Move down"{{ ' disabled' if loop.last else '' }}>&#8595;</button>
+                </span>
+                {% endif %}
+              </div>
+              <div class="ax-co-body">{{ s.body }}</div>
+              {% if is_superadmin %}
+              <div class="ax-admin-tools">
+                <button class="ax-btn admin small" type="button" data-coedit="s-{{ s.id }}">Edit</button>
+                <button class="ax-btn danger small" type="button" data-codelete="{{ s.id }}" data-cokind="sections" data-coname="{{ s.heading or 'this section' }}">Delete</button>
+              </div>
+              <div class="ax-edit-hidden ax-co-form" data-coform="s-{{ s.id }}">
+                <input class="ax-editbox" data-cos="heading" value="{{ s.heading }}" placeholder="Heading (e.g. About, Our history, What makes us different)">
+                <textarea class="ax-editbox ax-co-bodybox" data-cos="body" rows="8" placeholder="Write it as you would tell it to a new team member…">{{ s.body }}</textarea>
+                <div class="ax-actions">
+                  <button class="ax-btn violet small" type="button" data-cosave="s-{{ s.id }}" data-coid="{{ s.id }}" data-cokind="sections">Save</button>
+                  <button class="ax-btn ghost small" type="button" data-cocancel="s-{{ s.id }}">Cancel</button>
+                </div>
+              </div>
+              {% endif %}
+            </div>
+            {% endfor %}
+            {% elif not is_superadmin %}
+            <div class="ax-empty">Nothing written here yet.</div>
+            {% endif %}
+            {% if is_superadmin %}
+            <div class="ax-admin-tools ax-co-add" data-coadd="sections">
+              <span class="ax-doc-label" style="width:100%">Add a section</span>
+              <input class="ax-editbox" data-coa="heading" placeholder="Heading (e.g. About, Our history, What makes us different)">
+              <textarea class="ax-editbox ax-co-bodybox" data-coa="body" rows="6" placeholder="Write it as you would tell it to a new team member…"></textarea>
+              <div class="ax-actions">
+                <button class="ax-btn green small" type="button" data-coaddbtn="sections">＋ Add section</button>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+
+          <!-- 3. Products & services: what the company actually sells. -->
+          <div class="ax-co-sec">
+            <div class="ax-co-sechead">
+              <h2>{{ ic('box') }} Products &amp; services</h2>
+              <p class="ax-co-lede">Everything the company sells, so campaigns describe it the way you do.</p>
+            </div>
+            {% if company.products %}
+            <div class="ax-co-prodgrid">
+              {% for p in company.products %}
+              <div class="ax-card ax-co-prod" data-coprod="{{ p.id }}">
+                <div class="ax-co-prodtop">
+                  <h3>{{ p.name }}</h3>
+                  {% if p.status %}<span class="ax-co-pill">{{ p.status }}</span>{% endif %}
+                </div>
+                {% if p.summary %}<p class="ax-co-prodsum">{{ p.summary }}</p>{% endif %}
+                <dl class="ax-co-facts ax-co-facts-tight">
+                  {% for key, label in [('price','Price'),('audience','Who it is for')] %}
+                  {% if p[key] %}<div class="ax-co-fact"><dt>{{ label }}</dt><dd>{{ p[key] }}</dd></div>{% endif %}
+                  {% endfor %}
+                </dl>
+                {% if p.url %}<a class="ax-co-prodlink" href="{{ p.url if '://' in p.url else 'https://' ~ p.url }}" target="_blank" rel="noopener noreferrer">View it {{ ic('arrow') }}</a>{% endif %}
+                {% if is_superadmin %}
+                <div class="ax-admin-tools">
+                  <button class="ax-btn admin small" type="button" data-coedit="p-{{ p.id }}">Edit</button>
+                  <span class="ax-co-order">
+                    <button class="ax-co-arrow" type="button" data-comove="{{ p.id }}" data-codir="up" data-cokind="products" title="Move up" aria-label="Move up"{{ ' disabled' if loop.first else '' }}>&#8593;</button>
+                    <button class="ax-co-arrow" type="button" data-comove="{{ p.id }}" data-codir="down" data-cokind="products" title="Move down" aria-label="Move down"{{ ' disabled' if loop.last else '' }}>&#8595;</button>
+                  </span>
+                  <button class="ax-btn danger small" type="button" data-codelete="{{ p.id }}" data-cokind="products" data-coname="{{ p.name or 'this product' }}">Delete</button>
+                </div>
+                <div class="ax-edit-hidden ax-co-form" data-coform="p-{{ p.id }}">
+                  <input class="ax-editbox" data-cop="name" value="{{ p.name }}" placeholder="Product or service name">
+                  <textarea class="ax-editbox" data-cop="summary" rows="3" placeholder="What it is, in a sentence or two…">{{ p.summary }}</textarea>
+                  <div class="ax-co-grid2">
+                    <input class="ax-editbox" data-cop="price" value="{{ p.price }}" placeholder="Price (e.g. from $249/night)">
+                    <input class="ax-editbox" data-cop="audience" value="{{ p.audience }}" placeholder="Who it is for">
+                    <input class="ax-editbox" data-cop="url" value="{{ p.url }}" placeholder="Link (optional)">
+                    <input class="ax-editbox" data-cop="status" value="{{ p.status }}" placeholder="Status (e.g. Flagship, New, Seasonal)">
+                  </div>
+                  <div class="ax-actions">
+                    <button class="ax-btn violet small" type="button" data-cosave="p-{{ p.id }}" data-coid="{{ p.id }}" data-cokind="products">Save</button>
+                    <button class="ax-btn ghost small" type="button" data-cocancel="p-{{ p.id }}">Cancel</button>
+                  </div>
+                </div>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+            {% elif not is_superadmin %}
+            <div class="ax-empty">No products listed yet.</div>
+            {% endif %}
+            {% if is_superadmin %}
+            <div class="ax-admin-tools ax-co-add" data-coadd="products">
+              <span class="ax-doc-label" style="width:100%">Add a product or service</span>
+              <input class="ax-editbox" data-cob="name" placeholder="Product or service name">
+              <textarea class="ax-editbox" data-cob="summary" rows="3" placeholder="What it is, in a sentence or two…"></textarea>
+              <div class="ax-co-grid2">
+                <input class="ax-editbox" data-cob="price" placeholder="Price (e.g. from $249/night)">
+                <input class="ax-editbox" data-cob="audience" placeholder="Who it is for">
+                <input class="ax-editbox" data-cob="url" placeholder="Link (optional)">
+                <input class="ax-editbox" data-cob="status" placeholder="Status (e.g. Flagship, New, Seasonal)">
+              </div>
+              <div class="ax-actions">
+                <button class="ax-btn green small" type="button" data-coaddbtn="products">＋ Add product</button>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+
+          <!-- 4. Brand guide: how the company sounds and looks. -->
+          <div class="ax-card ax-co-block">
+            <div class="ax-co-blockhead">
+              <h2>{{ ic('brand') }} Brand guide</h2>
+              {% if is_superadmin %}<button class="ax-btn admin small" type="button" data-coedit="brand">Edit</button>{% endif %}
+            </div>
+            {% if company.brand.tagline %}<p class="ax-co-tagline">&ldquo;{{ company.brand.tagline }}&rdquo;</p>{% endif %}
+            <dl class="ax-co-facts">
+              {% for key, label in co_brand_rows if company.brand[key] %}
+              <div class="ax-co-fact"><dt>{{ label }}</dt><dd>{{ company.brand[key] }}</dd></div>
+              {% endfor %}
+              {% if company.brand.fonts %}<div class="ax-co-fact"><dt>Fonts</dt><dd>{{ company.brand.fonts }}</dd></div>{% endif %}
+            </dl>
+            {% if company.brand.colors %}
+            <div class="ax-co-colors">
+              <span class="ax-co-colorlab">Colours</span>
+              {% for c in company.brand.colors.split(',') %}{% set tok = c.strip() %}{% if tok %}
+              <span class="ax-co-swatch">{% if tok.startswith('#') %}<i style="background:{{ tok }}"></i>{% endif %}{{ tok }}</span>
+              {% endif %}{% endfor %}
+            </div>
+            {% endif %}
+            {% if company.brand.assets_url %}
+            <a class="ax-co-prodlink" href="{{ company.brand.assets_url if '://' in company.brand.assets_url else 'https://' ~ company.brand.assets_url }}" target="_blank" rel="noopener noreferrer">Brand assets &amp; style guide {{ ic('arrow') }}</a>
+            {% endif %}
+            {% if is_superadmin %}
+            <div class="ax-edit-hidden ax-co-form" data-coform="brand">
+              <label class="ax-co-lab">Tagline<input class="ax-editbox" data-cobrand="tagline" value="{{ company.brand.tagline }}" placeholder="Their own slogan, if they have one"></label>
+              <label class="ax-co-lab">Brand voice<textarea class="ax-editbox" data-cobrand="voice" rows="2" placeholder="How they speak: warm and plain-spoken, never salesy…">{{ company.brand.voice }}</textarea></label>
+              <div class="ax-co-grid2">
+                <label class="ax-co-lab">Tone<input class="ax-editbox" data-cobrand="tone" value="{{ company.brand.tone }}" placeholder="Friendly, confident, practical"></label>
+                <label class="ax-co-lab">Personality<input class="ax-editbox" data-cobrand="personality" value="{{ company.brand.personality }}" placeholder="The knowledgeable friend"></label>
+                <label class="ax-co-lab">Colours<input class="ax-editbox" data-cobrand="colors" value="{{ company.brand.colors }}" placeholder="#1F4D3A, #F4E9D8"></label>
+                <label class="ax-co-lab">Fonts<input class="ax-editbox" data-cobrand="fonts" value="{{ company.brand.fonts }}" placeholder="Canela, Söhne"></label>
+              </div>
+              <label class="ax-co-lab">Always<textarea class="ax-editbox" data-cobrand="dos" rows="2" placeholder="Lead with the trip, not the vehicle…">{{ company.brand.dos }}</textarea></label>
+              <label class="ax-co-lab">Never<textarea class="ax-editbox" data-cobrand="donts" rows="2" placeholder="No discount-led messaging, no exclamation marks…">{{ company.brand.donts }}</textarea></label>
+              <label class="ax-co-lab">Brand assets link<input class="ax-editbox" data-cobrand="assets_url" value="{{ company.brand.assets_url }}" placeholder="Drive folder or style-guide URL"></label>
+              <div class="ax-actions">
+                <button class="ax-btn violet small" type="button" data-cosave="brand">Save</button>
+                <button class="ax-btn ghost small" type="button" data-cocancel="brand">Cancel</button>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+        </section>
+
         <!-- ============ PAID MEDIA (paid, tab key `leadgen`) + ORGANIC (organic) ============ -->
         {% for stream in [('leadgen','paid'),('organic','organic')] %}
         {% set tab = stream[0] %} {% set chan = stream[1] %}
@@ -2583,9 +2921,9 @@
                     <span class="ax-savehint" data-savehint hidden>Saved ✓</span>
                   </div>
                   {% if p.status == 'approved' %}
-                  <div class="ax-confirm">{{ ic('check') }} Approved{% if p.decided_at %} &middot; {{ p.decided_at|atrium_dt }}{% endif %} &middot; you can change this anytime</div>
+                  <div class="ax-decided">{{ ic('check') }} Approved{% if p.decided_at %} &middot; {{ p.decided_at|atrium_dt }}{% endif %} &middot; you can change this anytime</div>
                   {% elif p.status == 'changes' %}
-                  <div class="ax-confirm" style="background:#FDECEC;color:#E5413E">{{ ic('message') }} Changes requested{% if p.decided_at %} &middot; {{ p.decided_at|atrium_dt }}{% endif %} &middot; you can change this anytime</div>
+                  <div class="ax-decided" style="background:#FDECEC;color:#E5413E">{{ ic('message') }} Changes requested{% if p.decided_at %} &middot; {{ p.decided_at|atrium_dt }}{% endif %} &middot; you can change this anytime</div>
                   {% endif %}
                 </div>
 
@@ -4067,7 +4405,7 @@
   // Mirrors the tab_titles Jinja map. `progress` was MISSING here for a while, so switching to
   // that tab client-side kept the previous tab's heading -- keep the two maps in step.
   var titles = {
-    overview: "Overview", dashboard: "Dashboard", leadgen: "Paid Media",
+    overview: "Overview", dashboard: "Dashboard", company: "Company", leadgen: "Paid Media",
     organic: "Organic Content", calendar: "Content Calendar",
     conversations: "Communications", intel: "Market Intelligence", reports: "Reports",
     progress: "Tasks",
@@ -4078,6 +4416,7 @@
   var subtitles = {
     overview: "Everything, visible: what's working, what's live, and what's coming next.",
     dashboard: "Your live campaign data, updated automatically.",
+    company: "Who you are, what you sell, and how your brand sounds, so every piece of work starts from the same page.",
     calendar: "Tracking the work from kickoff to delivered, paid and organic publish dates included.",
     conversations: "One running record of every conversation so nothing gets lost.",
     intel: "Your weekly briefing: what's moving in your industry and the platform updates worth acting on.",
@@ -7418,6 +7757,107 @@
       var panel = document.querySelector("[data-goalform]");
       btn.addEventListener("click", function () {
         adminAction("/admin/goal", fieldsFrom(panel, "data-gf", {}), btn);
+      });
+    });
+
+    // --- Company profile: facts / brand guide / story sections / products (super-admin) ---
+    // Every control posts to the ONE /admin/company route; `data-coedit` + `data-coform` share a
+    // key ("facts", "brand", "s-<id>", "p-<id>") so one pair of loops wires all four blocks.
+    qsa("[data-coedit]").forEach(function (btn) {
+      var form = document.querySelector('[data-coform="' + aq(btn.getAttribute("data-coedit")) + '"]');
+      btn.addEventListener("click", function () { toggleHidden(form); });
+    });
+    qsa("[data-cocancel]").forEach(function (btn) {
+      var form = document.querySelector('[data-coform="' + aq(btn.getAttribute("data-cocancel")) + '"]');
+      btn.addEventListener("click", function () { if (form) { form.classList.add("ax-edit-hidden"); } });
+    });
+    qsa("[data-cosave]").forEach(function (btn) {
+      var key = btn.getAttribute("data-cosave");
+      var form = document.querySelector('[data-coform="' + aq(key) + '"]');
+      btn.addEventListener("click", function () {
+        if (key === "facts") {
+          adminAction("/admin/company", fieldsFrom(form, "data-cofact", { op: "profile" }), btn);
+        } else if (key === "brand") {
+          adminAction("/admin/company", fieldsFrom(form, "data-cobrand", { op: "brand" }), btn);
+        } else {
+          var kind = btn.getAttribute("data-cokind");
+          var attr = (kind === "sections") ? "data-cos" : "data-cop";
+          adminAction("/admin/company", fieldsFrom(form, attr,
+            { op: "edit", kind: kind, item_id: btn.getAttribute("data-coid") }), btn);
+        }
+      });
+    });
+    qsa("[data-coaddbtn]").forEach(function (btn) {
+      var kind = btn.getAttribute("data-coaddbtn");
+      var panel = document.querySelector('[data-coadd="' + aq(kind) + '"]');
+      var attr = (kind === "sections") ? "data-coa" : "data-cob";
+      btn.addEventListener("click", function () {
+        var fields = fieldsFrom(panel, attr, { op: "add", kind: kind });
+        if (kind === "sections" && !fields.heading && !fields.body) {
+          adminMsg("Give the section a heading or some text first.", false); return;
+        }
+        if (kind === "products" && !fields.name) {
+          adminMsg("Give the product a name first.", false); return;
+        }
+        adminAction("/admin/company", fields, btn);
+      });
+    });
+    qsa("[data-comove]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        adminAction("/admin/company", { op: "move", kind: btn.getAttribute("data-cokind"),
+          item_id: btn.getAttribute("data-comove"), dir: btn.getAttribute("data-codir") }, btn);
+      });
+    });
+    qsa("[data-codelete]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var name = btn.getAttribute("data-coname") || "this item";
+        axConfirm({ title: "Delete?", message: "Delete " + name + "? You can restore it from the Bin." }, function () {
+          adminAction("/admin/company", { op: "delete", kind: btn.getAttribute("data-cokind"),
+            item_id: btn.getAttribute("data-codelete") }, btn);
+        });
+      });
+    });
+    // The AI drafting button: the model researches the company and FILLS THE FORMS -- it never
+    // saves. The two fact/brand editors and the add-a-section composer open with the drafts in
+    // place, so the team reviews and hits Save (the review-then-apply posture of the intel brain).
+    // NB: don't quote the button's label in this comment -- inline JS ships to EVERY viewer, so a
+    // label repeated here lands in a client's HTML and the smoketest's no-leak check reads it as
+    // a rendered admin affordance.
+    qsa("[data-codraft]").forEach(function (btn) {
+      var msg = document.querySelector("[data-codraftmsg]");
+      function put(sel, value) {
+        var el = document.querySelector(sel);
+        if (el && value) { el.value = value; }
+      }
+      btn.addEventListener("click", function () {
+        btn.setAttribute("disabled", "disabled");
+        if (msg) { msg.textContent = "Researching the company…"; }
+        post("/admin/company", { op: "draft" }).then(function (data) {
+          btn.removeAttribute("disabled");
+          if (!data || data.ok === false) {
+            if (msg) { msg.textContent = (data && data.message) || "Could not draft the profile."; }
+            return;
+          }
+          var f = data.fields || {};
+          ["one_liner", "industry", "founded", "hq", "size", "customers", "website"].forEach(function (k) {
+            put('[data-cofact="' + k + '"]', f[k]);
+          });
+          ["tagline", "voice", "tone", "personality"].forEach(function (k) {
+            put('[data-cobrand="' + k + '"]', f[k]);
+          });
+          put('[data-coa="heading"]', f.about_heading);
+          put('[data-coa="body"]', f.about);
+          ["facts", "brand"].forEach(function (k) {
+            var form = document.querySelector('[data-coform="' + k + '"]');
+            if (form) { form.classList.remove("ax-edit-hidden"); }
+          });
+          if (msg) {
+            msg.textContent = "Drafted below - review every field, then Save each block. Nothing has been saved yet.";
+          }
+        }).catch(function () {
+          btn.removeAttribute("disabled");
+          if (msg) { msg.textContent = "Could not reach the drafting service."; }
+        });
       });
     });
 
