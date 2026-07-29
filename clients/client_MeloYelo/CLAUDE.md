@@ -45,16 +45,21 @@ consumed) — that is WHY those two sources read from the snapshot; don't chase 
   (no `?.`, no `??`). Four tabs: `sales` · `riders` · `inventory` · `marketing`, in the URL hash.
   Chart palette is the validated categorical set in `PALETTE` (adjacent-CVD-checked on white);
   status colours (`STATUS`) are reserved for stock/timeliness and always ship with icon + label.
-- **`meta_ads` / `google_ads` / `ga4` / `email` are wired-but-dormant JSON keys** — the
-  Marketing tab renders designed empty states until the export job fills them. Google Ads
-  account id: `668-008-6591`.
-- **There is NO Windsor connector for this client** — not an empty pull, none at all: no
-  `meloyelo-windsor-key` secret and no Windsor code in `job/`. So Meta/Google Ads/GA4 cannot be
-  probed, and anything built on them (e.g. the **creative gallery** RHE and Honey Tribe have) is
-  unbuildable until the connector exists. Checked 2026-07-29. When it lands, the gallery is the
-  `client_RHE` / `client_honeytribe` pattern: put `creative_id` on the main Meta pull (it rides
-  along free), add `fetch_creatives` + `cache_creative_images`, and serve images through an
-  authed `/creative-img/<cid>` route so the bucket stays private.
+- **`meta_ads` is LIVE via Windsor.ai since 2026-07-29** (secret `meloyelo-windsor-key`, account
+  `facebook__465444904516684`, `job/main.py pull_meta`): per-ad/day rows with `actions_lead` +
+  `actions_landing_page_view`, WINDSOR_PRESET last_365d with older rows carried forward from the
+  previous publication (the honeytribe merge). The Marketing tab renders the full Meta section
+  (tiles, click funnel, trends, campaign table) whenever `meta_ads.enabled` — and falls back to
+  the designed empty state otherwise. (An earlier note here said this client had NO Windsor
+  connector at all — true until 2026-07-29, superseded by the connector landing that day.)
+- **`google_ads` / `ga4` / `email` remain wired-but-dormant JSON keys** — the Marketing tab
+  renders designed empty states until the export job fills them. The Google Ads account
+  (`668-008-6591`) and GA4 property (`312428782`) are NOT connected in Windsor yet; the user is
+  adding them — wire them the same way `meta_ads` is when they appear.
+- A **creative gallery** is buildable now that the connector exists — the `client_RHE` /
+  `client_honeytribe` pattern: put `creative_id` on the main Meta pull (it rides along free),
+  add `fetch_creatives` + `cache_creative_images`, and serve images through an authed
+  `/creative-img/<cid>` route so the bucket stays private.
 - Local preview port is **8146** (8140 belongs to client_RHE's preview).
 
 ## ⚠️ `context/` is git-ignored and holds LIVE credentials

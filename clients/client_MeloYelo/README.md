@@ -45,11 +45,13 @@ of cover at the last-180-day selling pace, plus what production adds — new her
 Looker report answered "when do we run out?"), and the On-The-Way table with stage/timeliness
 chips.
 
-**04 · Marketing** — email LIVE, paid channels wired.
+**04 · Marketing** — email LIVE, Meta Ads LIVE, two channels wired.
 Campaign Monitor pulled **live from the API**: unique open/click rates per campaign (which the
-old Looker report never had), campaign-performance table, whole-history tiles. Meta Ads,
-Google Ads (account `668-008-6591`) and GA4 render **designed empty states** that specify
-exactly what lands when each Windsor connector is wired into the export job.
+old Looker report never had). **Meta Ads pulled live via Windsor.ai** (since 2026-07-29):
+spend/impressions/link-clicks/CTR/leads/cost-per-lead tiles with a 30d/90d/12m/All range,
+the impressions→link clicks→landing views→leads click funnel, leads and spend trends, and a
+campaign table. Google Ads (`668-008-6591`) and GA4 (property `312428782`) render **designed
+empty states** until their Windsor connectors are added.
 
 Every tab ends with a "Reading of…" insight strip that recomputes with the filters. The tab is
 in the URL hash (`#riders`), so a view can be linked to.

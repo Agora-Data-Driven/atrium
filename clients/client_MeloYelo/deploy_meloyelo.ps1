@@ -56,11 +56,13 @@ $KEY_SECRET  = "$CLIENT-dash-session-key"
 $UID_SECRET  = "$CLIENT-unleashed-id"
 $UKEY_SECRET = "$CLIENT-unleashed-key"
 $CM_SECRET   = "$CLIENT-cm-key"
+$WIN_SECRET  = "$CLIENT-windsor-key"
 $LARK_SECRET = "$CLIENT-lark-refresh-seed"
 $AR_HOST     = "$REGION-docker.pkg.dev"
 
 # Client-specific connector config (ids, not credentials).
 $CRM_SHEET_ID = "1iNkF_WDa_5yY7MLPzynEP2uQWmlUnJKlq052eUTl5ZE"   # Customer Data - master
+$WINDSOR_ACCOUNT = "facebook__465444904516684"                    # MeloYelo Meta via Windsor.ai
 
 $ROOT     = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $JOB_DIR  = Join-Path $PSScriptRoot "job"
@@ -204,7 +206,7 @@ Write-Host "[..] Building + deploying export job $EXPORT_JOB" -ForegroundColor C
 $jobImg = "$AR_HOST/$PROJECT/$REPO/${EXPORT_JOB}:$SHA"
 gcloud builds submit $JOB_DIR --tag $jobImg --project $PROJECT; Must "build export job image"
 
-$jobEnv = "GCS_BUCKET=$BUCKET,DATA_OBJECT=$CLIENT.json,GCP_PROJECT=$PROJECT,CRM_SHEET_ID=$CRM_SHEET_ID,PYTHONUNBUFFERED=1"
+$jobEnv = "GCS_BUCKET=$BUCKET,DATA_OBJECT=$CLIENT.json,GCP_PROJECT=$PROJECT,CRM_SHEET_ID=$CRM_SHEET_ID,WINDSOR_ACCOUNT=$WINDSOR_ACCOUNT,PYTHONUNBUFFERED=1"
 if ($LARK_APP_ID)    { $jobEnv += ",LARK_APP_ID=$LARK_APP_ID,LARK_APP_TOKEN=$LARK_APP_TOKEN,LARK_TABLE_ID=$LARK_TABLE_ID" }
 $jobSecrets = "UNLEASHED_API_ID=${UID_SECRET}:latest,UNLEASHED_API_KEY=${UKEY_SECRET}:latest,CAMPAIGN_MONITOR_API_KEY=${CM_SECRET}:latest"
 # CM client id + Lark app secret ride as env only when present (both are low-churn config).
@@ -213,6 +215,12 @@ if ($LARK_APP_SECRET) { $jobEnv += ",LARK_APP_SECRET=$LARK_APP_SECRET" }
 if (Exists { gcloud secrets describe $LARK_SECRET --project $PROJECT }) {
     $jobSecrets += ",LARK_REFRESH_SEED=${LARK_SECRET}:latest"
     gcloud secrets add-iam-policy-binding $LARK_SECRET --project $PROJECT --member "serviceAccount:$JOB_SA" --role "roles/secretmanager.secretAccessor" *> $null
+}
+# Windsor key (Meta Ads): created outside this script (2026-07-29, copied from the agency
+# account); mounted whenever it exists so the Meta pull lights up.
+if (Exists { gcloud secrets describe $WIN_SECRET --project $PROJECT }) {
+    $jobSecrets += ",WINDSOR_API_KEY=${WIN_SECRET}:latest"
+    gcloud secrets add-iam-policy-binding $WIN_SECRET --project $PROJECT --member "serviceAccount:$JOB_SA" --role "roles/secretmanager.secretAccessor" *> $null
 }
 
 gcloud run jobs deploy $EXPORT_JOB --image $jobImg --region $REGION --project $PROJECT `
