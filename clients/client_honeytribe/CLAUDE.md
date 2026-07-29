@@ -25,6 +25,13 @@ job/main.py (data dict key)  ->  dash/dashboard.html (DATA.* key)
   misattributed until the audit caught it).
 - **`dash/dashboard.html`** is one self-contained file; inline JS must be **esprima-4.x-safe**
   (no `?.`, no `??`). Three tabs: `sales` · `funnel` · `product`, selected by URL hash.
+- **The creative gallery (funnel tab) takes its numbers from `meta.rows`, never its own pull.**
+  `creative_id` rides on the main Meta pull for free (measured: 813 rows and identical spend with
+  and without it) and lands on every row as `cid`; `fetch_creatives()` pulls only the ad's *text
+  and image* keyed by that id, and `cache_creative_images()` copies the busiest
+  `CREATIVE_CACHE_MAX` (60) images into our own bucket because Meta's CDN links expire when an ad
+  stops. Served through the authed `/creative-img/<cid>` route — the bucket stays private. One
+  source of numbers is what keeps the gallery from disagreeing with the tiles above it.
 
 ## Two traps that already bit this client (do not undo these)
 
@@ -39,6 +46,15 @@ job/main.py (data dict key)  ->  dash/dashboard.html (DATA.* key)
   backfill. Orders and lines therefore BOTH carry `oid` — do not drop it, or every run silently
   degrades to a full crawl. First-time/returning and the line→order index are always recomputed
   across the whole merged set, never incrementally.
+- **Meta's grey "no preview" tile is a VALID image, so `onerror` never saves you.** For a creative
+  with no real image Meta returns its external image PROXY —
+  `external-<edge>.xx.fbcdn.net/emg1/…?url=<page>`, a link preview of the destination page rather
+  than the ad. It loads fine, so no `error` event fires, the branded-tile fallback never runs, and
+  three Honey Tribe cards rendered as grey boxes. `_is_link_preview()`/`_usable_image()` reject it
+  at the source. ⚠️ The first fix was "any image whose bytes are shared by 2+ creatives is the
+  placeholder" — **wrong, and it deleted real artwork**: this account genuinely reuses one
+  1080×1080 image (65k colours) across two ad variants. Duplication is not the signal; the URL is.
+  `tools/_creative_gallery_test.py` guards both halves.
 
 ## Windows and API limits (do not "fix" these — they are the API's)
 

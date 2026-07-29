@@ -352,6 +352,26 @@ def fetch_breakdowns(api_key):
     return out
 
 
+def _is_link_preview(url):
+    """True for Meta's external image PROXY, which is a preview of the destination PAGE, not the
+    ad. Meta serves it when a creative has no real image (video templates, some catalogue ads):
+    `https://external-<edge>.xx.fbcdn.net/emg1/...?url=<page>`. It IS a valid image — a near-blank
+    grey tile — so the browser's onerror never fires and the card would render a grey box. Real
+    creative images come from `scontent-<edge>.xx.fbcdn.net/v/t39...` or `/v/t45...`.
+    """
+    u = (url or "").lower()
+    return "//external-" in u and "/emg1/" in u
+
+
+def _usable_image(image_url, thumb_url):
+    """Best real image for a creative, or "" when Meta only offers a link preview (the card then
+    falls back to the branded headline tile, which says more than a grey box)."""
+    for u in (image_url, thumb_url):
+        if u and not _is_link_preview(u):
+            return u
+    return ""
+
+
 def _clean_headline(title, name):
     """Meta's `title` is often the display LINK ("fb.me", "roominghouse.expert"), not a headline.
     Those are useless as a card heading, so fall back to the ad name when the title looks like a
@@ -359,7 +379,11 @@ def _clean_headline(title, name):
     t = (title or "").strip()
     looks_like_link = (t.lower().startswith(("http://", "https://", "www."))
                        or (" " not in t and "." in t and len(t) < 40))
-    if not t or looks_like_link:
+    # Catalogue / dynamic ads carry an UNRENDERED Liquid template as their title, e.g.
+    # "{{product.name}}-{{product.price strip_zeros}}". Meta fills that per impression, so the
+    # stored value is meaningless to a reader — fall back to the ad name.
+    is_template = "{{" in t or "}}" in t
+    if not t or looks_like_link or is_template:
         return (name or "").strip() or "(untitled creative)"
     return t
 
@@ -404,7 +428,7 @@ def fetch_creatives(api_key):
             "ad": c["name"],
             "body": body[:CREATIVE_BODY_MAX] + ("…" if len(body) > CREATIVE_BODY_MAX else ""),
             # keep the live CDN url as a fallback for creatives we have not cached
-            "thumb": c["image"] or c["thumb"],
+            "thumb": _usable_image(c["image"], c["thumb"]),
             "link": c["link"],
         })
     print("  creatives: %d distinct (window %s)" % (len(items), CREATIVE_PRESET))

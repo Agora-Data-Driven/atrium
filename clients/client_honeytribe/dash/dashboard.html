@@ -190,6 +190,61 @@
   .stage.s4 .stage-head{background:linear-gradient(90deg,rgba(226,153,107,.22),transparent)}
   .stage-body{padding:4px 0 6px}
 
+  /* ---------- Creative gallery (the actual ads that ran) ---------- */
+  .cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:14px}
+  .ccard{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);
+         overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow-sm);
+         transition:transform .16s, box-shadow .16s, border-color .16s}
+  .ccard.click{cursor:pointer}
+  .ccard.click:hover{transform:translateY(-3px);box-shadow:0 10px 26px rgba(43,26,20,.14);
+                     border-color:var(--flame)}
+  .ccard.click:focus-visible{outline:2px solid var(--flame);outline-offset:2px}
+  .cc-thumb{width:100%;aspect-ratio:1/1;object-fit:cover;background:var(--cream);display:block}
+  /* branded tile when Meta's link has expired and we hold no cached copy — shows what the ad
+     SAID rather than a blank box */
+  .cc-fb{width:100%;aspect-ratio:1/1;display:flex;flex-direction:column;align-items:center;
+         justify-content:center;gap:10px;text-align:center;padding:18px;
+         background:linear-gradient(155deg,rgba(246,161,68,.24),rgba(238,104,57,.14) 60%,var(--cream))}
+  .cc-fb .mk{font-size:9px;font-weight:900;letter-spacing:1.6px;text-transform:uppercase;color:var(--flame)}
+  .cc-fb .hd{font-family:var(--display);font-size:14.5px;font-weight:900;color:var(--cocoa);line-height:1.3;
+             display:-webkit-box;-webkit-line-clamp:5;line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+  .cc-b{padding:11px 13px 13px;display:flex;flex-direction:column;gap:6px;flex:1}
+  .cc-h{font-weight:900;font-size:12.5px;line-height:1.3;color:var(--ink);
+        display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .cc-copy{color:var(--muted);font-size:11px;line-height:1.4;
+           display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .cc-m{display:flex;flex-wrap:wrap;gap:3px 11px;font-size:10.5px;color:var(--muted);
+        border-top:1px solid var(--line);padding-top:8px;margin-top:auto}
+  .cc-m b{color:var(--cocoa);font-weight:900;font-variant-numeric:tabular-nums}
+  /* lightbox */
+  .cmod{position:fixed;inset:0;background:rgba(43,26,20,.72);display:none;align-items:center;
+        justify-content:center;z-index:300;padding:26px}
+  .cmod.on{display:flex}
+  .cmod-card{position:relative;width:100%;max-width:880px;max-height:90vh;overflow:auto;
+             background:var(--white);border-radius:18px;box-shadow:0 30px 90px rgba(43,26,20,.45)}
+  .cmod-x{position:absolute;top:12px;right:14px;z-index:2;border:1px solid var(--line2);
+          background:var(--white);color:var(--ink);width:32px;height:32px;border-radius:9px;
+          cursor:pointer;font-size:15px;line-height:1}
+  .cmod-x:hover{background:var(--flame);border-color:var(--flame);color:#fff}
+  .cmod-body{display:flex;gap:22px;padding:26px;flex-wrap:wrap}
+  .cm-media{flex:0 0 340px;max-width:100%}
+  .cm-media img{width:100%;border-radius:13px;display:block;background:var(--cream)}
+  .cm-noimg{width:100%;min-height:250px;display:flex;align-items:center;justify-content:center;
+            text-align:center;padding:22px;background:var(--cream);border-radius:13px;
+            color:var(--muted);font-size:12.5px;line-height:1.5}
+  .cm-info{flex:1;min-width:270px;display:flex;flex-direction:column;gap:13px}
+  .cm-info h3{font-size:19px;line-height:1.25}
+  .cm-ad{font-size:11px;color:var(--muted);letter-spacing:.3px}
+  .cm-body{white-space:pre-wrap;font-size:13px;line-height:1.6;color:var(--ink2);margin:0}
+  .cm-metrics{display:flex;flex-wrap:wrap;gap:9px 20px;font-size:12.5px;color:var(--muted);
+              border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:13px 0}
+  .cm-metrics b{color:var(--cocoa);font-weight:900;font-variant-numeric:tabular-nums}
+  .cm-link{display:inline-block;padding:9px 15px;border-radius:9px;background:var(--flame);color:#fff;
+           text-decoration:none;font-size:13px;font-weight:900}
+  .cm-link:hover{filter:brightness(1.07)}
+  .cm-nolink{font-size:12px;color:var(--muted)}
+  .cm-cap{font-size:10.5px;color:var(--muted);letter-spacing:.3px}
+
   /* ---------- Tables ---------- */
   .tblwrap{overflow-x:auto;border-radius:10px;border:1px solid var(--line)}
   table{border-collapse:collapse;width:100%;font-size:12.5px}
@@ -572,6 +627,21 @@
     </section>
 
     <section>
+      <div class="shead">
+        <h2>The actual ads that ran</h2>
+        <span class="sub">the creatives behind the numbers above</span>
+        <span class="spacer"></span>
+        <div class="seg mini" id="seg-crank">
+          <span class="cap">Rank by</span>
+          <button data-v="imps" class="on">Impressions</button><button data-v="pur">Purchases</button><button data-v="rev">Revenue</button><button data-v="spend">Spend</button>
+        </div>
+      </div>
+      <div class="note" id="galNote" style="margin:0 0 12px"></div>
+      <div class="cgrid" id="creativeGallery"></div>
+      <div class="tfoot" id="galFoot"></div>
+    </section>
+
+    <section>
       <div class="shead"><h2>Campaign breakdown</h2><span class="sub">click a row to filter the whole tab</span></div>
       <div class="tblwrap">
         <table id="tblCamp"><thead><tr>
@@ -792,6 +862,13 @@
 </div>
 
 </div><!-- /app -->
+
+<div class="cmod" id="cMod" role="dialog" aria-modal="true" aria-label="Creative preview">
+  <div class="cmod-card">
+    <button class="cmod-x" type="button" id="cModX" aria-label="Close">&#10005;</button>
+    <div class="cmod-body" id="cModBody"></div>
+  </div>
+</div>
 
 <div class="tip" id="tip"></div>
 
@@ -1225,6 +1302,7 @@ function init(){
   buildSelects();
   wireControls();
   wireTabs();
+  wireCreativeGallery();
 
   byId("boot").hidden = true;
   byId("app").hidden = false;
@@ -2258,6 +2336,201 @@ function renderS1Insights(cur, lines){
 }
 
 /* ===================================================================== TAB 2 */
+/* ---------- Creative gallery -----------------------------------------------------------------
+   The ads themselves. Delivery is aggregated from the SAME `meta.rows` the rest of this tab uses
+   (rows carry `cid`), so the gallery can never disagree with the tiles above it and it recomputes
+   with the date range, campaign and ad filters. Text and images come from `DATA.creatives.items`.
+
+   Images: prefer our cached copy at /creative-img/<cid> (taken by the export while Meta's link is
+   live), then the live CDN url, then a branded tile carrying the ad's headline — Meta expires
+   these links once an ad stops, and a wall of grey boxes is worse than text. */
+var CGAL = [];
+var CRANK = { imps:"Impressions", pur:"Purchases", rev:"Revenue", spend:"Spend" };
+
+function creativeRows(){
+  var meta = ((DATA.creatives || {}).items) || [];
+  if(!meta.length){ return []; }
+  var info = {};
+  for(var i = 0; i < meta.length; i++){ info[meta[i].cid] = meta[i]; }
+  var agg = {};
+  var rows = metaIn(S2.from, S2.to);
+  for(var j = 0; j < rows.length; j++){
+    var r = rows[j];
+    if(!r.cid || !info[r.cid]){ continue; }
+    var a = agg[r.cid];
+    if(!a){
+      a = agg[r.cid] = { cid:r.cid, spend:0, imps:0, lclk:0, pur:0, rev:0 };
+      var m = info[r.cid];
+      a.head = m.head; a.ad = m.ad; a.body = m.body;
+      a.thumb = m.thumb; a.link = m.link; a.cached = !!m.cached;
+    }
+    a.spend += r.spend; a.imps += r.imps; a.lclk += r.lclk;
+    a.pur += (r.pur || 0); a.rev += (r.rev || 0);
+  }
+  var out = [];
+  for(var k in agg){
+    var c = agg[k];
+    if(!c.imps){ continue; }
+    c.ctr = safe(c.lclk, c.imps) * 100;
+    c.roas = safe(c.rev, c.spend);
+    out.push(c);
+  }
+  var key = SEG_CRANK;
+  out.sort(function(a, b){ return (b[key] || 0) - (a[key] || 0); });
+  return out;
+}
+var SEG_CRANK = "imps";
+
+function cThumbTag(c, cls){
+  var src = c.cached ? ("/creative-img/" + encodeURIComponent(c.cid)) : (c.thumb || "");
+  if(!src){ return ""; }
+  return '<img class="' + cls + '" loading="lazy" alt="" data-cid="' + esc(c.cid) +
+         '" src="' + esc(src) + '">';
+}
+function cFallback(c){
+  return '<div class="cc-fb"><div class="mk">Honey Tribe &middot; Ad</div>' +
+         '<div class="hd">' + esc(c.head || c.body || "Creative") + "</div></div>";
+}
+/* Meta's link died between the export and this page load — swap the branded tile in, in place. */
+function wireImgFallback(img, big){
+  img.addEventListener("error", function(){
+    var cid = img.getAttribute("data-cid"), c = null;
+    for(var i = 0; i < CGAL.length; i++){ if(CGAL[i].cid === cid){ c = CGAL[i]; } }
+    var wrap = document.createElement("div");
+    if(big){
+      wrap.className = "cm-noimg";
+      wrap.textContent = "The image for this ad has expired on Meta's side. The full copy is beside it.";
+    } else {
+      wrap.innerHTML = cFallback(c || { head:"Creative" });
+      wrap = wrap.firstChild;
+    }
+    if(img.parentNode){ img.parentNode.replaceChild(wrap, img); }
+  });
+}
+
+function renderCreatives(){
+  var box = byId("creativeGallery");
+  if(!box){ return; }
+  var C = DATA.creatives || {};
+  if(!C.enabled){
+    box.innerHTML = "";
+    setHTML("galNote", '<div class="empty"><h4>Creative previews are not available</h4><p>' +
+      esc(C.error || "This panel needs the Meta creative pull.") + "</p></div>");
+    setText("galFoot", "");
+    return;
+  }
+  var all = creativeRows();
+  CGAL = all.slice(0, 12);
+  if(!CGAL.length){
+    box.innerHTML = "";
+    setHTML("galNote", '<div class="empty"><h4>No creatives ran in this period</h4>' +
+      "<p>Widen the date range or clear the campaign filter.</p></div>");
+    setText("galFoot", "");
+    return;
+  }
+  var html = "";
+  for(var i = 0; i < CGAL.length; i++){
+    var c = CGAL[i];
+    var media = cThumbTag(c, "cc-thumb") || cFallback(c);
+    html += '<div class="ccard click" role="button" tabindex="0" data-ci="' + i +
+            '" title="Click to enlarge this ad">' + media +
+      '<div class="cc-b">' +
+        '<div class="cc-h">' + esc(c.head) + "</div>" +
+        (c.body ? '<div class="cc-copy">' + esc(c.body) + "</div>" : "") +
+        '<div class="cc-m"><span><b>' + compactN(c.imps) + "</b> impr</span>" +
+          "<span><b>" + num(c.lclk) + "</b> clicks</span>" +
+          "<span><b>" + compact(c.spend) + "</b></span>" +
+          "<span><b>" + num(c.pur) + "</b> purch</span>" +
+          (c.spend ? "<span><b>" + c.roas.toFixed(2) + "x</b> ROAS</span>" : "") +
+        "</div></div></div>";
+  }
+  box.innerHTML = html;
+  var imgs = box.querySelectorAll("img.cc-thumb");
+  for(var m2 = 0; m2 < imgs.length; m2++){ wireImgFallback(imgs[m2], false); }
+  var cards = box.querySelectorAll(".ccard");
+  for(var k = 0; k < cards.length; k++){
+    (function(el){
+      var idx = parseInt(el.getAttribute("data-ci"), 10);
+      el.addEventListener("click", function(){ openCreative(idx); });
+      el.addEventListener("keydown", function(e){
+        if(e.key === "Enter" || e.key === " "){ e.preventDefault(); openCreative(idx); }
+      });
+    })(cards[k]);
+  }
+  var cachedN = 0;
+  for(var z = 0; z < all.length; z++){ if(all[z].cached){ cachedN++; } }
+  setHTML("galNote",
+    "The <b>" + CGAL.length + "</b> creatives with the highest " +
+    esc((CRANK[SEG_CRANK] || "").toLowerCase()) + " over the selected period, each with its own " +
+    "delivery. <b>Click any card</b> to read the full copy and open where the ad pointed. Images " +
+    "are copied into our own storage while Meta's link is live — Meta expires them once an ad " +
+    "stops, so a card without one falls back to the ad's headline rather than a blank box.");
+  setText("galFoot", all.length + " creative" + (all.length === 1 ? "" : "s") +
+    " ran in this period \u00b7 " + cachedN + " with a stored image \u00b7 ranked by " +
+    (CRANK[SEG_CRANK] || SEG_CRANK).toLowerCase() + ".");
+}
+
+function openCreative(i){
+  var c = CGAL[i];
+  if(!c){ return; }
+  var media = cThumbTag(c, "cm-img");
+  var mediaHtml = media ||
+    '<div class="cm-noimg">The image for this ad has expired on Meta\u2019s side. ' +
+    "The full copy is shown beside it.</div>";
+  var link = c.link
+    ? '<div><a class="cm-link" href="' + esc(c.link) +
+      '" target="_blank" rel="noopener noreferrer">Open the ad &#8599;</a></div>'
+    : '<div class="cm-nolink">No destination link recorded for this creative.</div>';
+  setHTML("cModBody",
+    '<div class="cm-media">' + mediaHtml + "</div>" +
+    '<div class="cm-info">' +
+      "<h3>" + esc(c.head) + "</h3>" +
+      (c.ad && c.ad !== c.head ? '<div class="cm-ad">Ad name: ' + esc(c.ad) + "</div>" : "") +
+      (c.body ? '<p class="cm-body">' + esc(c.body) + "</p>" : "") +
+      '<div class="cm-metrics">' +
+        "<span><b>" + num(c.imps) + "</b> impressions</span>" +
+        "<span><b>" + num(c.lclk) + "</b> link clicks</span>" +
+        "<span><b>" + pct(c.ctr, 2) + "</b> CTR</span>" +
+        "<span><b>" + money(c.spend, 0) + "</b> spend</span>" +
+        "<span><b>" + num(c.pur) + "</b> purchases</span>" +
+        "<span><b>" + money(c.rev, 0) + "</b> revenue</span>" +
+        (c.spend ? "<span><b>" + c.roas.toFixed(2) + "x</b> ROAS</span>" : "") +
+      "</div>" + link +
+      '<div class="cm-cap">Creative ID ' + esc(c.cid) +
+        " &middot; figures are for the selected period</div>" +
+    "</div>");
+  var mi = document.querySelector("#cModBody img.cm-img");
+  if(mi){ wireImgFallback(mi, true); }
+  byId("cMod").classList.add("on");
+}
+function closeCreative(){
+  var m = byId("cMod");
+  if(m){ m.classList.remove("on"); }
+}
+/* the Rank-by control + lightbox dismissal, wired once on load */
+function wireCreativeGallery(){
+  var box = byId("seg-crank");
+  if(box){
+    var btns = box.querySelectorAll("button");
+    for(var i = 0; i < btns.length; i++){
+      (function(b){
+        b.addEventListener("click", function(){
+          for(var j = 0; j < btns.length; j++){ btns[j].classList.remove("on"); }
+          b.classList.add("on");
+          SEG_CRANK = b.getAttribute("data-v");
+          renderCreatives();
+        });
+      })(btns[i]);
+    }
+  }
+  var cx = byId("cModX");
+  if(cx){ cx.addEventListener("click", closeCreative); }
+  var cm = byId("cMod");
+  /* click the backdrop (never the card) to dismiss */
+  if(cm){ cm.addEventListener("click", function(e){ if(e.target === cm){ closeCreative(); } }); }
+  document.addEventListener("keydown", function(e){ if(e.key === "Escape"){ closeCreative(); } });
+}
+
 function metaIn(from, to){
   var out = [];
   for(var i = 0; i < MRO.length; i++){
@@ -2347,6 +2620,7 @@ function renderS2(){
   renderEffChart(rows);
   renderFreqChart(rows);
   renderCampTable(rows);
+  renderCreatives();
   renderS2Insights(cur, bench, bw, scale);
 }
 function stageBlock(cls, title, note, rows){

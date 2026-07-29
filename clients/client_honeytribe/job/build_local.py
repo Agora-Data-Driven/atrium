@@ -332,6 +332,11 @@ def main():
         "sessions": {"enabled": False, "rows": [],
                      "note": "Shopify session data needs the ShopifyQL sessions pull "
                              "(RAW_Shopify_Sessions) wired into the export job."},
+        # the offline stand-in has no Meta creative data - the gallery renders its wired-empty
+        # state, exactly as it would if the creative pull failed
+        "creatives": {"enabled": False, "items": [], "error":
+                      "Creative previews need the live Windsor pull (job/main.py).",
+                      "window": ""},
         "demographics": {"enabled": False, "age_gender": [], "region": [],
                          "note": "Age/gender come from Meta's demographic breakdown pulls; "
                                  "Shopify does not carry them."},

@@ -510,6 +510,14 @@ def audit_creatives(data):
     else:
         ok("no headline is a raw link")
 
+    # catalogue/dynamic ads carry an unrendered Liquid template as their title
+    templ = [c for c in items if "{{" in (c.get("head") or "") or "}}" in (c.get("head") or "")]
+    if templ:
+        fail("%d headline(s) are unrendered dynamic-ad templates: %s"
+             % (len(templ), [c["head"][:40] for c in templ[:3]]))
+    else:
+        ok("no headline is an unrendered template token")
+
     cached = sum(1 for c in items if c.get("cached"))
     ok("%d of %d have a permanent cached image (the rest fall back to Meta's live URL, then to "
        "a branded tile)" % (cached, len(items)))

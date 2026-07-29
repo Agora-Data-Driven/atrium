@@ -27,6 +27,7 @@ dependency at runtime.
 import datetime
 import hmac
 import os
+import re
 
 from flask import (
     Flask,
@@ -191,6 +192,26 @@ def data_json():
     # no-store: the data is private; never cache it anywhere.
     return Response(payload, mimetype="application/json",
                     headers={"Cache-Control": "no-store"})
+
+
+@app.route("/creative-img/<cid>", methods=["GET"])
+def creative_img(cid):
+    """Serve a Meta creative image the export job copied into our bucket.
+
+    Meta's CDN links expire once an ad stops running, so the export takes a permanent copy while
+    the link is live. Same auth posture as /data.json - the bucket stays private.
+    """
+    if not authed():
+        return Response('{"error":"unauthorized"}', status=401, mimetype="application/json")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", cid or ""):
+        return Response("not found", status=404, mimetype="text/plain")
+    blob = _storage_client.bucket(GCS_BUCKET).blob("creatives/%s" % cid)
+    if not blob.exists():
+        return Response("not found", status=404, mimetype="text/plain")
+    blob.reload()
+    return Response(blob.download_as_bytes(),
+                    mimetype=blob.content_type or "image/jpeg",
+                    headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.route("/refresh", methods=["POST"])

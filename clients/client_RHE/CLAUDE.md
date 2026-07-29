@@ -49,6 +49,12 @@ yourself adding a revenue metric, you are on the wrong client.
   KPI rail. Same arithmetic, actionable framing; do not revert it to "% drop".
 - **Percent axes use `pctAxis(max)`**, which picks decimals from the range. Rounding to whole
   percent printed "1% 1% 1% 0% 0%" on a 1.2% axis.
+- **The creative gallery has ONE source of numbers — `meta.rows`, not the creative pull.** Every
+  Meta row carries a `cid` (`creative_id` rides on the main pull for free: identical row count and
+  identical spend with and without it), and `fetch_creatives()` pulls only the ad's *text and
+  image* keyed by that id. So the gallery aggregates delivery over whatever period / campaign /
+  ad-name filter is active and can never disagree with the tiles above it. A static side panel
+  fed by its own metrics pull would.
 
 ## Six traps that already bit this client (do not undo these)
 
@@ -109,6 +115,16 @@ yourself adding a revenue metric, you are on the wrong client.
   crawl **returns the pages it already has** on a late failure instead of raising out. There is
   also a small `AC_PAGE_PAUSE` between pages. `job/audit.py` now FAILS if `email.error` is set or
   if a period has sends but zero opens, so this can never pass silently again.
+- **Meta's grey "no preview" tile is a VALID image, so `onerror` never saves you.** When a creative
+  has no real image, Meta returns its external image PROXY —
+  `external-<edge>.xx.fbcdn.net/emg1/…?url=<page>` — which is a link preview of the destination
+  page, not the ad: a near-blank grey square. Because it loads successfully the browser fires no
+  `error` event, the branded-tile fallback never runs, and the client stares at grey boxes.
+  `_is_link_preview()`/`_usable_image()` reject it **at the source** so the card falls back to the
+  headline tile. ⚠️ The first fix for this was "any image whose bytes are shared by 2+ creatives is
+  the placeholder" — **wrong, and it deleted real artwork**: advertisers legitimately reuse one
+  image across ad variants (Honey Tribe had a 1080×1080 with 65k colours shared by two creatives).
+  Duplication is not the signal; the URL is. `tools/_creative_gallery_test.py` guards both halves.
 - **Quiz answers arrive in TWO codings** — the Meta lead form posts `some_experience` while the
   AC dropdown stores `Some experience`. Left alone every quiz chart splits each category in two.
   `_fold()` + `canonical()` in `activecampaign.py` are the ONE normaliser, keyed off the field's

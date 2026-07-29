@@ -42,7 +42,9 @@ jobs:
             services/portal/dash/templates/signup.html \
             services/portal/dash/templates/request_access.html \
             services/portal/dash/templates/admin_atrium.html \
-            clients/client_template/dash/dashboard.html ; do
+            clients/client_template/dash/dashboard.html \
+            clients/client_RHE/dash/dashboard.html \
+            clients/client_honeytribe/dash/dashboard.html ; do
             if [ -f "$f" ]; then
               echo "== validating $f =="
               python tools/_validate_dash_js.py "$f"
@@ -103,3 +105,6 @@ jobs:
       - name: Upwork import parser test (pure; no network/storage/AI)
         working-directory: services/portal/dash
         run: python _upwork_import_localtest.py
+
+      - name: Creative gallery test, every Meta-fed client (no network, no GCS, no API cost)
+        run: python tools/_creative_gallery_test.py
