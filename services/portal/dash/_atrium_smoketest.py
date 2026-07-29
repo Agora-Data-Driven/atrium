@@ -1304,16 +1304,31 @@ def run():
     _check("the story section is its own chunk, titled by its heading",
            any("COMPANYSTORY" in ch["title"] for ch in company_chunks))
 
-    # The regrouped nav (2026-07-29): 6 top-level rows, with the calendar under Campaigns and
-    # Reports under Insights. Assert the sub-tabs sit INSIDE a nav group, not at the top level.
+    # The regrouped nav (2026-07-29): FOUR top-level rows -- Working Together / Company /
+    # Campaigns / Insights -- with every other surface a child. Assert each tab sits in the group
+    # it belongs to, and that the top level really is four rows (one flat link + three groups).
     nav = c.get("/w/%s/company" % CLIENT).get_data(as_text=True)
     nav = nav[nav.index('<nav class="ax-nav"'):nav.index("</nav>")]
+    _check("the nav has exactly 4 top-level rows (Company + 3 groups)",
+           nav.count("ax-nav-group") == 3 and nav.count('class="ax-nav-ghead"') == 3
+           and nav.count('data-tab="company"') == 1)
+    _check("Dashboard, Communications and Tasks moved under Working Together",
+           nav.index("Working Together") < nav.index('data-tab="dashboard"')
+           < nav.index('data-tab="conversations"') < nav.index('data-tab="progress"')
+           < nav.index('data-tab="company"'))
+    _check("Working Together is FIRST -- it holds the landing tab",
+           nav.index("Working Together") < nav.index("Campaigns")
+           and nav.index("Working Together") < nav.index("Insights"))
     _check("the Content Calendar moved under the Campaigns group",
-           nav.index('data-tab="calendar"') > nav.index("Campaigns")
-           and nav.index('data-tab="calendar"') < nav.index("Insights"))
+           nav.index("Campaigns") < nav.index('data-tab="calendar"') < nav.index("Insights"))
     _check("Reports moved under the Insights group",
            nav.index('data-tab="reports"') > nav.index("Insights"))
-    _check("Company is a top-level nav entry", 'data-tab="company"' in nav)
+    # The landing tab lives inside a group now, so its group MUST render already open -- otherwise
+    # a client arriving at /w/<c>/ sees a rail with no active item anywhere on it.
+    land = c.get("/w/%s/" % CLIENT).get_data(as_text=True)
+    land = land[land.index('<nav class="ax-nav"'):land.index("</nav>")]
+    _check("landing on /w/<c>/ renders the Working Together group already open",
+           land.index("ax-nav-group is-open") < land.index("Working Together"))
 
     print("[smoketest] PASS")
     return 0
