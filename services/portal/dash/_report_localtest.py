@@ -8,7 +8,9 @@ the client-visible deck serve with lazy re-render, gating).
 Run: python _report_localtest.py        # prints PASS / FAIL, exits 0 / 1
 """
 
+import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -128,60 +130,153 @@ def run():
                {"id": "i1", "title": "Fuel prices drop", "body": "...", "date": "2026-07-02"}],
                "media_buying": []}}))
 
-    # --- report_ai: gather -> generate (model + no-model draft) -> revise -> render --------------
+    # --- report_ai: facts -> gather -> generate (model + no-model deck) -> revise -> render ------
     ws = workspace.load_workspace(CLIENT)
     ws["tasks"] = [task]
+    # A brand guide with hex codes in it: the deck palette is parsed straight out of this text.
+    ws.setdefault("company", {})["brand"] = {"colors": "Deep pine #21582B on cream #F7F5E7"}
+
+    facts = report_ai.build_facts(_dash_rd())
+    _check("build_facts derives the whole numeric pack from the raw export",
+           {"totals", "ads", "age", "region", "email"} <= set(facts)
+           and facts["totals"]["kind"] == "tiles" and facts["ads"]["kind"] == "table")
+    _check("computed totals match the rows (spend $350, revenue $2,700)",
+           "$350" in facts["totals"]["summary"] and "$2,700" in facts["totals"]["summary"])
+    _check("weekly series carry >= 2 points and mark the best one",
+           len(facts["weekly_roas"]["points"]) >= 2
+           and any(p["best"] for p in facts["weekly_roas"]["points"]))
+    _check("a ranked table stamps its own best/worst row (the renderer never decides tone)",
+           {r.get("_tone") for r in facts["ads"]["rows"]} >= {"good", "bad"})
+    _check("too short a flight yields NO before/after fact rather than a fake one",
+           "recent_vs_prior" not in facts)
+    _check("the fact catalogue names every key for the model",
+           any(line.startswith("ads [table]") for line in report_ai.facts_catalogue(facts)))
+
     inputs = report_ai.gather(ws, _archives(), _dash_rd())
-    _check("gather assembles every source block",
+    _check("gather assembles every source block, facts included",
            inputs["business"] and inputs["media"] and inputs["voices"] and inputs["dashboard"]
-           and inputs["blocked"])
+           and inputs["blocked"] and inputs["facts"]["totals"] and inputs["period"])
     _check("voices carry the creator's summary",
            any("Fuel Your Wander" in v and "scenery" in v for v in inputs["voices"]))
+    _check("the material handed to the model leads with the fact pack",
+           "FACT PACK" in report_ai._material_text("Riverdance", "2026-07-29", inputs))
 
-    draft = report_ai.draft_payload(inputs)
-    _check("the no-AI draft fills the landscape + asks honestly and invents no analysis",
-           draft["landscape"]["business"] and draft["asks"]["blocked"]
-           and draft["why"] == [] and draft["recommendations"] == [])
+    draft = report_ai.draft_payload(inputs, client_name="Riverdance", when="2026-07-29")
+    draft_blocks = [b for s in draft["slides"] for b in s["blocks"]]
+    _check("the no-AI deck is a REAL deck: cover, fact-backed visuals, honest asks",
+           draft["slides"][0]["kind"] == "cover"
+           and any(b["type"] in ("chart", "table", "kpis") and b.get("fact") for b in draft_blocks)
+           and draft["slides"][-1]["title"] == "What We Need From You")
+    _check("the no-AI deck invents no analysis (no actions, no recommendations)",
+           not any(b["type"] == "action" for b in draft_blocks))
 
-    model_payload = ('{"landscape": {"business": [{"title": "B1", "body": "b"}], "media": [], '
-                     '"voices": [{"title": "V1", "body": "v"}]}, '
-                     '"what_happened": {"summary": "Strong month.", '
-                     '"numbers": [{"label": "Spend", "value": "$350", "note": "+10%"}], '
-                     '"whats_working": ["Video creative"]}, '
-                     '"why": ["Seasonality"], "recommendations": ["Shift budget to video"], '
-                     '"asks": {"needed": ["Approve August plan"], "blocked": []}}')
+    model_payload = json.dumps({
+        "meta": {"headline": "We doubled daily revenue", "period": "1 - 8 Jul 2026",
+                 "sources": "Meta Ads via Windsor.ai"},
+        "slides": [
+            {"kind": "cover", "title": "We doubled daily revenue in two weeks.",
+             "subtitle": "The destination change did it.",
+             "blocks": [{"type": "chips", "items": [{"label": "Window", "value": "Jul 2026"}]}]},
+            {"kind": "content", "eyebrow": "The result", "title": "ROAS reached 7.71x",
+             "tone": "good", "source": "Meta Ads via Windsor.ai",
+             "blocks": [{"type": "text", "body": "Every dollar returned $7.71."},
+                        {"type": "kpis", "fact": "totals"},
+                        {"type": "chart", "fact": "weekly_roas", "caption": "By week"},
+                        {"type": "chart", "fact": "invented_key"},
+                        {"type": "table", "fact": "weekly_roas"},
+                        {"type": "wormhole", "body": "nope"}]},
+            {"kind": "section", "eyebrow": "Part two", "title": "Where the next gains are."},
+            {"kind": "content", "title": "We overpay for the youngest band",
+             "blocks": [{"type": "table", "fact": "age"},
+                        {"type": "action", "body": "exclude 18-24, live this week"}]},
+            {"kind": "closing", "title": "What we need from you",
+             "blocks": [{"type": "bullets", "items": ["Approve the August plan"]}]},
+        ]})
     payload, err = report_ai.generate("Riverdance", "2026-07-29", inputs,
                                       lambda s, u: (model_payload, ""))
-    _check("generate parses the model payload", err == "" and payload["why"] == ["Seasonality"]
-           and payload["what_happened"]["numbers"][0]["value"] == "$350")
+    _check("generate parses the model deck", err == "" and len(payload["slides"]) == 5
+           and payload["slides"][0]["kind"] == "cover")
+    result_blocks = payload["slides"][1]["blocks"]
+    _check("a block referencing an UNKNOWN fact key is dropped, not rendered empty",
+           not any(b.get("fact") == "invented_key" for b in result_blocks))
+    _check("a fact used by the WRONG block type is dropped (a series is not a table)",
+           not any(b["type"] == "table" for b in result_blocks))
+    _check("an unknown block type is dropped",
+           not any(b["type"] == "wormhole" for b in result_blocks))
+    _check("the computed facts ride inside the payload (so a re-render is identical)",
+           payload["facts"]["totals"]["summary"] == facts["totals"]["summary"])
+
     payload_no_ai, err2 = report_ai.generate("Riverdance", "2026-07-29", inputs, None)
-    _check("generate without a model returns the draft + the reason",
-           err2 == "no AI model configured" and payload_no_ai["landscape"]["business"])
+    _check("generate without a model returns the deterministic deck + the reason",
+           err2 == "no AI model configured" and payload_no_ai["slides"])
     _bad, err3 = report_ai.generate("Riverdance", "2026-07-29", inputs,
                                     lambda s, u: ("not json at all", ""))
-    _check("unusable model output degrades to the draft with a reason", "JSON" in err3)
+    _check("unusable model output degrades to the deterministic deck with a reason", "JSON" in err3)
+    _empty, err4 = report_ai.generate("Riverdance", "2026-07-29", inputs,
+                                      lambda s, u: ('{"slides": []}', ""))
+    _check("a model deck with no usable slides degrades too", "slides" in err4)
 
     revised, rerr = report_ai.revise(payload, "add a bullet",
                                      lambda s, u: (model_payload.replace(
-                                         '"Seasonality"', '"Seasonality", "New bullet"'), ""))
-    _check("revise applies the instruction", rerr == "" and "New bullet" in revised["why"])
+                                         "Approve the August plan",
+                                         "Approve the August plan\", \"Send the Q4 dates"), ""))
+    _check("revise applies the instruction",
+           rerr == "" and "Send the Q4 dates" in revised["slides"][-1]["blocks"][0]["items"])
+    _check("revise never loses the fact pack",
+           revised["facts"]["totals"]["summary"] == facts["totals"]["summary"])
     same, rerr2 = report_ai.revise(payload, "x", lambda s, u: ("", "model down"))
     _check("a failing revise returns the ORIGINAL payload + the reason",
            rerr2 == "model down" and same == payload)
 
+    # --- Brand kit: the client's crest + a palette parsed from their own brand guide -------------
+    kit = report_ai.brand_kit(ws)
+    _check("brand_kit takes the client crest and the brand guide's colours",
+           kit["client_logo"].startswith("<svg") and kit["palette"]["accent"] == "#21582B")
+    _check("a blank brand guide falls back to the AGORA house palette",
+           report_ai.brand_kit({})["palette"] == report_ai.HOUSE_PALETTE)
+    _check("a logo that is not our own self-contained markup is refused",
+           report_ai.brand_kit({"brand": {"client_logo": "<img src=\"http://evil/x.png\">"}})
+           ["client_logo"] == "")
+
     html_doc = report_ai.render_html("Riverdance", payload, "2026-07-29",
-                                     title="July <script>alert(1)</script> Review")
-    _check("the deck renders every agreed slide",
-           "July 29, 2026" in html_doc and "The Landscape" in html_doc
-           and report_ai.VOICES_LABEL in html_doc and "What Happened" in html_doc
-           and "What's Working" in html_doc and "Why It Happened" in html_doc
-           and "What We Should Do" in html_doc and "What We Need From You" in html_doc)
+                                     title="July <script>alert(1)</script> Review", brand=kit)
+    _check("the deck renders one slide per payload slide, numbered",
+           html_doc.count("<section class=\"slide") == 5 and "01 / 05" in html_doc
+           and "05 / 05" in html_doc)
+    _check("the model's claims and the computed numbers both reach the deck",
+           "We doubled daily revenue in two weeks." in html_doc and "7.71x" in html_doc
+           and "Where the next gains are." in html_doc and "We'll action" in html_doc)
+    _check("the deck wears the client's crest and palette",
+           "#21582B" in html_doc and kit["client_logo"][:40] in html_doc)
     _check("deck HTML is escaped", "<script>alert(1)</script>" not in html_doc)
-    _check("the deck is self-contained (no external assets, no JS)",
-           "http" not in html_doc.split("</title>")[1] and "<script" not in html_doc)
+    _check("the deck is self-contained (no remote assets)",
+           not re.search(r"(?:src|href)=\"https?://|url\(\s*['\"]?https?://", html_doc))
+
+    legacy = {"landscape": {"business": [{"title": "B1", "body": "b"}], "media": [],
+                            "voices": [{"title": "V1", "body": "v"}]},
+              "what_happened": {"summary": "Strong month.",
+                                "numbers": [{"label": "Spend", "value": "$350"}],
+                                "whats_working": ["Video creative"]},
+              "why": ["Seasonality"], "recommendations": ["Shift budget to video"],
+              "asks": {"needed": ["Approve August plan"], "blocked": []}}
+    legacy_doc = report_ai.render_html("Riverdance", legacy, "2026-07-29")
+    _check("a deck stored under the OLD payload shape still renders",
+           "The Landscape" in legacy_doc and "What Happened" in legacy_doc
+           and "$350" in legacy_doc and "What We Need From You" in legacy_doc)
+
     empty_doc = report_ai.render_html("Riverdance", {}, "2026-07-01")
-    _check("an empty payload still renders cover + an honest asks slide",
-           "July 1, 2026" in empty_doc and "Nothing is waiting on you" in empty_doc)
+    _check("an empty payload still opens on an honest cover",
+           "July 1, 2026" in empty_doc and "Nothing to report yet" in empty_doc)
+
+    # The deck ships one inline script (the slide navigator). It must clear the SAME esprima gate
+    # every template in this repo clears -- no `?.`, no `??` (CI installs esprima; skip locally).
+    try:
+        import esprima
+        script = html_doc.split("<script>")[1].split("</script>")[0]
+        esprima.parseScript(script)
+        _check("the deck's navigator parses under the esprima 4 gate", True)
+    except ImportError:
+        print("  [SKIP] esprima not installed - navigator syntax not checked here")
 
     # --- workspace report helpers ----------------------------------------------------------------
     entry = workspace.add_report(CLIENT, "July review", "2026-07-29",

@@ -2340,6 +2340,198 @@ def add_meeting_summary(client, title, summary, attendees="", date=None, meeting
                              audience="client", origin="manual", item_id=meeting_id)
 
 
+# --- The Company profile: who the client actually is (team-written, client-read) ----------------
+# ONE key, ws["company"], holding everything the agency knows about the client AS A BUSINESS -- the
+# facts, the story, the brand, the catalogue. It is the workspace's answer to "who are we working
+# for?", and it is what grounds the Assistant, the report decks and the research brain in the
+# client's own reality instead of the agency's guesses.
+#
+# Shape (every part optional; a blank profile is a legal, fully-shaped profile):
+#   {"profile":  {one_liner, industry, founded, hq, website, size, customers},   # at a glance
+#    "brand":    {tagline, voice, tone, personality, colors, fonts, dos, donts, assets_url},
+#    "sections": [{id, heading, body}],       # the story: About / History / Mission / Positioning
+#    "products": [{id, name, summary, price, audience, url, status}]}            # what they sell
+#
+# `sections` and `products` are ORDERED lists the team arranges by hand (move_company_item), not
+# date-sorted feeds -- a company story reads top to bottom, so "newest first" would be wrong here.
+# Same no-new-infra posture as Market Intelligence below: one more key in the same workspace JSON.
+COMPANY_PROFILE_FIELDS = ("one_liner", "industry", "founded", "hq", "website", "size", "customers")
+COMPANY_BRAND_FIELDS = ("tagline", "voice", "tone", "personality", "colors", "fonts",
+                        "dos", "donts", "assets_url")
+# The two ordered lists, each with its own field set. `kind` is the list name in every helper below.
+COMPANY_LISTS = {
+    "sections": ("heading", "body"),
+    "products": ("name", "summary", "price", "audience", "url", "status"),
+}
+_COMPANY_ID_PREFIX = {"sections": "cs", "products": "cp"}
+
+
+def _ensure_company(ws):
+    """The workspace's company profile, normalized IN PLACE and returned (never None).
+
+    Guarantees every block exists with every known field, so the template and the Assistant can
+    read `company.brand.voice` without a `default` filter and an older workspace (written before
+    this feature) upgrades silently on the next read."""
+    comp = ws.get("company")
+    if not isinstance(comp, dict):
+        comp = {}
+    profile = comp.get("profile") if isinstance(comp.get("profile"), dict) else {}
+    comp["profile"] = {f: str(profile.get(f) or "") for f in COMPANY_PROFILE_FIELDS}
+    brand = comp.get("brand") if isinstance(comp.get("brand"), dict) else {}
+    comp["brand"] = {f: str(brand.get(f) or "") for f in COMPANY_BRAND_FIELDS}
+    for kind, fields in COMPANY_LISTS.items():
+        items = comp.get(kind)
+        clean = []
+        for it in (items if isinstance(items, list) else []):
+            if not isinstance(it, dict):
+                continue
+            row = {"id": it.get("id") or _new_id(_COMPANY_ID_PREFIX[kind])}
+            for f in fields:
+                row[f] = str(it.get(f) or "")
+            clean.append(row)
+        comp[kind] = clean
+    ws["company"] = comp
+    return comp
+
+
+def company_profile(ws):
+    """The fully-shaped company profile from an already-loaded workspace (a copy, never None).
+
+    Read-side helper for the template, the Assistant index and the report generator. Normalizes in
+    memory only -- the shape persists on the next mutation, exactly like _ensure_communications."""
+    comp = _ensure_company(dict(ws or {}))
+    return {"profile": dict(comp["profile"]), "brand": dict(comp["brand"]),
+            "sections": [dict(x) for x in comp["sections"]],
+            "products": [dict(x) for x in comp["products"]]}
+
+
+def company_is_empty(ws):
+    """True when nothing has been recorded about the company yet (drives the tab's empty state)."""
+    comp = company_profile(ws)
+    return not (any(comp["profile"].values()) or any(comp["brand"].values())
+                or comp["sections"] or comp["products"])
+
+
+def set_company_profile(client, fields):
+    """Patch the at-a-glance facts. Only fields PRESENT in `fields` are written (a partial form post
+    can never blank the rest). Returns the profile block."""
+    def fn(ws):
+        comp = _ensure_company(ws)
+        for f in COMPANY_PROFILE_FIELDS:
+            if f in (fields or {}):
+                comp["profile"][f] = str(fields[f] or "")
+        return dict(comp["profile"])
+    return _mutate(client, fn)
+
+
+def set_company_brand(client, fields):
+    """Patch the branding block (same present-fields-only rule). Returns the brand block."""
+    def fn(ws):
+        comp = _ensure_company(ws)
+        for f in COMPANY_BRAND_FIELDS:
+            if f in (fields or {}):
+                comp["brand"][f] = str(fields[f] or "")
+        return dict(comp["brand"])
+    return _mutate(client, fn)
+
+
+def _company_kind(kind):
+    """Canonical company list name, or None when `kind` is not one of the two lists."""
+    return kind if kind in COMPANY_LISTS else None
+
+
+def company_items(ws, kind):
+    """One company list ('sections' | 'products') from a loaded workspace. Raises KeyError on a bad
+    kind, so a typo fails loudly instead of silently returning an empty list."""
+    if _company_kind(kind) is None:
+        raise KeyError("no company list '%s'" % kind)
+    return [dict(x) for x in _ensure_company(dict(ws or {}))[kind]]
+
+
+def add_company_item(client, kind, entry, item_id=None):
+    """Append a story section or a product to its list (APPEND, not insert -- these are ordered by
+    hand, so a new item lands at the end where the author left off). Returns the item."""
+    if _company_kind(kind) is None:
+        raise KeyError("no company list '%s'" % kind)
+
+    def fn(ws):
+        comp = _ensure_company(ws)
+        item = {"id": item_id or _new_id(_COMPANY_ID_PREFIX[kind])}
+        for f in COMPANY_LISTS[kind]:
+            item[f] = str((entry or {}).get(f, "") or "")
+        comp[kind].append(item)
+        return item
+    return _mutate(client, fn)
+
+
+def update_company_item(client, kind, item_id, fields):
+    """Edit one item's fields in place by id. Returns the item, or None when it isn't there."""
+    if _company_kind(kind) is None:
+        raise KeyError("no company list '%s'" % kind)
+
+    def fn(ws):
+        for it in _ensure_company(ws)[kind]:
+            if it.get("id") == item_id:
+                for f in COMPANY_LISTS[kind]:
+                    if f in (fields or {}):
+                        it[f] = str(fields[f] or "")
+                return it
+        return None
+    return _mutate(client, fn)
+
+
+def delete_company_item(client, kind, item_id):
+    """Delete one item by id. Returns (removed_item_or_None, remaining_list) -- the caller needs the
+    removed payload to stash it in the Bin."""
+    if _company_kind(kind) is None:
+        raise KeyError("no company list '%s'" % kind)
+
+    def fn(ws):
+        comp = _ensure_company(ws)
+        removed = next((it for it in comp[kind] if it.get("id") == item_id), None)
+        comp[kind] = [it for it in comp[kind] if it.get("id") != item_id]
+        return removed, list(comp[kind])
+    return _mutate(client, fn)
+
+
+def insert_company_item(client, kind, item, index=None):
+    """Re-insert a soft-deleted item (the Bin's Restore). Appends when `index` is None or out of
+    range; re-mints a missing id. Returns the item."""
+    if _company_kind(kind) is None:
+        raise KeyError("no company list '%s'" % kind)
+
+    def fn(ws):
+        comp = _ensure_company(ws)
+        row = {"id": (item or {}).get("id") or _new_id(_COMPANY_ID_PREFIX[kind])}
+        for f in COMPANY_LISTS[kind]:
+            row[f] = str((item or {}).get(f, "") or "")
+        at = len(comp[kind]) if index is None else max(0, min(int(index), len(comp[kind])))
+        comp[kind].insert(at, row)
+        return row
+    return _mutate(client, fn)
+
+
+def move_company_item(client, kind, item_id, delta):
+    """Move one item up (-1) or down (+1) in its list. Returns the reordered list.
+
+    Ordering is the whole point of these lists (a story reads top to bottom), so this is a
+    first-class writer, not a UI convenience. A move past either end is a no-op, never an error."""
+    if _company_kind(kind) is None:
+        raise KeyError("no company list '%s'" % kind)
+
+    def fn(ws):
+        comp = _ensure_company(ws)
+        items = comp[kind]
+        idx = next((i for i, it in enumerate(items) if it.get("id") == item_id), None)
+        if idx is None:
+            return list(items)
+        target = idx + (1 if int(delta or 0) > 0 else -1)
+        if 0 <= target < len(items):
+            items[idx], items[target] = items[target], items[idx]
+        return list(items)
+    return _mutate(client, fn)
+
+
 # --- Market Intelligence: the weekly briefing (team-written, client-read) -----------------------
 # A team-curated briefing the client reads, split into two sections that each hold a list of
 # entries (newest first). One key, ws["intel"] = {"business_research": [...], "media_buying": [...]}.

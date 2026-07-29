@@ -206,7 +206,8 @@ auto-refresh (see those bullets below). Product name is one constant:
     for them to show up in Sentinel's picker. See `sentinel/backend/app/services/atrium_watcher.py`
     (the caller) and `atrium_bridge.py` (the shared signing transport, also used by `atrium_tasks.py`).
 - **Assistant is a TEAM-ONLY tab (RAG chat over the WHOLE workspace):** grounded Q&A across every
-  source the portal holds for a client — campaigns + content (incl. comments), workspace metrics,
+  source the portal holds for a client — **the Company profile** (who they are, their brand guide,
+  their products), campaigns + content (incl. comments), workspace metrics,
   Market Intelligence, the calendar, client conversations, website health, every Watcher
   transcript, and (opt-in) the client's dashboard `<c>.json` KPI export. `dash/assistant_ai.py`:
   `build_chunks` flattens the sources, `build_index` stores a pure-Python BM25 index as ONE private
@@ -334,7 +335,11 @@ auto-refresh (see those bullets below). Product name is one constant:
   /w/<c>/mail/thread/<key>` route render it (the modal role-tints chat messages, which carry no
   `to`); the timeline gets an `upwork`-channel card whose summary is the Mail brain's recap
   (`mailroom.summarize_thread` via `_mail_model`, client/internal voice by audience — falls back to
-  a plain `upwork_import.fallback_summary` when no model is configured). Deleting the card also
+  a plain `upwork_import.fallback_summary` when no model is configured). The card is a LIVING
+  record: op `update_upwork` (the reader's "＋ Add newer messages") folds a re-paste in
+  de-duplicated, stamps the card with the UPDATE date (its date means "last updated") and re-writes
+  the recap; bare "Today"/"Yesterday" day separators and Upwork's meeting/Zoom/milestone event
+  lines parse correctly. Deleting the card also
   removes its thread object (no orphan). Test: `dash/_upwork_import_localtest.py` (in CI).
 - **Mail is FOLDED INTO Communications (team-only machinery; client email archive + AI digest,
   `mailroom.py`):** there is no standalone Mail tab anymore -- its contacts editor, Sync/Refresh
@@ -509,24 +514,46 @@ auto-refresh (see those bullets below). Product name is one constant:
     Off-cloud tests: `dash/_intel_feed_localtest.py` + `dash/_intel_ai_localtest.py` (inject fetchers).
 - **Reports is a CLIENT-VISIBLE, TEAM-GENERATED tab (every meeting deck, date-first; 2026-07-29):**
   a `reports` nav tab (between Communications and Tasks) listing every presentation as a card whose
-  face is the presentation DATE (newest first); clicking opens a **self-contained HTML deck**
-  (scroll-snap slides, zero JS, no external assets — HTML over Google Slides on purpose: no new
-  infra and it matches the Riverdance deck pattern) served ONLY through the authed
+  face is the presentation DATE (newest first); clicking opens a **self-contained HTML deck** — a
+  fixed **1280x720 stage** scaled to the window, one slide at a time, arrow keys / click / dots to
+  move and `p` to print to PDF; no external assets, and its ONE inline script (the slide navigator)
+  is esprima-4.x-safe like every other script here. Served ONLY through the authed
   `GET /w/<c>/report/<id>` (no-store; a missing object re-renders lazily from the stored payload,
-  so a Trash restore never 404s). Fixed slide flow: Cover (the date) → **The Landscape** (Business
-  Research | Media Buying News | **Market Voices** — what watched competitors/creators are talking
-  about) → **What Happened** (stat tiles + narrative, with a **What's Working** subsection) →
-  **Why It Happened** → **What We Should Do** → **What We Need From You** (client asks + blocked
-  work). `report_ai.py` owns it: `gather` pulls from the SAME distilled layer the Assistant reads
-  (digest sections, intel entries, watcher summaries, board asks), `generate` has the configured
-  model write the slide payload as JSON (no model ⇒ an honest deterministic draft — never blocks),
-  `revise` applies an edit instruction (the Assistant's edit-report action), `render_html` renders
-  any payload. State: `ws["reports"]` index entries (payload included, so decks re-render and the
-  Assistant indexes what we told the client) + per-deck HTML objects
-  `workspace/reports/<c>/<id>.html` (`workspace.add/update/delete/insert_report`,
-  `read/write_report_html`). Team ops `POST /w/<c>/admin/report` (op generate|rename|delete —
-  delete soft-deletes to the Bin, kind `report`); clients read only. Off-cloud test:
-  `dash/_report_localtest.py` (in CI, also covers `digest.py`).
+  so a Trash restore never 404s).
+  - **The payload is slides of BLOCKS (rebuilt 2026-07-29 — the old fixed six-slide shape could
+    only hold `{title, body}` bullets, so every chart, table and before/after collapsed into
+    prose):** `{meta, facts, slides:[{kind, eyebrow, title, subtitle, tone, source, blocks}]}`.
+    `kind` = cover | section | content | closing; `blocks` = text | bullets | cards | callout |
+    **action** ("We'll action: …") | chips | kpis | chart | table | compare.
+  - 🔴 **A number in a visual is never model-written.** `build_facts(dash_data)` derives the whole
+    numeric pack in plain Python from BOTH dashboard shapes — headline tiles (primary + a secondary
+    strip), weekly series (revenue / ROAS / order value / spend / CTR), a last-14-days-vs-prior-14
+    **compare**, and ranked tables for ads, campaigns, age, gender, region and ActiveCampaign email.
+    A `chart`/`table`/`compare`/`kpis` block carries only a **fact KEY**; the renderer draws from
+    the stored fact, and `normalize_payload` DROPS a block whose key is unknown or whose kind does
+    not match (an invented key renders nothing, never a wrong number). The facts ride inside the
+    payload, so the lazy re-render is identical forever. Table tone (best/worst) is stamped in the
+    fact, and every tone also carries text, so the deck reads in grayscale.
+  - **It wears the CLIENT's identity:** `brand_kit(ws)` takes their crest from
+    `ws["brand"]["client_logo"]` and parses the deck palette out of the Company tab's brand guide
+    (`company.brand.colors` — the hex codes in that free text, first = accent; blank = the AGORA
+    house palette). Logo markup is inlined verbatim, so `_mark` gates it to our own self-contained
+    `<svg>`/`data:` `<img>`.
+  - `report_ai.py` owns all of it: `gather` pulls the fact pack + the SAME distilled layer the
+    Assistant reads (digest sections, company brief, intel entries, watcher summaries, board asks),
+    `generate` has the configured model write the slides (it is told to make every title a CLAIM,
+    one opportunity per slide, each with its own `action`), `revise` applies an edit instruction
+    (the Assistant's edit-report action; the fact pack is stripped from what the model sees and
+    re-attached, so an edit can never lose the numbers), `render_html(…, brand=)` renders any
+    payload. **No model ⇒ a real deterministic deck** (the facts alone carry the numeric story),
+    with no invented analysis. A deck stored under the pre-rebuild payload still renders
+    (`_legacy_slides`). State: `ws["reports"]` index entries (payload included, so decks re-render
+    and the Assistant indexes what we told the client) + per-deck HTML objects
+    `workspace/reports/<c>/<id>.html` (`workspace.add/update/delete/insert_report`,
+    `read/write_report_html`). Team ops `POST /w/<c>/admin/report` (op generate|rename|delete —
+    delete soft-deletes to the Bin, kind `report`); clients read only. Off-cloud test:
+    `dash/_report_localtest.py` (in CI, also covers `digest.py`; it parses the deck's navigator
+    with esprima too).
 - **Task tracker = the internal Delivery board + the client Tasks tab, ONE data source**
   (spec: `TASK_TRACKER_INTEGRATION.md`, extended 2026-07-14 with the two-level breakdown +
   dates/charge): `ws["tasks"]` per client — a task ("service") is a deliverable travelling
@@ -612,18 +639,54 @@ auto-refresh (see those bullets below). Product name is one constant:
   Sentinel user; `set_task_maintasks` is the array-shaped breakdown setter Sentinel's drawer needs,
   and it re-mints foreign ids + preserves the internal `dod` the other side can't see).
   Fail-CLOSED like every internal route. Covered in `_atrium_smoketest.py` + `_workspace_localtest.py`.
-- **Nav labels vs tab keys:** the sidebar was regrouped 2026-07-13 — the `leadgen` tab is LABELED
-  **"Paid Media"** and the `progress` tab is LABELED **"Tasks"** (2026-07-29; the keys `leadgen` /
-  `progress` stay in every route/data shape, never rename them), Paid Media +
-  Organic Content sit under an expandable **Campaigns** parent (head badge = combined awaiting
-  count), and Market Intelligence + the team-only Website Health/Watcher sit under an **Insights**
-  parent. Group heads are expand/collapse buttons only (auto-open when a child tab is active); the
-  collapsed icon rail and the phone strip flatten the groups away. The **Assistant nav tab was
-  removed** — the floating bubble (FAB) is the chat surface; the `/w/<c>/assistant` route + pane
-  still exist (reachable by URL, keeps the date-range + reindex controls).
+- **Company is a CLIENT-VISIBLE, TEAM-WRITTEN tab (who the client actually is; 2026-07-29):** ONE
+  workspace key `ws["company"]` holding the agency's answer to "who are we working for?" — the
+  **profile** (at-a-glance facts: `one_liner`/`industry`/`founded`/`hq`/`website`/`size`/`customers`),
+  the **brand** guide (`tagline`/`voice`/`tone`/`personality`/`colors`/`fonts`/`dos`/`donts`/
+  `assets_url`), an ORDERED **`sections[]`** story (`{id,heading,body}` — About / History / Mission /
+  Positioning) and an ORDERED **`products[]`** catalogue (`{id,name,summary,price,audience,url,
+  status}`). The two lists are **hand-ordered, not date-sorted** (a company story reads top to
+  bottom), so `add_company_item` APPENDS and `workspace.move_company_item` is a first-class writer.
+  `workspace._ensure_company` normalizes on every read, so an older workspace upgrades silently and
+  the template never needs a `default` filter (`company_profile` is the shaped read helper,
+  `company_is_empty` drives the empty state). Same posture as Market Intelligence: the tab and every
+  field are **client-visible in full** (it is the client's OWN company); only the EDIT affordances
+  and the route are team-gated. Route `POST /w/<c>/admin/company` (`op`
+  profile|brand|add|edit|delete|move|**draft**, `kind` sections|products, gated `is_superadmin()`);
+  `profile`/`brand` patch **only the fields the form carried**, so a partial post can never blank the
+  rest, and a delete **soft-deletes to the Bin** (kinds `company_section`/`company_product`,
+  restored via `insert_company_item` — a story section is real written work).
+  **`op=draft` = "Draft with AI"** (`intel_ai.draft_company`, mirrors intel's `suggest`): the model
+  researches the company — grounded on a live Google lookup when the model is Gemini — and returns
+  drafts that the panel writes INTO the on-screen fields, **saving nothing**; the team reviews and
+  hits Save per block. A field it cannot establish comes back empty ON PURPOSE (a plausible guess is
+  a lie the team would act on).
+  🔴 **This tab is what the AI knows the client BY.** `digest.company_sections` derives it into
+  titled chunks (facts / brand / each story section / the catalogue) consumed by BOTH the Assistant
+  index (kind `company`, `INDEX_VERSION` 5) and `report_ai.gather`, so "what the AI knows" and "what
+  we present" stay in agreement. The chunks are deliberately UNDATED — a date-range scope on
+  transcripts must never make the client's own identity invisible. The Assistant can also PROPOSE
+  `add_company_section` / `add_company_product` / `set_company_facts` (approval-gated like every
+  other action). Tests: `_workspace_localtest.py` (writers, patch semantics, ordering, Bin round
+  trip) + `_atrium_smoketest.py` (routes, the client no-leak render, indexing, the nav grouping).
+- **Nav labels vs tab keys:** the sidebar was regrouped 2026-07-13 and again **2026-07-29** — the
+  `leadgen` tab is LABELED **"Paid Media"** and the `progress` tab is LABELED **"Tasks"** (the keys
+  `leadgen` / `progress` stay in every route/data shape, never rename them). The top level is now
+  **six** rows, organised by the question each answers: **Dashboard** (how are we doing) ·
+  **Company** (who are we working for) · **Campaigns** ▸ Paid Media / Organic Content /
+  **Content Calendar** (what is going out; head badge = combined awaiting count) · **Insights** ▸
+  Market Intelligence / **Reports** / the team-only Website Health + Watcher (what have we learned) ·
+  **Communications** · **Tasks**. The 2026-07-29 moves: the Content Calendar joined Campaigns (it IS
+  the campaign content plotted by date — a dated content piece literally mirrors into it) and
+  Reports joined Insights (a deck is the synthesis of what that group holds), taking the top level
+  from 7 rows to 6 while making both groups worth opening. Group heads are expand/collapse buttons
+  only (auto-open when a child tab is active); the collapsed icon rail and the phone strip flatten
+  the groups away. The **Assistant nav tab was removed** — the floating bubble (FAB) is the chat
+  surface; the `/w/<c>/assistant` route + pane still exist (reachable by URL, keeps the date-range +
+  reindex controls).
 - **Routes (all behind existing session auth):** client `GET /w/<c>/` + `/w/<c>/<tab>` (overview,
-  dashboard, leadgen, organic, calendar, conversations, intel, reports, settings) gated
-  `authed()`+`can_open(<c>)`;
+  dashboard, company, leadgen, organic, calendar, conversations, intel, reports, progress, settings)
+  gated `authed()`+`can_open(<c>)`;
   client POSTs `/w/<c>/{approve,request-changes,save-note,comment,send-message,save-notify,logo}` +
   creative GET above; team-only POSTs `/w/<c>/resolve-comment` + `/w/<c>/admin/*` gated `is_superadmin()`. The team console
   (`GET /admin/atrium`, gated `is_superadmin()`) is a **focused console** (the old "Your Agora suite"

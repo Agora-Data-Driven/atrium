@@ -987,8 +987,8 @@ def feedback():
 # SAME private bucket as the registry (per-client workspace/<c>.json via workspace.py). No new
 # service, bucket, SA, IAM, or domain. Client-facing routes live under /w/<c>/; team management
 # extends the operator console under /admin/atrium/.
-ATRIUM_TABS = {"overview", "dashboard", "leadgen", "organic", "calendar", "conversations",
-               "intel", "reports", "progress", "settings"}
+ATRIUM_TABS = {"overview", "dashboard", "company", "leadgen", "organic", "calendar",
+               "conversations", "intel", "reports", "progress", "settings"}
 # Team-only tabs: rendered ONLY for admins/super-admins (is_superadmin), never shown to clients. The
 # Website Health tab monitors the client's live site + the marketing tags installed on it; the
 # Watcher tab archives every video transcript from watched YouTube channels; the Assistant tab is
@@ -1147,6 +1147,11 @@ def atrium(client, tab):
         # Progress tab: the client-safe task columns (server-side filtered -- internal fields and
         # client_facing:false tasks never reach this render; see _progress_tasks).
         progress_cols=_progress_tasks(ws),
+        # Company tab: who the client is (facts / brand guide / story / products). Fully shaped by
+        # workspace.company_profile, so the template never needs a `default` filter. Client-visible
+        # in full -- it is the client's OWN company; only the editing affordances are team-gated.
+        company=workspace.company_profile(ws),
+        company_empty=workspace.company_is_empty(ws),
         favicon=brand.FAVICON_DATA_URI,
     )
 
@@ -2846,15 +2851,42 @@ def atrium_admin_communication(client):
         thread["messages"] = merged
         # Re-tag roles / re-order / recompute participants + subject over the merged set.
         upwork_import.normalize_chat_thread(thread, agora_names=agora_names)
+        # New messages folded in -> re-write the recap over the WHOLE conversation (the card is a
+        # living record, so its summary must not stay frozen at import time). On any AI failure the
+        # existing summary is kept -- never downgraded to the plain fallback.
+        new_summary = ""
+        if added:
+            try:
+                import mailroom
+                model = mailroom._mail_model(ws)
+                internal, client_summary, err = mailroom.summarize_thread(
+                    ws.get("display_name") or client, thread, model)
+                if not err:
+                    new_summary = (client_summary
+                                   if item.get("audience") == "client" and client_summary
+                                   else internal)
+            except Exception:
+                new_summary = ""
+            if not new_summary and not (item.get("summary") or "").strip():
+                new_summary = upwork_import.fallback_summary(
+                    {"messages": merged, "participants": thread.get("participants") or []})
+        if new_summary:
+            thread["summary"] = new_summary
         workspace.write_mail_thread(client, thread_key, thread)
-        latest = thread.get("last_date", "") or ""
         client_parts = [p for p in (thread.get("participants") or [])
                         if not upwork_import._is_agora(p, upwork_import._norm_names(agora_names))]
-        workspace.update_communication(client, item.get("id"), {
+        fields = {
             "title": thread.get("subject", "") or item.get("title", ""),
             "people": ", ".join(client_parts),
-            "date": latest or item.get("date", ""),
-        })
+        }
+        if added:
+            # The card's date is the LAST-UPDATED date (when messages were folded in), not the
+            # first import's date -- and never a parsed message date, which can lag when Upwork's
+            # relative day separators don't carry one.
+            fields["date"] = workspace.now_iso()
+        if new_summary:
+            fields["summary"] = new_summary
+        workspace.update_communication(client, item.get("id"), fields)
         _audit(client, "updated an Upwork conversation",
                "%s (+%d new, %d total)" % (thread.get("subject", ""), added, len(merged)))
         return jsonify(ok=True, added=added, total=len(merged))
@@ -2878,6 +2910,91 @@ def atrium_admin_communication(client):
         workspace.update_communication(client, request.form.get("item_id", "").strip(), fields)
         _audit(client, "edited a communication")
         return jsonify(ok=True)
+    return Response('{"error":"bad_op"}', status=400, mimetype="application/json")
+
+
+@app.route("/w/<client>/admin/company", methods=["POST"])
+def atrium_admin_company(client):
+    """Write the client's Company profile -- who they are, their brand, story and products (team-only).
+
+    The tab itself is CLIENT-VISIBLE (it is the client's own company); only these writes are gated,
+    exactly like Market Intelligence. `op` is one of:
+      * 'profile' | 'brand' -- patch the at-a-glance facts / the brand guide. Only the fields the
+                               form actually carried are written, so a partial post can't blank the
+                               rest (the same rule _task_fields_from_form follows).
+      * 'add' | 'edit' | 'delete' | 'move' -- one item of an ordered list, `kind` sections|products.
+                               A delete soft-deletes to the Bin (kinds company_section /
+                               company_product) -- a story section is real written work.
+      * 'draft'             -- AI-draft the profile from what we know + a live lookup of the
+                               company. Returns the drafts WITHOUT saving; the panel fills the
+                               fields for the admin to review and Save (mirrors intel's 'suggest').
+    """
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    ws = workspace.load_workspace(client)
+    if ws is None:
+        return Response('{"error":"no_workspace"}', status=404, mimetype="application/json")
+    op = request.form.get("op", "").strip()
+
+    if op in ("profile", "brand"):
+        fields = workspace.COMPANY_PROFILE_FIELDS if op == "profile" else workspace.COMPANY_BRAND_FIELDS
+        given = {f: request.form.get(f, "") for f in fields if request.form.get(f) is not None}
+        if op == "profile":
+            workspace.set_company_profile(client, given)
+        else:
+            workspace.set_company_brand(client, given)
+        _audit(client, "updated the company %s" % ("profile" if op == "profile" else "brand guide"))
+        return jsonify(ok=True)
+
+    if op == "draft":
+        try:
+            fields, err = intel_ai.draft_company(
+                ws.get("display_name") or client,
+                _intel_client_context(ws),
+                model=_assistant_model(ws),
+            )
+        except Exception as exc:  # never 500 the workspace; report it on the panel
+            return jsonify(ok=False, message="Drafting failed: %s" % str(exc)[:200]), 200
+        if fields is None:
+            return jsonify(ok=False, message="Couldn't draft the profile: %s" % err), 200
+        _audit(client, "AI-drafted the company profile")
+        return jsonify(ok=True, fields=fields)
+
+    if op in ("add", "edit", "delete", "move"):
+        kind = request.form.get("kind", "").strip()
+        if kind not in workspace.COMPANY_LISTS:
+            return jsonify(ok=False, message="Unknown company list."), 400
+        label = "story section" if kind == "sections" else "product"
+        item_id = request.form.get("item_id", "").strip()
+        if op == "add":
+            entry = {f: request.form.get(f, "") for f in workspace.COMPANY_LISTS[kind]}
+            item = workspace.add_company_item(client, kind, entry)
+            _audit(client, "added a company %s" % label,
+                   item.get("heading") or item.get("name") or "")
+            return jsonify(ok=True, item=item)
+        if op == "edit":
+            given = {f: request.form.get(f, "") for f in workspace.COMPANY_LISTS[kind]
+                     if request.form.get(f) is not None}
+            item = workspace.update_company_item(client, kind, item_id, given)
+            if item is None:
+                return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+            _audit(client, "edited a company %s" % label,
+                   item.get("heading") or item.get("name") or "")
+            return jsonify(ok=True, item=item)
+        if op == "move":
+            items = workspace.move_company_item(client, kind, item_id,
+                                                1 if request.form.get("dir") == "down" else -1)
+            return jsonify(ok=True, order=[it.get("id") for it in items])
+        removed, _rest = workspace.delete_company_item(client, kind, item_id)
+        if removed is None:
+            return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+        name = removed.get("heading") or removed.get("name") or label
+        _trash(client, "company_%s" % ("section" if kind == "sections" else "product"),
+               name, removed)
+        _audit(client, "deleted a company %s" % label, name)
+        return jsonify(ok=True, trash_ttl_days=audit.TRASH_TTL_DAYS)
+
     return Response('{"error":"bad_op"}', status=400, mimetype="application/json")
 
 
@@ -4045,7 +4162,8 @@ def atrium_report(client, report_id):
         import report_ai
         html_doc = report_ai.render_html(ws.get("display_name") or client,
                                          entry.get("payload") or {}, entry.get("date") or "",
-                                         title=entry.get("title") or "")
+                                         title=entry.get("title") or "",
+                                         brand=report_ai.brand_kit(ws))
         workspace.write_report_html(client, report_id, html_doc)
     resp = Response(html_doc, mimetype="text/html")
     resp.headers["Cache-Control"] = "no-store"
@@ -4081,7 +4199,8 @@ def atrium_admin_report(client):
         entry = workspace.add_report(client, title, when, payload=payload,
                                      origin="draft" if gen_err else "ai")
         workspace.write_report_html(client, entry["id"],
-                                    report_ai.render_html(name, payload, when, title=title))
+                                    report_ai.render_html(name, payload, when, title=title,
+                                                          brand=report_ai.brand_kit(ws)))
         _audit(client, "generated a client report", "%s (%s)" % (title, when))
         return jsonify(ok=True, id=entry["id"], title=entry["title"], date=entry["date"],
                        url="/w/%s/report/%s" % (client, entry["id"]),
@@ -4102,7 +4221,8 @@ def atrium_admin_report(client):
         workspace.write_report_html(client, entry["id"],
                                     report_ai.render_html(name, entry.get("payload") or {},
                                                           entry.get("date") or "",
-                                                          title=entry.get("title") or ""))
+                                                          title=entry.get("title") or "",
+                                                          brand=report_ai.brand_kit(ws)))
         _audit(client, "renamed a client report", entry.get("title", ""))
         return jsonify(ok=True, id=entry["id"], title=entry["title"], date=entry["date"])
 
@@ -4334,6 +4454,20 @@ def atrium_mail_thread(client, thread_id):
         if upwork_import.normalize_chat_thread(t, agora_names=agora_names):
             try:
                 workspace.write_mail_thread(client, thread_id, t)
+                # The heal reached the stored thread; mirror it onto the owning timeline card too
+                # (title/people only -- a read never moves the card's date), so an old import's
+                # event-polluted title fixes itself the first time someone opens the thread.
+                ws_heal = workspace.load_workspace(client)
+                for it in workspace.communications_list(ws_heal or {}):
+                    if it.get("thread_key") == thread_id:
+                        parts = [p for p in (t.get("participants") or [])
+                                 if not upwork_import._is_agora(
+                                     p, upwork_import._norm_names(agora_names))]
+                        workspace.update_communication(client, it.get("id"), {
+                            "title": t.get("subject", "") or it.get("title", ""),
+                            "people": ", ".join(parts),
+                        })
+                        break
             except Exception:
                 pass
     return jsonify(ok=True, subject=t.get("subject", ""),
@@ -5619,7 +5753,8 @@ def admin_atrium_restore():
     """Restore a soft-deleted item from the Trash (super-admin only).
 
     Re-inserts the stashed payload via the right workspace/store helper, then removes the Trash entry.
-    Handles content, campaign, calendar event, task, and whole client."""
+    Handles content, campaign, calendar event, task, report, company section/product, and whole
+    client."""
     if not is_superadmin():
         return Response("Forbidden", status=403, mimetype="text/plain")
     entry = audit.trash_get(request.form.get("entry_id", "").strip())
@@ -5641,6 +5776,11 @@ def admin_atrium_restore():
             # The deck HTML object was deleted with the entry; the serve route re-renders it
             # lazily from the payload stored in the restored entry, so no render needed here.
             workspace.insert_report(client, payload)
+        elif kind in ("company_section", "company_product"):
+            # Company lists are hand-ORDERED, and the original position is long gone by the time
+            # anyone restores -- so it comes back at the end, where the author can move it.
+            workspace.insert_company_item(
+                client, "sections" if kind == "company_section" else "products", payload)
         elif kind == "client":
             store.restore_client(payload)
             if extra.get("workspace") is not None:

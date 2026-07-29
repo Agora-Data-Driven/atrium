@@ -173,6 +173,27 @@ def run():
            tr.get("ok") and len(tr.get("messages") or []) == 2
            and tr["messages"][0].get("role") == "client"
            and tr["messages"][1].get("role") == "agora")
+    # "Add newer messages": a re-paste of the fuller thread (overlap + 1 new under a relative
+    # "Today" separator) folds in ONLY the new message and stamps the card with the UPDATE date.
+    import datetime as _dt
+    upd_raw = upw_raw + "Today\nDaniela Marquez\n9:14 AM\nOne more thing NEWMSG.\n"
+    r = c.post("/w/%s/admin/communication" % CLIENT,
+               data={"op": "update_upwork", "thread_key": up_item["thread_key"], "raw": upd_raw,
+                     "team_names": "Ian Gabriel Fernandez"})
+    j = r.get_json()
+    _check("Upwork update folds in only the genuinely-new message",
+           r.status_code == 200 and j.get("ok") and j.get("added") == 1 and j.get("total") == 3)
+    up_item2 = next(it for it in workspace.communications_list(workspace.load_workspace(CLIENT))
+                    if it.get("channel") == "upwork")
+    today_utc = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+    _check("the card's date is the last-UPDATED date, not the import date",
+           str(up_item2.get("date", ""))[:10] == today_utc)
+    # Idempotent: pasting the same thread again adds nothing.
+    r = c.post("/w/%s/admin/communication" % CLIENT,
+               data={"op": "update_upwork", "thread_key": up_item["thread_key"], "raw": upd_raw,
+                     "team_names": "Ian Gabriel Fernandez"})
+    _check("re-pasting the same thread adds 0 (no duplicates)",
+           r.get_json().get("added") == 0 and r.get_json().get("total") == 3)
     # Deleting the card also removes its thread archive object (no orphan).
     c.post("/w/%s/admin/communication" % CLIENT,
            data={"op": "delete", "item_id": up_item["id"]})
@@ -1183,6 +1204,116 @@ def run():
            and _bridge("task-delete", "/api/internal/task-delete",
                        {"client_key": CLIENT, "task_id": btid}).status_code == 404)
     main.SSO_SECRET = real_secret
+
+    # --- The Company tab (2026-07-29): client-VISIBLE content, team-only WRITES ------------------
+    # The inverse of the team tabs: a client sees the whole profile (it is their own company) but
+    # none of the edit affordances, and every write is gated. Also proves the ordered lists survive
+    # a round trip through the route and that a delete lands in the Bin.
+    with c.session_transaction() as s:
+        s.update(SUPER)
+    _check("the company tab returns 200", c.get("/w/%s/company" % CLIENT).status_code == 200)
+    _check("saving the at-a-glance facts persists",
+           c.post("/w/%s/admin/company" % CLIENT,
+                  data={"op": "profile", "one_liner": "COMPANYONELINER",
+                        "industry": "Hospitality", "website": "riverdanceresort.com"}
+                  ).get_json()["ok"] is True
+           and workspace.company_profile(workspace.load_workspace(CLIENT))["profile"]["industry"]
+           == "Hospitality")
+    _check("saving the brand guide persists",
+           c.post("/w/%s/admin/company" % CLIENT,
+                  data={"op": "brand", "voice": "COMPANYVOICE", "colors": "#1F4D3A, #F4E9D8"}
+                  ).get_json()["ok"] is True
+           and workspace.company_profile(workspace.load_workspace(CLIENT))["brand"]["voice"]
+           == "COMPANYVOICE")
+    sec_id = c.post("/w/%s/admin/company" % CLIENT,
+                    data={"op": "add", "kind": "sections", "heading": "COMPANYSTORY",
+                          "body": "We started with one van."}).get_json()["item"]["id"]
+    sec2_id = c.post("/w/%s/admin/company" % CLIENT,
+                     data={"op": "add", "kind": "sections", "heading": "Our history",
+                           "body": "Then twelve."}).get_json()["item"]["id"]
+    prod_id = c.post("/w/%s/admin/company" % CLIENT,
+                     data={"op": "add", "kind": "products", "name": "COMPANYPRODUCT",
+                           "price": "from $249/night"}).get_json()["item"]["id"]
+    body = c.get("/w/%s/company" % CLIENT).get_data(as_text=True)
+    _check("the admin render shows the profile AND the edit affordances",
+           "COMPANYONELINER" in body and "COMPANYVOICE" in body and "COMPANYSTORY" in body
+           and "COMPANYPRODUCT" in body and 'data-coadd="sections"' in body
+           and "Draft with AI" in body)
+    _check("a colour token renders as a swatch chip", "ax-co-swatch" in body)
+    _check("op=move reorders the story",
+           c.post("/w/%s/admin/company" % CLIENT,
+                  data={"op": "move", "kind": "sections", "item_id": sec2_id, "dir": "up"}
+                  ).get_json()["order"][0] == sec2_id)
+    _check("op=edit updates one item in place",
+           c.post("/w/%s/admin/company" % CLIENT,
+                  data={"op": "edit", "kind": "sections", "item_id": sec_id,
+                        "body": "One van, then twelve."}).get_json()["item"]["body"]
+           == "One van, then twelve.")
+    _check("an unknown company list is rejected",
+           c.post("/w/%s/admin/company" % CLIENT,
+                  data={"op": "add", "kind": "nope", "name": "x"}).status_code == 400)
+
+    # The client: sees everything, can change nothing.
+    with c.session_transaction() as s:
+        s.update({"ok": True, "user": "owner@riverdanceresort.com", "clients": [CLIENT]})
+    cbody = c.get("/w/%s/company" % CLIENT).get_data(as_text=True)
+    _check("the client sees their own company profile in full",
+           "COMPANYONELINER" in cbody and "COMPANYVOICE" in cbody and "COMPANYSTORY" in cbody
+           and "COMPANYPRODUCT" in cbody)
+    # Assert on RENDERED markup only: the wiring's own selector strings ("[data-codelete]", ...)
+    # are inline JS literals that ship to every viewer, so their presence proves nothing. Same
+    # lesson the Communications no-leak check records just above.
+    _check("the client's HTML carries NO company edit affordances",
+           "Draft with AI" not in cbody and 'data-coform="facts"' not in cbody
+           and 'data-coadd="sections"' not in cbody
+           and "Add a product or service" not in cbody and 'title="Move up"' not in cbody)
+    _check("a client POST to /admin/company is forbidden",
+           c.post("/w/%s/admin/company" % CLIENT,
+                  data={"op": "profile", "one_liner": "hacked"}).status_code == 403)
+    _check("the forbidden POST changed nothing",
+           workspace.company_profile(workspace.load_workspace(CLIENT))["profile"]["one_liner"]
+           == "COMPANYONELINER")
+    with c.session_transaction() as s:
+        s.update(SUPER)
+    _check("deleting a product soft-deletes it to the Bin (restorable, not lost)",
+           c.post("/w/%s/admin/company" % CLIENT,
+                  data={"op": "delete", "kind": "products", "item_id": prod_id}
+                  ).get_json()["ok"] is True
+           and not workspace.company_items(workspace.load_workspace(CLIENT), "products")
+           and any(e.get("kind") == "company_product"
+                   and e.get("payload", {}).get("id") == prod_id
+                   for e in _audit_mod.trash_list()))
+    _check("Restore brings the product back from the Bin",
+           c.post("/admin/atrium/restore",
+                  data={"entry_id": next(e["id"] for e in _audit_mod.trash_list()
+                                         if e.get("kind") == "company_product")}
+                  ).status_code in (302, 303)
+           and workspace.company_items(workspace.load_workspace(CLIENT),
+                                       "products")[0]["name"] == "COMPANYPRODUCT")
+
+    # The whole point of the tab: the Assistant can answer from it. The profile must reach the
+    # knowledge index as its own retrievable chunks, not be silently dropped.
+    import assistant_ai as _assistant_ai
+    chunks = _assistant_ai.build_chunks(workspace.load_workspace(CLIENT), [])
+    company_chunks = [ch for ch in chunks if ch["kind"] == "company"]
+    _check("the company profile is indexed for the Assistant",
+           len(company_chunks) >= 3
+           and any("COMPANYONELINER" in ch["text"] for ch in company_chunks)
+           and any("COMPANYVOICE" in ch["text"] for ch in company_chunks)
+           and any("COMPANYPRODUCT" in ch["text"] for ch in company_chunks))
+    _check("the story section is its own chunk, titled by its heading",
+           any("COMPANYSTORY" in ch["title"] for ch in company_chunks))
+
+    # The regrouped nav (2026-07-29): 6 top-level rows, with the calendar under Campaigns and
+    # Reports under Insights. Assert the sub-tabs sit INSIDE a nav group, not at the top level.
+    nav = c.get("/w/%s/company" % CLIENT).get_data(as_text=True)
+    nav = nav[nav.index('<nav class="ax-nav"'):nav.index("</nav>")]
+    _check("the Content Calendar moved under the Campaigns group",
+           nav.index('data-tab="calendar"') > nav.index("Campaigns")
+           and nav.index('data-tab="calendar"') < nav.index("Insights"))
+    _check("Reports moved under the Insights group",
+           nav.index('data-tab="reports"') > nav.index("Insights"))
+    _check("Company is a top-level nav entry", 'data-tab="company"' in nav)
 
     print("[smoketest] PASS")
     return 0

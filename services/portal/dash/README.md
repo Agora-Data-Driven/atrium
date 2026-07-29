@@ -20,7 +20,7 @@ App / library (grep the anchor to land in the right place):
 | `atrium_view.py` | Pure presentation helpers (sparklines, calendar grid, awaiting rollup) | `_event_done` / `intel_sections` |
 | `service_templates.py` | Recipe book seeding the Delivery board's work breakdown | `TEMPLATES`:34 · `AD_PRODUCTION`:168 · `build_maintasks`:234 |
 | `assistant_ai.py` | Team-only RAG chat over the whole workspace (hybrid BM25+embed+rerank; digest/full chunk levels + small-to-big expansion; the ===ATRIUM_ACTIONS=== proposal protocol) | `build_chunks` · `ask_stream` · `DEPTHS` · `split_actions` · `summarize_videos` |
-| `digest.py` | The distilled-insight layer: raw data -> titled analyst-note sections (both dashboard shapes, comms/tasks/intel snapshots) | `dashboard_sections` · `task_text` |
+| `digest.py` | The distilled-insight layer: raw data -> titled analyst-note sections (both dashboard shapes, the Company profile, comms/tasks/intel snapshots) | `dashboard_sections` · `company_sections` · `company_brief` · `task_text` |
 | `assistant_actions.py` | Everything the Assistant may PROPOSE + how an approval executes it (same workspace writers as the human forms; nothing runs unapproved) | `_ACTIONS` · `validate` · `execute` |
 | `report_ai.py` | The Reports tab's deck maker: gather from the distilled layer -> model (or honest draft) -> self-contained scroll-snap HTML | `gather` · `generate` · `revise` · `render_html` |
 | `intel_ai.py` / `intel_feed.py` / `intel_refresh.py` | AI brain (Gemini/DeepSeek/Kimi registry) / legacy RSS / daily `intel-refresh` job | `MODELS` · `_call` / `stream_call` |
@@ -55,6 +55,7 @@ the template consumes. Verified examples:
 |---|---|---|---|
 | Task | `add_task`:1687 | `POST /w/<c>/admin/task` (:4572) | `admin_atrium.html`:1753 board · `atrium.html` Tasks pane via `_progress_tasks`:1297 |
 | Intel entry | `add_intel_entry`:2261 | `POST /w/<c>/admin/intel` (:2912) | `atrium.html`:3129 (`view.intel`) |
+| Company profile | `set_company_profile` / `add_company_item` / `move_company_item` | `POST /w/<c>/admin/company` | `atrium.html` Company pane (`company`) · `digest.company_sections` -> Assistant + `report_ai.gather` |
 | Content piece | `add_content`:1281 | `POST /w/<c>/admin/content` (:2291) | `atrium.html`:2402 (content loop) |
 | Report deck | `add_report`/`write_report_html` | `POST /w/<c>/admin/report` · `GET /w/<c>/report/<id>` | `atrium.html` Reports pane (`ws.reports` card grid) |
 | Assistant action | (executes via the writers above) | `POST /w/<c>/admin/assistant` op=execute | chat approval cards (`makeActionsCard` in `atrium.html`) |
@@ -71,6 +72,12 @@ Client-safe filtering happens **server-side before the template** (`_progress_ta
    Deploy: `deploy_dash_platform.ps1`.
 2. **Change a tab LABEL (never the key)** — edit the label in all four maps above; the keys
    (`leadgen`, `progress`, …) stay in every route/data shape forever.
+2b. **Regroup the sidebar** — the nav is ONE `<nav class="ax-nav">` block in `atrium.html`: flat
+   `<a>` rows and `.ax-nav-group` wrappers (a `.ax-nav-ghead` button + a `.ax-nav-sub` list).
+   Moving a tab between them is a markup move plus its group's `*_open` guard (`camp_open` /
+   `tools_open`) so the group auto-opens on that tab. Nothing else changes: the collapsed rail and
+   the phone strip flatten groups via CSS, and `showTab` pops a group open generically. Six
+   top-level rows since 2026-07-29 — see the nav comment in the template for why each sits there.
 3. **Add an `/w/<c>/admin/*` op** — route in `main.py` gated `is_superadmin()` (copy the shape of
    `atrium_admin_intel`, `main.py:2912`), writer in `workspace.py` (the ONLY file that mutates
    `workspace/<c>.json`), `_audit(...)` the mutation. Verify: `_workspace_localtest.py` +
@@ -107,6 +114,10 @@ Client-safe filtering happens **server-side before the template** (`_progress_ta
 - Inline JS is **esprima-4.x-safe** (no `?.` / `??`) in every template; the CI gate enforces it.
 - **Never style team affordances via `[data-admin="1"]` selectors** — CSS ships to every viewer
   and the literal string trips the no-leak check.
+- **Inline JS ships to EVERY viewer, comments included.** A team-only button's label quoted in a
+  `//` comment lands in a client's HTML; the no-leak assertions then read it as a rendered admin
+  affordance (cost a test round on the Company tab). Assert no-leak on RENDERED markup only —
+  selector strings like `[data-codelete]` are in every page by construction.
 - **Tab keys and task-stage keys are canonical** — labels change, keys never do.
 - The Jinja `tab_titles` map deliberately has no `mail` entry while the JS `titles` map still
   carries one (Mail folded into Communications 2026-07-15) — known cosmetic drift, don't "fix"

@@ -31,7 +31,7 @@ names is `agora`; everyone else is `client`.
 """
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 _DAYS = "Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday"
 _MONTHS = {m: i + 1 for i, m in enumerate(
@@ -41,21 +41,27 @@ RE_TIME = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*$", re.I)
 RE_FULLDATE_PIPE = re.compile(
     r"^\s*[A-Z][a-z]{2,8}\s+\d{1,2},\s+\d{4}\s*\|\s*\d{1,2}:\d{2}\s*(AM|PM)\s*$", re.I)
 RE_DAY = re.compile(r"^\s*(?:%s),\s+([A-Z][a-z]{2,8})\s+(\d{1,2})\s*$" % _DAYS)
+# Upwork renders the most recent day separators WITHOUT a date: a bare "Today" / "Yesterday" line.
+# Unmatched, those made every message under them inherit the last dated header's (stale) day -- so a
+# freshly pasted update looked days old. Resolved against the paste day (the `today` parameter).
+RE_DAY_REL = re.compile(r"^\s*(Today|Yesterday)\s*$", re.I)
 RE_ATTACH_COUNT = re.compile(r"^\s*\d+\s+files?\s*$", re.I)
 RE_SIZE = re.compile(r"^\s*\d+(?:\.\d+)?\s*(?:bytes|[kKmMgG]B)\s*$")
 RE_FILENAME = re.compile(
     r"^\S.*\.(?:pdf|jpe?g|png|gif|webp|docx?|xlsx?|pptx?|csv|txt|zip|mp4|mov)\s*$", re.I)
 RE_SHOW_MORE = re.compile(r"^\s*Show more\s*$", re.I)
 # Upwork sprinkles SYSTEM-EVENT lines into a thread -- "<Name> sent an offer", "withdrew an offer",
-# "accepted an offer", "sent you an invitation", "started the contract", etc. Each is followed by a
+# "accepted an offer", "sent you an invitation", "started the contract", "created a Zoom meeting",
+# "wants to schedule a 60-minute meeting", "activated the milestone", etc. Each is followed by a
 # time + a blurb, so the parser used to mistake them for chat messages (they polluted the message
 # list AND the derived participants/title). A sender-position line matching this is treated as an
 # event and dropped. A real display name never carries one of these verb+noun phrases.
 RE_EVENT = re.compile(
     r"\b(?:sent|sends|withdrew|withdraws|updated|updates|accepted|accepts|declined|declines|"
     r"cancell?ed|cancels|ended|ends|started|starts|reopened|paused|closed|submitted|released|"
-    r"requested|approved)\b.{0,24}\b(?:offer|contract|invitation|invite|milestone|proposal|"
-    r"interview|job|payment|hours?)\b", re.I)
+    r"requested|approved|created|creates|activated|activates|schedules?|scheduled|rescheduled|"
+    r"reschedules)\b.{0,24}\b(?:offer|contract|invitation|invite|milestone|proposal|"
+    r"interview|job|payment|hours?|meeting|call)\b", re.I)
 
 
 def _norm_names(agora_names):
@@ -119,8 +125,11 @@ def _clean_body(buf):
     return text.strip()
 
 
-def parse_upwork(raw, agora_names=None, year=None):
+def parse_upwork(raw, agora_names=None, year=None, today=None):
     """Parse pasted Upwork text into a conversation.
+
+    `today` anchors the relative "Today"/"Yesterday" day separators (defaults to the real today);
+    tests pass a fixed date for determinism.
 
     Returns a dict:
       messages            [{from, to:"", date, role, body}, ...] in chat order (oldest first)
@@ -131,6 +140,7 @@ def parse_upwork(raw, agora_names=None, year=None):
       title               a suggested title ('Upwork conversation with <client names>')
     """
     year = year or date.today().year
+    today = today or date.today()
     agora_set = _norm_names(agora_names)
     lines = (raw or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     n = len(lines)
@@ -138,6 +148,7 @@ def parse_upwork(raw, agora_names=None, year=None):
     messages = []
     cur = None            # the message being built: {..., "_buf": [...], "_attach": [...]}
     month = dayno = None  # current day-header context
+    ctx_year = year       # a relative header (Today/Yesterday) can cross a year boundary
 
     def next_nonempty(idx):
         k = idx
@@ -168,7 +179,7 @@ def parse_upwork(raw, agora_names=None, year=None):
                 continue
             if RE_SHOW_MORE.match(s):
                 return k + 1
-            if RE_DAY.match(s):
+            if RE_DAY.match(s) or RE_DAY_REL.match(s):
                 return k
             j = next_nonempty(k + 1)
             if j is not None and RE_TIME.match(lines[j].strip()):
@@ -191,6 +202,16 @@ def parse_upwork(raw, agora_names=None, year=None):
             cur = None
             month = _MONTHS.get(md.group(1)[:3].title())
             dayno = int(md.group(2))
+            ctx_year = year
+            i += 1
+            continue
+
+        mr = RE_DAY_REL.match(ln)
+        if mr:
+            flush()
+            cur = None
+            d = today if mr.group(1).lower() == "today" else today - timedelta(days=1)
+            month, dayno, ctx_year = d.month, d.day, d.year
             i += 1
             continue
 
@@ -216,7 +237,7 @@ def parse_upwork(raw, agora_names=None, year=None):
                 sender = ln
                 cur = {
                     "from": sender, "to": "",
-                    "date": _iso(month, dayno, year, mt.group(1), mt.group(2), mt.group(3)),
+                    "date": _iso(month, dayno, ctx_year, mt.group(1), mt.group(2), mt.group(3)),
                     "role": "agora" if _is_agora(sender, agora_set) else "client",
                     "_buf": [], "_attach": [],
                 }

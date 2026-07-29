@@ -329,6 +329,90 @@ def tasks_snapshot(ws):
     return "\n".join(lines)
 
 
+# --- the company profile ---------------------------------------------------------------------------
+# Who the client actually is. This is the one source that answers questions no metric can ("what do
+# they sell?", "what tone do we write in?", "how long have they been trading?"), so it is derived
+# ONCE here and consumed by both readers -- the Assistant index and the report deck -- keeping "what
+# the AI knows" and "what we present" in agreement (the rule at the top of this module).
+_COMPANY_FACT_LABELS = (
+    ("one_liner", "What they do"), ("industry", "Industry"), ("founded", "Founded"),
+    ("hq", "Based in"), ("size", "Size"), ("customers", "Who they serve"), ("website", "Website"),
+)
+_COMPANY_BRAND_LABELS = (
+    ("tagline", "Tagline"), ("voice", "Brand voice"), ("tone", "Tone"),
+    ("personality", "Personality"), ("colors", "Colours"), ("fonts", "Fonts"),
+    ("dos", "Always"), ("donts", "Never"), ("assets_url", "Brand assets"),
+)
+
+
+def _company_labelled(block, labels):
+    return ["  %s: %s" % (label, str(block.get(key) or "").strip().replace("\n", " "))
+            for key, label in labels if str(block.get(key) or "").strip()]
+
+
+def company_sections(ws, company=None):
+    """The company profile as titled (id, title, text) sections -- the same tuple shape
+    `dashboard_sections` returns, so the Assistant indexes each part as its own retrievable chunk.
+
+    Four parts, each emitted only when it holds something: the facts, the brand guide, each story
+    section under its own heading, and the product catalogue. Splitting them matters -- "what's
+    their brand voice?" should retrieve the brand block, not a wall of company history.
+
+    `company` is an already-normalized profile (workspace.company_profile) when the caller has one;
+    otherwise the raw ws["company"] dict is read defensively so this stays pure and import-free."""
+    comp = company if isinstance(company, dict) else (ws or {}).get("company") or {}
+    profile = comp.get("profile") if isinstance(comp.get("profile"), dict) else {}
+    brand = comp.get("brand") if isinstance(comp.get("brand"), dict) else {}
+    sections = [s for s in (comp.get("sections") or []) if isinstance(s, dict)]
+    products = [p for p in (comp.get("products") or []) if isinstance(p, dict)]
+    name = (ws or {}).get("display_name") or "the client"
+    out = []
+
+    facts = _company_labelled(profile, _COMPANY_FACT_LABELS)
+    if facts:
+        out.append(("facts", "Company profile: %s at a glance" % name,
+                    "\n".join(["%s, the essentials:" % name] + facts)))
+
+    brand_lines = _company_labelled(brand, _COMPANY_BRAND_LABELS)
+    if brand_lines:
+        out.append(("brand", "Brand guide: %s (voice, tone, look)" % name,
+                    "\n".join(["How %s presents itself:" % name] + brand_lines)))
+
+    for i, s in enumerate(sections):
+        body = (s.get("body") or "").strip()
+        if not body:
+            continue
+        heading = (s.get("heading") or "About").strip()
+        out.append(("section:%s" % (s.get("id") or i),
+                    "About %s: %s" % (name, heading), "%s -- %s\n%s" % (name, heading, body)))
+
+    rows = []
+    for p in products:
+        pname = (p.get("name") or "").strip()
+        if not pname:
+            continue
+        bits = [b for b in (
+            (p.get("summary") or "").strip().replace("\n", " "),
+            ("price %s" % p["price"].strip()) if (p.get("price") or "").strip() else "",
+            ("for %s" % p["audience"].strip()) if (p.get("audience") or "").strip() else "",
+            ("status %s" % p["status"].strip()) if (p.get("status") or "").strip() else "",
+            (p.get("url") or "").strip(),
+        ) if b]
+        rows.append("  %s -- %s" % (pname, "; ".join(bits) if bits else "no description recorded"))
+    if rows:
+        out.append(("products", "What %s sells (products and services)" % name,
+                    "\n".join(["%s's product and service catalogue:" % name] + rows)))
+    return out
+
+
+def company_brief(ws, company=None):
+    """The whole company profile as one block of text (the report deck's client context).
+
+    The Assistant indexes `company_sections` separately for retrieval; a deck writer wants the lot
+    at once, so it gets the same derived material joined."""
+    return "\n\n".join(text for _sid, _title, text in company_sections(ws, company))
+
+
 # --- market intelligence ---------------------------------------------------------------------------
 def intel_digest(ws):
     """The freshest briefing items from both sections in one hit -- the 'what's happening out
