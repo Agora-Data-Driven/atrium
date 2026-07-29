@@ -84,7 +84,10 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   Channels are classified: `platform` / `industry` (auto-labeled via `intel_ai.classify_text`,
   hand-editable) / `kind` creator|competitor. Registry in `ws["watcher"]`; each channel's
   transcripts in its own `workspace/watcher/<c>/<id>.json` object. `POST /w/<c>/admin/watcher`
-  (op add|add_video|fetch|safe_pull|refresh|meta|label|delete; fetch = MISSING-only batches (parallel
+  (op add|**add_site**|add_video|fetch|safe_pull|refresh|meta|label|delete; **`add_site` = the
+  website-blog twin of `add`** (see `watcher_blog.py` below), and **`add_video` auto-detects** — a
+  link with no YouTube video id is scraped as a blog post into a separate "Saved articles" loose
+  channel, so ONE box takes both; fetch = MISSING-only batches (parallel
   `FETCH_WORKERS`/`FETCH_BATCH` waves behind a proxy, else serial), page JS loops it and AUTO-RETRIES
   with backoff on a `blocked` rate-limit / network error instead of stopping (button toggles to Stop);
   a rate-limit reports `blocked` and never marks videos failed) +
@@ -118,7 +121,38 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   heartbeat with the queued channels' registry counts; the Watcher tab polls it every ~12s while a
   card is queued and shows what's happening ("Fetching now: …", "cooling down ~10 min", "idle, last
   active 3 min ago", counts + a progress bar) instead of a static "check back later", auto-refreshing
-  once a channel clears the queue. Test: `python _watcher_localtest.py`.
+  once a channel clears the queue. ⚠️ `scrape_channel` **skips `platform=="blog"` channels** — their
+  archives hold page URLs, not video ids, and the app fetches them itself. Test:
+  `python _watcher_localtest.py`.
+- **`watcher_blog.py`** — the **WEBSITE twin of `watcher.py`**: paste a site, archive EVERY blog
+  post's full article text. Same tab, same archive object, same UI, same Assistant index — the ONLY
+  difference is which fetcher runs, chosen by the registry entry's `platform` (`youtube`|`blog`).
+  Three helpers mirror watcher.py one-for-one: `resolve_site(url)` (→ origin + og:site_name; the
+  **origin is the entry's `channel_id`**, so the duplicate check is unchanged), `list_posts(origin)`
+  (**sitemap-first**: robots.txt `Sitemap:` → sitemap index → recurse ONLY into blog-named children,
+  so a shop's 10k-product sitemap is never downloaded → conventional `/sitemap.xml`-style paths as a
+  backstop → an index-page **crawl** only when no sitemap yields anything, reported in `source`), and
+  `fetch_post(url)` (→ the body in a field literally named **`transcript`**, so every consumer works
+  unchanged). A post's `id` is `bp<sha1(url)[:16]>` — stable (re-listing never duplicates) and
+  URL-safe (it is a path segment in the reader route). Listing drops a URL that is a **parent of
+  other collected URLs** — that is what removes a blog's own index pages without hardcoding any CMS.
+  **Extraction is a readability-lite scorer, stdlib only** (`html.parser` tree → score every
+  container by text length × (1 − link density) with class/id hints → **deepest of the near-ties**
+  wins, so the article's own wrapper beats the page div that also holds the sidebar); title/date/
+  author come from og:/JSON-LD/`<time>` metadata, and the fetch **heals** the listing's slug-title
+  and lastmod with the page's real ones. **robots.txt is obeyed properly** — full wildcard/`$`
+  matching, longest-match-wins, `Allow` precedence. 🔴 Prefix-matching the text before the first `*`
+  is NOT good enough: Shopify ships `Disallow: /blogs/*+*`, whose literal prefix is `/blogs/`, which
+  read as a prefix bans EVERY post on the site and silently returns zero (this exact bug cost a
+  debugging round; there is a regression test for it). 🔴 **TLS compatibility (`_session`)**:
+  Python's default SSL cipher list is fingerprinted by Cloudflare-fronted Shopify sites, which then
+  answer every HTML request `429 local_rate_limited` forever while curl gets 200 — pinning an
+  ordinary explicit cipher suite fixes it. We do NOT impersonate a browser (the UA still says
+  AgoraAtriumWatcher, robots is obeyed, `Retry-After`/429 backs off, concurrency is 6 and paced).
+  Websites don't block datacenter IPs, so blogs fetch fine FROM CLOUD RUN — no proxy, and **Safe
+  pull is hidden on blog cards** (`can_safe_pull`; `op=safe_pull` refuses them). Verified live on
+  thelegalpaige.com: 330 posts listed in ~2s, 24 full articles per fetch batch in ~2.6s, 0 errors.
+  Tests: `_run_blog_checks` in `_watcher_localtest.py` (fetchers injected — no network in CI).
 - **`assistant_ai.py`** — the team-only Assistant tab: RAG chat over EVERY workspace source
   (watcher transcripts, intel, campaigns/content, metrics, calendar, conversations, health, plus
   the opt-in client dashboard export — grant via `enable_assistant_dash_data.ps1`). Index stored as
@@ -156,7 +190,8 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   tests). **STREAMING chat (the live UI path):** `POST /w/<c>/admin/assistant/stream` returns
   **Server-Sent Events** (`text/event-stream`, `stream_with_context`) so the reasoning + answer
   arrive as deltas. `intel_ai.stream_call` normalises each provider's SSE (Vertex
-  `:streamGenerateContent?alt=sse` with `includeThoughts`; DeepSeek `stream:true`) to flat events
+  `:streamGenerateContent?alt=sse` with `includeThoughts`; DeepSeek + Kimi `stream:true`, both the
+  OpenAI `reasoning_content`/`content` delta shape) to flat events
   `{thinking|answer|usage|error}`; `assistant_ai.ask_stream` retrieves (hybrid) then streams the
   answer as **plain markdown** (NOT the `{"answer":...}` envelope — a wrapper can't stream), honouring
   a `steer` string. `stage=plan` (`assistant_ai.plan_stage`) is the Claude-style **plan-mode
@@ -256,6 +291,24 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   genuinely-new messages (dedupe by date+sender+trimmed-body signature, returns an `added` count),
   then `normalize_chat_thread` re-tags/re-orders and the card's date/people/subject are refreshed —
   no duplicate card, idempotent (a re-paste adds 0). Test: `python _upwork_import_localtest.py`.
+- **`intel_ai.py`** — the ONE model registry + transport for every AI surface in this app (the
+  Assistant, the intel research brain, the Mail digest, the Watcher auto-label). `MODELS` lists what
+  the dropdowns offer; `provider_configured()` gates each provider on its env; `_call`/`stream_call`
+  dispatch. **Three providers:** `gemini` (Vertex, SA-token auth, GCP-billed — the ONLY one that can
+  ground on live Google Search), `deepseek` (`DEEPSEEK_API_KEY`, `api.deepseek.com`, JSON-mode) and
+  `kimi` (`KIMI_API_KEY`, `api.kimi.com/coding/v1`). ⚠️ Kimi notes: it is the **Kimi Code
+  subscription** — its `sk-kimi-…` key authenticates ONLY against that coding host (Moonshot's
+  `api.moonshot.ai` 401s), it is flat weekly quota so `PRICING` is $0/token (real, not a missing
+  price), it is sent **without** `response_format: json_object` (that mode forbids the top-level
+  arrays some callers need — `_parse_json`/`assistant_ai._parse_answer` strip the resulting fence),
+  and its models are thinking-first so only `think is False` sends the disable flag. 🔴 The
+  Secret-Manager secret is the UPPER-case `KIMI_API_KEY`; the lower-case `kimi-api-key` secret is
+  the VS Code / Claude Code launcher key and is a DIFFERENT value — never mount it here. Kimi sits
+  LAST in `MODELS` so `default_model()` (first available) keeps resolving to Gemini Flash. Adding a
+  provider = a MODELS entry + a `provider_configured` branch + `_call_*`/`_stream_*` + the secret in
+  the three deploy scripts (`deploy_dash_platform.ps1`, `deploy_intel_refresh.ps1`,
+  `deploy_mail_refresh.ps1` — the jobs run this same code and need the key too). Test:
+  `python _intel_ai_localtest.py`.
 - **`intel_feed.py` / `intel_refresh.py`** — the DAILY Market Intelligence auto-refresh (opt-in,
   `INTEL_AUTO_ENABLED=1`). `intel_feed` parses Google News RSS + publisher feeds (keyless, stdlib
   `xml.etree` + lazy `requests`, degrades to `[]`); `intel_refresh.main()` is the Cloud Run **job**

@@ -259,9 +259,11 @@ def add_watcher_channel(client, fields):
         "url": fields.get("url", ""),
         "title": fields.get("title", ""),
         "channel_id": fields.get("channel_id", ""),
-        # Classification: platform is fixed per source type (YouTube-only today, the field exists
-        # so Website/podcast/etc. can join later); industry is the auto/AI label (hand-editable);
-        # kind separates the creators we learn from ("creator") from rivals ("competitor").
+        # Classification: `platform` is the SOURCE TYPE and decides which fetcher runs for this
+        # entry -- "youtube" (watcher.py: channel_id -> videos -> transcripts) or "blog"
+        # (watcher_blog.py: site origin -> posts -> article text). Both store into the same archive
+        # shape, so only the fetch/refresh branch cares. `industry` is the auto/AI label
+        # (hand-editable); `kind` separates creators we learn from from rivals ("competitor").
         "platform": fields.get("platform", "youtube"),
         "industry": fields.get("industry", ""),
         "kind": fields.get("kind", "creator"),
@@ -278,24 +280,31 @@ def add_watcher_channel(client, fields):
     return _mutate(client, fn)
 
 
-# The single-video scraper has no parent channel, so its videos are archived under ONE per-client
-# pseudo-channel (marked `loose`). It renders as a normal creator card and the Assistant indexes it
-# like any other channel; only the channel-specific actions (Check new / Auto-label) are hidden for
-# it in the UI. `list_videos`/`refresh` never run against it (its channel_id is "").
+# The single-item scrapers have no parent channel/site, so their items are archived under ONE
+# per-client pseudo-channel PER PLATFORM (marked `loose`): "Saved videos" for one-off YouTube links
+# and "Saved articles" for one-off blog links. Each renders as a normal card and the Assistant
+# indexes it like any other channel; only the source-wide actions (Check new / Auto-label) are
+# hidden for it in the UI. `list_videos`/`list_posts` never run against it (its channel_id is "").
 LOOSE_CHANNEL_TITLE = "Saved videos"
+LOOSE_BLOG_TITLE = "Saved articles"
 
 
-def ensure_loose_channel(client):
-    """Find (or create, newest-first) the per-client 'Saved videos' pseudo-channel. Returns it."""
+def ensure_loose_channel(client, platform="youtube"):
+    """Find (or create, newest-first) the per-client loose pseudo-channel for `platform`.
+
+    Keyed on platform as well as the `loose` marker so a saved article never lands in the video
+    archive (their fetchers are different: one takes a video id, the other a page URL)."""
     def fn(ws):
         channels = ws.setdefault("watcher", {}).setdefault("channels", [])
         for ch in channels:
-            if ch.get("loose"):
+            if ch.get("loose") and (ch.get("platform") or "youtube") == platform:
                 return ch
         entry = {
             "id": _new_id("wch"),
-            "url": "", "title": LOOSE_CHANNEL_TITLE, "channel_id": "",
-            "platform": "youtube", "industry": "", "kind": "creator", "loose": True,
+            "url": "",
+            "title": LOOSE_BLOG_TITLE if platform == "blog" else LOOSE_CHANNEL_TITLE,
+            "channel_id": "",
+            "platform": platform, "industry": "", "kind": "creator", "loose": True,
             "video_count": 0, "transcript_count": 0, "failed_count": 0,
             "last_fetch": "", "added_at": now_iso(),
         }
