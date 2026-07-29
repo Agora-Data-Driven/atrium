@@ -108,6 +108,21 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "[..] DEEPSEEK_API_KEY not found -- DeepSeek summaries unavailable (Gemini still works)" -ForegroundColor Yellow
 }
 
+# Kimi Code. Upper-case `KIMI_API_KEY` is the SERVICES key; the lower-case `kimi-api-key` secret is
+# the VS Code / Claude Code launcher key (a different value) -- never mount that one here.
+gcloud secrets describe "KIMI_API_KEY" --project $PROJECT *> $null
+if ($LASTEXITCODE -eq 0) {
+    gcloud secrets add-iam-policy-binding "KIMI_API_KEY" `
+        --project $PROJECT `
+        --member "serviceAccount:$WEB_SA" `
+        --role "roles/secretmanager.secretAccessor" *> $null
+    Must "grant secretAccessor on KIMI_API_KEY"
+    $secretPairs += "KIMI_API_KEY=KIMI_API_KEY:latest"
+    Write-Host "[OK] will mount KIMI_API_KEY"
+} else {
+    Write-Host "[..] KIMI_API_KEY not found -- Kimi summaries unavailable (Gemini still works)" -ForegroundColor Yellow
+}
+
 # =============================================================================
 # Step 3 -- Deploy the Cloud Run JOB AS YOURSELF, overriding the entrypoint.
 # =============================================================================

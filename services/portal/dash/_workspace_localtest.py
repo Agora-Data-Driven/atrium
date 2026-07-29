@@ -186,7 +186,7 @@ def run():
         "internal_notes": "Watch CPL.",
     }, actor="info@agoradatadriven.com")
     _check("task created with id + default stage",
-           task["id"].startswith("tk_") and task["stage"] == "in_process")
+           task["id"].startswith("tk_") and task["stage"] == "todo")
     _check("reporter defaults to agora (console adds carry no reporter)",
            task["reporter"] == "agora" and task["reporter_name"] == "")
     _rep = workspace.add_task(CLIENT, {"title": "Client ask", "reporter": "client",
@@ -233,7 +233,7 @@ def run():
     _check("main-task owner reassigned", t3b["maintasks"][1]["assignee_id"] == "ehjay@agoradatadriven.com")
 
     # Legacy flat subtasks migrate in place the first time the task is touched.
-    legacy = {"id": "tk_legacy", "title": "Old shape", "stage": "in_process", "lead_id": "zhen@100.digital",
+    legacy = {"id": "tk_legacy", "title": "Old shape", "stage": "in_progress", "lead_id": "zhen@100.digital",
               "content_type": "Report", "subtasks": [{"id": "st_a", "text": "Old sub", "done": True,
                                                       "assignee_id": ""}]}
     workspace.normalize_task(legacy)
@@ -273,22 +273,22 @@ def run():
            len(workspace.task_open_changes(t3)) == 0 and
            len(workspace.task_open_changes(workspace._find_task(workspace.load_workspace(CLIENT), task["id"]))) == 1)
     try:
-        workspace.move_task_stage(CLIENT, task["id"], "closed")
+        workspace.move_task_stage(CLIENT, task["id"], "completed")
         _check("close blocked while sub-task + change request open", False)
     except ValueError as exc:
         _check("close blocked while sub-task + change request open",
                "Create info pack" in str(exc) and "change request" in str(exc))
-    workspace.move_task_stage(CLIENT, task["id"], "launched", actor="info@agoradatadriven.com")
+    workspace.move_task_stage(CLIENT, task["id"], "in_progress", actor="info@agoradatadriven.com")
     t4 = workspace._find_task(workspace.load_workspace(CLIENT), task["id"])
     _check("stage move recorded in history",
-           t4["stage"] == "launched" and t4["history"][-1]["old"] == "in_process"
-           and t4["history"][-1]["new"] == "launched")
+           t4["stage"] == "in_progress" and t4["history"][-1]["old"] == "todo"
+           and t4["history"][-1]["new"] == "in_progress")
     workspace.resolve_task_comment(CLIENT, task["id"], chg["id"])
     workspace.set_subtask_done(CLIENT, task["id"], sub2["id"], True)
     workspace.set_subtask_done(CLIENT, task["id"], sub3["id"], True)
     workspace.move_task_stage(CLIENT, task["id"], "closed")
     _check("close allowed once sub-tasks done + changes resolved",
-           workspace._find_task(workspace.load_workspace(CLIENT), task["id"])["stage"] == "closed")
+           workspace._find_task(workspace.load_workspace(CLIENT), task["id"])["stage"] == "completed")
 
     workspace.delete_subtask(CLIENT, task["id"], sub2["id"])
     _check("sub-task deleted",
@@ -397,14 +397,14 @@ def run():
     empty = workspace.add_task(CLIENT, {"title": "Empty custom service", "department": "development"})
     _blocked = False
     try:
-        workspace.move_task_stage(CLIENT, empty["id"], "closed")
+        workspace.move_task_stage(CLIENT, empty["id"], "completed")
     except ValueError as exc:
         _blocked = "no sub-tasks" in str(exc)
     _check("closing an empty (no sub-task) service is blocked", _blocked)
-    # It can still move forward through the earlier stages (only 'closed' is guarded).
-    workspace.move_task_stage(CLIENT, empty["id"], "for_launch")
-    _check("an empty service can still advance to for_launch",
-           workspace._find_task(workspace.load_workspace(CLIENT), empty["id"])["stage"] == "for_launch")
+    # It can still move forward through the earlier stages (only 'completed' is guarded).
+    workspace.move_task_stage(CLIENT, empty["id"], "for_review")
+    _check("an empty service can still advance to For Review",
+           workspace._find_task(workspace.load_workspace(CLIENT), empty["id"])["stage"] == "for_review")
 
     print("[localtest] PASS")
     return 0

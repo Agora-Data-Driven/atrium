@@ -26,10 +26,13 @@ Org policy forbids public Cloud Run: deploy with --no-invoker-iam-check (never
 
 import datetime
 import gzip as _gzip
+import hashlib
+import hmac
 import json
 import os
 import re
 import secrets
+import time
 
 import requests
 from flask import (
@@ -388,12 +391,38 @@ def _maybe_gzip(resp):
     return resp
 
 
+def _no_store_html(resp):
+    """Stop browsers serving a STALE page after a deploy -- the reason an edit "doesn't roll out".
+
+    This app has NO build step and NO asset hashing: every line of CSS and JS is inlined into the
+    one HTML document per page. So a cached HTML page is a cached COPY OF THE WHOLE APP -- a
+    browser holding one keeps running the old markup and the old scripts indefinitely, and a
+    deploy silently never reaches that user. With no Cache-Control and no Last-Modified, browsers
+    fall back to HEURISTIC caching and are free to do exactly that (Sentinel hit this same bug --
+    see its no-cache middleware).
+
+    HTML only: the authed /creative/ + /data.json proxies set their own explicit Cache-Control
+    (`private, max-age=...`) and are left alone, so image/video/data caching still works. Anything
+    that already declared a policy is respected. Rendered pages are per-session and cheap to
+    rebuild, so `no-store` costs nothing and makes every deploy reach every client immediately."""
+    ctype = (resp.content_type or "").split(";", 1)[0].strip().lower()
+    if ctype != "text/html":
+        return resp
+    if resp.headers.get("Cache-Control"):
+        return resp
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 @app.after_request
 def _finalize_response(resp):
-    """Post-process every response: inject the shared <head> chrome, then gzip it.
+    """Post-process every response: inject the shared <head> chrome, mark HTML no-store, then gzip.
 
-    Head injection is skipped for proxied /d/ pages; gzip applies to everything (see _maybe_gzip)."""
-    return _maybe_gzip(_inject_head(resp))
+    Head injection is skipped for proxied /d/ pages; the no-store marking and gzip apply to
+    everything (see _no_store_html / _maybe_gzip)."""
+    return _maybe_gzip(_no_store_html(_inject_head(resp)))
 
 
 def _inject_head(resp):
@@ -1279,7 +1308,7 @@ def _progress_tasks(ws):
         if not t.get("client_facing"):
             continue
         t = workspace.normalize_task(dict(t))
-        stage = t.get("stage") or "in_process"
+        stage = workspace.canon_stage(t.get("stage"))
         # The two-level breakdown, stripped to client-safe "phases": a name + its steps.
         # Owners (main-task AND sub-task assignees) never reach this shape.
         phases = []
@@ -1316,20 +1345,166 @@ def _progress_tasks(ws):
             "reporter_name": t.get("reporter_name", ""),
             "start_date": t.get("start_date", ""),
             "due_date": due,
-            "due_soon": bool(due and today <= due <= soon and stage != "closed"),
+            "due_soon": bool(due and today <= due <= soon and stage != "completed"),
             "client_note": t.get("client_note", ""),
             "deliverable_url": t.get("deliverable_url", ""),
             "phases": phases, "subs_done": done, "subs_total": len(subs),
             "pct": (int(round(100.0 * done / len(subs))) if subs else 0),
             "open_changes": len(workspace.task_open_changes(t)),
             "comments": comments, "comment_count": len(comments),
-            "in_review": stage == "for_launch",
+            "in_review": stage == "for_review",
         }
         (by_key.get(stage) or cols[0])["tasks"].append(view)
     for col in cols:
         # Soonest launch first (undated work sinks to the bottom of its column).
         col["tasks"].sort(key=lambda v: v.get("due_date") or "9999-99-99")
     return cols
+
+
+# --- Internal task bridge (Sentinel reads Atrium's board) ----------------------------------------
+# Atrium is the SOURCE OF TRUTH for client-facing tasks; Sentinel's internal board is the team's
+# cross-client window onto them. These endpoints are how Sentinel sees and moves that work, so a
+# task typed into a client's Atrium shows up on the internal board (and vice versa).
+#
+# Auth is the SAME HMAC scheme the rest of the platform already uses (mastery-engine ->
+# /api/internal/people, portal -> /api/internal/user-lookup): HMAC-SHA256 over "{purpose}:{ts}"
+# with the shared `platform-sso-key`, presented as X-Academy-Ts / X-Academy-Sig. NO new secret and
+# no cookie -- this is server-to-server only. Fail-CLOSED: unset secret / bad or stale signature
+# -> 401/503, never a partial answer.
+_INTERNAL_MAX_SKEW = 300
+
+
+def _internal_gate(purpose):
+    """Verify the HMAC header pair for `purpose`; return a Response to abort with, else None."""
+    secret = (SSO_SECRET or "").strip()
+    if not secret:
+        return Response('{"error":"internal auth not configured"}', status=503,
+                        mimetype="application/json")
+    ts = request.headers.get("X-Academy-Ts", "")
+    sig = request.headers.get("X-Academy-Sig", "")
+    if not ts or not sig:
+        return Response('{"error":"missing signature"}', status=401, mimetype="application/json")
+    try:
+        skew = abs(time.time() - int(ts))
+    except (TypeError, ValueError):
+        return Response('{"error":"bad timestamp"}', status=401, mimetype="application/json")
+    if skew > _INTERNAL_MAX_SKEW:
+        return Response('{"error":"stale request"}', status=401, mimetype="application/json")
+    expected = hmac.new(secret.encode("utf-8"), ("%s:%s" % (purpose, ts)).encode("utf-8"),
+                        hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        return Response('{"error":"bad signature"}', status=401, mimetype="application/json")
+    return None
+
+
+def _internal_task_view(client_key, client_name, t):
+    """One Atrium task in the shape Sentinel's board needs (internal surface -- full fields)."""
+    t = workspace.normalize_task(dict(t))
+    subs = workspace.task_subtasks(t)
+    return {
+        # Namespaced so Sentinel can tell an Atrium-owned card from one of its own rows and route
+        # edits back here instead of to its Postgres table.
+        "atrium_id": "%s:%s" % (client_key, t.get("id", "")),
+        "task_id": t.get("id", ""),
+        "client_key": client_key,
+        "client_name": client_name,
+        "title": t.get("title", ""),
+        "stage": t.get("stage", "todo"),
+        "status": TASK_STAGE_LABELS.get(t.get("stage", "todo"), "To Do"),
+        "priority": t.get("priority", "Medium"),
+        "labels": list(t.get("labels") or []),
+        "department": t.get("department", ""),
+        "lead_id": t.get("lead_id", ""),
+        "support_ids": list(t.get("support_ids") or []),
+        "due_date": t.get("due_date", ""),
+        "start_date": t.get("start_date", ""),
+        "client_facing": bool(t.get("client_facing")),
+        "on_hold": bool(t.get("on_hold")),
+        "reporter": t.get("reporter", "agora"),
+        "reporter_name": t.get("reporter_name", ""),
+        "comment_count": len(t.get("comments") or []),
+        "checklist_total": len(subs),
+        "checklist_done": len([s for s in subs if s.get("done")]),
+        "updated_at": (t.get("history") or [{}])[-1].get("at", "") or t.get("created_at", ""),
+        "created_at": t.get("created_at", ""),
+    }
+
+
+@app.route("/api/internal/tasks", methods=["GET"])
+def internal_tasks():
+    """Every client's Atrium tasks, for Sentinel's internal board. HMAC-gated, server-to-server."""
+    gate = _internal_gate("tasks")
+    if gate:
+        return gate
+    only = (request.args.get("client") or "").strip()
+    out = []
+    for c in store.list_clients():
+        key = c.get("key") or ""
+        if not key or (only and key != only):
+            continue
+        try:
+            ws = workspace.load_workspace(key) or {}
+        except Exception:
+            # One unreadable workspace must never blank the whole internal board.
+            continue
+        name = ws.get("display_name") or c.get("name") or key
+        for t in ws.get("tasks") or []:
+            out.append(_internal_task_view(key, name, t))
+    return jsonify(ok=True, tasks=out)
+
+
+@app.route("/api/internal/task-move", methods=["POST"])
+def internal_task_move():
+    """Move an Atrium task to a new stage from Sentinel's board (drag-and-drop write-back)."""
+    gate = _internal_gate("task-move")
+    if gate:
+        return gate
+    payload = request.get_json(silent=True) or {}
+    client_key = (payload.get("client_key") or "").strip()
+    task_id = (payload.get("task_id") or "").strip()
+    stage = workspace.canon_stage(payload.get("stage"))
+    actor = (payload.get("actor") or "sentinel").strip()
+    try:
+        task = workspace.move_task_stage(client_key, task_id, stage, actor=actor)
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    except ValueError as exc:
+        # The completion guard (open sub-tasks / unresolved change requests) speaks for itself.
+        return jsonify(ok=False, error=str(exc)), 409
+    _audit(client_key, "moved task (from Sentinel)", task.get("title", ""))
+    return jsonify(ok=True, stage=task.get("stage"))
+
+
+@app.route("/api/internal/task-add", methods=["POST"])
+def internal_task_add():
+    """Create an Atrium task from Sentinel's board.
+
+    `client_facing` is the caller's choice here (unlike the client-surface quick-add, which is
+    always client-facing): this is how the team files INTERNAL work that clients never see."""
+    gate = _internal_gate("task-add")
+    if gate:
+        return gate
+    payload = request.get_json(silent=True) or {}
+    client_key = (payload.get("client_key") or "").strip()
+    title = (payload.get("title") or "").strip()
+    if not title:
+        return Response('{"error":"empty"}', status=400, mimetype="application/json")
+    fields = {
+        "title": title[:200],
+        "stage": workspace.canon_stage(payload.get("stage")),
+        "client_facing": bool(payload.get("client_facing")),
+        "priority": payload.get("priority") or "Medium",
+        "department": payload.get("department") or "",
+        "due_date": payload.get("due_date") or "",
+        "reporter": "agora",
+        "reporter_name": (payload.get("actor_name") or "AGORA"),
+    }
+    try:
+        task = workspace.add_task(client_key, fields, actor=payload.get("actor") or "sentinel")
+    except KeyError:
+        return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    _audit(client_key, "added task (from Sentinel)", task.get("title", ""))
+    return jsonify(ok=True, task_id=task["id"], stage=task["stage"])
 
 
 @app.route("/w/<client>/task-comment", methods=["POST"])
@@ -1373,34 +1548,58 @@ def atrium_task_add(client):
 
     The REPORTER is auto-tagged from the session, never a form choice: a team session files it as
     "agora", anyone else as "client". Quick-added tasks are always client_facing (they were created
-    on the client surface, so they must appear there) and start in_process with no breakdown --
+    on the client surface, so they must appear there) and start in the requested column (todo by
+    default) with no breakdown --
     the team fleshes them out from the console like any blank custom service. Internal fields
     (priority/charge/owners/notes) are NOT accepted here; the admin console remains the only place
     those are set."""
     gate = _atrium_json_gate(client)
     if gate:
         return gate
+    # The composer is a REAL form: a native post (no JS) carries redirect=progress and gets a
+    # redirect back to the tab; the fetch path omits it and gets JSON. Both are first-class, so
+    # a broken/blocked script can never stop a request being filed.
+    wants_redirect = request.form.get("redirect") == "progress"
+    back = "/w/%s/progress" % client
     title = request.form.get("title", "").strip()
     if not title:
+        if wants_redirect:
+            return redirect(back)
         return Response('{"error":"empty"}', status=400, mimetype="application/json")
     note = request.form.get("note", "").strip()
     user = current_user()
     from_team = is_superadmin()
+    # Which column the card was added to. The board's per-column "+ Add card" posts its own stage;
+    # the top composer posts none and lands in To Do. Always canonicalised, so a bad/legacy value
+    # can never 500 or drop the card into the wrong column.
     fields = {
         "title": title[:200],
-        "stage": "in_process",
+        "stage": workspace.canon_stage(request.form.get("stage")),
         "client_facing": True,
         "client_note": note[:1000],
+        "due_date": (request.form.get("due_date") or "").strip()[:10],
         "reporter": "agora" if from_team else "client",
         "reporter_name": (_admin_sender_name(user) if from_team else _client_sender_name(user)),
     }
+    # The form's "More options" block is rendered for the TEAM only, and the server enforces that
+    # too -- a client posting these by hand is ignored, so priority/internal notes can never be
+    # forged from the client surface (same posture as the auto-tagged reporter).
+    if from_team:
+        priority = request.form.get("priority", "")
+        if priority in workspace.TASK_PRIORITIES:
+            fields["priority"] = priority
+        fields["internal_notes"] = (request.form.get("internal_notes") or "").strip()[:2000]
     try:
         task = workspace.add_task(client, fields, actor=user or "")
     except KeyError:
+        if wants_redirect:
+            return redirect(back)
         return Response('{"error":"not_found"}', status=404, mimetype="application/json")
     if not from_team:
         notify.client_task_added(client, task, user)
     _audit(client, "added task" if from_team else "client added request", task["title"])
+    if wants_redirect:
+        return redirect(back)
     return jsonify(ok=True, task_id=task["id"], reporter=task["reporter"])
 
 
@@ -2507,13 +2706,33 @@ def atrium_admin_website_health_check(client):
 _WATCHER_PREVIEW_CHARS = 260
 
 
+# Per-source display wording. The archive shape is identical for every platform, so ONLY the words
+# differ: a YouTube channel has videos with transcripts, a website has posts with article text.
+# (`_watcher_view` hands these to the template so no Jinja has to branch on the platform.)
+# ⚠️ NO key here may be named `items`, `keys` or `values`: in Jinja `labels.items` resolves to the
+# dict METHOD, not the key, and the template would silently print "<built-in method items…>".
+_WATCHER_LABELS = {
+    "youtube": {"platform": "YouTube", "item": "video", "item_plural": "videos",
+                "body": "transcript", "body_plural": "transcripts", "open": "Open channel",
+                "empty": "Transcript not fetched yet.", "missing": "no transcript"},
+    "blog": {"platform": "Website", "item": "post", "item_plural": "posts",
+             "body": "article", "body_plural": "articles", "open": "Open site",
+             "empty": "Article not fetched yet.", "missing": "no article text"},
+}
+
+
+def _watcher_labels(platform):
+    """The display wording for a source type (falls back to the YouTube set for unknown ones)."""
+    return _WATCHER_LABELS.get(platform or "youtube", _WATCHER_LABELS["youtube"])
+
+
 def _watcher_view(ws, client):
-    """The Watcher pane's render model: each registry entry + its video cards, transcript bodies
-    trimmed to a short preview (the full text is served on demand by atrium_watcher_video).
+    """The Watcher pane's render model: each registry entry + its item cards, bodies trimmed to a
+    short preview (the full text is served on demand by atrium_watcher_video).
 
     Adds the filter/sort fields the creator grid needs: platform/industry/kind (with defaults for
-    channels added before those fields existed) and `latest` -- the newest video's estimated
-    publish date (fallback: the day the channel was added) -- which drives the date sort."""
+    channels added before those fields existed), the per-source wording (`labels`), and `latest` --
+    the newest item's publish date (fallback: the day the channel was added) -- for the date sort."""
     out = []
     safe_queue = set(workspace.watcher_safe_pull_queue(ws))
     for ch in workspace.watcher_channels(ws):
@@ -2521,7 +2740,11 @@ def _watcher_view(ws, client):
         entry.setdefault("platform", "youtube")
         entry.setdefault("industry", "")
         entry.setdefault("kind", "creator")
-        entry["loose"] = bool(ch.get("loose"))  # the "Saved videos" pseudo-channel (single scrapes)
+        entry["loose"] = bool(ch.get("loose"))  # a "Saved videos"/"Saved articles" pseudo-channel
+        entry["labels"] = _watcher_labels(entry["platform"])
+        # Safe pull is a YOUTUBE-only escape hatch (it exists because YouTube blocks datacenter
+        # IPs). Websites serve Cloud Run fine, so a blog card never offers it.
+        entry["can_safe_pull"] = entry["platform"] != "blog"
         entry["safe_queued"] = ch.get("id") in safe_queue
         cards = []
         latest = ""
@@ -2551,21 +2774,21 @@ _WATCHER_KINDS = ("creator", "competitor")
 
 
 def _watcher_autolabel(title, video_titles):
-    """Ask the intel AI for a short industry label for a creator ('AI Automation', 'Fitness', ...).
+    """Ask the intel AI for a short industry label for a source ('AI Automation', 'Fitness', ...).
 
-    Judged from the channel name + its video titles (plenty of signal, no transcript needed).
-    Returns (industry, error) -- ("", reason) when no AI provider is configured or the call fails,
-    so adding a channel NEVER breaks on labeling; the chip just stays empty and hand-editable."""
+    Judged from the channel/site name + its video or post titles (plenty of signal, no body text
+    needed). Returns (industry, error) -- ("", reason) when no AI provider is configured or the call
+    fails, so adding a source NEVER breaks on labeling; the chip stays empty and hand-editable."""
     titles = [t for t in (video_titles or []) if t][:40]
     if not titles:
-        return "", "no video titles to judge from"
+        return "", "no titles to judge from"
     system = (
-        "You classify content creators into ONE short industry/niche label (1-3 words, Title Case) "
-        "for a marketing team's watchlist. Examples: \"AI Automation\", \"E-commerce\", \"Fitness\", "
-        "\"Personal Finance\", \"Real Estate\", \"Digital Marketing\". "
-        "Answer with JSON only: {\"industry\": \"<label>\"}"
+        "You classify content sources (YouTube creators, company blogs, competitors) into ONE short "
+        "industry/niche label (1-3 words, Title Case) for a marketing team's watchlist. Examples: "
+        "\"AI Automation\", \"E-commerce\", \"Fitness\", \"Personal Finance\", \"Real Estate\", "
+        "\"Digital Marketing\". Answer with JSON only: {\"industry\": \"<label>\"}"
     )
-    user = "Creator: %s\nRecent video titles:\n%s" % (title, "\n".join("- " + t for t in titles))
+    user = "Source: %s\nRecent titles:\n%s" % (title, "\n".join("- " + t for t in titles))
     raw, err = intel_ai.classify_text(system, user, max_tokens=128)
     if err:
         return "", err
@@ -2599,17 +2822,56 @@ def _watcher_video_entry(v):
             "published": watcher.published_estimate(published_text)}
 
 
+def _watcher_add_post(client, url):
+    """Scrape ONE pasted blog-post URL into the per-client "Saved articles" pseudo-channel.
+
+    The blog twin of the `add_video` branch below, and deliberately identical in shape: same
+    de-dupe-by-id, same inline fetch, same JSON keys (`transcript`/`words`/`blocked`), so the page's
+    single-item card handles a video and an article with the same code."""
+    import watcher_blog  # lazy: only the blog ops need it
+    page_url = watcher_blog.normalize_site_url(url)
+    if not page_url:
+        return jsonify(ok=False, message="That doesn't look like a video or an article link.")
+    channel = workspace.ensure_loose_channel(client, platform="blog")
+    posts = workspace.read_watcher_videos(client, channel["id"])
+    pid = watcher_blog.post_id(page_url)
+    entry = next((p for p in posts if p.get("id") == pid), None)
+    already = entry is not None
+    if entry is None:
+        entry = watcher_blog.post_entry({"id": pid, "url": page_url.rstrip("/"),
+                                         "title": watcher_blog._title_from_slug(page_url)})
+        posts.insert(0, entry)
+    result = watcher_blog.fetch_post(entry["url"])
+    # A throttled site is a session condition, not a fact about the post: leave it pending so
+    # "Fetch missing" finishes it later -- exactly how a rate-limited video is treated.
+    blocked = watcher_blog._apply_post(entry, result, workspace.now_iso()) == "blocked"
+    workspace.write_watcher_videos(client, channel["id"], posts)
+    _watcher_counts(client, channel["id"], posts)
+    _audit(client, "scraped single article", (entry.get("title") or page_url)[:80])
+    return jsonify(ok=True, channel=channel["id"], video_id=entry["id"],
+                   title=entry.get("title", ""), url=entry.get("url", ""),
+                   transcript=entry.get("transcript", ""),
+                   words=len((entry.get("transcript") or "").split()),
+                   language="", error=entry.get("error", ""),
+                   blocked=blocked, already=already)
+
+
 @app.route("/w/<client>/admin/watcher", methods=["POST"])
 def atrium_admin_watcher(client):
-    """Manage watched YouTube channels (team-only). `op` is one of:
+    """Manage watched sources -- YouTube channels AND website blogs (team-only). `op` is one of:
 
     * add     -- resolve the pasted channel `url`, list EVERY video, auto-label the industry,
                  store the (transcript-less) archive; transcripts come from repeated `fetch` calls.
-    * add_video - scrape a SINGLE pasted video `url`: resolve its title, fetch its transcript inline,
-                 and save it under the per-client "Saved videos" pseudo-channel. The transcript is
-                 returned in the response (shown immediately); a rate-limit is reported `blocked` and
-                 the video is saved pending, so Fetch missing / Safe pull on the card can finish it.
-    * fetch   -- fetch the next batch of MISSING transcripts only (the page JS loops this until
+    * add_site - the WEBSITE twin of `add`: resolve the pasted site `url`, list EVERY blog post
+                 (sitemap-first, see watcher_blog.list_posts), auto-label the industry, and store
+                 the (text-less) archive. Post bodies come from the same repeated `fetch` calls --
+                 a blog channel differs ONLY in which fetcher runs.
+    * add_video - scrape a SINGLE pasted `url`: a YouTube link saves under the per-client "Saved
+                 videos" pseudo-channel, ANY OTHER link is treated as a blog post and saves under
+                 "Saved articles" (auto-detected, so one box takes both). The body is returned in
+                 the response (shown immediately); a rate-limit is reported `blocked` and the item
+                 is saved pending, so Fetch missing / Safe pull on the card can finish it.
+    * fetch   -- fetch the next batch of MISSING bodies only (the page JS loops this until
                  `remaining` hits 0, so each request stays short). A YouTube rate-limit stops the
                  batch and reports `blocked` WITHOUT marking any video failed, so the next fetch
                  resumes exactly where it stopped. `retry=1` first clears non-permanent errors.
@@ -2617,8 +2879,8 @@ def atrium_admin_watcher(client):
                  IPs get blocked regardless of pacing). The operator machine's scheduled task
                  (safe_scrape_local.py --queue) picks the queue up within minutes and works through
                  it slowly; transcripts appear as they sync back.
-    * refresh -- re-list the channel: add newly uploaded videos, refresh upload dates (existing
-                 transcripts kept).
+    * refresh -- re-list the source: add newly published videos/posts, refresh dates (existing
+                 transcripts and article text kept).
     * meta    -- hand-edit the classification (industry text and/or kind creator|competitor).
     * label   -- re-run the AI industry auto-label from the stored video titles.
     * delete  -- remove the channel and its whole transcript archive.
@@ -2654,8 +2916,39 @@ def atrium_admin_watcher(client):
         _audit(client, "added watcher channel", "%s (%d videos)" % (info["title"], len(listing["videos"])))
         return jsonify(ok=True, channel=entry["id"])
 
+    if op == "add_site":
+        # A website's blog: same pipeline as a YouTube channel, different fetcher. The site's origin
+        # is the entry's `channel_id`, so the duplicate check below is the same one-liner.
+        import watcher_blog  # lazy: only the blog ops need it
+        info = watcher_blog.resolve_site(request.form.get("url", ""))
+        if not info["ok"]:
+            return jsonify(ok=False, message=info["error"])
+        for ch in workspace.watcher_channels(ws):
+            if ch.get("channel_id") == info["site"]:
+                return jsonify(ok=False, message="Already watching %s." % (ch.get("title") or "that site"))
+        listing = watcher_blog.list_posts(info["site"], start_url=info["url"])
+        if not listing["ok"]:
+            return jsonify(ok=False, message=listing["error"])
+        industry, _label_err = _watcher_autolabel(info["title"],
+                                                  [p.get("title", "") for p in listing["posts"]])
+        entry = workspace.add_watcher_channel(client, {
+            "url": info["url"] or info["site"], "title": info["title"], "channel_id": info["site"],
+            "platform": "blog", "industry": industry, "kind": "creator",
+            "video_count": len(listing["posts"]),
+        })
+        workspace.write_watcher_videos(client, entry["id"],
+                                       [watcher_blog.post_entry(p) for p in listing["posts"]])
+        _audit(client, "added watcher website", "%s (%d posts)" % (info["title"], len(listing["posts"])))
+        return jsonify(ok=True, channel=entry["id"], posts=len(listing["posts"]),
+                       source=listing["source"], title=info["title"])
+
     if op == "add_video":
-        info = watcher.resolve_video(request.form.get("url", ""))
+        # ONE box, both sources: a YouTube link goes down the video path, anything else is treated
+        # as a blog post URL (a website link has no 11-char video id to extract).
+        raw_url = request.form.get("url", "")
+        if not watcher.extract_video_id(raw_url):
+            return _watcher_add_post(client, raw_url)
+        info = watcher.resolve_video(raw_url)
         if not info["ok"]:
             return jsonify(ok=False, message=info["error"])
         channel = workspace.ensure_loose_channel(client)
@@ -2693,8 +2986,10 @@ def atrium_admin_watcher(client):
                        blocked=blocked, already=already)
 
     channel_id = request.form.get("channel_id", "").strip()
-    if workspace.find_watcher_channel(ws, channel_id) is None:
+    channel = workspace.find_watcher_channel(ws, channel_id)
+    if channel is None:
         return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    is_blog = (channel.get("platform") or "youtube") == "blog"
 
     if op == "fetch":
         videos = workspace.read_watcher_videos(client, channel_id)
@@ -2702,13 +2997,19 @@ def atrium_admin_watcher(client):
             for v in videos:
                 if v.get("error") and not v.get("permanent"):
                     v["error"] = ""
-        # Behind a rotating proxy each concurrent request is a different IP, so fetch the batch in
-        # parallel (fast, ~a couple minutes for a whole channel); with no proxy keep the serial,
-        # politely-paced path that a datacenter IP needs to avoid an instant block.
-        if watcher.proxied():
+        if is_blog:
+            # Websites serve Cloud Run fine (no datacenter-IP block, so no proxy and no Safe pull):
+            # a modest paced concurrency is both quick and polite.
+            import watcher_blog
+            fetched, blocked = watcher_blog.fetch_posts_batch(videos)
+        elif watcher.proxied():
+            # Behind a rotating proxy each concurrent request is a different IP, so fetch the batch
+            # in parallel (fast, ~a couple minutes for a whole channel).
             fetched, blocked = watcher.fetch_transcripts_batch(
                 videos, limit=watcher.FETCH_BATCH, workers=watcher.FETCH_WORKERS)
         else:
+            # No proxy: the serial, politely-paced path a datacenter IP needs to avoid an instant
+            # YouTube block.
             fetched, blocked = watcher.fetch_transcripts_batch(videos)
         workspace.write_watcher_videos(client, channel_id, videos)
         pending = _watcher_counts(client, channel_id, videos)
@@ -2718,32 +3019,48 @@ def atrium_admin_watcher(client):
                        total=len(videos), done=len(videos) - pending)
 
     if op == "safe_pull":
+        if is_blog:
+            return jsonify(ok=False, message="Safe pull is only for YouTube (websites aren't "
+                                             "blocked here) — just click Fetch missing.")
         workspace.queue_watcher_safe_pull(client, channel_id)
-        ch = workspace.find_watcher_channel(ws, channel_id)
-        _audit(client, "queued watcher safe pull", ch.get("title", ""))
+        _audit(client, "queued watcher safe pull", channel.get("title", ""))
         return jsonify(ok=True)
 
     if op == "refresh":
-        ch = workspace.find_watcher_channel(ws, channel_id)
-        listing = watcher.list_videos(ch.get("channel_id", ""))
-        if not listing["ok"]:
-            return jsonify(ok=False, message=listing["error"])
         videos = workspace.read_watcher_videos(client, channel_id)
         by_id = {v.get("id"): v for v in videos}
         new = []
-        for lv in listing["videos"]:
-            known = by_id.get(lv["id"])
-            if known is None:
-                new.append(_watcher_video_entry(lv))
-            elif lv.get("published_text"):
-                # Backfill/refresh the upload age on videos we already hold (older archives
-                # predate date capture, and relative ages drift as time passes).
-                known["published_text"] = lv["published_text"]
-                known["published"] = watcher.published_estimate(lv["published_text"])
+        if is_blog:
+            import watcher_blog
+            listing = watcher_blog.list_posts(channel.get("channel_id", ""),
+                                              start_url=channel.get("url", ""))
+            if not listing["ok"]:
+                return jsonify(ok=False, message=listing["error"])
+            for p in listing["posts"]:
+                known = by_id.get(p["id"])
+                if known is None:
+                    new.append(watcher_blog.post_entry(p))
+                elif p.get("published") and not known.get("published"):
+                    # Backfill a date onto posts archived before the site published a lastmod.
+                    known["published"] = p["published"]
+                    known["published_text"] = p.get("published_text", "")
+        else:
+            listing = watcher.list_videos(channel.get("channel_id", ""))
+            if not listing["ok"]:
+                return jsonify(ok=False, message=listing["error"])
+            for lv in listing["videos"]:
+                known = by_id.get(lv["id"])
+                if known is None:
+                    new.append(_watcher_video_entry(lv))
+                elif lv.get("published_text"):
+                    # Backfill/refresh the upload age on videos we already hold (older archives
+                    # predate date capture, and relative ages drift as time passes).
+                    known["published_text"] = lv["published_text"]
+                    known["published"] = watcher.published_estimate(lv["published_text"])
         videos = new + videos  # the listing is newest-first; keep the archive that way too
         workspace.write_watcher_videos(client, channel_id, videos)
         _watcher_counts(client, channel_id, videos)
-        _audit(client, "refreshed watcher channel", "%s: %d new" % (ch.get("title", ""), len(new)))
+        _audit(client, "refreshed watcher source", "%s: %d new" % (channel.get("title", ""), len(new)))
         return jsonify(ok=True, new=len(new))
 
     if op == "meta":
@@ -2764,14 +3081,13 @@ def atrium_admin_watcher(client):
         return jsonify(ok=True)
 
     if op == "label":
-        # Re-run the AI industry label from the stored video titles.
-        ch = workspace.find_watcher_channel(ws, channel_id)
+        # Re-run the AI industry label from the stored video / post titles.
         titles = [v.get("title", "") for v in workspace.read_watcher_videos(client, channel_id)]
-        industry, err = _watcher_autolabel(ch.get("title", ""), titles)
+        industry, err = _watcher_autolabel(channel.get("title", ""), titles)
         if not industry:
             return jsonify(ok=False, message="Could not auto-label: %s." % (err or "no label"))
         workspace.update_watcher_channel(client, channel_id, {"industry": industry})
-        _audit(client, "auto-labeled watcher channel", "%s -> %s" % (ch.get("title", ""), industry))
+        _audit(client, "auto-labeled watcher source", "%s -> %s" % (channel.get("title", ""), industry))
         return jsonify(ok=True, industry=industry)
 
     if op == "delete":
@@ -3198,16 +3514,22 @@ def atrium_admin_assistant_stream(client):
 
 @app.route("/w/<client>/watcher/video/<channel_id>/<video_id>", methods=["GET"])
 def atrium_watcher_video(client, channel_id, video_id):
-    """One video's FULL transcript as JSON (team-only) -- the click-to-expand behind the cards."""
+    """One item's FULL text as JSON (team-only) -- the click-to-expand behind the cards.
+
+    Serves a video transcript and a blog post's article text alike (they share the archive shape);
+    `platform` tells the reader modal which wording + link label to show."""
     gate = _atrium_admin_json_gate(client)
     if gate:
         return gate
+    ws = workspace.load_workspace(client)
+    channel = workspace.find_watcher_channel(ws, channel_id) if ws else None
+    platform = (channel or {}).get("platform") or "youtube"
     for v in workspace.read_watcher_videos(client, channel_id):
         if v.get("id") == video_id:
             return jsonify(ok=True, title=v.get("title", ""), url=v.get("url", ""),
                            transcript=v.get("transcript", ""), error=v.get("error", ""),
                            language=v.get("language", ""), fetched_at=v.get("fetched_at", ""),
-                           published_text=v.get("published_text", ""))
+                           published_text=v.get("published_text", ""), platform=platform)
     return Response('{"error":"not_found"}', status=404, mimetype="application/json")
 
 
@@ -3582,12 +3904,17 @@ def _discipline(labels):
         if lbl in TASK_DISC_CLASS:
             return lbl, TASK_DISC_CLASS[lbl]
     return "", ""
-TASK_STAGE_META = (("in_process", "In Process"), ("for_launch", "For Launch"),
-                   ("launched", "Launched"), ("closed", "Closed"))
+# Stage columns MIRROR SENTINEL'S BOARD exactly (sentinel constants.TASK_STATUSES) so the internal
+# board and the client Progress board are the same interface with the same words -- the whole point
+# of the 2026-07-27 change. Keys are canonical (workspace.TASK_STAGES); labels are Sentinel's.
+TASK_STAGE_META = (("todo", "To Do"), ("in_progress", "In Progress"),
+                   ("for_review", "For Review"), ("waiting_client", "Waiting for Client"),
+                   ("revision", "Revision Needed"), ("completed", "Completed"),
+                   ("blocked", "Blocked"))
 TASK_STAGE_LABELS = dict(TASK_STAGE_META)
-# The client-facing relabels (spec §3.1) -- keys never change, labels are friendlier.
-TASK_CLIENT_STAGES = (("in_process", "In progress"), ("for_launch", "In review"),
-                      ("launched", "Live"), ("closed", "Completed"))
+# The client sees the SAME column names now (previously friendlier relabels). Kept as its own tuple
+# so a client-only wording change stays a one-line edit.
+TASK_CLIENT_STAGES = TASK_STAGE_META
 
 
 # Canonical Atrium delivery team -- these people must ALWAYS be assignable on the board, on EVERY
@@ -3708,11 +4035,11 @@ def _task_board(clients_tasks, roster):
         done = len([s for s in subs if s.get("done")])
         due = t.get("due_date") or ""
         due_cls = ""
-        if due and t.get("stage") != "closed":
+        if due and t.get("stage") != "completed":
             due_cls = "over" if due < today_iso else ("soon" if due <= soon_iso else "")
         lead = t.get("lead_id") or ""
         support = [s for s in (t.get("support_ids") or []) if s]
-        nxt_key, nxt_label = _task_next_stage(t.get("stage") or "in_process")
+        nxt_key, nxt_label = _task_next_stage(workspace.canon_stage(t.get("stage")))
         view = dict(t)
         view.update({
             "client_key": ckey, "client_name": cname,
@@ -3735,7 +4062,7 @@ def _task_board(clients_tasks, roster):
             "all_subs_done": bool(subs) and done == len(subs),
             "next_stage_key": nxt_key or "", "next_stage_label": nxt_label or "",
         })
-        col = by_key.get(t.get("stage") or "in_process") or cols[0]
+        col = by_key.get(workspace.canon_stage(t.get("stage"))) or cols[0]
         col["tasks"].append(view)
     for col in cols:
         # Urgent on top; within a priority, ACTIVE work before on-hold; then sooner launch, then age.
@@ -3860,7 +4187,7 @@ def atrium_admin_task(client):
     # the content type, and the department/label -- overriding the posted department so they agree.
     fields.update(_task_template_seed())
     # New services always start In Process; they're moved along the board from there.
-    fields["stage"] = "in_process"
+    fields["stage"] = "todo"
     try:
         task = workspace.add_task(client, fields, actor=actor)
     except KeyError:
