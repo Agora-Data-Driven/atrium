@@ -529,4 +529,4 @@ if (-not $NoPrune) {
 Sync-LocalMain
 
 Write-Host ""
-Write-Host "[OK] DONE -- integrated, landed on main, deployed, pruned, and local main pulled." -ForegroundColor Green
+Write-Host "[OK] DONE -- integrated, landed on main$(if ($NoDeploy) { ' (deploys skipped: -NoDeploy)' } else { ', deployed' }), pruned, and local main pulled." -ForegroundColor Green
