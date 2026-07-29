@@ -8,6 +8,7 @@ the client-visible deck serve with lazy re-render, gating).
 Run: python _report_localtest.py        # prints PASS / FAIL, exits 0 / 1
 """
 
+import datetime
 import json
 import os
 import re
@@ -75,6 +76,32 @@ def _dash_rd():
             "activecampaign": {"enabled": True, "campaigns": [
                 {"name": "July newsletter", "date": "2026-07-05", "sent": 1000, "opens": 400,
                  "clicks": 50}]}}
+
+
+def _dash_rich():
+    """A full-length flight with a real age x gender breakdown -- the shape the OPPORTUNITY facts
+    need (a 14-vs-14 window, weekly cost pressure, the creative bench, the reallocation math)."""
+    rows = []
+    day = datetime.date(2026, 5, 1)
+    while day <= datetime.date(2026, 7, 27):
+        for ad, share in (("Video ad", 0.6), ("Static ad", 0.4)):
+            rows.append({"date": day.isoformat(), "ad": ad, "camp": "Summer",
+                         "spend": 40.0 * share, "imps": int(4000 * share),
+                         "clicks": int(52 * share), "lclk": int(44 * share),
+                         "reach": int(2600 * share),
+                         "pur": 1 if day.day % 5 == 0 else 0,
+                         "rev": (520.0 if day >= datetime.date(2026, 7, 14) else 210.0)
+                                if day.day % 5 == 0 else 0.0})
+        day += datetime.timedelta(days=1)
+    age_gender = []
+    for band, spend, cpc in (("65+", 700.0, 0.63), ("45-54", 600.0, 0.75), ("55-64", 760.0, 0.84),
+                             ("35-44", 540.0, 1.19), ("25-34", 210.0, 1.23), ("18-24", 30.0, 0.90)):
+        for gender, part in (("female", 0.58), ("male", 0.42)):
+            clicks = spend * part / cpc
+            age_gender.append({"date": "2026-07-01", "age": band, "gender": gender,
+                               "spend": spend * part, "imps": clicks / 0.013,
+                               "clicks": clicks, "lclk": clicks})
+    return {"rows": rows, "demographics": {"age_gender": age_gender}}
 
 
 def _archives():
@@ -152,6 +179,72 @@ def run():
     _check("the fact catalogue names every key for the model",
            any(line.startswith("ads [table]") for line in report_ai.facts_catalogue(facts)))
 
+    # The opportunity facts -- the derived numbers a media buyer acts on, not just descriptions.
+    rich = report_ai.build_facts(_dash_rich())
+    _check("a full flight yields the opportunity facts as well as the descriptive ones",
+           {"recent_vs_prior", "pressure", "bench", "segments", "reallocation"} <= set(rich))
+    _check("the before/after window is like for like and signed",
+           rich["recent_vs_prior"]["delta"]["headline"].startswith(("+", "-"))
+           and len(rich["recent_vs_prior"]["before"]["rows"]) > 1)
+    _check("reallocation states the gain from the SAME budget, computed not estimated",
+           len(rich["reallocation"]["points"]) == 2
+           and "no extra budget" in rich["reallocation"]["summary"]
+           and rich["reallocation"]["points"][1]["value"]
+           > rich["reallocation"]["points"][0]["value"])
+    _check("segments crosses age with gender and ranks the cells",
+           len(rich["segments"]["rows"]) >= 3
+           and {r.get("_tone") for r in rich["segments"]["rows"]} >= {"good", "bad"})
+    _check("the bench fact counts the creatives carrying the account",
+           any(i["key"] == "count" and i["value"] == "2" for i in rich["bench"]["items"]))
+    _check("cost pressure reads the last week against the flight average",
+           any("flight average" in i["note"] for i in rich["pressure"]["items"]))
+    _check("week-over-week comparisons use the last COMPLETE week only",
+           "complete week" in rich["pressure"]["subtitle"])
+
+    # --- The TEMPLATE dashboard shape: every client except the Windsor-live ones -----------------
+    tdaily = []
+    day = datetime.date(2026, 5, 1)
+    n = 0
+    while day <= datetime.date(2026, 7, 27):        # ends on a MONDAY: a 1-day trailing bucket
+        n += 1
+        tdaily.append({"date": day.isoformat(), "sessions": 300 + n * 3, "leads": 8 + (n % 5),
+                       "spend": 120.0, "revenue": 900.0 + n * 8})
+        day += datetime.timedelta(days=1)
+    tf = report_ai.build_facts({"kpis": {"revenue": 98000, "spend": 10440, "leads": 740},
+                                "daily": tdaily})
+    _check("the template shape gets a series per metric, a like-for-like window AND a momentum table",
+           {"totals", "recent_vs_prior", "momentum"} <= set(tf)
+           and len([k for k in tf if k.startswith("weekly_")]) >= 3)
+    _check("template columns are formatted by what their name says they are",
+           any(i["value"].startswith("$") for i in tf["totals"]["items"]))
+    # 🔴 The regression that would have shipped: a flight ending mid-week made a 1-day bucket look
+    # like a collapse against a 7-day mean.
+    _check("a PARTIAL trailing week never becomes a fake collapse in a comparison",
+           all(not r["change"].startswith("-8") and not r["change"].startswith("-9")
+               for r in tf["momentum"]["rows"])
+           and "complete week" in tf["momentum"]["subtitle"])
+    _check("the partial week is still CHARTED (it is real data, just not comparable)",
+           tf["weekly_revenue"]["points"][-1]["label"] == "27 Jul")
+    # A fixed weekly budget is a flat series: every point ties for max, so nothing is the best week.
+    _check("a flat series marks NO best point (a tie is not a standout)",
+           not any(p["best"] for p in tf["weekly_spend"]["points"])
+           and any(p["best"] for p in tf["weekly_sessions"]["points"]))
+
+    tdraft, _terr = report_ai.generate("Acme Co", "2026-07-29",
+                                       report_ai.gather({}, [], {"kpis": {"revenue": 98000},
+                                                                 "daily": tdaily}), None)
+    shown = set()
+    for slide in tdraft["slides"]:
+        for b in slide["blocks"]:
+            for inner in (b["left"] + b["right"]) if b["type"] == "split" else [b]:
+                if inner.get("fact"):
+                    shown.add(inner["fact"])
+    drafted_facts = set(report_ai.build_facts({"kpis": {"revenue": 98000}, "daily": tdaily}))
+    _check("EVERY computed fact reaches the no-AI deck, not just the ones on a hardcoded list",
+           drafted_facts <= shown)
+    _check("a template-shape client gets a real deck, not four slides",
+           len(tdraft["slides"]) >= 8)
+
     inputs = report_ai.gather(ws, _archives(), _dash_rd())
     _check("gather assembles every source block, facts included",
            inputs["business"] and inputs["media"] and inputs["voices"] and inputs["dashboard"]
@@ -203,6 +296,22 @@ def run():
            not any(b["type"] == "table" for b in result_blocks))
     _check("an unknown block type is dropped",
            not any(b["type"] == "wormhole" for b in result_blocks))
+
+    # `split` is what lets one slide carry a figure AND its reading -- the density fix.
+    dense, derr = report_ai.generate("Riverdance", "2026-07-29", inputs, lambda s, u: (json.dumps({
+        "slides": [{"kind": "content", "title": "Two things at once", "blocks": [
+            {"type": "split",
+             "left": [{"type": "table", "fact": "age"}, {"type": "split", "left": [], "right": []}],
+             "right": [{"type": "panel", "title": "What it means", "body": "The 45+ bands deliver."},
+                       {"type": "chart", "fact": "nope"}]}]}]}), ""))
+    split = dense["slides"][0]["blocks"][0]
+    _check("a split keeps a block per side and refuses to nest another split",
+           derr == "" and split["type"] == "split" and len(split["left"]) == 1
+           and len(split["right"]) == 1 and split["right"][0]["type"] == "panel")
+    split_doc = report_ai.render_html("Riverdance", dense, "2026-07-29")
+    _check("the split and its panel reach the deck",
+           'class="split' in split_doc and 'class="panel"' in split_doc
+           and "What it means" in split_doc)
     _check("the computed facts ride inside the payload (so a re-render is identical)",
            payload["facts"]["totals"]["summary"] == facts["totals"]["summary"])
 
@@ -234,6 +343,11 @@ def run():
            kit["client_logo"].startswith("<svg") and kit["palette"]["accent"] == "#21582B")
     _check("a blank brand guide falls back to the AGORA house palette",
            report_ai.brand_kit({})["palette"] == report_ai.HOUSE_PALETTE)
+    # A brand list nearly always includes a cream/off-white. It must never become type.
+    cream = report_ai.palette_of("Deep pine #21582B, cream #F7F5E7, river green #2E7D43")
+    _check("a near-white brand colour becomes the canvas, never an accent (it is unreadable as type)",
+           cream["accent"] == "#21582B" and cream["accent2"] == "#2E7D43"
+           and cream["canvas"] == "#F7F5E7")
     _check("a logo that is not our own self-contained markup is refused",
            report_ai.brand_kit({"brand": {"client_logo": "<img src=\"http://evil/x.png\">"}})
            ["client_logo"] == "")

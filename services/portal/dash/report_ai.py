@@ -181,7 +181,12 @@ def _derive(a):
 
 
 def _weeks(rows):
-    """[(monday_iso, agg)] over Windsor-live rows, chronological."""
+    """[(monday_iso, agg, days_in_bucket)] over Windsor-live rows, chronological.
+
+    The day count is load-bearing: a flight almost always ends mid-week, so the final bucket is a
+    PARTIAL week. Charting it is fine (it is real data), but comparing it to a full-week average
+    reads as a collapse -- a 1-day tail against a 7-day mean printed "-80%" on a client's deck.
+    Anything that COMPARES weeks must filter on this count."""
     buckets = {}
     for r in rows or []:
         try:
@@ -189,8 +194,10 @@ def _weeks(rows):
         except ValueError:
             continue
         wk = (d - datetime.timedelta(days=d.weekday())).isoformat()
-        buckets.setdefault(wk, []).append(r)
-    return [(wk, _roll(buckets[wk])) for wk in sorted(buckets)]
+        buckets.setdefault(wk, {"rows": [], "days": set()})
+        buckets[wk]["rows"].append(r)
+        buckets[wk]["days"].add(d.isoformat())
+    return [(wk, _roll(buckets[wk]["rows"]), len(buckets[wk]["days"])) for wk in sorted(buckets)]
 
 
 def _series(key, title, subtitle, points, orient="columns", best="high"):
@@ -201,8 +208,12 @@ def _series(key, title, subtitle, points, orient="columns", best="high"):
         return None
     values = [_num(p.get("value")) for p in points]
     target = max(values) if best == "high" else min(values)
-    for p in points:
-        p["best"] = bool(best) and _num(p.get("value")) == target
+    # A standout needs to actually stand out: a flat series (every week the same fixed budget) has
+    # no best week, and a tie is not a winner. Marking all of them "BEST" was the giveaway.
+    winners = [i for i, v in enumerate(values) if v == target]
+    single = bool(best) and len(winners) == 1 and max(values) > min(values)
+    for i, p in enumerate(points):
+        p["best"] = single and i == winners[0]
     return {"key": key, "kind": "series", "title": title, "subtitle": subtitle,
             "orient": orient, "points": points,
             "summary": "%s: %s." % (title, ", ".join("%s %s" % (p["label"], p["text"])
@@ -324,8 +335,8 @@ def _facts_windsor(data):
 
     weeks = _weeks(rows)
     if len(weeks) >= 2:
-        wk_lab = [short_date(wk) for wk, _a in weeks]
-        d = [_derive(a) for _wk, a in weeks]
+        wk_lab = [short_date(wk) for wk, _a, _n in weeks]
+        d = [_derive(a) for _wk, a, _n in weeks]
         facts.append(_series("weekly_spend", "Ad spend, by week", "Weeks beginning Monday",
                              [{"label": lab, "value": x["spend"], "text": _money(x["spend"], cents=False)}
                               for lab, x in zip(wk_lab, d)], best=""))
@@ -389,9 +400,15 @@ def _facts_windsor(data):
         facts.append(_table("campaigns", "Every campaign, ranked by spend", "Full flight",
                             cols, trows))
 
+    facts.append(_pressure_tiles(weeks))
+    if ads:
+        facts.append(_bench_tiles(rows, ads))
+
     demo = data.get("demographics") or {}
     facts.append(_breakdown_table("age", demo.get("age_gender"), "age",
                                   "Every age band, ranked by cost per click", "Age band"))
+    facts.append(_segments_table(demo.get("age_gender")))
+    facts.append(_reallocation(demo.get("age_gender")))
     facts.append(_breakdown_table("gender", demo.get("age_gender"), "gender",
                                   "Delivery by gender", "Gender"))
     facts.append(_breakdown_table("region", demo.get("region"), "region",
@@ -426,6 +443,150 @@ def _facts_windsor(data):
     return facts
 
 
+def _segments_table(raw, cap=8):
+    """Age x gender cells ranked by cost per click -- the "best cell in the account" fact. A band
+    and a gender each look average until you cross them; this is where the real spread lives."""
+    if not raw:
+        return None
+    rows_in = [dict(r, seg="%s, %s" % (r.get("age") or "?", r.get("gender") or "?")) for r in raw]
+    agg = _roll(rows_in, "seg")
+    spend_all = sum(a["spend"] for a in agg.values())
+    if len(agg) < 3 or not spend_all:
+        return None
+    rows = []
+    for name, a in agg.items():
+        clicks = a["lclk"] or a["clicks"]
+        if not clicks:
+            continue
+        x = _derive(a)
+        rows.append({"seg": name, "share": _pct(a["spend"], spend_all, 1),
+                     "ctr": "%.2f%%" % (100.0 * x["ctr"]), "cpc": _money(x["cpc"]),
+                     "_cpc": x["cpc"]})
+    rows.sort(key=lambda r: r["_cpc"])
+    rows = rows[:cap]
+    _tone_rows(rows, "cpc", "low_good")
+    return _table("segments", "Every audience cell, ranked by cost per click",
+                  "Age crossed with gender, delivery only",
+                  [{"key": "seg", "label": "Audience cell"},
+                   {"key": "share", "label": "Share of spend", "align": "right"},
+                   {"key": "ctr", "label": "CTR", "align": "right"},
+                   {"key": "cpc", "label": "Cost / click", "align": "right"}], rows)
+
+
+def _reallocation(raw):
+    """What the expensive half of the age curve would buy at the cheap half's rate.
+
+    This is the number a media buyer acts on -- "the same budget, +N clicks" -- and it is pure
+    arithmetic over the breakdown, so the deck can state it without anyone estimating anything."""
+    if not raw:
+        return None
+    agg = _roll(raw, "age")
+    bands = []
+    for band, a in agg.items():
+        clicks = a["lclk"] or a["clicks"]
+        if clicks and a["spend"]:
+            bands.append((a["spend"] / clicks, band, a["spend"], clicks))
+    if len(bands) < 4:
+        return None
+    bands.sort()
+    half = len(bands) // 2
+    strong, weak = bands[:half], bands[half:]
+    strong_cpc = _div(sum(b[2] for b in strong), sum(b[3] for b in strong))
+    weak_spend = sum(b[2] for b in weak)
+    weak_clicks = sum(b[3] for b in weak)
+    if not strong_cpc:
+        return None
+    would_buy = weak_spend / strong_cpc
+    gain = would_buy - weak_clicks
+    if gain < 1:
+        return None
+    weak_names = ", ".join(b[1] for b in weak)
+    strong_names = ", ".join(b[1] for b in strong)
+    fact = _series(
+        "reallocation", "The same %s, reallocated" % _money(weak_spend, cents=False),
+        "%s cost %s a click; %s deliver at %s"
+        % (weak_names, _money(_div(weak_spend, weak_clicks)), strong_names,
+           _money(strong_cpc)),
+        # Short labels on purpose: the bands they refer to are named in the subtitle, and these
+        # two rows sit in half a slide when the deck puts the table beside them.
+        [{"label": "Today", "value": weak_clicks,
+          "text": "%s clicks" % _int_fmt(weak_clicks)},
+         {"label": "Reallocated", "value": would_buy,
+          "text": "%s clicks" % _int_fmt(would_buy)}],
+        orient="rows", best="")
+    if fact:
+        fact["summary"] = ("Reallocation: %s currently goes to %s at %s a click. At the %s rate of "
+                           "%s that same money buys %s clicks instead of %s, a gain of %s (%s) for "
+                           "no extra budget."
+                           % (_money(weak_spend, cents=False), weak_names,
+                              _money(_div(weak_spend, weak_clicks)), strong_names,
+                              _money(strong_cpc), _int_fmt(would_buy), _int_fmt(weak_clicks),
+                              _int_fmt(gain), _delta_pct(would_buy, weak_clicks)))
+    return fact
+
+
+def _pressure_tiles(weeks):
+    """Is the buy getting more expensive? The last COMPLETE week against the flight average.
+
+    Complete on both sides on purpose -- see _weeks: a partial trailing week compared against full
+    weeks invents a cliff that is really just a short bucket."""
+    full = [(wk, a) for wk, a, n in weeks if n >= 7]
+    if len(weeks) < 3 or len(full) < 2:
+        return None
+    last = _derive(full[-1][1])
+    totals = {"spend": 0.0, "imps": 0, "clicks": 0, "lclk": 0, "reach": 0, "pur": 0.0,
+              "rev": 0.0, "init": 0.0}
+    for _wk, a in full:
+        for k in totals:
+            totals[k] += a[k]
+    avg = _derive(totals)
+    items = []
+    for key, label, fmt, better_low in (("cpm", "CPM, last week", _money, True),
+                                        ("cpc", "Cost / click, last week", _money, True)):
+        now, base = last[key], avg[key]
+        if not base:
+            continue
+        delta = _delta_pct(now, base)
+        rising = now > base
+        items.append({"key": key, "label": label, "value": fmt(now),
+                      "note": "%s vs the flight average of %s" % (delta or "level", fmt(base)),
+                      "tier": "primary", "tone": ("bad" if rising else "good") if delta else ""})
+    ctr_delta = _delta_pct(last["ctr"], avg["ctr"])
+    if ctr_delta:
+        items.append({"key": "ctr", "label": "CTR, last week",
+                      "value": "%.2f%%" % (100.0 * last["ctr"]),
+                      "note": "%s vs the flight average of %.2f%%" % (ctr_delta, 100.0 * avg["ctr"]),
+                      "tier": "primary",
+                      "tone": "good" if last["ctr"] >= avg["ctr"] else "bad"})
+    return _tiles("pressure", "Is the buy getting more expensive?", items,
+                  subtitle="The last complete week (%s) against the average of every complete week"
+                           % short_date(full[-1][0]))
+
+
+def _bench_tiles(rows, ads):
+    """How deep the creative bench is: how many ads carry the account, and how concentrated."""
+    if len(ads) < 1:
+        return None
+    ranked = sorted(ads.items(), key=lambda kv: -kv[1]["spend"])
+    spend_all = sum(a["spend"] for a in ads.values())
+    first_seen = {}
+    for r in rows:
+        name, d = r.get("ad") or "(unlabeled)", (r.get("date") or "")[:10]
+        if d and (name not in first_seen or d < first_seen[name]):
+            first_seen[name] = d
+    newest = max(first_seen.values()) if first_seen else ""
+    items = [{"key": "count", "label": "Ads carrying the account", "value": str(len(ads)),
+              "note": "live in this flight", "tier": "primary"},
+             {"key": "conc", "label": "Spend on the top ad",
+              "value": _pct(ranked[0][1]["spend"], spend_all, 0),
+              "note": ranked[0][0][:60], "tier": "primary"}]
+    if newest:
+        items.append({"key": "newest", "label": "Newest creative launched",
+                      "value": short_date(newest), "note": "nothing newer has entered the account",
+                      "tier": "primary"})
+    return _tiles("bench", "How deep the creative bench is", items)
+
+
 def _breakdown_table(key, raw, group, title, label):
     """A demographic/region breakdown as a table: share of spend, CTR and cost per click.
 
@@ -453,36 +614,136 @@ def _breakdown_table(key, raw, group, title, label):
                    {"key": "cpc", "label": "Cost / click", "align": "right"}], rows)
 
 
+def _col_label(col):
+    return str(col).replace("_", " ").strip().capitalize()
+
+
+def _fmt_col(col, value):
+    """Format a template-shape column by what its NAME says it is (money, rate, or a count)."""
+    name = str(col).lower()
+    if any(w in name for w in ("spend", "cost", "revenue", "value", "cpa", "cpc", "cpm", "aov")):
+        return _money(value, cents=abs(value) < 100)
+    if any(w in name for w in ("rate", "ctr", "pct", "percent", "share")):
+        return "%.2f%%" % (value * 100 if abs(value) <= 1 else value)
+    if float(value).is_integer():
+        return _int_fmt(value)
+    return format(round(value, 2), ",g")
+
+
+def _daily_weeks(daily):
+    """({monday_iso: {col: sum}}, ordered dates, {monday_iso: days_in_bucket}) over `daily` rows."""
+    weeks, dates, days = {}, [], {}
+    for row in daily:
+        try:
+            d = datetime.date.fromisoformat(str(row.get("date") or "")[:10])
+        except ValueError:
+            continue
+        dates.append(d.isoformat())
+        wk = (d - datetime.timedelta(days=d.weekday())).isoformat()
+        agg = weeks.setdefault(wk, {})
+        days.setdefault(wk, set()).add(d.isoformat())
+        for k, v in row.items():
+            if k != "date" and isinstance(v, (int, float)):
+                agg[k] = agg.get(k, 0) + v
+    return weeks, sorted(set(dates)), {w: len(v) for w, v in days.items()}
+
+
+def _daily_compare(daily, dates, columns, span=14):
+    """The generic like-for-like window for the template shape: the last `span` days against the
+    `span` before, across whatever numeric columns the client's export happens to carry."""
+    if len(dates) < span + 2 or not columns:
+        return None
+    after_days, before_days = set(dates[-span:]), set(dates[-2 * span:-span])
+    if not before_days:
+        return None
+    sums = {"before": {}, "after": {}}
+    for row in daily:
+        day = str(row.get("date") or "")[:10]
+        side = "after" if day in after_days else ("before" if day in before_days else None)
+        if not side:
+            continue
+        for k, v in row.items():
+            if k in columns and isinstance(v, (int, float)):
+                sums[side][k] = sums[side].get(k, 0) + v
+    if not sums["before"] or not sums["after"]:
+        return None
+
+    def side(which, days):
+        ordered = sorted(days)
+        return {"title": period_label(ordered[0], ordered[-1]), "subtitle": "%d days" % len(days),
+                "rows": [{"label": _col_label(c), "value": _fmt_col(c, _num(sums[which].get(c)))}
+                         for c in columns]}
+
+    lead = columns[0]
+    headline = _delta_pct(_num(sums["after"].get(lead)), _num(sums["before"].get(lead)))
+    return {"key": "recent_vs_prior", "kind": "compare",
+            "title": "The last %d days against the %d before" % (len(after_days), len(before_days)),
+            "subtitle": "Like for like, the same length of window either side",
+            "before": side("before", before_days), "after": side("after", after_days),
+            "delta": {"headline": headline or "flat", "label": _col_label(lead).lower(),
+                      "tone": "good" if headline.startswith("+") else
+                              ("bad" if headline.startswith("-") else "neutral")},
+            "summary": "Last %d days vs the %d before: %s"
+                       % (len(after_days), len(before_days),
+                          "; ".join("%s %s vs %s"
+                                    % (_col_label(c), _fmt_col(c, _num(sums["after"].get(c))),
+                                       _fmt_col(c, _num(sums["before"].get(c)))) for c in columns))}
+
+
+def _momentum_table(weeks, ordered, columns, counts=None):
+    """Every metric's last COMPLETE week against its own weekly average -- the template shape's
+    answer to "which way is this going?", in one table instead of five charts.
+
+    Partial weeks are excluded from both sides (see _weeks): a flight ending on a Monday would
+    otherwise report every metric down 80%, which is a bucket artefact, not a result."""
+    full = [w for w in ordered if (counts or {}).get(w, 7) >= 7]
+    if len(ordered) < 3 or len(full) < 2 or not columns:
+        return None
+    last = weeks[full[-1]]
+    rows = []
+    for col in columns:
+        avg = _div(sum(_num(weeks[w].get(col)) for w in full), len(full))
+        now = _num(last.get(col))
+        rows.append({"metric": _col_label(col), "last": _fmt_col(col, now),
+                     "avg": _fmt_col(col, avg), "change": _delta_pct(now, avg) or "level"})
+    return _table("momentum", "Every metric, last complete week against its own average",
+                  "Week beginning %s, against the average of every complete week"
+                  % short_date(full[-1]),
+                  [{"key": "metric", "label": "Metric"},
+                   {"key": "last", "label": "Last week", "align": "right"},
+                   {"key": "avg", "label": "Weekly average", "align": "right"},
+                   {"key": "change", "label": "Change", "align": "right"}], rows)
+
+
 def _facts_template(data):
-    """Facts for the standard client shape: {kpis: {...}, daily: [{date, ...}]}."""
+    """Facts for the standard client shape: {kpis: {...}, daily: [{date, ...}]}.
+
+    This is the shape EVERY client except the Windsor-live ones uses, so it gets the same treatment:
+    headline tiles, a weekly series per metric, a like-for-like window and a momentum table. Without
+    the last two a normal client's deck was four slides long."""
     facts = []
     kpis = data.get("kpis")
     if isinstance(kpis, dict) and kpis:
-        items = [{"key": str(k), "label": str(k).replace("_", " ").title(),
-                  "value": format(v, ",") if isinstance(v, (int, float)) else str(v), "note": ""}
-                 for k, v in list(kpis.items())[:12]]
+        items = [{"key": str(k), "label": _col_label(k),
+                  "value": _fmt_col(k, v) if isinstance(v, (int, float)) else str(v),
+                  "note": "", "tier": "primary" if i < 5 else "secondary"}
+                 for i, (k, v) in enumerate(list(kpis.items())[:12])]
         facts.append(_tiles("totals", "Headline numbers", items))
     daily = [r for r in (data.get("daily") or []) if isinstance(r, dict)]
-    if daily:
-        weeks = {}
-        for row in daily:
-            try:
-                d = datetime.date.fromisoformat(str(row.get("date") or "")[:10])
-            except ValueError:
-                continue
-            wk = (d - datetime.timedelta(days=d.weekday())).isoformat()
-            agg = weeks.setdefault(wk, {})
-            for k, v in row.items():
-                if k != "date" and isinstance(v, (int, float)):
-                    agg[k] = agg.get(k, 0) + v
-        ordered = sorted(weeks)
-        columns = sorted({k for agg in weeks.values() for k in agg},
-                         key=lambda k: -sum(_num(weeks[w].get(k)) for w in ordered))[:4]
-        for col in columns:
-            pts = [{"label": short_date(w), "value": _num(weeks[w].get(col)),
-                    "text": format(round(_num(weeks[w].get(col)), 2), ",g")} for w in ordered]
-            facts.append(_series("weekly_%s" % col, "%s, by week" % str(col).replace("_", " ").title(),
-                                 "Weeks beginning Monday", pts))
+    if not daily:
+        return facts
+    weeks, dates, counts = _daily_weeks(daily)
+    ordered = sorted(weeks)
+    # Biggest-magnitude columns first, so the lead metric of the compare is the one that matters.
+    columns = sorted({k for agg in weeks.values() for k in agg},
+                     key=lambda k: -abs(sum(_num(weeks[w].get(k)) for w in ordered)))
+    for col in columns[:6]:
+        pts = [{"label": short_date(w), "value": _num(weeks[w].get(col)),
+                "text": _fmt_col(col, _num(weeks[w].get(col)))} for w in ordered]
+        facts.append(_series("weekly_%s" % col, "%s, by week" % _col_label(col),
+                             "Weeks beginning Monday", pts))
+    facts.append(_daily_compare(daily, dates, columns[:6]))
+    facts.append(_momentum_table(weeks, ordered, columns[:8], counts))
     return facts
 
 
@@ -612,6 +873,10 @@ _SHAPE = (
     '{"type": "compare", "fact": "recent_vs_prior", "caption": "..."}, '
     '{"type": "cards", "items": [{"eyebrow": "Decision one", "title": "...", "body": "..."}]}, '
     '{"type": "bullets", "items": ["..."], "ordered": false}, '
+    '{"type": "panel", "title": "What we think is happening", "body": "..."}, '
+    '{"type": "split", "left": [{"type": "table", "fact": "age"}], '
+    '"right": [{"type": "chart", "fact": "reallocation"}, '
+    '{"type": "panel", "title": "The cheapest lever we have", "body": "..."}]}, '
     '{"type": "callout", "tone": "warn", "body": "..."}, '
     '{"type": "action", "body": "exclude 18-34 and skew delivery female, live this week"}]}, '
     '{"kind": "section", "eyebrow": "Part two", "title": "Where the next gains are.", '
@@ -630,17 +895,26 @@ _GEN_SYSTEM = (
     "ONE SLIDE PER OPPORTUNITY, each with its evidence and its own `action` block starting with "
     "the work we will do. Finish with an ordered plan slide, how we will measure it, and what we "
     "need from the client. Use a `section` slide to divide results from opportunities.\n"
-    "3. 10 to 16 slides. A slide carries ONE idea and at most 4 blocks. Prose is short: a `text` "
-    "block is 1 to 3 sentences, a bullet is under 25 words.\n"
-    "4. THE NUMBERS ARE GIVEN TO YOU. The FACT PACK below lists computed datasets by key. To show "
+    "3. FILL THE SLIDE. This is a 16:9 presentation slide, not a bullet. Give each content slide "
+    "4 to 6 blocks and roughly 120 to 180 words, and make it carry ONE argument end to end: the "
+    "evidence, what it MEANS, and the consequence. A figure alone is half a slide -- pair every "
+    "chart or table with a `panel` (a short titled reading of it) or a `text`, and when two pieces "
+    "of evidence belong to the same argument, put them side by side with `split` (table left, the "
+    "reallocation chart and its panel right). A slide holding one figure and one sentence is a "
+    "wasted slide; either fill it or fold it into its neighbour.\n"
+    "4. 12 to 18 slides. Spend them on the argument, not on ceremony.\n"
+    "5. THE NUMBERS ARE GIVEN TO YOU. The FACT PACK below lists computed datasets by key. To show "
     "one, emit a block with its `fact` key ({\"type\": \"chart\", \"fact\": \"weekly_roas\"}) and "
-    "write the interpretation in a nearby `text` block or the `caption`. NEVER retype a fact's "
-    "numbers into a table or chart of your own, and never use a key that is not in the pack.\n"
-    "5. Any number in your PROSE must appear in the source material verbatim. Invent nothing. If "
+    "write the interpretation in a nearby `panel`/`text` block or the `caption`. NEVER retype a "
+    "fact's numbers into a table or chart of your own, and never use a key that is not in the "
+    "pack. Use as many of the pack's keys as the argument can carry -- an unused fact is an "
+    "unmade point, and the pack already contains the reallocation math, the best audience cell, "
+    "the cost pressure and the creative bench.\n"
+    "6. Any number in your PROSE must appear in the source material verbatim. Invent nothing. If "
     "the material does not support a claim, drop the claim.\n"
-    "6. `source` on a content slide names where its numbers came from, in the client's words.\n"
-    "7. Say what we will DO, not what could be considered. Imperative, specific, owned by us.\n"
-    "8. No jargon, no em dashes (use commas or hyphens), no filler slides. If a section of the "
+    "7. `source` on a content slide names where its numbers came from, in the client's words.\n"
+    "8. Say what we will DO, not what could be considered. Imperative, specific, owned by us.\n"
+    "9. No jargon, no em dashes (use commas or hyphens), no filler slides. If a section of the "
     "material is empty, leave that slide out rather than padding it.")
 
 _REVISE_SYSTEM = (
@@ -769,6 +1043,22 @@ def _norm_block(b, facts):
             if card["title"] or card["body"]:
                 items.append(card)
         return {"type": "cards", "items": items} if items else None
+    if kind == "panel":
+        body = _s(b.get("body") or b.get("text"), 700)
+        return {"type": "panel", "title": _s(b.get("title"), 120),
+                "body": body} if body else None
+    if kind == "split":
+        # Two evidence objects side by side (a table beside its reading, a chart beside the
+        # numbers behind it). ONE level deep -- a split inside a split is a layout, not an idea.
+        cols = []
+        for side in ("left", "right"):
+            inner = []
+            for ib in (b.get(side) if isinstance(b.get(side), list) else [])[:3]:
+                nb = _norm_block(ib, facts)
+                if nb and nb["type"] != "split":
+                    inner.append(nb)
+            cols.append(inner)
+        return {"type": "split", "left": cols[0], "right": cols[1]} if any(cols) else None
     if kind == "callout":
         body = _s(b.get("body") or b.get("text"), 400)
         tone = _s(b.get("tone"), 10)
@@ -882,17 +1172,30 @@ def normalize_payload(p, facts=None):
 
 
 # --- The no-AI deck: honest, and now a real one --------------------------------------------------
-def _fact_slide(facts, key, title, eyebrow="", subtitle="", extra=None, source=""):
-    """One content slide built around a single computed fact (skipped when the fact is absent)."""
-    if key not in (facts or {}):
+_BLOCK_FOR_KIND = {"series": "chart", "table": "table", "compare": "compare", "tiles": "kpis"}
+
+
+def _fact_blocks(facts, keys):
+    return [{"type": _BLOCK_FOR_KIND[facts[k]["kind"]], "fact": k}
+            for k in keys if k in (facts or {})]
+
+
+def _fact_slide(facts, eyebrow, title, left, right=()):
+    """One content slide over one or two computed facts. With facts on both sides it renders as a
+    `split`, so the no-AI deck fills its slides the same way a written one does. None when the
+    workspace holds none of the facts named."""
+    lb, rb = _fact_blocks(facts, left), _fact_blocks(facts, right)
+    if not lb and not rb:
         return None
-    fact = facts[key]
-    block_type = {"series": "chart", "table": "table", "compare": "compare",
-                  "tiles": "kpis"}[fact["kind"]]
-    blocks = [{"type": block_type, "fact": key}]
-    blocks.extend(extra or [])
-    return {"kind": "content", "eyebrow": eyebrow, "title": title or fact.get("title") or "",
-            "subtitle": subtitle, "tone": "neutral", "source": source, "blocks": blocks}
+    if lb and rb:
+        blocks = [{"type": "split", "left": lb, "right": rb}]
+    else:
+        blocks = lb or rb
+    if not title:
+        first = (left if lb else right)[0]
+        title = facts[first].get("title") or ""
+    return {"kind": "content", "eyebrow": eyebrow, "title": title, "subtitle": "",
+            "tone": "neutral", "source": "", "blocks": blocks}
 
 
 def draft_payload(inputs, client_name="", when=""):
@@ -911,17 +1214,40 @@ def draft_payload(inputs, client_name="", when=""):
             {"label": "Window", "value": _s(period, 120)} if period else None,
             {"label": "Prepared", "value": date_label(when)} if when else None) if c]}],
     }]
-    for key, title, eyebrow in (
-            ("totals", "", "The campaign to date"),
-            ("recent_vs_prior", "", "Like for like"),
-            ("weekly_revenue", "", "Week by week"),
-            ("weekly_roas", "", "Week by week"),
-            ("ads", "", "Creative"),
-            ("age", "", "Audience"),
-            ("region", "", "Geography"),
-            ("email", "", "Email")):
-        slide = _fact_slide(facts, key, title, eyebrow=eyebrow)
+    # Facts PAIRED, not one per slide: the trend beside the return, the table beside the money it
+    # implies. Same honesty (nothing written), roughly twice the information per slide.
+    used = set()
+    for eyebrow, title, left, right in (
+            ("The campaign to date", "", ("totals",), ()),
+            ("Like for like", "", ("recent_vs_prior",), ()),
+            ("Week by week", "Revenue and return, week by week",
+             ("weekly_revenue",), ("weekly_roas",)),
+            ("Week by week", "Order value against what delivery costs",
+             ("weekly_aov",), ("pressure",)),
+            ("Momentum", "", ("momentum",), ()),
+            ("Creative", "Which ads carry the account", ("ads",), ("bench",)),
+            ("Audience", "Where the money goes, and what it would buy elsewhere",
+             ("age",), ("reallocation",)),
+            ("Audience", "", ("segments",), ()),
+            ("Geography", "Where the budget lands", ("region",), ("region_share",)),
+            ("Email", "", ("email",), ())):
+        slide = _fact_slide(facts, eyebrow, title, left, right)
         if slide:
+            slides.append(slide)
+            used.update(k for k in left + right if k in facts)
+
+    # 🔴 Whatever the pack holds that the running order above does not name -- every metric of a
+    # template-shape client, and any fact added to build_facts later -- still has to reach the deck.
+    # The old hardcoded list silently dropped weekly_sessions/leads/spend for every non-Windsor
+    # client, which is how a normal client's deck came out four slides long.
+    leftover = [k for k in facts if k not in used]
+    for i in range(0, len(leftover), 2):
+        pair = leftover[i:i + 2]
+        slide = _fact_slide(facts, "The numbers", "", (pair[0],), tuple(pair[1:]))
+        if slide:
+            if len(pair) == 2:
+                slide["title"] = "%s, and %s" % (facts[pair[0]].get("title") or pair[0],
+                                                 (facts[pair[1]].get("title") or pair[1]).lower())
             slides.append(slide)
 
     def cards(rows, cap=3):
@@ -1031,20 +1357,32 @@ def _luminance(hex_color):
 def palette_of(colors_text):
     """The deck palette, from the free-text `colors` field of the Company tab's brand guide.
 
-    The field is prose ("Deep pine #21582B, cream #F7F5E7, gold accent"), so we simply take the hex
-    codes in the order they are written: first = accent, second = the secondary accent, and the
-    darkest of them becomes the headline ink when it is dark enough to read as type. Anything not
-    supplied stays the house value, so a blank brand guide is a perfectly good deck."""
+    The field is prose ("Deep pine #21582B, cream #F7F5E7, gold accent"), so we take the hex codes
+    in the order they are written and sort them by ROLE rather than position.
+
+    🔴 Position alone is not enough: a brand list almost always includes a near-white (cream, bone,
+    off-white), and that colour is unreadable as type. Only colours dark enough to read on paper
+    become accents; a very light one becomes the stage the slide sits on instead, which is where a
+    brand cream actually belongs. Anything not supplied stays the house value, so a blank brand
+    guide is still a perfectly good deck."""
     pal = dict(HOUSE_PALETTE)
-    found = _HEX_RE.findall(colors_text or "")
+    found = []
+    for c in _HEX_RE.findall(colors_text or ""):
+        if c.lower() not in [f.lower() for f in found]:
+            found.append(c)
     if not found:
         return pal
-    pal["accent"] = found[0]
-    if len(found) > 1:
-        pal["accent2"] = found[1]
-    dark = [c for c in found if _luminance(c) < 0.28]
-    if dark:
-        pal["ink"] = dark[0]
+    readable = [c for c in found if _luminance(c) < 0.62]     # legible as type on white
+    light = [c for c in found if _luminance(c) >= 0.86]       # a canvas, never a text colour
+    if readable:
+        pal["accent"] = readable[0]
+        if len(readable) > 1:
+            pal["accent2"] = readable[1]
+        dark = [c for c in readable if _luminance(c) < 0.28]
+        if dark:
+            pal["ink"] = dark[0]
+    if light:
+        pal["canvas"] = light[0]
     pal["on_accent"] = "#ffffff" if _luminance(pal["accent"]) < 0.62 else pal["ink"]
     return pal
 
@@ -1203,9 +1541,35 @@ ol.list li::marker{color:var(--accent2);font-weight:800}
 .action .tag{flex:none;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
   color:var(--accent)}
 .cap{font-size:11.5px;color:var(--muted)}
+/* Two evidence objects side by side -- the layout that lets one slide carry a figure AND its
+   reading, instead of spending a whole slide on each. */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:stretch;
+  flex:none;min-height:0}
+.split.grow{flex:1}
+.split .scol{display:flex;flex-direction:column;gap:12px;min-width:0;overflow:hidden}
+.split .figure.fill{flex:1}
+.split .cols{min-height:170px}
+.split .kpis{flex-direction:column}
+.split .kpi{min-width:0}
+.split .text,.split li{font-size:13.5px}
+/* A cell max-width is advisory under auto table layout, so a long ad name pushes the last
+   column off the edge of a half-slide. Fixed layout with an explicit name column is the only
+   thing that actually holds. */
+.split table{font-size:11.5px;table-layout:fixed}
+.split th:first-child,.split td:first-child{width:30%}
+/* The full-width table sits flush to the slide margin; inside a split that same flush
+   edge is the clipping boundary, so the last column needs real clearance. */
+.split th.r,.split td.r{padding-right:5px}
+.split th{font-size:9px;padding-right:9px}
+.split td{padding:7px 9px 7px 0}
+.split td.name{max-width:150px}
+.panel{border-left:3px solid var(--accent2);padding:3px 0 3px 16px}
+.panel .pt{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;font-weight:800;
+  color:var(--accent2);margin-bottom:6px}
+.panel .pb{font-size:14px;line-height:1.6;color:var(--body);max-width:96ch}
 
 /* Chart: columns (a trend) or rows (a ranking). Bars are CSS, values are always written out too. */
-.figure{display:flex;flex-direction:column;gap:9px;min-height:0;flex:none}
+.figure{display:flex;flex-direction:column;gap:9px;min-height:0;min-width:0;flex:none}
 .figure.fill{flex:1}
 .figure .ftitle{font-size:12.5px;font-weight:800;color:var(--ink)}
 .figure .fsub{font-size:11px;color:var(--muted);margin-top:-6px}
@@ -1220,9 +1584,9 @@ ol.list li::marker{color:var(--accent2);font-weight:800}
 .cols .cn{font-size:9.5px;color:var(--accent);font-weight:800;text-transform:uppercase;
   letter-spacing:.08em}
 .rows{display:flex;flex-direction:column;gap:8px}
-.rows .row{display:grid;grid-template-columns:160px 1fr 74px;align-items:center;gap:12px}
-.rows .rl{font-size:12.5px;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap}
+.rows .row{display:grid;grid-template-columns:minmax(0,0.9fr) 1.5fr auto;
+  align-items:center;gap:12px}
+.rows .rl{font-size:12.5px;color:var(--ink);font-weight:600;line-height:1.3}
 .rows .track{height:15px;border-radius:8px;background:var(--line);overflow:hidden}
 .rows .fill{height:100%;border-radius:8px;background:var(--accent);opacity:.85;min-width:2px}
 .rows .rv{font-size:12.5px;font-weight:800;color:var(--ink);text-align:right;
@@ -1436,6 +1800,23 @@ def _block_html(b, facts, slide_title=""):
                 bits.append("<div class=\"b\">%s</div>" % _esc(it["body"]))
             cards.append("<div class=\"card\">%s</div>" % "".join(bits))
         return "<div class=\"cards\">%s</div>" % "".join(cards)
+    if kind == "panel":
+        title = ("<div class=\"pt\">%s</div>" % _esc(b["title"])) if b.get("title") else ""
+        return "<div class=\"panel\">%s<div class=\"pb\">%s</div></div>" % (title,
+                                                                            _esc(b.get("body")))
+    if kind == "split":
+        # A split claims the slide's spare height ONLY when something in it can use it -- a column
+        # chart. Two panels side by side must stay their own size and centre, not stretch into a
+        # half-empty slide.
+        inner = (b.get("left") or []) + (b.get("right") or [])
+        grow = any(x.get("type") == "chart"
+                   and ((facts or {}).get(x.get("fact")) or {}).get("orient") != "rows"
+                   for x in inner)
+        return ("<div class=\"split%s\"><div class=\"scol\">%s</div>"
+                "<div class=\"scol\">%s</div></div>"
+                % (" grow" if grow else "",
+                   "".join(_block_html(x, facts, slide_title) for x in b.get("left") or []),
+                   "".join(_block_html(x, facts, slide_title) for x in b.get("right") or [])))
     if kind == "callout":
         tone = b.get("tone") if b.get("tone") in _TONES else "neutral"
         tag = {"good": "Working", "warn": "Watch", "bad": "Risk"}.get(tone, "Note")

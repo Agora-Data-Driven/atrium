@@ -524,11 +524,36 @@ auto-refresh (see those bullets below). Product name is one constant:
     only hold `{title, body}` bullets, so every chart, table and before/after collapsed into
     prose):** `{meta, facts, slides:[{kind, eyebrow, title, subtitle, tone, source, blocks}]}`.
     `kind` = cover | section | content | closing; `blocks` = text | bullets | cards | callout |
-    **action** ("We'll action: …") | chips | kpis | chart | table | compare.
+    **action** ("We'll action: …") | **panel** (a titled reading of the figure next to it) |
+    **split** (two evidence objects side by side, one level deep) | chips | kpis | chart | table |
+    compare.
+  - **Density is the point.** A hand-built deck runs ~160 words and ~19 numbers per slide because
+    every figure is paired with what it MEANS; the first rebuild averaged 94 because the prompt
+    capped a slide at "one idea, at most 4 blocks" and the renderer could only stack blocks
+    vertically. `split` + `panel` + a prompt that asks for 4-6 blocks and 120-180 words per content
+    slide closed most of that gap (measured 136/17). If you touch the prompt, keep the density
+    instruction: it is the difference between a deck and a list of charts.
   - 🔴 **A number in a visual is never model-written.** `build_facts(dash_data)` derives the whole
     numeric pack in plain Python from BOTH dashboard shapes — headline tiles (primary + a secondary
     strip), weekly series (revenue / ROAS / order value / spend / CTR), a last-14-days-vs-prior-14
-    **compare**, and ranked tables for ads, campaigns, age, gender, region and ActiveCampaign email.
+    **compare**, ranked tables for ads, campaigns, age, gender, region and ActiveCampaign email,
+    and the **opportunity facts** a media buyer actually acts on: `reallocation` (what the
+    expensive half of the age curve would buy at the cheap half's rate — "the same $715, +377
+    clicks"), `segments` (age crossed with gender, so the best cell in the account is findable),
+    `pressure` (last week's CPM/CPC/CTR against the flight average) and `bench` (how many
+    creatives carry the account, and how concentrated). **The template `kpis`/`daily` shape — every
+    client except the Windsor-live ones — gets the same treatment:** headline tiles, a weekly series
+    per metric (formatted by what the column NAME says it is: money, rate or count), a generic
+    like-for-like window and a `momentum` table (every metric's last complete week against its own
+    average). Before that it had only tiles plus four charts, and a normal client's deck came out
+    FOUR slides long.
+  - 🔴 **Two arithmetic traps, both fixed with regression tests — do not reintroduce them.**
+    (1) A flight almost always ends mid-week, so the final weekly bucket is PARTIAL. Charting it is
+    right; comparing it to a full-week average printed "-80%" on every metric. Everything that
+    compares weeks (`pressure`, `momentum`) filters to complete weeks, which is why `_weeks` /
+    `_daily_weeks` return day counts. (2) A fixed weekly budget is a FLAT series where every point
+    ties for max, so `_series` marked all thirteen weeks "BEST". A standout now needs a real spread
+    and a single winner.
     A `chart`/`table`/`compare`/`kpis` block carries only a **fact KEY**; the renderer draws from
     the stored fact, and `normalize_payload` DROPS a block whose key is unknown or whose kind does
     not match (an invented key renders nothing, never a wrong number). The facts ride inside the
@@ -536,9 +561,12 @@ auto-refresh (see those bullets below). Product name is one constant:
     fact, and every tone also carries text, so the deck reads in grayscale.
   - **It wears the CLIENT's identity:** `brand_kit(ws)` takes their crest from
     `ws["brand"]["client_logo"]` and parses the deck palette out of the Company tab's brand guide
-    (`company.brand.colors` — the hex codes in that free text, first = accent; blank = the AGORA
-    house palette). Logo markup is inlined verbatim, so `_mark` gates it to our own self-contained
-    `<svg>`/`data:` `<img>`.
+    (`company.brand.colors` — the hex codes in that free text; blank = the AGORA house palette).
+    🔴 **Sorted by ROLE, not by position:** a brand list almost always includes a cream/off-white,
+    and taking "the second colour" as the secondary accent puts unreadable near-white type on the
+    slide. Only colours dark enough to read on paper become accents; a very light one becomes the
+    canvas the slide sits on. Logo markup is inlined verbatim, so `_mark` gates it to our own
+    self-contained `<svg>`/`data:` `<img>`.
   - `report_ai.py` owns all of it: `gather` pulls the fact pack + the SAME distilled layer the
     Assistant reads (digest sections, company brief, intel entries, watcher summaries, board asks),
     `generate` has the configured model write the slides (it is told to make every title a CLAIM,
@@ -546,7 +574,9 @@ auto-refresh (see those bullets below). Product name is one constant:
     (the Assistant's edit-report action; the fact pack is stripped from what the model sees and
     re-attached, so an edit can never lose the numbers), `render_html(…, brand=)` renders any
     payload. **No model ⇒ a real deterministic deck** (the facts alone carry the numeric story),
-    with no invented analysis. A deck stored under the pre-rebuild payload still renders
+    with no invented analysis — and it PAIRS facts into `split` slides, then sweeps up every fact
+    its running order does not name, so a metric that is computed always reaches the deck (the
+    first version's hardcoded Windsor key list silently dropped every template-shape series). A deck stored under the pre-rebuild payload still renders
     (`_legacy_slides`). State: `ws["reports"]` index entries (payload included, so decks re-render
     and the Assistant indexes what we told the client) + per-deck HTML objects
     `workspace/reports/<c>/<id>.html` (`workspace.add/update/delete/insert_report`,

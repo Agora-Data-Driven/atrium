@@ -392,11 +392,24 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   stage** (scaled to the window, one slide shown, arrow keys / dots / click to move, `p` prints;
   `@media print` reveals every slide). Payload = `{meta, facts, slides:[{kind, eyebrow, title,
   subtitle, tone, source, blocks}]}` — `kind` cover|section|content|closing, `blocks` text |
-  bullets | cards | callout | **action** | chips | kpis | chart | table | compare. 🔴 **Charts,
+  bullets | cards | callout | **action** | **panel** | **split** | chips | kpis | chart | table |
+  compare. **`split` (two evidence objects side by side, one level deep) + `panel` (a titled
+  reading of the figure beside it) exist for DENSITY**: without them a slide could only stack, so
+  the generated deck averaged 94 words/slide against a hand-built 162 (measured). The prompt's
+  "4 to 6 blocks, 120 to 180 words, pair every figure with what it means" rule is load-bearing —
+  do not trim it back to "one idea per slide". A `split` claims the slide's spare height only when
+  it contains a column chart (`.split.grow`, decided in `_block_html`), and a table inside one
+  switches to fixed layout with a 30% name column, because a cell `max-width` is advisory under
+  auto layout and the last column slid off the edge. 🔴 **Charts,
   tables, before/afters and KPI tiles are drawn from `build_facts(dash_data)`, not from the
   model**: every series/table/compare/tile set is computed in Python (both dashboard shapes; the
-  Windsor-live one yields totals, five weekly series, a 14-vs-14 compare, and ranked ads /
-  campaigns / age / gender / region / email tables), the model emits only a **fact key**, and
+  Windsor-live one yields totals, five weekly series, a 14-vs-14 compare, ranked ads / campaigns /
+  age / gender / region / email tables, plus the OPPORTUNITY facts — `reallocation` (the expensive
+  half of the age curve priced at the cheap half's rate: "same budget, +N clicks"), `segments`
+  (age x gender cells), `pressure` (last week vs the flight average) and `bench` (creative depth);
+  the TEMPLATE `kpis`/`daily` shape gets tiles, a series per metric, a generic like-for-like window
+  and a `momentum` table — it used to get only tiles + 4 charts, i.e. a 4-slide deck for every
+  non-Windsor client), the model emits only a **fact key**, and
   `normalize_payload` drops a block whose key is unknown or mismatched — so an invented key renders
   NOTHING rather than a wrong number. The facts are stored INSIDE the payload, which is what makes
   the lazy re-render (`GET /w/<c>/report/<id>` after a Trash restore) byte-identical, and what lets
@@ -408,6 +421,13 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   stylesheet injects the palette as CSS custom properties — do NOT go back to `%`-formatting the
   sheet, every literal `%` in it is a real percentage. The deck's ONE inline script is the slide
   navigator and must stay esprima-4.x-safe (`_report_localtest.py` parses it with esprima).
+  🔴 **Two arithmetic traps with regression tests on them:** a flight ending mid-week leaves a
+  PARTIAL final bucket (chart it, never compare it — `pressure`/`momentum` filter to complete weeks,
+  which is why `_weeks`/`_daily_weeks` return day counts; a 1-day tail against a 7-day mean read
+  "-80%" on every metric), and a FLAT series (a fixed weekly budget) has every point tied for max,
+  which marked all thirteen weeks "BEST" until `_series` started requiring a real spread and a
+  single winner. `draft_payload` also sweeps up any fact its running order does not name, so adding
+  a fact to `build_facts` puts it on the deck automatically.
   Test: `python _report_localtest.py`.
 - **`intel_feed.py` / `intel_refresh.py`** — the DAILY Market Intelligence auto-refresh (opt-in,
   `INTEL_AUTO_ENABLED=1`). `intel_feed` parses Google News RSS + publisher feeds (keyless, stdlib
