@@ -257,8 +257,18 @@ if (Test-Probe { gcloud auth application-default print-access-token }) {
 }
 
 Write-Host "[..] Pinning project and ADC quota project to $PROJECT" -ForegroundColor Cyan
-gcloud config set project $PROJECT
-Must "gcloud config set project"
+# Only set the project when it differs: env-pinned windows (CLOUDSDK_ACTIVE_CONFIG_NAME) write to
+# the pinned config, so an unconditional `config set` is pure churn. (EAP drops to Continue for
+# the read -- under "Stop", 2>$null on a native command's stderr is a terminating NativeCommandError.)
+$old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+$curProj = (gcloud config get-value project 2>$null | Out-String).Trim()
+$ErrorActionPreference = $old
+if ($curProj -ne $PROJECT) {
+    gcloud config set project $PROJECT
+    Must "gcloud config set project"
+} else {
+    Write-Host "[OK] project already pinned to $PROJECT -- not rewriting the gcloud config" -ForegroundColor Green
+}
 gcloud auth application-default set-quota-project $PROJECT
 Must "gcloud auth application-default set-quota-project"
 Write-Host "[OK] Project pinned to $PROJECT" -ForegroundColor Green

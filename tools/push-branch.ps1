@@ -35,9 +35,12 @@ Set-Location $repo
 # 1. Resolve the owner name: -Dev (and remember it) > tools/.devname > this machine's name.
 $devFile = Join-Path $PSScriptRoot ".devname"
 if (-not [string]::IsNullOrWhiteSpace($Dev)) {
+    # Never save a name that starts with '-' (a stray flag argument once got captured as the devname).
+    if ($Dev.Trim() -match '^-') { Die "-Dev '$($Dev.Trim())' looks like a stray flag, not a name -- not saving it." }
     Set-Content -Path $devFile -Value $Dev.Trim() -Encoding ascii   # remember for next time
 } elseif (Test-Path $devFile) {
     $Dev = (Get-Content $devFile -Raw).Trim()
+    if ($Dev -match '^-') { $Dev = "" }   # a stray argument once got captured as the devname -- ignore it
 }
 if ([string]::IsNullOrWhiteSpace($Dev)) { $Dev = $env:COMPUTERNAME }
 
@@ -79,11 +82,11 @@ if (-not [string]::IsNullOrWhiteSpace((git status --porcelain))) {
 #    the server, our local origin/<branch> ref lingers; --force-with-lease then leases
 #    against that ghost and the push is rejected with "stale info". Pruning clears it so
 #    the next push cleanly re-creates the branch. (Non-fatal: offline still pushes below.)
-git fetch --prune origin 2>$null
+git -c http.version=HTTP/1.1 fetch --prune origin 2>$null
 
 # 7. Push with upstream. --force-with-lease so re-running updates YOUR branch safely
 #    (it only overwrites if the remote is where we last saw it -- never clobbers someone else).
-git push -u origin $branch --force-with-lease
+git -c http.version=HTTP/1.1 push -u origin $branch --force-with-lease
 Must "push $branch"
 
 Write-Host ""

@@ -15,14 +15,17 @@
 #        (optionally .\tools\merge-branches.ps1 -DryRun FIRST to print the land+deploy
 #         plan and change nothing -- good when you're unsure what will ship.)
 #
-#     2. If it STOPS on a MERGE CONFLICT: it has aborted that one branch's merge and left
-#        the clean merges on `integration/merge`. Open the conflicting files, resolve them
-#        SEMANTICALLY -- preserve BOTH developers' intent (e.g. two people who rebuilt the
-#        same screen); never just pick one side blindly -- commit the resolution, then
-#        re-run this script. It will pick up from a clean state.
+#     2. If it STOPS on a MERGE CONFLICT: the conflict is left IN THE TREE on
+#        `integration/merge` (the clean merges so far are already on it). Open the
+#        conflicting files, resolve them SEMANTICALLY -- preserve BOTH developers' intent
+#        (e.g. two people who rebuilt the same screen); never just pick one side blindly --
+#        then:
+#            git add -A; git commit --no-edit
+#            .\tools\merge-branches.ps1 -Resume
 #
 #     3. If it STOPS on a RED CI TEST: the integrated tree fails a gate. Fix the failure
-#        (on the integration result), then re-run. NEVER bypass the tests or land a red tree.
+#        (on the integration result), commit, then re-run with -Resume. NEVER bypass the
+#        tests or land a red tree.
 #
 #     4. On success it has ALREADY: landed `integration/merge` into `main` (fast-forward,
 #        pushed), deployed every service whose files changed (see the mapping below), and
@@ -59,6 +62,12 @@
 #   -NoDeploy      land to main, but do NOT deploy the changed services (deploy later).
 #   -NoPrune       skip the branch cleanup at the end.
 #   -Exclude a,b   skip specific dev branches (comma-separated).
+#   -Resume        continue a run that STOPPED on a merge conflict (or a red gate): expects
+#                  HEAD on `integration/merge` with the resolution committed (clean tree).
+#                  Skips the pre-flight staleness gate (the stopped run already gated;
+#                  a per-branch [STALE] warning still prints in the merge loop) and derives
+#                  the diff base from merge-base(origin/main, integration/merge) instead of
+#                  today's origin/main tip, so the deploy plan covers the whole integration.
 #   -DeleteMerged  standalone: ONLY prune remote branches already contained in origin/main
 #                  (runs nothing else). Unchanged from the original tool.
 #   -AllowReverts  bypass the SECONDARY reversion net only (after confirming a mass deletion is
@@ -91,6 +100,7 @@ param(
     [switch]$NoDeploy,
     [switch]$NoPrune,
     [switch]$DryRun,
+    [switch]$Resume,
     [switch]$AllowReverts   # bypass the SECONDARY reversion net only (deletes files on main / large
                             # net-negative). Does NOT bypass the staleness gate -- sync the branch instead.
 )
@@ -103,6 +113,13 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path   # tools/ -> repo ro
 Set-Location $repo
 
 $origBranch = (git rev-parse --abbrev-ref HEAD 2>$null)   # remembered so -DryRun can restore it
+
+# A half-finished merge (MERGE_HEAD exists) means a prior run stopped on a conflict that is
+# still unresolved. Only -Resume may proceed past it -- and only once the resolution is committed.
+git rev-parse -q --verify MERGE_HEAD *>$null
+if ($LASTEXITCODE -eq 0 -and -not $Resume) {
+    Die "a merge is in progress (unresolved conflict). Resolve it then 'git add -A; git commit --no-edit' and re-run with -Resume, or 'git merge --abort' to discard it."
+}
 
 # -DryRun integrates locally; it never commits your WIP, so a dirty tree would block the
 # integration checkout. Require a clean tree for the preview (the real run commits first).
@@ -178,16 +195,18 @@ function Test-ReversionRisk([string]$mainRef, [string]$intgRef) {
 # CRITICAL: exclude the origin/HEAD symref -- its `:short` form is the bare "origin",
 # which is not a real branch; trying to delete it errors out and aborts the prune.
 function Get-MergedDevBranches([string[]]$Skip) {
+    # wip/* is PARKED work (agora-park.ps1): never integrated, and never pruned here
+    # either -- a fully-merged park is deleted by its owner, not by this sweep.
     git branch -r --merged origin/main --format='%(refname:short)' |
         Where-Object { $_ -and $_ -ne 'origin/HEAD' -and $_ -ne 'origin' -and $_ -notlike '*->*' } |
         ForEach-Object { ($_ -replace '^origin/', '').Trim() } |
-        Where-Object { $_ -and ($Skip -notcontains $_) }
+        Where-Object { $_ -and ($Skip -notcontains $_) -and ($_ -notlike 'wip/*') }
 }
 
 # Delete remote branches one at a time, never aborting the batch if one is already gone.
 function Remove-RemoteBranches([string[]]$Branches) {
     foreach ($b in $Branches) {
-        git push origin --delete $b 2>&1 | Out-Null
+        git -c http.version=HTTP/1.1 push origin --delete $b 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) { Write-Host "    deleted origin/$b" -ForegroundColor Yellow }
         else { Write-Host "    [warn] could not delete origin/$b (already gone?)" -ForegroundColor Yellow }
     }
@@ -247,14 +266,34 @@ if ($DryRun) {
 Write-Host "[..] Fetching origin" -ForegroundColor Cyan
 git fetch origin --prune; Must "git fetch"
 
-$baseMain = (git rev-parse origin/main).Trim()   # the main we are integrating ON TOP OF
-Must "resolve origin/main"
+$intg = "integration/merge"
+if ($Resume) {
+    # Resuming a stopped run: HEAD must already be on the integration branch with the
+    # conflict resolution COMMITTED, and the diff base is the point the integration grew
+    # from (merge-base) -- origin/main's tip may have moved while the conflict was resolved.
+    $cur = "$(git rev-parse --abbrev-ref HEAD 2>$null)".Trim()
+    if ($cur -ne $intg) { Die "-Resume expects to be on '$intg' but HEAD is '$cur'. Re-run WITHOUT -Resume." }
+    if (-not [string]::IsNullOrWhiteSpace((git status --porcelain))) { Die "-Resume needs a clean tree. Finish: git add -A; git commit --no-edit" }
+    $baseMain = "$(git merge-base origin/main $intg 2>$null)".Trim()
+    if (-not $baseMain) { Die "could not find the base of $intg -- re-run WITHOUT -Resume." }
+} else {
+    $baseMain = (git rev-parse origin/main).Trim()   # the main we are integrating ON TOP OF
+    Must "resolve origin/main"
+}
 
-$branches = git branch -r --format='%(refname:short)' |
+# PARKED branches (wip/*, pushed by agora-park.ps1) are EXPLICITLY skipped: this script
+# integrates every dev branch it finds, so without this rule parking would ship unfinished
+# work. Skipped loudly, never silently.
+$allRemote = @(git branch -r --format='%(refname:short)' |
     ForEach-Object { $_.Trim() } |
     Where-Object { $_ -like 'origin/*' } |
     ForEach-Object { $_ -replace '^origin/', '' } |
-    Where-Object { $_ -and ($skip -notcontains $_) }
+    Where-Object { $_ -and ($skip -notcontains $_) })
+$parkedBranches = @($allRemote | Where-Object { $_ -like 'wip/*' })
+$branches = @($allRemote | Where-Object { $_ -notlike 'wip/*' })
+if ($parkedBranches.Count -gt 0) {
+    Write-Host "[PARKED] $($parkedBranches.Count) parked branch(es) ignored (wip/* never ships): $($parkedBranches -join ', ')" -ForegroundColor Yellow
+}
 
 if (-not $branches) {
     Write-Host "[OK] no dev branches to merge -- origin/main is already current." -ForegroundColor Green
@@ -270,46 +309,75 @@ Write-Host "[OK] branches to integrate: $($branches -join ', ')"
 #     heuristic the reversion net uses), so a clean pass here means a stale revert is structurally
 #     impossible, not merely unlikely. The fix is ALWAYS to sync the branch onto origin/main
 #     (push-branch.ps1 auto-merges it in), so there is deliberately no bypass flag.
+#     Skipped on -Resume (the stopped run already gated); the merge loop still echoes a
+#     per-branch [STALE] warning for anything that went stale between runs.
 # =============================================================================
-$stale = @()
-foreach ($b in $branches) {
-    git merge-base --is-ancestor origin/main "origin/$b" 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        $bBehind = "$(git rev-list --count origin/$b..origin/main 2>$null)".Trim()
-        $stale += [pscustomobject]@{ Branch = $b; Behind = $bBehind }
+if (-not $Resume) {
+    $stale = @()
+    foreach ($b in $branches) {
+        git merge-base --is-ancestor origin/main "origin/$b" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            $bBehind = "$(git rev-list --count origin/$b..origin/main 2>$null)".Trim()
+            $stale += [pscustomobject]@{ Branch = $b; Behind = $bBehind }
+        }
     }
+    if ($stale.Count -gt 0) {
+        Write-Host "[STALENESS GATE] these branches do NOT contain origin/main (built on stale main):" -ForegroundColor Red
+        $stale | ForEach-Object { Write-Host "      origin/$($_.Branch) -- $($_.Behind) commit(s) behind origin/main" -ForegroundColor Yellow }
+        Write-Host "    Landing them could revert newer work already on main. Sync each stale branch FIRST:" -ForegroundColor Yellow
+        Write-Host "      git switch <branch>; git merge --no-edit origin/main   (or just re-run its push-branch.ps1)" -ForegroundColor Yellow
+        Write-Host "      resolve any conflicts keeping BOTH sides, push, then re-run this script." -ForegroundColor Yellow
+        Die "staleness gate tripped -- NOT integrating a stale branch. Syncing is the fix; there is no bypass."
+    }
+    Write-Host "[OK] staleness gate passed -- every branch contains origin/main." -ForegroundColor Green
 }
-if ($stale.Count -gt 0) {
-    Write-Host "[STALENESS GATE] these branches do NOT contain origin/main (built on stale main):" -ForegroundColor Red
-    $stale | ForEach-Object { Write-Host "      origin/$($_.Branch) -- $($_.Behind) commit(s) behind origin/main" -ForegroundColor Yellow }
-    Write-Host "    Landing them could revert newer work already on main. Sync each stale branch FIRST:" -ForegroundColor Yellow
-    Write-Host "      git switch <branch>; git merge --no-edit origin/main   (or just re-run its push-branch.ps1)" -ForegroundColor Yellow
-    Write-Host "      resolve any conflicts keeping BOTH sides, push, then re-run this script." -ForegroundColor Yellow
-    Die "staleness gate tripped -- NOT integrating a stale branch. Syncing is the fix; there is no bypass."
-}
-Write-Host "[OK] staleness gate passed -- every branch contains origin/main." -ForegroundColor Green
 
 # =============================================================================
-# 2. Throwaway integration branch off the CURRENT origin/main.
+# 2. Throwaway integration branch off the CURRENT origin/main ($intg named in step 1).
+#    Under -Resume we are ALREADY on it (verified above) -- recreating it would throw
+#    away the committed conflict resolution.
 # =============================================================================
-$intg = "integration/merge"
-Write-Host "[..] Creating $intg off origin/main" -ForegroundColor Cyan
-git switch -C $intg origin/main; Must "create $intg"
+if (-not $Resume) {
+    Write-Host "[..] Creating $intg off origin/main" -ForegroundColor Cyan
+    git switch -C $intg origin/main; Must "create $intg"
+}
 
 # =============================================================================
-# 3. Merge each branch; STOP on the first conflict (hand off to the agent per runbook).
+# 3. Merge each branch; STOP on the first conflict (hand off to the agent per runbook --
+#    the conflict is LEFT IN THE TREE so the resolution can be committed and -Resume'd).
 # =============================================================================
 $merged = @()
 foreach ($b in $branches) {
+    git merge-base --is-ancestor "origin/$b" HEAD 2>$null
+    if ($LASTEXITCODE -eq 0) { Write-Host "    [skip] $b already integrated" -ForegroundColor DarkGray; $merged += $b; continue }
+    # STALENESS echo: the pre-flight staleness gate above already blocks stale branches on a
+    # fresh run. This only fires under -Resume (which skips the pre-flight) if a branch went
+    # stale between runs -- warn loudly; the reversion net below is the backstop.
+    git merge-base --is-ancestor origin/main "origin/$b" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        $bBehind = "$(git rev-list --count origin/$b..origin/main 2>$null)".Trim()
+        Write-Host "    [STALE] origin/$b is $bBehind commit(s) behind origin/main -- built on stale main; watch for reverts." -ForegroundColor Yellow
+    }
     Write-Host "[..] Merging $b" -ForegroundColor Cyan
     git merge --no-ff -m "Merge $b into $intg" "origin/$b"
     if ($LASTEXITCODE -ne 0) {
-        git merge --abort
+        if ($DryRun) {
+            git merge --abort *>$null
+            Write-Host "[dry-run] $b conflicts with the integration -- can't preview past it." -ForegroundColor Yellow
+            if ($origBranch -and $origBranch -ne 'HEAD' -and $origBranch -ne $intg) { git switch $origBranch *>$null } else { git switch main *>$null }
+            git branch -D $intg *>$null
+            exit 1
+        }
+        $unmerged = @(git diff --name-only --diff-filter=U | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         Write-Host ""
-        Write-Host "[CONFLICT] $b does not merge cleanly -- aborted that merge." -ForegroundColor Red
+        Write-Host "[CONFLICT] $b does not merge cleanly -- left in the tree for you to resolve." -ForegroundColor Red
+        $unmerged | ForEach-Object { Write-Host "      $_" -ForegroundColor Yellow }
         Write-Host "  Already integrated cleanly: $($merged -join ', ')" -ForegroundColor Yellow
-        Write-Host "  AGENT: resolve this branch's conflict semantically (preserve BOTH devs' intent)," -ForegroundColor Yellow
-        Write-Host "         commit, then re-run this script. The $intg branch holds the clean merges so far."
+        Write-Host "  AGENT: resolve each file semantically (preserve BOTH devs' intent) -- BUT if '$b' is" -ForegroundColor Yellow
+        Write-Host "         [STALE] (built on old main) and a hunk REVERTS newer work (deletes files or" -ForegroundColor Yellow
+        Write-Host "         features that are on main), keep the up-to-date side. Then:" -ForegroundColor Yellow
+        Write-Host "         git add -A; git commit --no-edit" -ForegroundColor Yellow
+        Write-Host "         .\tools\merge-branches.ps1 -Resume   (the reversion net still runs before landing)" -ForegroundColor Yellow
         exit 1
     }
     $merged += $b
@@ -370,7 +438,7 @@ if ($NoPush -or $DryRun) {
     Write-Host ""
     $tag = if ($DryRun) { "[dry-run]" } else { "[no-push]" }
     Write-Host "$tag $intg is clean + green. It was NOT landed or deployed." -ForegroundColor Green
-    Write-Host "$tag would LAND:   git switch main; git merge --ff-only $intg; git push origin main"
+    Write-Host "$tag would LAND:   git switch main; git merge --ff-only $intg; git -c http.version=HTTP/1.1 push origin main"
     if ($plan.Count -gt 0) {
         Write-Host "$tag would DEPLOY (changed services):"
         foreach ($s in $plan) { Write-Host "           - $($s.Service)  ->  $($s.Script)" }
@@ -393,7 +461,7 @@ Write-Host "[..] Landing $intg into main" -ForegroundColor Cyan
 git switch main;                 Must "switch to main"
 git merge --ff-only origin/main; Must "sync local main to origin/main"   # no-op if already current
 git merge --ff-only $intg;       Must "fast-forward main to $intg"
-git push origin main;            Must "push origin main"
+git -c http.version=HTTP/1.1 push origin main; Must "push origin main"
 Write-Host "[OK] landed -- main is now $(git rev-parse --short HEAD)" -ForegroundColor Green
 
 # =============================================================================

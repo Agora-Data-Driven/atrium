@@ -62,8 +62,10 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "[OK] CLI credentials valid" -ForegroundColor Green
 }
 
-# Pin project (cheap, idempotent).
-gcloud config set project $PROJECT 2>$null
+# Pin project only when it differs: env-pinned windows (CLOUDSDK_ACTIVE_CONFIG_NAME) write to
+# the pinned config, so an unconditional `config set` is pure churn on an already-correct pin.
+$curProj = (gcloud config get-value project 2>$null | Out-String).Trim()
+if ($curProj -ne $PROJECT) { gcloud config set project $PROJECT 2>$null }
 
 # ---------------------------------------------------------------------------
 # Application Default Credentials -- reauth only if the probe fails
