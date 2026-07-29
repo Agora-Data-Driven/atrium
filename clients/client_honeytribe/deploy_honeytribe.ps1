@@ -9,8 +9,11 @@
 # Creates / converges:
 #   APIs -> AR repo + private bucket -> job/web service accounts + IAM
 #   -> password/session/windsor/shopify secrets -> export job (build/deploy/run)
-#   -> run.developer for the portal SA (so the 6-hourly sync-refresh can trigger it)
+#   -> run.developer on the export job (the ONLY thing that makes the Sync button work)
 #   -> dash web service (private + app-level auth).
+#
+# NO Cloud Scheduler by default: refresh is Sync-button driven, because each run costs paid
+# Windsor/Meta and Shopify calls. Running without -WithScheduler REMOVES any scheduler it finds.
 #
 # RUN AS YOURSELF (gcloud auth login info@agoradatadriven.com) -- never Cloud Build
 # from a laptop. `gcloud builds submit --tag` builds the image (no actAs); the deploy
@@ -20,14 +23,18 @@
 #   .\deploy_honeytribe.ps1 -Password "clientpw" -WindsorKey "xxx" -ShopifyToken "shpat_xxx"
 #   (omit any to be prompted; they also read $env:DASH_PASSWORD / WINDSOR_API_KEY /
 #    SHOPIFY_ACCESS_TOKEN)
-#   -SkipJobRun   deploy without executing the export job (it takes ~90s)
+#   -SkipJobRun      deploy without executing the export job (it takes ~90s)
+#   -WithScheduler   also run a 6-hourly refresh tick (off by default; see above)
 # =============================================================================
 
 param(
     [string]$Password = "",
     [string]$WindsorKey = "",
     [string]$ShopifyToken = "",
-    [switch]$SkipJobRun
+    [switch]$SkipJobRun,
+    # Refresh is Sync-button driven by the client's decision. Pass this to also run a 6-hourly
+    # Cloud Scheduler tick; without it any existing scheduler is REMOVED.
+    [switch]$WithScheduler
 )
 
 # --- Constants (use literally; never invent alternatives) --------------------
@@ -172,33 +179,49 @@ if (-not $SkipJobRun) {
     Write-Host "[OK] initial live data export complete"
 }
 
-# --- Step 6: let the platform sync trigger this job --------------------------
-# Refresh is driven by the 6-hourly `sync-refresh` job AND by the dashboard's own Sync button,
-# both of which POST :run WITH env overrides. That needs run.jobs.runWithOverrides, which
-# roles/run.invoker does NOT carry -- an invoker-only grant makes every tick 403 while the IAM
-# policy looks correct (it left riverdance stale for 13 days). So grant run.developer.
+# --- Step 6: let the Sync button trigger this job ----------------------------
+# With no scheduler, the dashboard's Sync button is the ONLY refresh path -- so this grant is
+# load-bearing, not a nicety. It POSTs :run WITH env overrides, which needs
+# run.jobs.runWithOverrides; roles/run.invoker does NOT carry it, and an invoker-only grant makes
+# every trigger 403 while the IAM policy looks correct (it left riverdance stale for 13 days).
+# So grant run.developer. The portal SA gets it too, in case this client is ever registered.
 $PORTAL_SA = "platform-dash-web@agora-data-driven.iam.gserviceaccount.com"
 Write-Host "[..] Granting run.developer on $EXPORT_JOB (portal sync + Sync button)" -ForegroundColor Cyan
 gcloud run jobs add-iam-policy-binding $EXPORT_JOB --region $REGION --project $PROJECT --member "serviceAccount:$PORTAL_SA" --role "roles/run.developer"; Must "grant run.developer to portal SA"
 gcloud run jobs add-iam-policy-binding $EXPORT_JOB --region $REGION --project $PROJECT --member "serviceAccount:$WEB_SA" --role "roles/run.developer"; Must "grant run.developer to web SA"
 Write-Host "[OK] $EXPORT_JOB is triggerable"
 
-# --- Step 6b: 6-hourly refresh -----------------------------------------------
-# Honey Tribe is not in the portal registry, so the platform-wide `sync-refresh` does not reach
-# it -- give it its own scheduler. It impersonates the WEB SA (which holds run.developer above),
-# not the cloudscheduler service agent, which owners cannot actAs.
-Write-Host "[..] Ensuring 6-hourly scheduler $SCHED" -ForegroundColor Cyan
+# --- Step 6b: refresh policy --------------------------------------------------
+# NO scheduler by the client's decision (2026-07-29): refresh runs off the dashboard's Sync
+# button, because every export costs paid Windsor/Meta and Shopify calls and a timer would burn
+# them on data nobody asked for. Honey Tribe is not in the portal registry either, so the
+# platform-wide `sync-refresh` never reaches it -- the Sync button really is the only trigger,
+# which is what the run.developer grant above exists for.
+#
+# Pass -WithScheduler to turn a 6-hourly tick back on (it impersonates the WEB SA, not the
+# cloudscheduler service agent, which owners cannot actAs). Without it this step actively REMOVES
+# any scheduler left over from a previous standup, so re-running converges on the intended state
+# instead of quietly leaving one behind.
 $RUN_URI = "https://run.googleapis.com/v2/projects/$PROJECT/locations/$REGION/jobs/${EXPORT_JOB}:run"
-if (Exists { gcloud scheduler jobs describe $SCHED --location $REGION --project $PROJECT }) {
-    gcloud scheduler jobs update http $SCHED --location $REGION --project $PROJECT `
-        --schedule "20 */6 * * *" --time-zone "Asia/Singapore" --uri $RUN_URI --http-method POST `
-        --oauth-service-account-email $WEB_SA; Must "update scheduler $SCHED"
+if ($WithScheduler) {
+    Write-Host "[..] Ensuring 6-hourly scheduler $SCHED" -ForegroundColor Cyan
+    if (Exists { gcloud scheduler jobs describe $SCHED --location $REGION --project $PROJECT }) {
+        gcloud scheduler jobs update http $SCHED --location $REGION --project $PROJECT `
+            --schedule "20 */6 * * *" --time-zone "Asia/Singapore" --uri $RUN_URI --http-method POST `
+            --oauth-service-account-email $WEB_SA; Must "update scheduler $SCHED"
+    } else {
+        gcloud scheduler jobs create http $SCHED --location $REGION --project $PROJECT `
+            --schedule "20 */6 * * *" --time-zone "Asia/Singapore" --uri $RUN_URI --http-method POST `
+            --oauth-service-account-email $WEB_SA; Must "create scheduler $SCHED"
+    }
+    Write-Host "[OK] $SCHED refreshes $EXPORT_JOB every 6h"
+} elseif (Exists { gcloud scheduler jobs describe $SCHED --location $REGION --project $PROJECT }) {
+    Write-Host "[..] Removing scheduler $SCHED (refresh is Sync-button only)" -ForegroundColor Yellow
+    gcloud scheduler jobs delete $SCHED --location $REGION --project $PROJECT --quiet; Must "delete scheduler $SCHED"
+    Write-Host "[OK] $SCHED removed"
 } else {
-    gcloud scheduler jobs create http $SCHED --location $REGION --project $PROJECT `
-        --schedule "20 */6 * * *" --time-zone "Asia/Singapore" --uri $RUN_URI --http-method POST `
-        --oauth-service-account-email $WEB_SA; Must "create scheduler $SCHED"
+    Write-Host "[OK] no scheduler (refresh is Sync-button only; -WithScheduler re-enables it)"
 }
-Write-Host "[OK] $SCHED refreshes $EXPORT_JOB every 6h"
 
 # --- Step 7: JS gate + build + deploy the dash service -----------------------
 Write-Host "[..] Validating dashboard.html inline JS" -ForegroundColor Cyan
@@ -221,4 +244,5 @@ Write-Host "     dash service : $WEB_SERVICE"
 Write-Host "     live URL     : $SVC_URL   (works immediately; no DNS needed)"
 Write-Host "     access       : OPEN (DASH_OPEN=1) - no login. Set DASH_OPEN=0 to re-gate."
 Write-Host "     export job   : $EXPORT_JOB   (live Windsor + Shopify pull)"
+Write-Host "     refresh      : Sync button only - no scheduler ( -WithScheduler adds a 6h tick )"
 Write-Host "     next (optional): map $CLIENT.agoradatadriven.com -> $WEB_SERVICE, then tools\enable_platform_sso.ps1 -Keys $CLIENT"

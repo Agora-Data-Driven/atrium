@@ -97,8 +97,18 @@ table in [README.md](README.md).
 
 `deploy_honeytribe.ps1` — one-shot, idempotent, no dataset and no views. It validates the JS gate,
 builds both images as you, and grants **`roles/run.developer`** (not `run.invoker`) on the export
-job to the portal SA and the web SA, which is what makes the Sync button and the 6-hourly
-`sync-refresh` work. Re-running rotates the secrets to whatever you pass.
+job to the portal SA and the web SA. Re-running rotates the secrets to whatever you pass.
+
+**There is deliberately NO Cloud Scheduler** (client decision 2026-07-29, matching `client_RHE`
+and `client_MeloYelo`): refresh runs off the dashboard's **Sync button**, because each run costs
+paid Windsor/Meta and Shopify calls. Honey Tribe is not in the portal registry either, so the
+platform-wide `sync-refresh` never reached it — the Sync button is genuinely the only trigger,
+which is what makes that `run.developer` grant load-bearing rather than a nicety
+(`run.invoker` does NOT carry `runWithOverrides`). Running the script without `-WithScheduler`
+REMOVES any scheduler it finds, so re-running converges on that state instead of quietly leaving
+a timer behind. The `/refresh` route's 10-minute cooldown (keyed on the data object's age, so it
+is shared across instances) is what stops repeat clicks running up the bill — do not remove it
+while `DASH_OPEN=1`, since there is no login in front of that route.
 
 Derived names: bucket `agora-data-driven-honeytribe-dash` · job `honeytribe-export` · service
 `honeytribe-dash` · secrets `honeytribe-{dash-password,dash-session-key,windsor-key,shopify-token}`.
