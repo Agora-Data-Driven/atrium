@@ -120,9 +120,14 @@ the feed is more than 2 days behind. **Sync** re-pulls: it POSTs `/refresh` (whi
 spinner throughout. Unconfigured, it degrades to a plain reload — the button always does something
 useful and needs no extra IAM by default.
 
+**Sync is the ONLY refresh path** — there is no Cloud Scheduler (removed 2026-07-29 at the
+client's request; each run costs paid Windsor/Meta and Shopify calls). Repeat clicks are held off
+by a 10-minute cooldown keyed on the data object's age, so it is shared across instances.
+
 ⚠️ Wiring `/refresh` needs the web SA to hold **`roles/run.developer`** on the export job.
 `roles/run.invoker` does *not* carry `run.jobs.runWithOverrides` — the exact trap that left
-riverdance 13 days stale (see the root `CLAUDE.md`).
+riverdance 13 days stale (see the root `CLAUDE.md`). With no scheduler as a backstop, this grant
+is load-bearing: lose it and the dashboard silently stops updating altogether.
 
 ---
 
@@ -214,7 +219,7 @@ screen.
 | Dashboard | **https://honeytribe-dash-585951669065.asia-southeast1.run.app** — no login (`DASH_OPEN=1`) |
 | Service | `honeytribe-dash` (asia-southeast1, `--no-invoker-iam-check`, password + SSO-ready) |
 | Export job | `honeytribe-export` — full backfill **133 s**, incremental run **~25 s** |
-| Refresh | Cloud Scheduler `honeytribe-export-6h`, `20 */6 * * *` Asia/Singapore, plus the in-page Sync button |
+| Refresh | **In-page Sync button only — no scheduler** (removed 2026-07-29; 10-min cooldown). `deploy_honeytribe.ps1 -WithScheduler` adds a 6-hourly tick back |
 | Data | private `gs://agora-data-driven-honeytribe-dash/honeytribe.json`, served only via the authed `/data.json` proxy |
 
 **Access is OPEN** — no password, at the operator's request (2026-07-27), because the dashboard is
@@ -229,8 +234,9 @@ default 600) keyed on the age of the data object — a repeat click reports "ref
 instead of firing another paid Windsor/Shopify pull.
 
 Verified end to end after deploy: `/` → 200 with no cookies, `/data.json` → 200 (4.9 MB),
-`POST /refresh` → `{"ok":true}`, scheduler-triggered execution succeeded and republished the JSON,
+`POST /refresh` → `{"ok":true}` and the triggered execution succeeded and republished the JSON,
 and the scorecard toggles + both axis modes work on the live service with no JS errors.
+Re-verified 2026-07-29 after the scheduler was removed, since Sync became the only refresh path.
 
 ### Two traps that already bit this client
 
@@ -271,8 +277,8 @@ and the scorecard toggles + both axis modes work on the live service with no JS 
 
 One-shot and idempotent: APIs → Artifact Registry + private bucket → job/web service accounts +
 IAM → password / session / Windsor / Shopify secrets → export job (build, deploy, first run) →
-`run.developer` for the portal SA **and** the web SA so the 6-hourly `sync-refresh` and the
-dashboard's own Sync button can trigger it → the dash service (`--no-invoker-iam-check`, app-level
+`run.developer` for the portal SA **and** the web SA so the dashboard's Sync button can trigger it
+(and it REMOVES any Cloud Scheduler unless you pass `-WithScheduler`) → the dash service (`--no-invoker-iam-check`, app-level
 auth). No dataset, no SQL views. Re-running it rotates the secrets to whatever you pass in.
 
 `-SkipJobRun` deploys without executing the export job (that run pages through ~9,300 Shopify

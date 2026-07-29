@@ -1,0 +1,3775 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rooming House Expert: Performance Dashboard</title>
+<link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231F7A5C'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,400;0,700;0,900;1,400&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body style="margin:0">
+<style>
+  /* ---------- Rooming House Expert palette ------------------------------------------
+     NOTE: the brand kit supplied in the context drop was Honey Tribe's, copied into the wrong
+     folder — RHE's real kit has not been received. These tokens are a defensible stand-in for a
+     property / cash-flow business (deep green = money and growth, brass = the premium accent),
+     and EVERY colour on the page resolves from here, so dropping in the real kit is one edit.
+     Identity vs encoding are separate jobs: --brand* are identity, --s1..--s7 are the series
+     ramp and are chosen to be DISTINGUISHABLE first (playbook 8).                            */
+  :root{
+    /* ---------- Rooming House Expert brand kit ----------
+       Hex values SAMPLED FROM THE PIXELS of the supplied brand board (playbook 8 — the printed
+       labels were too small to read reliably, so each swatch was measured, not eyeballed):
+         #BE5BF6 purple · #038810 green · #153DFD blue · #02B6FD cyan · #C064F5 lilac
+       The mark is a puzzle-piece house in those four colours, wordmark in green with a
+       letter-spaced lilac "EXPERT". It is drawn for a LIGHT ground, so the chrome is light —
+       a dark header would fight the logo it is meant to carry.
+       Brand type is Agency Gothic Condensed + Connect; Oswald is the closest widely-available
+       stand-in for the condensed gothic, with Lato carrying the data.                          */
+    --purple:#BE5BF6; --green:#038810; --blue:#153DFD; --cyan:#02B6FD; --lilac:#C064F5;
+    --green-d:#026B0D; --green-l:#0FB01F; --purple-d:#9B3FD4;
+    --canvas:#FAFAFC; --white:#fff; --panel:#F4F3F9; --panel2:#EAE8F4;
+    --ink:#14121C; --ink2:#3D3A4D; --muted:#7C7A8C; --line:#E6E4EF; --line2:#D3D0E2;
+    --good:#038810; --bad:#D42A2A; --warn:#E8871E;
+    /* Series ramp: the four brand colours first, then three that stay distinguishable beside
+       them. --lilac is deliberately NOT a series colour — it is too close to --purple at 2px. */
+    --s1:#038810; --s2:#BE5BF6; --s3:#153DFD; --s4:#02B6FD;
+    --s5:#E8871E; --s6:#D6208A; --s7:#5A6B78;
+    --grad:linear-gradient(90deg,var(--purple),var(--blue) 34%,var(--cyan) 67%,var(--green));
+    --grad-soft:linear-gradient(90deg,rgba(190,91,246,.14),rgba(21,61,253,.10),rgba(2,182,253,.10),rgba(3,136,16,.12));
+    --shadow:0 10px 30px rgba(20,18,28,.09);
+    --shadow-sm:0 2px 8px rgba(20,18,28,.06);
+    --shadow-lift:0 14px 34px rgba(20,18,28,.14);
+    --radius:16px;
+    --display:'Oswald','Lato',system-ui,sans-serif;
+    --sans:'Lato',system-ui,sans-serif;
+    --accent:'Lato',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:var(--sans);background:var(--canvas);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased}
+  h1,h2,h3,h4{font-family:var(--display);font-weight:900;color:var(--green-d);letter-spacing:-.015em}
+  .wrap{max-width:1400px;margin:0 auto;padding:0 26px}
+  .tnum{font-variant-numeric:tabular-nums}
+
+  /* ---------- Header — light, because the logo is drawn for a light ground ---------- */
+  header.top{background:var(--white);position:sticky;top:0;z-index:60;color:var(--ink)}
+  /* the brand's four colours as the rule under the header — the one place the full ramp appears */
+  header.top::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--grad)}
+  .top-inner{display:flex;align-items:center;gap:18px;padding:13px 26px;max-width:1400px;margin:0 auto}
+  .brand{display:flex;align-items:center;gap:14px;min-width:0}
+  .brand img{height:46px;width:auto;display:block}
+  /* the crest only shows until a real logo lands in job/assets/rhe-mark.png */
+  .crest{width:46px;height:46px;border-radius:13px;background:var(--grad);display:flex;align-items:center;
+         justify-content:center;font-family:var(--display);font-weight:700;font-size:17px;color:#fff;
+         letter-spacing:.02em;flex:none;box-shadow:0 4px 14px rgba(190,91,246,.35)}
+  .brand .wm{font-family:var(--display);font-weight:600;font-size:21px;letter-spacing:.06em;
+             color:var(--green);line-height:1.05;text-transform:uppercase}
+  /* when the real logo renders it already carries the wordmark — drop the text lockup */
+  .brand.has-logo .wm{display:none}
+  .brand.has-logo .tg{font-size:11px;letter-spacing:.13em}
+  .brand .tg{font-family:var(--accent);font-size:11.5px;color:var(--purple);letter-spacing:.14em;
+             text-transform:uppercase;font-weight:700}
+  .top-spacer{flex:1}
+  .top-meta{text-align:right;font-size:11px;color:var(--muted);line-height:1.5}
+  .top-meta b{color:var(--ink2);font-weight:700}
+  .srcbadge{display:inline-block;font-size:9.5px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;
+            border-radius:5px;padding:1px 6px;margin-left:5px;border:1px solid var(--line2);color:var(--muted)}
+  .srcbadge.fresh{border-color:rgba(3,136,16,.45);color:var(--green);background:rgba(3,136,16,.09)}
+  .srcbadge.old{border-color:rgba(212,42,42,.45);color:var(--bad);background:rgba(212,42,42,.08)}
+  .syncbox{display:flex;align-items:center;gap:12px}
+  .sync{display:inline-flex;align-items:center;gap:7px;font-family:var(--display);font-size:13px;font-weight:600;
+        letter-spacing:.04em;text-transform:uppercase;border:0;background:var(--green);color:#fff;
+        padding:9px 18px;border-radius:9px;cursor:pointer;transition:.15s;white-space:nowrap;
+        box-shadow:0 3px 10px rgba(3,136,16,.28)}
+  .sync:hover{background:var(--purple);box-shadow:0 3px 12px rgba(190,91,246,.35)}
+  .sync[disabled]{opacity:.6;cursor:default}
+  .sync.ok{background:var(--green-l)}
+  .sync.bad{background:var(--bad)}
+  .spin{width:12px;height:12px;border-radius:50%;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;
+        display:none;animation:spin .7s linear infinite}
+  .sync.busy .spin{display:inline-block}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .stale{color:var(--bad);font-weight:900}
+  .agency{display:flex;align-items:center;gap:9px;padding-left:18px;margin-left:4px;border-left:1px solid var(--line2)}
+  .agency .lbl{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:1.1px;text-align:right}
+  .agency img{height:24px;opacity:.8;display:block}
+  /* an explicit display: beats the UA stylesheet's [hidden] rule, so a logo that never loads
+     would otherwise render its alt text in the header */
+  .brand img[hidden], .agency img[hidden]{display:none}
+
+  /* ---------- Tabs ---------- */
+  .tabbar{background:var(--panel);border-bottom:1px solid var(--line2);position:sticky;top:77px;z-index:55}
+  .tabs{display:flex;gap:2px;padding:0 26px;max-width:1400px;margin:0 auto;overflow-x:auto}
+  .tab{position:relative;border:none;background:transparent;font-family:var(--display);font-size:14px;font-weight:500;
+       color:var(--muted);padding:13px 20px 12px;cursor:pointer;letter-spacing:.045em;transition:.15s;
+       white-space:nowrap;text-transform:uppercase}
+  .tab:hover{color:var(--ink);background:rgba(190,91,246,.07)}
+  .tab[aria-selected="true"]{color:var(--green);background:var(--white)}
+  .tab[aria-selected="true"]::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:3px;
+       background:var(--grad)}
+  .tab .ix{font-family:var(--sans);font-size:11px;font-weight:900;color:var(--purple);opacity:.85;margin-right:7px}
+
+  /* ---------- Control bar ---------- */
+  .controls{background:rgba(244,241,234,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line2);
+            position:sticky;top:112px;z-index:50}
+  .controls-inner{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:11px 56px 11px 26px;max-width:1400px;margin:0 auto;position:relative}
+  .ctuck{position:absolute;top:8px;right:18px;display:inline-flex;align-items:center;gap:5px;
+         border:1px solid var(--line2);background:var(--white);color:var(--muted);
+         font-family:var(--sans);font-size:10.5px;font-weight:900;letter-spacing:.6px;
+         text-transform:uppercase;padding:4px 9px;border-radius:7px;cursor:pointer;transition:.15s;z-index:2}
+  .ctuck:hover{border-color:var(--green);color:var(--green)}
+  .ctuck .cv{font-size:9px;transition:transform .18s}
+  .controls.tucked .cgroup,.controls.tucked .sep{display:none}
+  .controls.tucked .controls-inner{padding:7px 56px 7px 26px;gap:0}
+  .controls.tucked .rangenote{padding-top:0}
+  .controls.tucked .ctuck{top:5px}
+  .controls.tucked .ctuck .cv{transform:rotate(180deg)}
+  .cgroup{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .clabel{font-size:9.5px;text-transform:uppercase;letter-spacing:1.1px;color:var(--muted);font-weight:900;margin-right:2px}
+  .preset{font-family:var(--sans);font-size:12px;font-weight:700;border:1px solid var(--line2);background:var(--white);
+          color:var(--ink2);padding:5px 11px;border-radius:7px;cursor:pointer;transition:.15s}
+  .preset:hover{border-color:var(--green);color:var(--green-d)}
+  .preset.active{background:var(--green-d);color:#fff;border-color:var(--green-d)}
+  .preset.bench.active{background:var(--purple);border-color:var(--purple);color:#fff}
+  input[type=date],select,input[type=search]{font-family:var(--sans);font-size:12px;color:var(--ink);border:1px solid var(--line2);
+          background:var(--white);border-radius:7px;padding:5px 9px;cursor:pointer;font-weight:600}
+  input[type=search]{cursor:text;min-width:150px}
+  select{max-width:240px}
+  .sep{width:1px;height:22px;background:var(--line2)}
+  .bench-group{background:rgba(190,91,246,.13);border:1px solid rgba(190,91,246,.42);border-radius:9px;padding:4px 9px}
+  .bench-group .clabel{color:var(--purple-d)}
+  input[type=date].bench-date{border-color:rgba(190,91,246,.55);color:var(--purple-d)}
+  .rangenote{width:100%;font-size:11.5px;color:var(--muted);padding-top:1px}
+  .rangenote b{color:var(--ink2)}
+  .rangenote .bench{color:var(--purple)}
+  /* the three ad accounts are three DIFFERENT brands, so the toggle is first-class, not a dropdown */
+  .acctgroup{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:var(--white)}
+  .acctgroup button{border:none;background:transparent;font-family:var(--sans);font-size:12px;font-weight:700;
+                    color:var(--ink2);padding:5px 12px;cursor:pointer;white-space:nowrap;transition:.14s}
+  .acctgroup button+button{border-left:1px solid var(--line2)}
+  .acctgroup button:hover{background:var(--panel)}
+  .acctgroup button.on{background:var(--green-d);color:#fff}
+
+  /* ---------- Segmented control (the one toggle vocabulary) ---------- */
+  .seg{display:inline-flex;align-items:center;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:var(--white)}
+  .seg .cap{font-size:9.5px;text-transform:uppercase;letter-spacing:1.1px;color:var(--muted);
+            font-weight:900;padding:6px 8px 6px 10px}
+  .seg button{border:none;background:transparent;font-family:var(--sans);font-size:11.5px;font-weight:700;
+              color:var(--ink2);padding:5px 10px;cursor:pointer;transition:.14s;white-space:nowrap}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button:hover{background:var(--panel)}
+  .seg button.on{background:var(--green);color:#fff}
+  .seg.mini button{font-size:11px;padding:4px 9px}
+
+  /* ---------- Layout ---------- */
+  main{padding:26px 0 70px}
+  .tab-pane[hidden]{display:none}
+  section{margin-bottom:30px}
+  .shead{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;padding-bottom:9px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .shead h2{font-size:17px}
+  .shead .sub{font-family:var(--accent);font-size:13.5px;color:var(--muted)}
+  .shead .spacer{flex:1}
+  .grid{display:grid;gap:16px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px 19px;
+        box-shadow:var(--shadow-sm);position:relative;overflow:hidden}
+  /* every card carries the brand bar along its bottom edge */
+  .card::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--grad);opacity:.85}
+  .card.plain::after{display:none}
+  .card h3{font-size:13.5px;font-weight:900;margin-bottom:2px}
+  .card .csub{font-size:11.5px;color:var(--muted);margin-bottom:10px}
+  .card .chead{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+  .card .chead .spacer{flex:1}
+  .note{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5}
+  .note b{color:var(--ink2)}
+
+  /* ---------- KPI hero / scorecards ----------
+     The accent is a BAR ALONG THE BOTTOM (not the left edge) — it reads as a foundation under
+     the number and gives every card a stronger colour signature. */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:14px}
+  .kpi{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);
+       padding:16px 18px 18px;box-shadow:var(--shadow-sm);position:relative;overflow:hidden;
+       transition:transform .16s, box-shadow .16s}
+  .kpi::after{content:"";position:absolute;left:0;right:0;bottom:0;height:5px;background:var(--green)}
+  .kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow-lift)}
+  .kpi .kl{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);font-weight:900}
+  .kpi .kv{font-family:var(--display);font-weight:900;font-size:32px;color:var(--green-d);line-height:1.08;margin-top:6px;letter-spacing:-.03em}
+  .kpi .kd{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .kpi.sel{cursor:pointer;user-select:none}
+  .kpi.sel .kl{display:flex;align-items:center;gap:6px}
+  .kpi.sel .dot{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 0 2px rgba(255,255,255,.9)}
+  .kpi.sel.off{opacity:.5;background:#FBFAFE}
+  .kpi.sel.off::after{opacity:.25}
+  .kpi.sel.off .dot{background:transparent !important;box-shadow:inset 0 0 0 2px var(--line2)}
+  .kpi.sel.off .kv{color:var(--muted)}
+  /* a hero KPI — used for the headline funnel numbers */
+  .kpi.hero{background:linear-gradient(140deg,var(--green) 0%,var(--green-d) 100%);
+            border-color:transparent;color:#fff}
+  .kpi.hero .kl{color:rgba(255,255,255,.72)}
+  .kpi.hero .kv{color:#fff;font-size:36px}
+  .kpi.hero .kd{color:rgba(255,255,255,.72)}
+  .kpi.hero .delta{color:#fff !important}
+  .kpi.hero::after{background:var(--purple)}
+
+  /* ---------- Funnel stage blocks ---------- */
+  .stages{display:grid;grid-template-columns:repeat(auto-fit,minmax(288px,1fr));gap:16px}
+  .stage{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);
+         box-shadow:var(--shadow-sm);overflow:hidden;position:relative;padding-bottom:5px;
+         transition:transform .16s, box-shadow .16s}
+  .stage:hover{transform:translateY(-2px);box-shadow:var(--shadow-lift)}
+  /* accent bar along the BOTTOM, matching the scorecards */
+  .stage::after{content:"";position:absolute;left:0;right:0;bottom:0;height:5px}
+  .stage-head{padding:13px 17px 11px;border-bottom:1px solid var(--line)}
+  .stage-head h3{font-family:var(--display);font-size:16.5px;font-weight:900}
+  .stage-head .n{font-family:var(--accent);font-size:12.5px;color:var(--muted)}
+  .stage.s1 .stage-head{background:linear-gradient(100deg,rgba(21,61,253,.16),transparent)}
+  .stage.s2 .stage-head{background:linear-gradient(100deg,rgba(190,91,246,.24),transparent)}
+  .stage.s3 .stage-head{background:linear-gradient(100deg,rgba(3,136,16,.20),transparent)}
+  .stage.s4 .stage-head{background:linear-gradient(100deg,rgba(2,182,253,.16),transparent)}
+  .stage.s1::after{background:var(--s3)} .stage.s2::after{background:var(--s2)}
+  .stage.s3::after{background:var(--s1)} .stage.s4::after{background:var(--s4)}
+  .stage-body{padding:2px 0 6px}
+  .cmp-cols{display:grid;grid-template-columns:1fr 1fr;font-size:9.5px;text-transform:uppercase;letter-spacing:1.1px;font-weight:900;
+            padding:8px 17px 6px;color:var(--muted)}
+  .cmp-cols .b{color:var(--purple)}
+  .cmp-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px 17px;border-top:1px solid var(--line)}
+  .cmp-row .cell .l{font-size:10.5px;color:var(--muted);line-height:1.3}
+  .cmp-row .cell .v{font-family:var(--display);font-weight:900;font-size:19px;color:var(--green-d);letter-spacing:-.02em;line-height:1.2}
+  .cmp-row .cell.bench .v{color:var(--purple)}
+  .cmp-row .cell .delta{font-size:11px;font-weight:700;margin-left:6px}
+  .delta.up{color:var(--good)} .delta.dn{color:var(--bad)} .delta.flat{color:var(--muted)}
+
+  /* ---------- Creative gallery (the actual ads that ran) ---------- */
+  .cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:14px}
+  .ccard{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);
+         overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow-sm);
+         position:relative;transition:transform .16s, box-shadow .16s, border-color .16s}
+  .ccard::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--grad);opacity:.85}
+  .ccard.click{cursor:pointer}
+  .ccard.click:hover{transform:translateY(-3px);box-shadow:var(--shadow-lift);border-color:var(--purple)}
+  .ccard.click:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+  .cc-thumb{width:100%;aspect-ratio:1/1;object-fit:cover;background:var(--panel);display:block}
+  /* branded tile when Meta's link has expired and we hold no cached copy — shows what the ad
+     SAID rather than a blank grey box */
+  .cc-fb{width:100%;aspect-ratio:1/1;display:flex;flex-direction:column;align-items:center;
+         justify-content:center;gap:10px;text-align:center;padding:18px;
+         background:linear-gradient(155deg,rgba(190,91,246,.16),rgba(2,182,253,.10) 55%,rgba(3,136,16,.14))}
+  .cc-fb .mk{font-family:var(--display);font-size:9px;font-weight:600;letter-spacing:1.6px;
+             text-transform:uppercase;color:var(--purple)}
+  .cc-fb .hd{font-family:var(--display);font-size:14.5px;font-weight:500;color:var(--green-d);line-height:1.3;
+             display:-webkit-box;-webkit-line-clamp:5;line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+  .cc-b{padding:11px 13px 14px;display:flex;flex-direction:column;gap:6px;flex:1}
+  .cc-h{font-weight:900;font-size:12.5px;line-height:1.3;color:var(--ink);
+        display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .cc-copy{color:var(--muted);font-size:11px;line-height:1.4;
+           display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .cc-m{display:flex;flex-wrap:wrap;gap:3px 11px;font-size:10.5px;color:var(--muted);
+        border-top:1px solid var(--line);padding-top:8px;margin-top:auto}
+  .cc-m b{color:var(--green-d);font-weight:900;font-variant-numeric:tabular-nums}
+  /* lightbox */
+  .cmod{position:fixed;inset:0;background:rgba(16,28,24,.72);display:none;align-items:center;
+        justify-content:center;z-index:300;padding:26px;backdrop-filter:blur(3px)}
+  .cmod.on{display:flex}
+  .cmod-card{position:relative;width:100%;max-width:880px;max-height:90vh;overflow:auto;
+             background:var(--white);border-radius:18px;box-shadow:0 30px 90px rgba(16,28,24,.45)}
+  .cmod-x{position:absolute;top:12px;right:14px;z-index:2;border:1px solid var(--line2);
+          background:var(--white);color:var(--ink);width:32px;height:32px;border-radius:9px;
+          cursor:pointer;font-size:15px;line-height:1}
+  .cmod-x:hover{background:var(--purple);border-color:var(--purple);color:#fff}
+  .cmod-body{display:flex;gap:22px;padding:26px;flex-wrap:wrap}
+  .cm-media{flex:0 0 340px;max-width:100%}
+  .cm-media img{width:100%;border-radius:13px;display:block;background:var(--panel)}
+  .cm-noimg{width:100%;min-height:250px;display:flex;align-items:center;justify-content:center;
+            text-align:center;padding:22px;background:var(--panel);border-radius:13px;
+            color:var(--muted);font-size:12.5px;line-height:1.5}
+  .cm-info{flex:1;min-width:270px;display:flex;flex-direction:column;gap:13px}
+  .cm-info h3{font-size:19px;line-height:1.25}
+  .cm-ad{font-size:11px;color:var(--muted);letter-spacing:.3px}
+  .cm-body{white-space:pre-wrap;font-size:13px;line-height:1.6;color:var(--ink2);margin:0}
+  .cm-metrics{display:flex;flex-wrap:wrap;gap:9px 20px;font-size:12.5px;color:var(--muted);
+              border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:13px 0}
+  .cm-metrics b{color:var(--green-d);font-weight:900;font-variant-numeric:tabular-nums}
+  .cm-link{display:inline-block;padding:9px 15px;border-radius:9px;background:var(--green);color:#fff;
+           text-decoration:none;font-size:13px;font-weight:900;font-family:var(--display);
+           letter-spacing:.03em;text-transform:uppercase}
+  .cm-link:hover{background:var(--purple)}
+  .cm-nolink{font-size:12px;color:var(--muted)}
+  .cm-cap{font-size:10.5px;color:var(--muted);letter-spacing:.3px}
+
+  /* ---------- Tables ---------- */
+  .tblwrap{overflow-x:auto;border-radius:10px;border:1px solid var(--line)}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  thead th{background:var(--green-d);color:#fff;font-weight:900;text-align:left;padding:10px 12px;white-space:nowrap;
+           font-size:11px;text-transform:uppercase;letter-spacing:.8px;position:sticky;top:0}
+  /* EVERY column header is a sort control — see wireSortAll() */
+  thead th.srt{cursor:pointer;user-select:none;transition:background .12s}
+  thead th.srt:hover{background:var(--green)}
+  thead th.on{background:var(--green);color:#fff}
+  thead th .ar{opacity:.4;font-size:9px;margin-left:4px}
+  thead th.on .ar{opacity:1;color:var(--purple)}
+  tbody td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:middle}
+  tbody tr:nth-child(even){background:#FBFAFE}
+  tbody tr:hover{background:rgba(3,136,16,.07)}
+  tbody tr.hl{background:rgba(3,136,16,.11)}
+  tbody tr.lo{background:rgba(212,42,42,.07)}
+  td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.nm{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bic{position:relative;display:block;min-width:64px}
+  .bic i{position:absolute;left:0;top:50%;transform:translateY(-50%);height:15px;border-radius:3px;
+         background:rgba(190,91,246,.28);z-index:0}
+  .bic span{position:relative;z-index:1;padding-left:4px}
+  .tfoot{font-size:11.5px;color:var(--muted);padding:8px 2px 0}
+
+  /* ---------- Chips / cross-filter ---------- */
+  .chips{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;border-radius:20px;
+        padding:3px 6px 3px 11px;background:rgba(3,136,16,.11);border:1px solid rgba(3,136,16,.35);color:var(--green-d)}
+  .chip button{border:none;background:rgba(3,136,16,.18);color:var(--green-d);width:17px;height:17px;border-radius:50%;
+               cursor:pointer;font-size:11px;line-height:1;font-weight:900}
+  .chip button:hover{background:var(--green);color:#fff}
+
+  /* ---------- Legend ---------- */
+  .lgd{display:flex;gap:14px;flex-wrap:wrap;margin-top:9px}
+  .lg{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink2);cursor:pointer;user-select:none}
+  .lg .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .lg.off{opacity:.42;text-decoration:line-through}
+
+  /* ---------- SVG ---------- */
+  svg{display:block;width:100%;height:auto;overflow:visible}
+  .gl{stroke:var(--line);stroke-width:1}
+  .axis{font-size:10px;fill:var(--muted);font-family:var(--sans)}
+  .ref{stroke:var(--purple);stroke-width:1.5;stroke-dasharray:5 4;opacity:.85}
+  .reflbl{font-size:9.5px;fill:var(--purple);font-weight:900;font-family:var(--sans)}
+
+  /* ---------- Tooltip ---------- */
+  #tip{position:fixed;pointer-events:none;opacity:0;transition:opacity .1s;z-index:200;
+       background:var(--green-d);color:#fff;border-radius:9px;padding:9px 11px;font-size:11.5px;
+       box-shadow:0 10px 30px rgba(0,0,0,.28);min-width:130px}
+  #tip .tt{font-weight:900;font-size:12px;margin-bottom:5px;color:var(--purple)}
+  #tip .tr{display:flex;justify-content:space-between;gap:16px;line-height:1.6}
+  #tip .tr .m{color:rgba(255,255,255,.72)}
+  #tip .tr span:last-child{font-variant-numeric:tabular-nums;font-weight:700}
+
+  /* ---------- Insight strip ---------- */
+  .insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
+  .insight{display:flex;gap:11px;background:var(--white);border:1px solid var(--line);border-left:3px solid var(--green);
+           border-radius:11px;padding:13px 15px;box-shadow:var(--shadow-sm)}
+  .insight .ico{font-size:17px;line-height:1.2}
+  .insight .it{font-family:var(--display);font-weight:900;font-size:12.5px;margin-bottom:2px}
+  .insight .ib{font-size:12px;color:var(--ink2);line-height:1.5}
+  .insight .ib b{color:var(--green-d)}
+
+  /* ---------- Wired-empty state (never a blank space) ---------- */
+  .empty{background:repeating-linear-gradient(135deg,#FBFAF7,#FBFAF7 9px,#F4F1EA 9px,#F4F1EA 18px);
+         border:1px dashed var(--line2);border-radius:var(--radius);padding:20px 22px;color:var(--ink2)}
+  .empty h4{font-size:13px;margin-bottom:5px}
+  .empty p{font-size:12px;color:var(--muted);line-height:1.55;max-width:70ch}
+  .empty code{background:var(--white);border:1px solid var(--line2);border-radius:4px;padding:1px 5px;font-size:11px}
+
+  /* ---------- Donut ---------- */
+  .donut-wrap{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+  .donut-wrap svg{width:190px;flex:none}
+  .dleg{flex:1;min-width:180px}
+  .dl{display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0;cursor:pointer;border-radius:6px}
+  .dl:hover{background:var(--panel)}
+  .dl.off{opacity:.4}
+  .dl .sw{width:11px;height:11px;border-radius:3px;flex:none}
+  .dl .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dl .vv{font-variant-numeric:tabular-nums;font-weight:700;color:var(--green-d)}
+  .dl .pp{font-size:11px;color:var(--muted);width:42px;text-align:right;font-variant-numeric:tabular-nums}
+
+  /* ---------- Heatmap ---------- */
+  .hm{display:grid;grid-template-columns:38px repeat(7,1fr);gap:3px;font-size:10px}
+  .hm .hh{color:var(--muted);font-weight:900;text-transform:uppercase;letter-spacing:.6px;text-align:center;padding-bottom:2px}
+  .hm .rl{color:var(--muted);font-weight:700;display:flex;align-items:center;justify-content:flex-end;padding-right:5px}
+  .hm .cell{aspect-ratio:1.9;border-radius:4px;background:var(--panel);cursor:default}
+
+  @media (max-width:760px){
+    .top-inner{flex-wrap:wrap;gap:10px}
+    .tabbar{top:0;position:static}
+    .controls{position:static}
+    header.top{position:static}
+    .cmp-row{grid-template-columns:1fr}
+  }
+</style>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <img id="mark" alt="" hidden>
+      <div class="crest" id="crest">RHE</div>
+      <div>
+        <div class="wm" id="wm">ROOMING HOUSE EXPERT</div>
+        <div class="tg" id="tg">Turning underperforming property into cash-flow.</div>
+      </div>
+    </div>
+    <div class="top-spacer"></div>
+    <div class="syncbox">
+      <div class="top-meta">
+        <div>Updated <b id="upd">—</b></div>
+        <div>Data through <b id="through">—</b></div>
+        <div id="srcbadges" style="margin-top:2px"></div>
+      </div>
+      <button class="sync" id="sync" type="button"><span class="spin"></span><span id="synclbl">Sync</span></button>
+      <div class="agency">
+        <div class="lbl">Built by</div>
+        <img id="agora" alt="Agora Data Driven" hidden>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="tabbar">
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="funnel"  aria-selected="true"><span class="ix">01</span>Meta funnel</button>
+    <button class="tab" role="tab" data-tab="email"   aria-selected="false"><span class="ix">02</span>Email performance</button>
+    <button class="tab" role="tab" data-tab="magnet"  aria-selected="false"><span class="ix">03</span>Lead magnet &amp; sequence</button>
+    <button class="tab" role="tab" data-tab="demo"    aria-selected="false"><span class="ix">04</span>Demographics &amp; placement</button>
+  </div>
+</div>
+
+<div class="controls" id="controls">
+  <div class="controls-inner">
+    <button class="ctuck" id="ctuck" type="button"><span class="cv">▲</span><span id="ctucklbl">Filters</span></button>
+
+    <div class="cgroup">
+      <span class="clabel">Period</span>
+      <button class="preset" data-p="7">7d</button>
+      <button class="preset" data-p="30">30d</button>
+      <button class="preset" data-p="90">90d</button>
+      <button class="preset" data-p="ytd">YTD</button>
+      <button class="preset" data-p="all">All</button>
+      <input type="date" id="from"><span style="color:var(--muted);font-size:11px">to</span><input type="date" id="to">
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="cgroup bench-group">
+      <span class="clabel">KPI benchmark</span>
+      <button class="preset bench" data-b="90">90d</button>
+      <button class="preset bench" data-b="180">180d</button>
+      <button class="preset bench" data-b="365">365d</button>
+      <button class="preset bench" data-b="lastyear">Last year</button>
+      <input type="date" id="bfrom" class="bench-date"><span style="color:var(--muted);font-size:11px">to</span><input type="date" id="bto" class="bench-date">
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="cgroup">
+      <span class="clabel">Campaign</span>
+      <select id="campsel"><option value="">All campaigns</option></select>
+      <input type="search" id="adq" placeholder="Filter ad name…">
+    </div>
+
+    <div class="rangenote" id="rangenote"></div>
+  </div>
+</div>
+
+<main>
+
+<!-- ================================================================= TAB 1: META FUNNEL -->
+<div class="tab-pane wrap" id="pane-funnel">
+
+  <section>
+    <div class="shead">
+      <h2>Where the funnel is winning or leaking</h2>
+      <span class="sub">actuals for the period, against your own benchmark average</span>
+    </div>
+    <div class="stages" id="stages"></div>
+    <div class="note">
+      <b>How to read the two columns.</b> The left figure is the selected <b>period</b>. The right is the
+      <b>KPI benchmark</b>: for <i>volume</i> metrics (reach, impressions, clicks, leads, thruplays) it is the
+      <b>average per week</b> over the benchmark range; for <i>rate and cost</i> metrics (CTR, CPM, CPC, CPL, CTL,
+      frequency) it is the <b>aggregate ratio</b> across the whole benchmark — never the average of daily ratios,
+      which skews badly when spend is uneven. Green always means <i>better</i>: for costs that is <i>down</i>.
+      The <b>arrow</b> on a volume metric compares the period total against what the benchmark's weekly rate
+      would have produced over the same number of weeks, so it stays like-for-like whatever period you pick.
+    </div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Performance over time</h2>
+      <span class="sub">every metric on one canvas — click a scorecard to add or remove its line</span>
+      <span class="spacer"></span>
+      <div class="seg mini" id="seg-leads" data-seg="leads">
+        <span class="cap">Grain</span>
+        <button data-v="auto" class="on">Auto</button><button data-v="day">Day</button><button data-v="week">Week</button><button data-v="month">Month</button>
+      </div>
+      <div class="seg mini" id="seg-laxis" data-seg="laxis">
+        <span class="cap">Axis</span>
+        <button data-v="rel" class="on">Relative</button><button data-v="abs">Absolute</button>
+      </div>
+    </div>
+    <div class="kpis" id="leadScores" style="margin-bottom:14px"></div>
+    <div class="card">
+      <div class="chead">
+        <div><h3 id="leadsTitle">Leads, spend, clicks and CPL together</h3>
+             <div class="csub" id="leadsSub">—</div></div>
+      </div>
+      <svg id="leadsChart" viewBox="0 0 1180 280" preserveAspectRatio="none"></svg>
+      <div class="lgd" id="leadsLegend"></div>
+      <div class="note" id="leadsNote"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>How far the funnel carries people</h2>
+      <span class="sub">every stage as a conversion, not a loss</span>
+    </div>
+    <div class="grid" style="grid-template-columns:minmax(320px,1.35fr) minmax(280px,1fr);gap:16px" id="funnelGrid">
+      <div class="card">
+        <h3>Impressions → link clicks → leads</h3>
+        <div class="csub">stage widths use a square-root scale, or leads vanish next to impressions</div>
+        <svg id="funnelChart" viewBox="0 0 560 260"></svg>
+      </div>
+      <div>
+        <div class="kpis" id="funnelKpis" style="grid-template-columns:1fr"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>The actual ads that ran</h2>
+      <span class="sub">the creatives behind the numbers above</span>
+      <span class="spacer"></span>
+      <div class="seg mini" id="seg-crank" data-seg="crank">
+        <span class="cap">Rank by</span>
+        <button data-v="imps" class="on">Impressions</button><button data-v="leads">Leads</button><button data-v="cpl">Cheapest lead</button><button data-v="spend">Spend</button>
+      </div>
+    </div>
+    <div class="card plain" style="padding:0;border:0;box-shadow:none;background:transparent">
+      <div class="note" id="galNote" style="margin:0 0 12px"></div>
+      <div class="cgrid" id="creativeGallery"></div>
+      <div class="tfoot" id="galFoot"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Campaigns</h2><span class="sub">click any column header to rank by it; CPL is a bar so outliers pop</span>
+      <span class="spacer"></span>
+      <div class="chips" id="campChips"></div>
+    </div>
+    <div class="tblwrap">
+      <table id="campTbl" data-sort="camp">
+        <thead><tr>
+          <th data-k="name">Campaign</th>
+          <th data-k="acct">Ad account</th>
+          <th class="r" data-k="spend">Spend</th>
+          <th class="r" data-k="imps">Impressions</th>
+          <th class="r" data-k="ctr">Click-through rate</th>
+          <th class="r" data-k="lclk">Link clicks</th>
+          <th class="r" data-k="leads">Leads</th>
+          <th class="r" data-k="ctl">Clicks → leads</th>
+          <th class="r" data-k="cpl">Cost per lead</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="tfoot" id="campFoot"></div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Creative fatigue</h2>
+      <span class="sub">click-through decaying as the same people see it more is the signal to refresh</span>
+    </div>
+    <div class="tblwrap">
+      <table id="adTbl" data-sort="ad">
+        <thead><tr>
+          <th data-k="name">Ad</th><th data-k="created">First run</th>
+          <th class="r" data-k="spend">Spend</th>
+          <th class="r" data-k="imps">Impressions</th>
+          <th class="r" data-k="freq">Times seen per person</th>
+          <th class="r" data-k="ctr">Click-through rate</th>
+          <th class="r" data-k="leads">Leads</th>
+          <th class="r" data-k="cpl">Cost per lead</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="tfoot" id="adFoot"></div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Reading of the funnel</h2><span class="sub">recomputed with your filters</span></div>
+    <div class="insights" id="funnelInsights"></div>
+  </section>
+</div>
+
+<!-- ================================================================= TAB 2: EMAIL -->
+<div class="tab-pane wrap" id="pane-email" hidden>
+
+  <section>
+    <div class="shead"><h2>The list</h2><span class="sub">how big it is and how much of it is awake</span></div>
+    <div class="kpis" id="emailTop"></div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Sending and engagement</h2>
+      <span class="sub">period actuals against the benchmark</span>
+    </div>
+    <div class="stages" id="emailStages"></div>
+    <div class="note" id="emailBasisNote"></div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Sends vs opens vs clicks</h2>
+      <span class="sub">every series re-buckets to the grain you choose</span>
+      <span class="spacer"></span>
+      <div class="seg mini" id="seg-email" data-seg="email">
+        <span class="cap">Grain</span>
+        <button data-v="auto" class="on">Auto</button><button data-v="day">Day</button><button data-v="week">Week</button><button data-v="month">Month</button>
+      </div>
+      <div class="seg mini" id="seg-eaxis" data-seg="eaxis">
+        <span class="cap">Axis</span>
+        <button data-v="abs" class="on">Absolute</button><button data-v="rel">Relative</button>
+      </div>
+    </div>
+    <div class="kpis" id="emailScores" style="margin-bottom:14px"></div>
+    <div class="card">
+      <svg id="emailChart" viewBox="0 0 1180 270" preserveAspectRatio="none"></svg>
+      <div class="lgd" id="emailLegend"></div>
+      <div class="note" id="emailAxisNote"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>When we send</h2><span class="sub">find the window that actually gets opened</span>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <h3>Send volume by weekday</h3>
+        <div class="csub">total sends in the selected period</div>
+        <svg id="dowChart" viewBox="0 0 560 220"></svg>
+      </div>
+      <div class="card">
+        <h3>Open rate by weekday</h3>
+        <div class="csub">opens ÷ sends on the same day; a low-volume day is marked</div>
+        <svg id="dowRate" viewBox="0 0 560 220"></svg>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Broadcast campaigns</h2><span class="sub">the 11 one-off sends; automations are counted separately below</span></div>
+    <div class="tblwrap">
+      <table id="acTbl" data-sort="ac">
+        <thead><tr>
+          <th data-k="name">Campaign</th>
+          <th data-k="date">Sent on</th>
+          <th class="r" data-k="sent">Recipients</th>
+          <th class="r" data-k="opens">People who opened</th>
+          <th class="r" data-k="orate">Open rate</th>
+          <th class="r" data-k="clicks">People who clicked</th>
+          <th class="r" data-k="cto">Openers → clickers</th>
+          <th class="r" data-k="unsubs">Unsubscribed</th>
+          <th class="r" data-k="bounces">Bounced</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="tfoot" id="acFoot"></div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Automations</h2><span class="sub">where the real volume is — entered vs completed</span></div>
+    <div class="grid g2">
+      <div class="card">
+        <div class="tblwrap">
+          <table id="autoTbl" data-sort="auto">
+            <thead><tr>
+              <th data-k="name">Automation</th>
+              <th class="r" data-k="entered">People entered</th>
+              <th class="r" data-k="exited">Finished</th>
+              <th class="r" data-k="comp">Completion</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Lists</h3>
+        <div class="csub">active subscribers per list</div>
+        <svg id="listChart" viewBox="0 0 560 250"></svg>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Reading of the email programme</h2><span class="sub">recomputed with your filters</span></div>
+    <div class="insights" id="emailInsights"></div>
+  </section>
+</div>
+
+<!-- ================================================================= TAB 3: LEAD MAGNET -->
+<div class="tab-pane wrap" id="pane-magnet" hidden>
+
+  <section>
+    <div class="shead"><h2>Who is on the list</h2><span class="sub">click a segment to filter this whole tab</span></div>
+    <div class="grid g2">
+      <div class="card">
+        <div class="chead"><div><h3>Investor experience</h3><div class="csub" id="qzExpSub">—</div></div></div>
+        <div class="donut-wrap">
+          <svg id="expDonut" viewBox="0 0 200 200"></svg>
+          <div class="dleg" id="expLegend"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="chead"><div><h3>Purchase timeline</h3><div class="csub" id="qzTimeSub">—</div></div></div>
+        <div class="donut-wrap">
+          <svg id="timeDonut" viewBox="0 0 200 200"></svg>
+          <div class="dleg" id="timeLegend"></div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:12px" class="chips" id="quizChips"></div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>How warm is each segment?</h2>
+      <span class="sub">engagement is the only sales-readiness signal we have until the team tags clients</span>
+    </div>
+    <div class="kpis" id="segScores"></div>
+    <div class="card" style="margin-top:14px">
+      <h3>Open and click rate by segment</h3>
+      <div class="csub">share of contacts in the segment that have ever opened / clicked</div>
+      <svg id="segChart" viewBox="0 0 1180 260" preserveAspectRatio="none"></svg>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>List growth</h2><span class="sub">new contacts added, at the grain you choose</span>
+      <span class="spacer"></span>
+      <div class="seg mini" id="seg-growth" data-seg="growth">
+        <span class="cap">Grain</span>
+        <button data-v="auto" class="on">Auto</button><button data-v="day">Day</button><button data-v="week">Week</button><button data-v="month">Month</button>
+      </div>
+    </div>
+    <div class="card">
+      <svg id="growthChart" viewBox="0 0 1180 250" preserveAspectRatio="none"></svg>
+      <div class="note" id="growthNote"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Email sequence performance</h2>
+      <span class="sub">every template that has ever been sent, ranked</span>
+      <span class="spacer"></span>
+      <div class="seg mini" id="seg-tpl" data-seg="tpl">
+        <span class="cap">Show</span>
+        <button data-v="10" class="on">Top 10</button><button data-v="25">Top 25</button><button data-v="all">All</button>
+      </div>
+    </div>
+    <div class="tblwrap">
+      <table id="tplTbl" data-sort="tpl">
+        <thead><tr>
+          <th data-k="name">Email template</th>
+          <th class="r" data-k="sends">Times sent</th>
+          <th data-k="first">First sent</th>
+          <th data-k="last">Last sent</th>
+          <th class="r" data-k="share">Share of all sends</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="tfoot" id="tplFoot"></div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Conversion</h2><span class="sub">the definition agreed 2026-07-27</span></div>
+    <div id="convBlock"></div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Reading of the nurture</h2><span class="sub">recomputed with your filters</span></div>
+    <div class="insights" id="magnetInsights"></div>
+  </section>
+</div>
+
+<!-- ================================================================= TAB 4: DEMOGRAPHICS -->
+<div class="tab-pane wrap" id="pane-demo" hidden>
+
+  <div id="demoWindowNote"></div>
+
+  <section>
+    <div class="shead">
+      <h2>The audience, by value not by volume</h2>
+      <span class="sub">every segment placed by what it costs against how much it delivers</span>
+      <span class="spacer"></span>
+      <div class="seg mini" id="seg-demo" data-seg="demo">
+        <span class="cap">Split by</span>
+        <button data-v="age" class="on">Age</button><button data-v="gender">Gender</button><button data-v="platform">Platform</button><button data-v="position">Placement</button><button data-v="device">Device</button>
+      </div>
+    </div>
+    <div class="grid" style="grid-template-columns:minmax(420px,1.5fr) minmax(300px,1fr);gap:16px">
+      <div class="card">
+        <div class="chead"><div>
+          <h3>Value map — spend against leads</h3>
+          <div class="csub" id="scatterSub">bubble size is spend; anything below the line beats your average cost per lead</div>
+        </div></div>
+        <svg id="scatterChart" viewBox="0 0 660 380"></svg>
+        <div class="note" id="scatterNote"></div>
+      </div>
+      <div class="card">
+        <div class="chead"><div>
+          <h3>Cost per lead, ranked</h3>
+          <div class="csub" id="rankSub">cheapest at the top; the bar shows the gap to your best segment</div>
+        </div></div>
+        <svg id="rankChart" viewBox="0 0 420 380"></svg>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Where the money goes, and what comes back</h2>
+      <span class="sub">budget share against lead share — a segment wider than it is tall is overfunded</span>
+    </div>
+    <div class="card">
+      <svg id="shareChart" viewBox="0 0 1180 260" preserveAspectRatio="none"></svg>
+      <div class="note" id="shareNote"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Every segment, side by side</h2>
+      <span class="sub">click any column header to rank the whole table by it</span>
+    </div>
+    <div class="tblwrap">
+      <table id="demoTbl" data-sort="demo">
+        <thead><tr>
+          <th data-k="name">Segment</th>
+          <th data-k="dim">Split</th>
+          <th class="r" data-k="spend">Spend</th>
+          <th class="r" data-k="imps">Impressions</th>
+          <th class="r" data-k="ctr">Click-through rate</th>
+          <th class="r" data-k="leads">Leads</th>
+          <th class="r" data-k="cpl">Cost per lead</th>
+          <th class="r" data-k="sharespend">Budget share</th>
+          <th class="r" data-k="shareleads">Lead share</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="tfoot" id="demoFoot"></div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Cost per lead by age × placement</h2>
+      <span class="sub">the cross-tab that tells you where to move money</span>
+    </div>
+    <div class="card">
+      <div id="crossWrap"></div>
+      <div class="note" id="crossNote"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Geography</h2><span class="sub">delivery only — see the note</span></div>
+    <div class="card">
+      <div class="chead">
+        <div><h3>Spend and reach by state</h3><div class="csub" id="geoSub">—</div></div>
+        <div class="spacer"></div>
+        <div class="seg mini" id="seg-geo" data-seg="geo">
+          <span class="cap">Measure</span>
+          <button data-v="spend" class="on">Spend</button><button data-v="imps">Impressions</button><button data-v="reach">Reach</button><button data-v="ctr">CTR</button>
+        </div>
+      </div>
+      <svg id="geoChart" viewBox="0 0 1180 300" preserveAspectRatio="none"></svg>
+      <div class="note" id="geoNote"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Reading of the audience</h2><span class="sub">recomputed with your filters</span></div>
+    <div class="insights" id="demoInsights"></div>
+  </section>
+</div>
+
+</main>
+
+<div class="cmod" id="cMod" role="dialog" aria-modal="true" aria-label="Creative preview">
+  <div class="cmod-card">
+    <button class="cmod-x" type="button" id="cModX" aria-label="Close">&#10005;</button>
+    <div class="cmod-body" id="cModBody"></div>
+  </div>
+</div>
+
+<div id="tip"></div>
+
+<script>
+"use strict";
+/* =====================================================================================
+   Rooming House Expert dashboard.
+
+   esprima-4.x-safe by contract (tools/_validate_dash_js.py parses this block): NO optional
+   chaining `?.`, NO nullish coalescing `??`. Classic && / || guards only, `var` and `function`.
+
+   State is read from the DOM and from DATA — never from Jinja, because this file is served as a
+   static asset by dash/main.py.
+   ===================================================================================== */
+
+var NS = "http://www.w3.org/2000/svg";
+var MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+var DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+var DOW3 = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+var CUR = "$";
+
+var DATA = null;
+var META_MIN = null, META_MAX = null, MAIL_MIN = null, MAIL_MAX = null;
+var ALL_MIN = null, ALL_MAX = null;
+
+/* One state object drives every render. Two INDEPENDENT date ranges: `from/to` is the reporting
+   period and drives everything; `bfrom/bto` is the KPI benchmark and drives only the right-hand
+   comparison column. */
+/* ALL THREE ad accounts are blended into one continuous timeline (client decision 2026-07-28).
+   They are not three parallel businesses — they run almost entirely back to back, which is the
+   signature of one advertiser moving between ad accounts over time:
+
+     Stuart Baker                 2024-01-15 → 2025-11-29   $49,506
+     Super Cashflow Development   2025-10-16 → 2026-03-29   $14,231
+     RHE                          2026-01-01 → 2026-07-27   $70,918
+
+   Scoping to `rhe` alone would throw away two years of history and leave the KPI benchmark with
+   nothing to compare against (the previous calendar year holds zero RHE rows). Blending restores
+   a 2.5-year record. Rows still carry `acct`, so set this to an account_name to isolate one. */
+var ACCT = "";
+
+var ST = {
+  from:null, to:null, bfrom:null, bto:null,
+  /* ONE campaign filter. It used to be two (`camp` from the dropdown, `campPick` from a table
+     row) which fought each other: with the dropdown set, clicking a row showed a chip and
+     changed nothing, because metaIn() read `camp || campPick`. The dropdown and the table row
+     are two ways to set the SAME thing, so they share one variable and the <select> is kept in
+     step with it. */
+  camp:"", adq:"",
+  quizExp:"", quizTime:""
+};
+
+/* Per-chart time grain. "auto" picks what the span can carry; an explicit Day/Week/Month is
+   respected but stepped coarser if the span would draw thousands of points. */
+var GRAIN = { leads:"auto", email:"auto", growth:"auto" };
+var SEG = { laxis:"rel", eaxis:"abs", creat:"spend", tpl:"10", agmet:"leads", geo:"spend",
+            demo:"age", crank:"imps" };
+var SORT = {
+  camp:{ k:"spend", dir:-1 },
+  ad:{ k:"spend", dir:-1 },
+  ac:{ k:"date", dir:-1 },
+  tpl:{ k:"sends", dir:-1 },
+  auto:{ k:"entered", dir:-1 },
+  demo:{ k:"leads", dir:-1 }
+};
+var OFF = { email:{}, age:{}, leads:{ spend:1, lclk:1 } };
+
+/* ===================================================================== utils */
+function byId(id){ return document.getElementById(id); }
+function setText(id, v){ var e = byId(id); if(e){ e.textContent = v; } }
+function setHTML(id, v){ var e = byId(id); if(e){ e.innerHTML = v; } }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function el(t, a){ var e = document.createElementNS(NS, t); if(a){ for(var k in a){ e.setAttribute(k, a[k]); } } return e; }
+function clear(svg){ while(svg && svg.firstChild){ svg.removeChild(svg.firstChild); } }
+
+function num(v){ return Number(Math.round(v)).toLocaleString("en-AU"); }
+function money(v, d){
+  if(d === undefined || d === null){ d = (Math.abs(v) >= 1000 ? 0 : 2); }
+  return CUR + Number(v).toLocaleString("en-AU", { minimumFractionDigits:d, maximumFractionDigits:d });
+}
+function compact(v){
+  var a = Math.abs(v);
+  if(a >= 1000000){ return CUR + (v/1000000).toFixed(a >= 10000000 ? 1 : 2) + "M"; }
+  if(a >= 1000){ return CUR + (v/1000).toFixed(a >= 10000 ? 0 : 1) + "K"; }
+  return CUR + Math.round(v);
+}
+function compactN(v){
+  var a = Math.abs(v);
+  if(a >= 1000000){ return (v/1000000).toFixed(1) + "M"; }
+  if(a >= 1000){ return (v/1000).toFixed(a >= 10000 ? 0 : 1) + "K"; }
+  return String(Math.round(v));
+}
+function pct(v, d){ return Number(v).toFixed(d === undefined ? 2 : d) + "%"; }
+function safe(a, b){ return b ? a / b : 0; }
+/* Axis percent formatter that keeps enough decimals to stay distinguishable. Rounding to whole
+   percent on a 1.2% axis printed "1% 1% 1% 0% 0%" — five ticks, three identical labels. */
+function pctAxis(max){
+  var d = max >= 20 ? 0 : (max >= 5 ? 1 : 2);
+  return function(v){ return Number(v).toFixed(d) + "%"; };
+}
+
+function dObj(iso){ return new Date(iso + "T00:00:00Z"); }
+function isoOf(dt){ return dt.toISOString().slice(0, 10); }
+function shiftDays(iso, n){ var d = dObj(iso); d.setUTCDate(d.getUTCDate() + n); return isoOf(d); }
+function prettyDate(iso){ if(!iso){ return "—"; } var p = iso.split("-"); return MON[parseInt(p[1],10)-1] + " " + parseInt(p[2],10) + ", " + p[0]; }
+function monthKey(iso){ return iso.slice(0, 7); }
+function monthLabel(key){ var p = key.split("-"); return MON[parseInt(p[1],10)-1] + " " + p[0].slice(2); }
+function mday(iso){ var p = iso.split("-"); return parseInt(p[2],10) + " " + MON[parseInt(p[1],10)-1]; }
+function weekStart(iso){ var d = dObj(iso), w = d.getUTCDay(); d.setUTCDate(d.getUTCDate() - ((w + 6) % 7)); return isoOf(d); }
+function daysBetween(a, b){ return Math.round((dObj(b) - dObj(a)) / 86400000) + 1; }
+function weeksBetween(a, b){ return Math.max(1, daysBetween(a, b) / 7); }
+function clampIso(v, lo, hi){ if(v < lo){ return lo; } if(v > hi){ return hi; } return v; }
+
+/* ---------- Time grain: ONE rule, applied to every time-series chart on every tab -----------
+   The user asked for Day / Week / Month everywhere, responding to the date-range filter. Each
+   chart owns a key in GRAIN; "auto" resolves from the selected span so a 7-day range is never a
+   single weekly dot and three years is never 1,100 unreadable daily points. */
+function autoGrain(from, to){
+  var d = daysBetween(from, to);
+  if(d <= 62){ return "day"; }
+  if(d <= 400){ return "week"; }
+  return "month";
+}
+function grainOf(key, from, to){
+  var g = GRAIN[key];
+  if(!g || g === "auto"){ return autoGrain(from, to); }
+  /* An explicit choice is sticky, so guard it against a span it cannot carry. */
+  var days = daysBetween(from, to);
+  if(g === "day" && days > 400){ g = "week"; }
+  if(g === "week" && days > 2800){ g = "month"; }
+  return g;
+}
+function bucketOf(iso, g){ return g === "day" ? iso : (g === "month" ? monthKey(iso) : weekStart(iso)); }
+function dayLabel(iso){
+  var p = iso.split("-");
+  return DOW3[dObj(iso).getUTCDay()] + " " + parseInt(p[2],10) + " " + MON[parseInt(p[1],10)-1];
+}
+function dayFull(iso){
+  var p = iso.split("-");
+  return DOW[dObj(iso).getUTCDay()] + ", " + MON[parseInt(p[1],10)-1] + " " + parseInt(p[2],10) + " " + p[0];
+}
+function bucketLabel(k, g){ return g === "month" ? monthLabel(k) : (g === "day" ? dayLabel(k) : mday(k)); }
+function bucketTip(k, g){
+  return g === "month" ? monthLabel(k) : (g === "day" ? dayFull(k) : "Week of " + prettyDate(k));
+}
+/* Every bucket in the range, including empties — a day with no sends must plot as ZERO, not
+   vanish, or a quiet day silently disappears from a weekly review. */
+function denseBuckets(from, to, g, cap){
+  var out = [], seen = {}, guard = 0, lim = cap || 420, d = from;
+  while(d <= to && guard++ < 5000){
+    var k = bucketOf(d, g);
+    if(!seen[k]){ seen[k] = 1; out.push(k); }
+    d = shiftDays(d, 1);
+  }
+  return out.length > lim ? null : out;
+}
+function grainNote(g, n){
+  var word = g === "day" ? "day" : (g === "month" ? "month" : "week");
+  return n + " " + word + (n === 1 ? "" : "s");
+}
+
+/* Relative presets anchor to the LATEST DATE IN THE DATA, not today — the Meta feed and the
+   ActiveCampaign feed end on different days, and "last 30 days" must mean 30 days of real data
+   or the dashboard renders empty and looks broken. */
+function presetRange(days, maxIso, minIso){
+  if(days === "all"){ return [minIso, maxIso]; }
+  if(days === "ytd"){ var y0 = maxIso.slice(0,4) + "-01-01"; return [y0 < minIso ? minIso : y0, maxIso]; }
+  if(days === "lastyear"){
+    var y = parseInt(maxIso.slice(0,4), 10) - 1;
+    var f = y + "-01-01", t = y + "-12-31";
+    if(f < minIso){ f = minIso; }
+    if(t > maxIso){ t = maxIso; }
+    if(f > t){ return presetRange("365", maxIso, minIso); }
+    return [f, t];
+  }
+  var ff = shiftDays(maxIso, -(parseInt(days, 10) - 1));
+  if(ff < minIso){ ff = minIso; }
+  return [ff, maxIso];
+}
+
+/* ===================================================================== tooltip */
+var tipEl = null;
+function showTip(html, x, y){
+  if(!tipEl){ tipEl = byId("tip"); }
+  tipEl.innerHTML = html;
+  tipEl.style.opacity = "1";
+  var w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+  var lx = x + 14, ly = y - h - 12;
+  if(lx + w > window.innerWidth - 10){ lx = x - w - 14; }
+  if(ly < 8){ ly = y + 18; }
+  tipEl.style.left = lx + "px";
+  tipEl.style.top = ly + "px";
+}
+function hideTip(){ if(tipEl){ tipEl.style.opacity = "0"; } }
+function tipRow(m, v){ return '<div class="tr"><span class="m">' + m + '</span><span>' + v + '</span></div>'; }
+function tipTitle(t){ return '<div class="tt">' + esc(t) + '</div>'; }
+function bindTip(node, html){
+  node.addEventListener("mousemove", function(e){ showTip(html, e.clientX, e.clientY); });
+  node.addEventListener("mouseleave", hideTip);
+}
+
+/* ===================================================================== chart frame */
+function niceMax(v){
+  if(v <= 0){ return 1; }
+  var e = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+  var f = v / e;
+  var n = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+  return n * e;
+}
+/* ---------- shading helpers ----------------------------------------------------------------
+   Flat fills read as a wireframe; a soft gradient in the series' own colour gives every chart
+   depth without adding a second meaning. The rule: shading NEVER encodes anything — it is always
+   the same hue as the mark it belongs to, so it cannot be misread as a category. Gradient ids are
+   per-svg + per-colour so two charts on one page never collide. */
+var _gradN = 0;
+function ensureDefs(svg){
+  var d = svg.querySelector("defs");
+  if(!d){ d = el("defs"); svg.insertBefore(d, svg.firstChild); }
+  return d;
+}
+/* vertical wash, strong at the top, gone at the baseline — for area fills under a line */
+function areaGrad(svg, color, top, bottom){
+  var id = "ag" + (++_gradN);
+  var g = el("linearGradient", { id:id, x1:"0", y1:"0", x2:"0", y2:"1" });
+  var a = el("stop", { offset:"0%", "stop-color":color, "stop-opacity":String(top === undefined ? 0.28 : top) });
+  var b = el("stop", { offset:"100%", "stop-color":color, "stop-opacity":String(bottom === undefined ? 0.02 : bottom) });
+  g.appendChild(a); g.appendChild(b);
+  ensureDefs(svg).appendChild(g);
+  return "url(#" + id + ")";
+}
+/* solid-to-lighter wash for a bar; `horiz` for hbars, otherwise top-down */
+function barGrad(svg, color, horiz){
+  var id = "bg" + (++_gradN);
+  var g = el("linearGradient", horiz ? { id:id, x1:"0", y1:"0", x2:"1", y2:"0" }
+                                     : { id:id, x1:"0", y1:"0", x2:"0", y2:"1" });
+  var a = el("stop", { offset:"0%", "stop-color":color, "stop-opacity":"1" });
+  var b = el("stop", { offset:"100%", "stop-color":color, "stop-opacity":".62" });
+  g.appendChild(a); g.appendChild(b);
+  ensureDefs(svg).appendChild(g);
+  return "url(#" + id + ")";
+}
+/* the area path under a line: the line, then down to the baseline and back */
+function areaPath(g, vals, N){
+  return linePath(g, vals, N) +
+         "L" + (g.mL + g.iw).toFixed(1) + " " + (g.mT + g.ih).toFixed(1) +
+         "L" + g.mL.toFixed(1) + " " + (g.mT + g.ih).toFixed(1) + "Z";
+}
+/* A value shaded on a green(best) -> red(worst) scale, for cost columns in a table. `invert`
+   for metrics where HIGH is good. Returns a background colour, never a text colour, so the
+   number itself stays at full contrast. */
+function heatBg(v, lo, hi, invert){
+  if(!isFinite(v) || hi <= lo){ return ""; }
+  var t = (v - lo) / (hi - lo);
+  if(t < 0){ t = 0; }
+  if(t > 1){ t = 1; }
+  if(invert){ t = 1 - t; }
+  /* sqrt so mid-range cells stay visible rather than washing out */
+  var s = Math.sqrt(t);
+  return t < 0.5
+    ? "rgba(3,136,16," + (0.20 * (1 - s * 2) + 0.04).toFixed(3) + ")"
+    : "rgba(212,42,42," + (0.30 * ((s - 0.5) * 2) + 0.04).toFixed(3) + ")";
+}
+
+function frame(svg, opts){
+  clear(svg);
+  var vb = svg.getAttribute("viewBox").split(" ");
+  var W = parseFloat(vb[2]), H = parseFloat(vb[3]);
+  var mL = opts.mL === undefined ? 52 : opts.mL;
+  var mR = opts.mR === undefined ? 16 : opts.mR;
+  var mT = opts.mT === undefined ? 12 : opts.mT;
+  var mB = opts.mB === undefined ? 30 : opts.mB;
+  var iw = W - mL - mR, ih = H - mT - mB;
+  var maxV = opts.rawMax ? (opts.max || 1) : niceMax(opts.max || 1);
+  var ticks = opts.ticks === undefined ? 4 : opts.ticks;
+  function Y(v){ return mT + ih - (v / maxV) * ih; }
+  for(var i = 0; i <= ticks; i++){
+    var v = maxV * i / ticks, y = Y(v);
+    svg.appendChild(el("line", { x1:mL, y1:y, x2:mL+iw, y2:y, "class":"gl" }));
+    var t = el("text", { x:mL-7, y:y+3.5, "class":"axis", "text-anchor":"end" });
+    t.textContent = opts.fmt ? opts.fmt(v) : compactN(v);
+    svg.appendChild(t);
+  }
+  return { W:W, H:H, mL:mL, mR:mR, mT:mT, mB:mB, iw:iw, ih:ih, maxV:maxV, Y:Y };
+}
+function xLabels(svg, g, labels, every){
+  var N = labels.length;
+  if(!every){ every = Math.max(1, Math.ceil(N / 12)); }
+  for(var i = 0; i < N; i++){
+    if(i % every !== 0 && i !== N - 1){ continue; }
+    var x = g.mL + (N < 2 ? g.iw / 2 : g.iw * i / (N - 1));
+    var t = el("text", { x:x, y:g.mT + g.ih + 17, "class":"axis", "text-anchor":"middle" });
+    t.textContent = labels[i];
+    svg.appendChild(t);
+  }
+}
+function xLabelsBand(svg, g, labels, every){
+  var N = labels.length;
+  if(!every){ every = Math.max(1, Math.ceil(N / 14)); }
+  for(var i = 0; i < N; i++){
+    if(i % every !== 0){ continue; }
+    var x = g.mL + g.iw * (i + 0.5) / N;
+    var t = el("text", { x:x, y:g.mT + g.ih + 17, "class":"axis", "text-anchor":"middle" });
+    t.textContent = labels[i];
+    svg.appendChild(t);
+  }
+}
+function hoverBands(svg, g, N, onIdx){
+  for(var i = 0; i < N; i++){
+    var bw = g.iw / N;
+    var r = el("rect", { x:g.mL + bw*i, y:g.mT, width:bw, height:g.ih, fill:"transparent" });
+    (function(idx, rect){
+      rect.addEventListener("mousemove", function(e){ showTip(onIdx(idx), e.clientX, e.clientY); });
+      rect.addEventListener("mouseleave", hideTip);
+    })(i, r);
+    svg.appendChild(r);
+  }
+}
+function linePath(g, vals, N){
+  var d = "";
+  for(var i = 0; i < N; i++){
+    var x = g.mL + (N < 2 ? g.iw / 2 : g.iw * i / (N - 1));
+    d += (i ? "L" : "M") + x.toFixed(1) + " " + g.Y(vals[i]).toFixed(1);
+  }
+  return d;
+}
+function refLine(svg, g, v, label){
+  if(!isFinite(v) || v <= 0 || v > g.maxV){ return; }
+  var y = g.Y(v);
+  svg.appendChild(el("line", { x1:g.mL, y1:y, x2:g.mL+g.iw, y2:y, "class":"ref" }));
+  var t = el("text", { x:g.mL+g.iw-3, y:y-5, "class":"reflbl", "text-anchor":"end" });
+  t.textContent = label;
+  svg.appendChild(t);
+}
+function legend(id, items, offMap, onToggle){
+  var box = byId(id);
+  if(!box){ return; }
+  box.innerHTML = "";
+  items.forEach(function(it){
+    var d = document.createElement("div");
+    d.className = "lg" + (offMap[it.k] ? " off" : "");
+    d.innerHTML = '<span class="sw" style="background:' + it.c + '"></span>' + esc(it.n);
+    d.addEventListener("click", function(){
+      var on = 0;
+      items.forEach(function(x){ if(!offMap[x.k]){ on++; } });
+      if(!offMap[it.k] && on <= 1){ return; }   /* never allow an empty chart */
+      offMap[it.k] = !offMap[it.k];
+      onToggle();
+    });
+    box.appendChild(d);
+  });
+}
+function deltaHTML(cur, base, invert){
+  if(!base || !isFinite(base)){ return ""; }
+  var p = (cur - base) / Math.abs(base) * 100;
+  if(!isFinite(p)){ return ""; }
+  var good = invert ? p < 0 : p > 0;
+  var cls = Math.abs(p) < 0.5 ? "flat" : (good ? "up" : "dn");
+  var ar = Math.abs(p) < 0.5 ? "—" : (p > 0 ? "▲" : "▼");
+  return '<span class="delta ' + cls + '">' + ar + " " + Math.abs(p).toFixed(0) + "%</span>";
+}
+function insightCard(icon, title, body){
+  return '<div class="insight"><div class="ico">' + icon + '</div><div><div class="it">' +
+         esc(title) + '</div><div class="ib">' + body + "</div></div></div>";
+}
+function emptyCard(title, body){
+  return '<div class="empty"><h4>' + esc(title) + "</h4><p>" + body + "</p></div>";
+}
+function hbars(svg, rows, opts){
+  /* horizontal bars: rows = [{n,v,c,tip}] */
+  clear(svg);
+  var vb = svg.getAttribute("viewBox").split(" ");
+  var W = parseFloat(vb[2]), H = parseFloat(vb[3]);
+  var mL = opts && opts.mL ? opts.mL : 118;
+  var mR = 54, mT = 6, mB = 6;
+  var n = rows.length;
+  if(!n){
+    var t0 = el("text", { x:W/2, y:H/2, "class":"axis", "text-anchor":"middle" });
+    t0.textContent = "No data in this range";
+    svg.appendChild(t0);
+    return;
+  }
+  var iw = W - mL - mR, ih = H - mT - mB;
+  var bh = Math.min(26, ih / n - 5);
+  var max = 0;
+  rows.forEach(function(r){ if(r.v > max){ max = r.v; } });
+  if(max <= 0){ max = 1; }
+  rows.forEach(function(r, i){
+    var y = mT + (ih / n) * i + (ih / n - bh) / 2;
+    var w = Math.max(1, iw * (r.v / max));
+    var lb = el("text", { x:mL-8, y:y+bh/2+3.5, "class":"axis", "text-anchor":"end" });
+    lb.textContent = r.n.length > 18 ? r.n.slice(0,17) + "…" : r.n;
+    svg.appendChild(lb);
+    /* a faint full-width track makes short bars legible as "small", not "missing" */
+    svg.appendChild(el("rect", { x:mL, y:y, width:iw, height:bh, rx:4, fill:"var(--panel)",
+                                 opacity:".55" }));
+    var rect = el("rect", { x:mL, y:y, width:w, height:bh, rx:4,
+                            fill: barGrad(svg, r.c || "var(--s1)", true) });
+    if(r.tip){ bindTip(rect, r.tip); }
+    svg.appendChild(rect);
+    var vt = el("text", { x:mL+w+7, y:y+bh/2+3.5, "class":"axis", "text-anchor":"start" });
+    vt.textContent = r.lbl !== undefined ? r.lbl : compactN(r.v);
+    svg.appendChild(vt);
+  });
+}
+function donut(svg, rows, offMap, onPick){
+  clear(svg);
+  var cx = 100, cy = 100, R = 82, r = 50;
+  var tot = 0;
+  rows.forEach(function(x){ if(!offMap || !offMap[x.k]){ tot += x.v; } });
+  if(tot <= 0){
+    var t = el("text", { x:cx, y:cy, "class":"axis", "text-anchor":"middle" });
+    t.textContent = "No answers yet";
+    svg.appendChild(t);
+    return;
+  }
+  var a0 = -Math.PI / 2;
+  rows.forEach(function(x){
+    if(offMap && offMap[x.k]){ return; }
+    var frac = x.v / tot;
+    var a1 = a0 + frac * Math.PI * 2;
+    var large = frac > 0.5 ? 1 : 0;
+    var p = ["M", cx + R*Math.cos(a0), cy + R*Math.sin(a0),
+             "A", R, R, 0, large, 1, cx + R*Math.cos(a1), cy + R*Math.sin(a1),
+             "L", cx + r*Math.cos(a1), cy + r*Math.sin(a1),
+             "A", r, r, 0, large, 0, cx + r*Math.cos(a0), cy + r*Math.sin(a0), "Z"].join(" ");
+    var path = el("path", { d:p, fill:x.c, stroke:"#fff", "stroke-width":1.5, style:"cursor:pointer" });
+    bindTip(path, tipTitle(x.n) + tipRow("Contacts", num(x.v)) + tipRow("Share", pct(frac*100, 1)));
+    if(onPick){ path.addEventListener("click", function(){ onPick(x.k); }); }
+    svg.appendChild(path);
+    a0 = a1;
+  });
+  var c1 = el("text", { x:cx, y:cy-2, "text-anchor":"middle",
+                        style:"font:900 21px var(--display);fill:var(--green-d)" });
+  c1.textContent = compactN(tot);
+  svg.appendChild(c1);
+  var c2 = el("text", { x:cx, y:cy+15, "text-anchor":"middle", "class":"axis" });
+  c2.textContent = "answered";
+  svg.appendChild(c2);
+}
+var RAMP = ["var(--s1)","var(--s2)","var(--s3)","var(--s4)","var(--s5)","var(--s6)","var(--s7)"];
+function rampOf(i){ return RAMP[i % RAMP.length]; }
+
+/* ===================================================================== boot + sync */
+function fetchData(){
+  return fetch("data.json?t=" + Date.now(), { credentials:"same-origin", cache:"no-store" })
+    .then(function(r){
+      if(!r.ok){ throw new Error("data.json returned " + r.status); }
+      return r.json();
+    });
+}
+function ago(iso){
+  if(!iso){ return "—"; }
+  var t = Date.parse(iso);
+  if(!isFinite(t)){ return "—"; }
+  var s = (Date.now() - t) / 1000;
+  if(s < 90){ return "just now"; }
+  if(s < 5400){ return Math.round(s/60) + " min ago"; }
+  if(s < 172800){ return Math.round(s/3600) + " h ago"; }
+  return Math.round(s/86400) + " days ago";
+}
+function daysOld(iso){
+  if(!iso){ return 999; }
+  var t = Date.parse(iso + "T00:00:00Z");
+  if(!isFinite(t)){ return 999; }
+  return Math.floor((Date.now() - t) / 86400000);
+}
+function stampMeta(){
+  setText("upd", ago(DATA.generated_at));
+  var through = DATA.data_through;
+  var e = byId("through");
+  if(e){
+    e.textContent = prettyDate(through);
+    /* A dashboard that cannot tell you it is stale is worse than none. */
+    e.className = daysOld(through) > 3 ? "stale" : "";
+  }
+  /* Per-source freshness badges: one feed can lag while the other is fine. */
+  var src = DATA.source || {};
+  var html = "";
+  function badge(name, thr){
+    if(!thr){ return '<span class="srcbadge">' + name + ' —</span>'; }
+    var d = daysOld(thr);
+    var cls = d > 3 ? "old" : "fresh";
+    return '<span class="srcbadge ' + cls + '">' + name + " " + (d <= 0 ? "today" : d + "d") + "</span>";
+  }
+  html += badge("Meta", src.meta_through);
+  html += badge("Email", src.email_through);
+  setHTML("srcbadges", html);
+}
+function setSync(state, label){
+  var b = byId("sync");
+  if(!b){ return; }
+  b.className = "sync" + (state ? " " + state : "");
+  b.disabled = state === "busy";
+  setText("synclbl", label);
+}
+function doSync(){
+  setSync("busy", "Syncing…");
+  fetch("/refresh", { method:"POST", credentials:"same-origin" })
+    .then(function(r){ return r.json(); })
+    .catch(function(){ return { ok:false, reason:"refresh unavailable" }; })
+    .then(function(res){
+      /* Whether or not the job fired, reload the payload — the button must always do something. */
+      return fetchData().then(function(d){
+        DATA = d;
+        stampMeta();
+        renderAll();
+        if(res && res.ok){ setSync("ok", "Rebuilding…"); }
+        else if(res && res.cooldown){ setSync("ok", res.reason); }
+        else { setSync("ok", "Reloaded"); }
+        setTimeout(function(){ setSync("", "Sync"); }, 4000);
+      });
+    })
+    .catch(function(e){
+      setSync("bad", "Failed");
+      setTimeout(function(){ setSync("", "Sync"); }, 4000);
+    });
+}
+
+/* ===================================================================== filters */
+/* Every Meta row passes through here — one filter for every chart, table and tile on every tab,
+   so a number can never disagree with the chart next to it. */
+function metaIn(from, to){
+  var rows = ((DATA.meta || {}).rows) || [];
+  var camp = ST.camp, q = (ST.adq || "").toLowerCase();
+  var out = [];
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    if(r.d < from || r.d > to){ continue; }
+    if(ACCT && r.acct !== ACCT){ continue; }
+    if(camp && r.camp !== camp){ continue; }
+    if(q && r.ad.toLowerCase().indexOf(q) < 0){ continue; }
+    out.push(r);
+  }
+  return out;
+}
+/* Everything EXCEPT the campaign filter — the campaign table is built from this so the source
+   stays browsable while one campaign is selected. Filtering a list by the thing you picked out
+   of it leaves a single row and no way to switch (playbook 7: dim rather than hide, and keep the
+   source unfiltered). */
+function metaInAllCampaigns(from, to){
+  var rows = ((DATA.meta || {}).rows) || [];
+  var q = (ST.adq || "").toLowerCase();
+  var out = [];
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    if(r.d < from || r.d > to){ continue; }
+    if(ACCT && r.acct !== ACCT){ continue; }
+    if(q && r.ad.toLowerCase().indexOf(q) < 0){ continue; }
+    out.push(r);
+  }
+  return out;
+}
+function roll(rows){
+  var a = { spend:0, imps:0, clicks:0, lclk:0, reach:0, leads:0, thru:0, react:0,
+            ulead:0, ulclk:0, fw:0, n:rows.length };
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    a.spend += r.spend; a.imps += r.imps; a.clicks += r.clicks; a.lclk += r.lclk;
+    a.reach += r.reach; a.leads += r.leads; a.thru += r.thru; a.react += r.react;
+    a.ulead += r.ulead; a.ulclk += r.ulclk;
+    a.fw += (r.freq || 0) * r.imps;
+  }
+  return a;
+}
+/* Derived metrics — the definitions verified against the client's own report (see README). */
+function derive(a){
+  return {
+    spend:a.spend, imps:a.imps, clicks:a.clicks, lclk:a.lclk, reach:a.reach,
+    leads:a.leads, thru:a.thru, react:a.react, ulead:a.ulead, ulclk:a.ulclk,
+    cpm: safe(a.spend, a.imps) * 1000,
+    ctr: safe(a.lclk, a.imps) * 100,
+    cpc: safe(a.spend, a.lclk),
+    cpl: safe(a.spend, a.leads),
+    ctl: safe(a.leads, a.lclk) * 100,
+    leadrate: safe(a.leads, a.imps) * 100,
+    thrurate: safe(a.thru, a.imps) * 100,
+    cpthru: safe(a.spend, a.thru),
+    /* Reach is NOT additive across days: summing it and dividing impressions by it understates
+       frequency badly. Use the impression-weighted mean of Meta's own per-row frequency. */
+    freq: safe(a.fw, a.imps)
+  };
+}
+
+/* ---------- The KPI normalisation rule (build brief 2.2) ------------------------------------
+   Two metric types, two rules, never mixed:
+     VOLUME  (reach, impressions, clicks, leads, thruplays, sends, opens)
+             -> benchmark = AVERAGE PER WEEK across the benchmark range.
+     RATIO / COST (CTR, CPM, CPC, CPL, CTL, frequency, open rate, open-to-click)
+             -> benchmark = AGGREGATE ratio across the whole range (sum num / sum denom).
+                Never the mean of daily ratios — that is wrong whenever spend is uneven.        */
+var VOLUME_KEYS = { reach:1, imps:1, clicks:1, lclk:1, leads:1, thru:1, react:1, ulead:1,
+                    ulclk:1, spend:1, sends:1, opens:1, sclicks:1 };
+/* Metrics where DOWN is good, so the delta colour must invert. */
+var INVERT_KEYS = { cpm:1, cpc:1, cpl:1, cpthru:1, freq:1, unsubs:1, bounces:1 };
+
+function benchValue(key, benchDerived, benchWeeks){
+  if(VOLUME_KEYS[key]){ return benchDerived[key] / benchWeeks; }
+  return benchDerived[key];
+}
+function benchLabel(key){
+  return VOLUME_KEYS[key] ? "avg / week" : "benchmark rate";
+}
+function cmpRow(label, key, cur, bench, weeks, fmt){
+  var cv = cur[key], bv = benchValue(key, bench, weeks);
+  var inv = !!INVERT_KEYS[key];
+  /* An EMPTY benchmark range is not a benchmark of zero. Rendering "$0.00" next to a real figure
+     reads as a target that has been missed by infinity, and the delta came out as a nonsensical
+     "-100% more expensive than your own baseline". Say there is nothing to compare against. */
+  if(!isFinite(bv) || bv === 0){
+    return '<div class="cmp-row">' +
+      '<div class="cell"><div class="l">' + esc(label) + '</div>' +
+        '<div class="v tnum">' + fmt(cv) + '</div></div>' +
+      '<div class="cell bench"><div class="l" style="font-style:italic">no data in the ' +
+        'benchmark range</div><div class="v tnum" style="color:var(--muted);font-size:14px">' +
+        '&mdash;</div></div></div>';
+  }
+  /* The DISPLAYED benchmark for a volume metric is an average per week (what the brief asks for),
+     but the DELTA must be like-for-like or it is nonsense: a 30-day total against a weekly
+     average read "+1946%" in the first browser check. So the delta compares the period total
+     against what that weekly rate would have produced over the period's own length. */
+  var pw = weeksBetween(ST.from, ST.to);
+  var base = VOLUME_KEYS[key] ? bv * pw : bv;
+  var deltaTitle = VOLUME_KEYS[key]
+    ? "vs " + fmt(base) + " expected over " + pw.toFixed(1) + " weeks at the benchmark rate"
+    : "vs the benchmark rate";
+  return '<div class="cmp-row">' +
+    '<div class="cell"><div class="l">' + esc(label) + '</div>' +
+      '<div class="v tnum" title="' + esc(deltaTitle) + '">' + fmt(cv) +
+      deltaHTML(cv, base, inv) + '</div></div>' +
+    '<div class="cell bench"><div class="l">' + esc(benchLabel(key)) + '</div>' +
+      '<div class="v tnum">' + fmt(bv) + '</div></div>' +
+  '</div>';
+}
+/* A metric the API accepts but never populates. Rendering it as "0" reads as "we got none",
+   which is a lie; rendering it as "—" with the reason is honest and keeps the row the client
+   asked for. `unique_actions_lead` is the live case: Windsor returns the column and it is
+   identically zero on every query shape, while unique_actions_link_click works fine. */
+function naRow(label, reason){
+  return '<div class="cmp-row">' +
+    '<div class="cell"><div class="l">' + esc(label) + '</div>' +
+      '<div class="v tnum" style="color:var(--muted)" title="' + esc(reason) + '">—</div></div>' +
+    '<div class="cell bench"><div class="l" style="font-style:italic">' + esc(reason) + '</div>' +
+      '<div class="v tnum" style="color:var(--muted);font-size:14px">n/a</div></div>' +
+  '</div>';
+}
+function stageBlock(cls, n, title, note, rowsHTML){
+  return '<div class="stage ' + cls + '">' +
+    '<div class="stage-head"><h3>' + esc(title) + '</h3><div class="n">' + esc(note) + '</div></div>' +
+    '<div class="stage-body">' +
+      '<div class="cmp-cols"><div>Period</div><div class="b">KPI benchmark</div></div>' +
+      rowsHTML +
+    '</div></div>';
+}
+
+/* ===================================================================== init */
+function boot(){
+  fetchData().then(function(d){
+    DATA = d;
+    init();
+  }).catch(function(e){
+    document.body.insertAdjacentHTML("afterbegin",
+      '<div style="padding:26px;font:14px system-ui;color:#C0472F">Could not load data.json — ' +
+      esc(e.message) + "</div>");
+  });
+}
+
+function init(){
+  CUR = (DATA.currency === "AUD" || DATA.currency === "USD") ? "$" : (DATA.currency || "$");
+  var b = DATA.brand || {};
+  /* A real logo replaces the monogram crest the moment one lands in job/assets/rhe-mark.png. */
+  if(b.mark){
+    var mk = byId("mark"); mk.src = b.mark; mk.hidden = false; byId("favicon").href = b.mark;
+    var cr = byId("crest"); if(cr){ cr.style.display = "none"; }
+    var bw = document.querySelector(".brand");
+    if(bw){ bw.className = "brand has-logo"; }
+  }
+  if(b.agora_logo){ var ag = byId("agora"); ag.src = b.agora_logo; ag.hidden = false; }
+  setText("wm", (DATA.client || "Client").toUpperCase());
+  setText("tg", DATA.tagline || "");
+
+  /* Range the presets from the SCOPED account's own history, not the payload's.
+     The three ad accounts are largely SEQUENTIAL, not parallel — Stuart Baker ran 2024-01 to
+     2025-11, Super Cashflow 2025-10 to 2026-03, and the RHE account only starts 2026-01-01.
+     Ranging from the payload's global minimum therefore handed RHE a default "previous calendar
+     year" benchmark of 2025, which holds ZERO rows for it, and every benchmark column rendered
+     $0.00. `presetRange` falls back to a rolling window once the floor clamps past the target. */
+  var mrows = ((DATA.meta || {}).rows) || [];
+  var mdates = [];
+  for (var mi = 0; mi < mrows.length; mi++) {
+    if (!ACCT || mrows[mi].acct === ACCT) { mdates.push(mrows[mi].d); }
+  }
+  mdates.sort();
+  var mrange = mdates.length ? [mdates[0], mdates[mdates.length - 1]]
+                             : (((DATA.meta || {}).range) || [null, null]);
+  META_MIN = mrange[0]; META_MAX = mrange[1];
+  var daily = ((DATA.email || {}).daily) || [];
+  MAIL_MIN = daily.length ? daily[0].d : null;
+  MAIL_MAX = daily.length ? daily[daily.length - 1].d : null;
+  ALL_MIN = [META_MIN, MAIL_MIN].filter(Boolean).sort()[0] || "2024-01-01";
+  var maxes = [META_MAX, MAIL_MAX].filter(Boolean).sort();
+  ALL_MAX = maxes.length ? maxes[maxes.length - 1] : isoOf(new Date());
+
+  var p = presetRange("30", ALL_MAX, ALL_MIN);
+  ST.from = p[0]; ST.to = p[1];
+
+  /* Benchmark default: the previous CALENDAR year is the ideal baseline (a rolling 12 months
+     over-weights whichever season it starts in), but it is only usable when the scoped account
+     actually ran ads then. The RHE account starts 2026-01-01, so "last year" is empty for it and
+     every benchmark column rendered blank. Walk the candidates until one holds Meta rows. */
+  var cands = ["lastyear", "365", "180", "all"];
+  var bch = null;
+  for (var ci = 0; ci < cands.length; ci++) {
+    var cand = presetRange(cands[ci], ALL_MAX, ALL_MIN);
+    ST.bfrom = cand[0]; ST.bto = cand[1];
+    if (metaIn(ST.bfrom, ST.bto).length) { bch = cand; break; }
+  }
+  if (!bch) { bch = presetRange("all", ALL_MAX, ALL_MIN); }
+  ST.bfrom = bch[0]; ST.bto = bch[1];
+
+  buildCampaigns();
+  syncDates();
+  stampMeta();
+  wireTabs();
+  wireControls();
+  wireSegs();
+  wireSorts();
+  setTuck(isTucked());
+
+  var hash = (location.hash || "").replace("#", "");
+  if(hash && byId("pane-" + hash)){ setTab(hash, true); }
+
+  renderAll();
+}
+
+function buildCampaigns(){
+  var rows = ((DATA.meta || {}).rows) || [];
+  var seen = {}, out = [];
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    if(ACCT && r.acct !== ACCT){ continue; }
+    if(r.camp && !seen[r.camp]){ seen[r.camp] = 1; out.push(r.camp); }
+  }
+  out.sort();
+  var sel = byId("campsel");
+  var keep = ST.camp;
+  sel.innerHTML = '<option value="">All campaigns</option>';
+  out.forEach(function(c){
+    var o = document.createElement("option");
+    o.value = c; o.textContent = c.length > 58 ? c.slice(0,57) + "…" : c;
+    sel.appendChild(o);
+  });
+  if(keep && seen[keep]){ sel.value = keep; } else { ST.camp = ""; sel.value = ""; }
+}
+function syncDates(){
+  byId("from").value = ST.from; byId("to").value = ST.to;
+  byId("bfrom").value = ST.bfrom; byId("bto").value = ST.bto;
+  var d = daysBetween(ST.from, ST.to), w = weeksBetween(ST.bfrom, ST.bto);
+  setHTML("rangenote",
+    "<b>Period</b> " + prettyDate(ST.from) + " → " + prettyDate(ST.to) +
+    " (" + d + " day" + (d === 1 ? "" : "s") + ") drives every tile, chart and table. " +
+    '<span class="bench"><b>KPI benchmark</b> ' + prettyDate(ST.bfrom) + " → " + prettyDate(ST.bto) +
+    " (" + w.toFixed(1) + " weeks) drives the right-hand comparison column only.</span>");
+}
+function isTucked(){
+  try { return window.localStorage.getItem("rhe_tuck") === "1"; }
+  catch(e){ return false; }
+}
+function setTuck(on){
+  var c = byId("controls");
+  if(on){ c.classList.add("tucked"); } else { c.classList.remove("tucked"); }
+  setText("ctucklbl", on ? "Filters" : "Hide");
+  try { window.localStorage.setItem("rhe_tuck", on ? "1" : "0"); } catch(e){ /* private mode */ }
+}
+function wireTabs(){
+  var tabs = document.querySelectorAll(".tab");
+  for(var i = 0; i < tabs.length; i++){
+    (function(t){
+      t.addEventListener("click", function(){ setTab(t.getAttribute("data-tab")); });
+    })(tabs[i]);
+  }
+}
+function setTab(name, keepScroll){
+  var tabs = document.querySelectorAll(".tab");
+  for(var i = 0; i < tabs.length; i++){
+    tabs[i].setAttribute("aria-selected", tabs[i].getAttribute("data-tab") === name ? "true" : "false");
+  }
+  var panes = document.querySelectorAll(".tab-pane");
+  for(var j = 0; j < panes.length; j++){
+    panes[j].hidden = panes[j].id !== ("pane-" + name);
+  }
+  if(location.hash !== "#" + name){
+    try { history.replaceState(null, "", "#" + name); } catch(e){ location.hash = name; }
+  }
+  if(!keepScroll){ window.scrollTo({ top:0, behavior:"smooth" }); }
+  renderAll();
+}
+function setActive(sel, node){
+  var n = document.querySelectorAll(sel);
+  for(var i = 0; i < n.length; i++){ n[i].classList.remove("active"); }
+  if(node){ node.classList.add("active"); }
+}
+function wireControls(){
+  byId("ctuck").addEventListener("click", function(){
+    setTuck(!byId("controls").classList.contains("tucked"));
+  });
+  byId("sync").addEventListener("click", doSync);
+  var cx = byId("cModX");
+  if(cx){ cx.addEventListener("click", closeCreative); }
+  var cm = byId("cMod");
+  /* click the backdrop (never the card itself) to dismiss */
+  if(cm){ cm.addEventListener("click", function(e){ if(e.target === cm){ closeCreative(); } }); }
+  document.addEventListener("keydown", function(e){
+    if(e.key === "Escape"){ closeCreative(); }
+  });
+
+  var ps = document.querySelectorAll(".preset[data-p]");
+  for(var i = 0; i < ps.length; i++){
+    (function(btn){
+      btn.addEventListener("click", function(){
+        var r = presetRange(btn.getAttribute("data-p"), ALL_MAX, ALL_MIN);
+        ST.from = r[0]; ST.to = r[1];
+        setActive(".preset[data-p]", btn);
+        syncDates(); renderAll();
+      });
+    })(ps[i]);
+  }
+  var bs = document.querySelectorAll(".preset[data-b]");
+  for(var k = 0; k < bs.length; k++){
+    (function(btn){
+      btn.addEventListener("click", function(){
+        var r = presetRange(btn.getAttribute("data-b"), ALL_MAX, ALL_MIN);
+        ST.bfrom = r[0]; ST.bto = r[1];
+        setActive(".preset[data-b]", btn);
+        syncDates(); renderAll();
+      });
+    })(bs[k]);
+  }
+  ["from","to","bfrom","bto"].forEach(function(id){
+    byId(id).addEventListener("change", function(){
+      var v = byId(id).value;
+      if(!v){ return; }
+      ST[id] = clampIso(v, ALL_MIN, ALL_MAX);
+      if(ST.from > ST.to){ var t = ST.from; ST.from = ST.to; ST.to = t; }
+      if(ST.bfrom > ST.bto){ var b = ST.bfrom; ST.bfrom = ST.bto; ST.bto = b; }
+      setActive(".preset[data-p]", null);
+      syncDates(); renderAll();
+    });
+  });
+  byId("campsel").addEventListener("change", function(){
+    ST.camp = byId("campsel").value;
+    renderAll();
+  });
+  var deb = null;
+  byId("adq").addEventListener("input", function(){
+    if(deb){ clearTimeout(deb); }
+    deb = setTimeout(function(){ ST.adq = byId("adq").value.trim(); renderAll(); }, 220);
+  });
+}
+/* One helper wires every segmented control on the page (playbook 7). */
+function segWire(id, apply){
+  var box = byId(id);
+  if(!box){ return; }
+  var btns = box.querySelectorAll("button");
+  for(var i = 0; i < btns.length; i++){
+    (function(b){
+      b.addEventListener("click", function(){
+        for(var j = 0; j < btns.length; j++){ btns[j].classList.remove("on"); }
+        b.classList.add("on");
+        apply(b.getAttribute("data-v"));
+        renderAll();
+      });
+    })(btns[i]);
+  }
+}
+function wireSegs(){
+  segWire("seg-leads",  function(v){ GRAIN.leads = v; });
+  segWire("seg-email",  function(v){ GRAIN.email = v; });
+  segWire("seg-growth", function(v){ GRAIN.growth = v; });
+  segWire("seg-laxis",  function(v){ SEG.laxis = v; });
+  segWire("seg-eaxis",  function(v){ SEG.eaxis = v; });
+  segWire("seg-tpl",    function(v){ SEG.tpl = v; });
+  segWire("seg-agmet",  function(v){ SEG.agmet = v; });
+  segWire("seg-geo",    function(v){ SEG.geo = v; });
+  segWire("seg-demo",   function(v){ SEG.demo = v; });
+  segWire("seg-crank",  function(v){ SEG.crank = v; });
+}
+/* EVERY column header on the dashboard is a sort control. Tables declare their state key with
+   data-sort on the <table> and each sortable column with data-k on its <th>; this walks them all
+   so a new table is sortable the moment it is added, with no extra wiring. */
+function wireSorts(){
+  var tables = document.querySelectorAll("table[data-sort]");
+  for(var t = 0; t < tables.length; t++){
+    (function(tbl){
+      var stKey = tbl.getAttribute("data-sort");
+      if(!SORT[stKey]){ SORT[stKey] = { k:"", dir:-1 }; }
+      var th = tbl.querySelectorAll("thead th[data-k]");
+      for(var i = 0; i < th.length; i++){
+        (function(h){
+          h.className = (h.className + " srt").trim();
+          if(h.innerHTML.indexOf('class="ar"') < 0){
+            h.innerHTML = h.innerHTML + '<span class="ar">&#8597;</span>';
+          }
+          h.addEventListener("click", function(){
+            var k = h.getAttribute("data-k");
+            var s = SORT[stKey];
+            /* first click on a new column sorts DESC (biggest first, which is what people want);
+               clicking the active column flips it. */
+            if(s.k === k){ s.dir = -s.dir; } else { s.k = k; s.dir = -1; }
+            renderAll();
+          });
+        })(th[i]);
+      }
+    })(tables[t]);
+  }
+}
+function markSort(tblId, st){
+  var th = document.querySelectorAll("#" + tblId + " thead th[data-k]");
+  for(var i = 0; i < th.length; i++){
+    var on = th[i].getAttribute("data-k") === st.k;
+    th[i].className = th[i].className.replace(/\s*\bon\b/g, "") + (on ? " on" : "");
+    var ar = th[i].querySelector(".ar");
+    if(ar){ ar.textContent = on ? (st.dir < 0 ? "↓" : "↑") : "↕"; }
+  }
+}
+function sortRows(rows, st){
+  var k = st.k, dir = st.dir;
+  return rows.slice().sort(function(a, b){
+    var x = a[k], y = b[k];
+    if(typeof x === "string" || typeof y === "string"){
+      x = String(x === undefined || x === null ? "" : x).toLowerCase();
+      y = String(y === undefined || y === null ? "" : y).toLowerCase();
+      return x < y ? -dir : (x > y ? dir : 0);
+    }
+    return ((x || 0) - (y || 0)) * dir;
+  });
+}
+function currentTab(){
+  var t = document.querySelector('.tab[aria-selected="true"]');
+  return t ? t.getAttribute("data-tab") : "funnel";
+}
+function renderAll(){
+  if(!DATA){ return; }
+  var t = currentTab();
+  if(t === "funnel"){ renderFunnel(); }
+  else if(t === "email"){ renderEmail(); }
+  else if(t === "magnet"){ renderMagnet(); }
+  else if(t === "demo"){ renderDemo(); }
+}
+
+/* ===================================================================== TAB 1: META FUNNEL */
+function renderFunnel(){
+  var cur = derive(roll(metaIn(ST.from, ST.to)));
+  var bch = derive(roll(metaIn(ST.bfrom, ST.bto)));
+  var wks = weeksBetween(ST.bfrom, ST.bto);
+
+  var mN = function(v){ return num(v); };
+  var mM = function(v){ return money(v, Math.abs(v) >= 1000 ? 0 : 2); };
+  var mP = function(v){ return pct(v, 2); };
+  var mF = function(v){ return Number(v).toFixed(2); };
+
+  var html = "";
+  html += stageBlock("s1", 1, "Awareness", "are we reaching enough of the right people?",
+    cmpRow("Reach", "reach", cur, bch, wks, mN) +
+    cmpRow("Impressions", "imps", cur, bch, wks, mN) +
+    cmpRow("CPM", "cpm", cur, bch, wks, mM) +
+    cmpRow("Frequency", "freq", cur, bch, wks, mF));
+
+  /* Thruplays, thruplay rate, unique clicks, unique leads and cost-per-thruplay were removed at
+     the client's request (2026-07-28). The underlying fields are still pulled and still in the
+     payload — re-adding a row is one `cmpRow` call. */
+  html += stageBlock("s2", 2, "Consideration", "interested enough to click?",
+    cmpRow("CTR (link clicks ÷ impr.)", "ctr", cur, bch, wks, mP) +
+    cmpRow("Link clicks", "lclk", cur, bch, wks, mN) +
+    cmpRow("CPC", "cpc", cur, bch, wks, mM) +
+    cmpRow("Engagement (likes + reactions)", "react", cur, bch, wks, mN));
+
+  html += stageBlock("s3", 3, "Conversion", "are they becoming leads?",
+    cmpRow("Leads", "leads", cur, bch, wks, mN) +
+    cmpRow("CTL (leads ÷ link clicks)", "ctl", cur, bch, wks, mP) +
+    cmpRow("Lead rate (leads ÷ impr.)", "leadrate", cur, bch, wks, mP) +
+    cmpRow("CPL", "cpl", cur, bch, wks, mM));
+
+  html += stageBlock("s4", 4, "Investment & efficiency", "what the money is buying",
+    cmpRow("Spend", "spend", cur, bch, wks, mM) +
+    cmpRow("CPL", "cpl", cur, bch, wks, mM) +
+    cmpRow("Cost per 1,000 reached", "cpm", cur, bch, wks, mM));
+
+  setHTML("stages", html);
+
+  renderLeadsChart(cur, bch, wks);
+  renderFunnelShape(cur, bch);
+  funnelKpiRail(cur, bch);
+  renderCreatives();
+  renderCampTable();
+  renderAdTable();
+  renderFunnelInsights(cur, bch, wks);
+}
+
+/* All four metrics live on ONE canvas; the scorecards above are the filter (playbook 7 — the
+   tile's accent bar IS the line colour, so no legend lookup is needed). */
+var LSERIES = [
+  { k:"leads", n:"Leads",       c:"var(--s1)", money:false, sub:"lead-form submissions" },
+  { k:"cpl",   n:"Cost per lead", c:"var(--s6)", money:true, sub:"spend ÷ leads" },
+  { k:"spend", n:"Spend",       c:"var(--s2)", money:true,  sub:"media investment" },
+  { k:"lclk",  n:"Link clicks", c:"var(--s3)", money:false, sub:"clicks through to the site" }
+];
+function leadBuckets(g){
+  var rows = metaIn(ST.from, ST.to);
+  var by = {};
+  for(var i = 0; i < rows.length; i++){
+    var k = bucketOf(rows[i].d, g);
+    var b = by[k];
+    if(!b){ b = by[k] = { spend:0, leads:0, lclk:0 }; }
+    b.spend += rows[i].spend; b.leads += rows[i].leads; b.lclk += rows[i].lclk;
+  }
+  return by;
+}
+function lval(b, key){
+  if(key === "cpl"){ return safe(b.spend, b.leads); }
+  return b[key] || 0;
+}
+function renderLeadsChart(cur, bch, wks){
+  var g = grainOf("leads", ST.from, ST.to);
+  var by = leadBuckets(g);
+  var keys = denseBuckets(ST.from, ST.to, g, 420);
+  if(!keys){ keys = Object.keys(by).sort(); }
+  var EMPTY = { spend:0, leads:0, lclk:0 };
+
+  /* scorecards double as the series filter */
+  var html = "";
+  LSERIES.forEach(function(s){
+    var v = cur[s.k];
+    html += '<div class="kpi sel' + (OFF.leads[s.k] ? " off" : "") + '" data-s="' + s.k + '">' +
+      '<div class="kl"><span class="dot" style="background:' + s.c + '"></span>' + esc(s.n) + "</div>" +
+      '<div class="kv tnum">' + (s.money ? money(v, v >= 1000 ? 0 : 2) : num(v)) + "</div>" +
+      '<div class="kd">' + esc(s.sub) + "</div>" +
+      /* the bottom accent bar IS the line colour on the chart below — no legend lookup needed */
+      '<span style="position:absolute;left:0;right:0;bottom:0;height:5px;z-index:1;background:' +
+        s.c + (OFF.leads[s.k] ? ";opacity:.25" : "") + '"></span></div>';
+  });
+  setHTML("leadScores", html);
+  var tiles = document.querySelectorAll("#leadScores .kpi.sel");
+  for(var i = 0; i < tiles.length; i++){
+    (function(t, s){
+      t.addEventListener("click", function(){
+        var on = 0;
+        LSERIES.forEach(function(x){ if(!OFF.leads[x.k]){ on++; } });
+        if(!OFF.leads[s.k] && on <= 1){ return; }     /* never allow an empty chart */
+        OFF.leads[s.k] = !OFF.leads[s.k];
+        renderAll();
+      });
+    })(tiles[i], LSERIES[i]);
+  }
+
+  var active = LSERIES.filter(function(s){ return !OFF.leads[s.k]; });
+  var rel = SEG.laxis === "rel";
+  var peaks = {};
+  active.forEach(function(s){
+    var m = 0;
+    keys.forEach(function(k){ var v = lval(by[k] || EMPTY, s.k); if(v > m){ m = v; } });
+    peaks[s.k] = m || 1;
+  });
+  var maxV = rel ? 100 : 0;
+  if(!rel){ active.forEach(function(s){ if(peaks[s.k] > maxV){ maxV = peaks[s.k]; } }); }
+
+  setText("leadsSub", grainNote(g, keys.length) + " · " + prettyDate(ST.from) + " → " + prettyDate(ST.to)
+          + " · " + active.length + " of " + LSERIES.length + " series shown");
+
+  var svg = byId("leadsChart");
+  var fr = frame(svg, { max:maxV || 1, mB:34,
+    fmt: rel ? function(v){ return Math.round(v) + "%"; }
+             : (active.length === 1 && active[0].money ? function(v){ return compact(v); } : compactN) });
+
+  /* the benchmark line only makes sense against a single series */
+  if(active.length === 1 && !rel){
+    var key = active[0].k;
+    var perBucket = g === "day" ? 1/7 : (g === "month" ? 30.44/7 : 1);
+    var ref = VOLUME_KEYS[key] ? benchValue(key, bch, wks) * perBucket : bch[key];
+    refLine(svg, fr, ref, "benchmark " + (active[0].money ? money(ref, 2) : compactN(ref)));
+  }
+
+  var N = keys.length;
+  if(N){
+    /* Every active series gets its own wash. With several on screen the fills are kept light so
+       they layer without turning to mud; a single series gets a stronger one. */
+    var aTop = active.length === 1 ? 0.30 : 0.13;
+    active.forEach(function(s){
+      var vals = keys.map(function(k){
+        var raw = lval(by[k] || EMPTY, s.k);
+        return rel ? safe(raw, peaks[s.k]) * 100 : raw;
+      });
+      svg.appendChild(el("path", { d: areaPath(fr, vals, N), fill: areaGrad(svg, s.c, aTop, 0.01),
+                                   stroke:"none" }));
+      svg.appendChild(el("path", { d: linePath(fr, vals, N), fill:"none", stroke:s.c,
+                                   "stroke-width":2.4, "stroke-linejoin":"round",
+                                   "stroke-linecap":"round" }));
+      if(N <= 60){
+        for(var p = 0; p < N; p++){
+          var x = fr.mL + (N < 2 ? fr.iw/2 : fr.iw * p / (N - 1));
+          svg.appendChild(el("circle", { cx:x, cy:fr.Y(vals[p]), r:2.5, fill:s.c }));
+        }
+      }
+    });
+    xLabels(svg, fr, keys.map(function(k){ return bucketLabel(k, g); }));
+    hoverBands(svg, fr, N, function(idx){
+      var b = by[keys[idx]] || EMPTY;
+      var h = tipTitle(bucketTip(keys[idx], g));
+      active.forEach(function(s){
+        var raw = lval(b, s.k);
+        h += tipRow(s.n, (s.money ? money(raw, 2) : num(raw)) +
+                    (rel ? "  (" + pct(safe(raw, peaks[s.k]) * 100, 0) + " of peak)" : ""));
+      });
+      return h;
+    });
+  }
+  legend("leadsLegend", LSERIES.map(function(s){ return { k:s.k, n:s.n, c:s.c }; }),
+         OFF.leads, function(){ renderAll(); });
+  setHTML("leadsNote", (rel
+    ? "<b>Relative.</b> Each series is indexed to its own peak on a shared 0–100% axis, so leads, " +
+      "spend, clicks and cost per lead can be compared <i>by shape</i> despite living on wildly " +
+      "different scales. Tooltips show the real values."
+    : "<b>Absolute.</b> Real values on one axis — best with a single series selected, since a " +
+      "$20 cost per lead is a flat line under 400 impressions-worth of clicks.") +
+    " Bucketed by <b>" + (g === "day" ? "day" : g === "month" ? "month" : "week") + "</b>" +
+    (GRAIN.leads === "auto" ? " (auto, from the selected span)" : "") + ".");
+}
+
+/* The funnel is framed as CARRY-THROUGH, not loss: the stage label says how many made it, the
+   connector says what share converted, and the KPI rail beside it states each step as a
+   conversion rate against the benchmark. Same numbers, actionable framing. */
+function renderFunnelShape(cur, bch){
+  var svg = byId("funnelChart");
+  clear(svg);
+  var stages = [
+    { n:"Saw the ad", sub:"impressions", v:cur.imps, c:"var(--s3)" },
+    { n:"Clicked through", sub:"link clicks", v:cur.lclk, c:"var(--s2)" },
+    { n:"Became a lead", sub:"lead-form submissions", v:cur.leads, c:"var(--s1)" }
+  ];
+  var W = 560, H = 260, mL = 128, mR = 92, top = 16;
+  var band = (H - top - 14) / stages.length;
+  var maxV = stages[0].v || 1;
+  for(var i = 0; i < stages.length; i++){
+    var s = stages[i];
+    var w = (W - mL - mR) * Math.sqrt(safe(s.v, maxV));
+    var y = top + band * i + 8;
+    var h = band - 22;
+    var x = (W - w) / 2;
+    var prev = i ? stages[i-1].v : 0;
+    var thru = i ? safe(s.v, prev) * 100 : 100;
+    var rect = el("rect", { x:x, y:y, width:Math.max(w, 3), height:h, rx:6,
+                            fill: barGrad(svg, s.c, true) });
+    bindTip(rect, tipTitle(s.n) + tipRow("Count", num(s.v)) +
+      (i ? tipRow("Carried through from " + stages[i-1].n.toLowerCase(), pct(thru, 2)) : "") +
+      tipRow("Share of everyone who saw it", pct(safe(s.v, maxV) * 100, 3)));
+    svg.appendChild(rect);
+    var lb = el("text", { x:mL - 40, y:y + h/2 + 1, "text-anchor":"end",
+                          style:"font:900 12px var(--display);fill:var(--green-d)" });
+    lb.textContent = s.n;
+    svg.appendChild(lb);
+    var sb = el("text", { x:mL - 40, y:y + h/2 + 13, "class":"axis", "text-anchor":"end" });
+    sb.textContent = s.sub;
+    svg.appendChild(sb);
+    var vt = el("text", { x:W - 12, y:y + h/2 + 5, "text-anchor":"end",
+                          style:"font:900 16px var(--display);fill:var(--green-d)" });
+    vt.textContent = compactN(s.v);
+    svg.appendChild(vt);
+    if(i){
+      /* no down-triangle: the glyph read as loss even in green, which is the opposite of the
+         framing we want. A plain green statement of what carried through does the job. */
+      var ct = el("text", { x:W/2, y:y - 6, "text-anchor":"middle",
+                            style:"font:900 10.5px var(--sans);fill:var(--green)" });
+      ct.textContent = pct(thru, 2) + " of them " + (i === 1 ? "clicked through" : "became a lead");
+      svg.appendChild(ct);
+    }
+  }
+}
+
+/* The KPI rail next to the funnel: each step stated as a conversion rate, benchmarked. */
+function funnelKpiRail(cur, bch){
+  function tile(label, val, sub, delta){
+    return '<div class="kpi"><div class="kl">' + esc(label) + "</div>" +
+           '<div class="kv tnum">' + val + (delta || "") + "</div>" +
+           '<div class="kd">' + sub + "</div></div>";
+  }
+  var ctr = cur.ctr, ctl = cur.ctl, lr = cur.leadrate;
+  var html = "";
+  html += '<div class="kpi hero"><div class="kl">Leads won this period</div>' +
+          '<div class="kv tnum">' + num(cur.leads) + deltaHTML(cur.leads,
+            benchValue("leads", bch, weeksBetween(ST.bfrom, ST.bto)) * weeksBetween(ST.from, ST.to),
+            false) + "</div>" +
+          '<div class="kd">at ' + money(cur.cpl, 2) + " each</div></div>";
+  html += tile("Ad → click", pct(ctr, 2),
+               "of everyone who saw an ad clicked through", deltaHTML(ctr, bch.ctr, false));
+  html += tile("Click → lead", pct(ctl, 1),
+               "of clickers filled in the form", deltaHTML(ctl, bch.ctl, false));
+  html += tile("Ad → lead", pct(lr, 3),
+               "end-to-end conversion", deltaHTML(lr, bch.leadrate, false));
+  setHTML("funnelKpis", html);
+}
+
+function campRows(){
+  var rows = metaInAllCampaigns(ST.from, ST.to);
+  var by = {};
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i], k = r.camp || "(unnamed)";
+    if(!by[k]){ by[k] = { name:k, spend:0, imps:0, lclk:0, leads:0, acct:r.acct, _as:{} }; }
+    var b = by[k];
+    b.spend += r.spend; b.imps += r.imps; b.lclk += r.lclk; b.leads += r.leads;
+    /* the three accounts are eras of one advertiser, so label a campaign with the account that
+       actually paid for most of it rather than whichever row happened to come first */
+    b._as[r.acct] = (b._as[r.acct] || 0) + r.spend;
+  }
+  for(var kk in by){
+    var top = "", tv = -1;
+    for(var a in by[kk]._as){ if(by[kk]._as[a] > tv){ tv = by[kk]._as[a]; top = a; } }
+    by[kk].acct = top === "rhe" ? "RHE" : top;
+    delete by[kk]._as;
+  }
+  return Object.keys(by).map(function(k){
+    var b = by[k];
+    b.ctr = safe(b.lclk, b.imps) * 100;
+    b.ctl = safe(b.leads, b.lclk) * 100;
+    b.cpl = b.leads ? safe(b.spend, b.leads) : 0;
+    return b;
+  });
+}
+function renderCampTable(){
+  var all = campRows();
+  var st = SORT.camp;
+  markSort("campTbl", st);
+  var rows = sortRows(all, st);
+  var shown = rows.slice(0, 10);
+  /* If the selected campaign sorts outside the top 10 it would vanish while its chip is still
+     showing — pin it so the selection is always visible and clickable-to-clear. */
+  if(ST.camp){
+    var inView = false, si = -1;
+    for(var q = 0; q < shown.length; q++){ if(shown[q].name === ST.camp){ inView = true; } }
+    if(!inView){
+      for(var z = 0; z < rows.length; z++){ if(rows[z].name === ST.camp){ si = z; } }
+      if(si >= 0){ shown = [rows[si]].concat(shown.slice(0, 9)); }
+    }
+  }
+  var maxCpl = 0, minCpl = 0;
+  shown.forEach(function(r){
+    if(r.cpl > maxCpl){ maxCpl = r.cpl; }
+    if(r.leads && (!minCpl || r.cpl < minCpl)){ minCpl = r.cpl; }
+  });
+  var tb = document.querySelector("#campTbl tbody");
+  tb.innerHTML = "";
+  if(!shown.length){
+    tb.innerHTML = '<tr><td colspan="9" style="color:var(--muted);padding:16px">No campaigns in this range.</td></tr>';
+  }
+  shown.forEach(function(r){
+    var tr = document.createElement("tr");
+    if(ST.camp === r.name){ tr.className = "hl"; }
+    tr.innerHTML =
+      '<td class="nm" title="' + esc(r.name) + '">' + esc(r.name) + "</td>" +
+      '<td style="color:var(--muted);font-size:11.5px">' + esc(r.acct || "—") + "</td>" +
+      '<td class="r">' + money(r.spend, 0) + "</td>" +
+      '<td class="r">' + num(r.imps) + "</td>" +
+      '<td class="r">' + pct(r.ctr, 2) + "</td>" +
+      '<td class="r">' + num(r.lclk) + "</td>" +
+      '<td class="r">' + num(r.leads) + "</td>" +
+      '<td class="r">' + (r.lclk ? pct(r.ctl, 1) : "—") + "</td>" +
+      /* heat shading replaced the bar-in-cell here: both encoded CPL, and the heat also carries
+         DIRECTION (green cheap, red dear), which a neutral bar cannot. */
+      '<td class="r"' + (r.leads ? ' style="background:' + heatBg(r.cpl, minCpl, maxCpl) + '"' : "") +
+        ">" + (r.leads ? money(r.cpl, 2) : "—") + "</td>";
+    tr.style.cursor = "pointer";
+    /* Cross-filter: clicking a row scopes the tab; clicking it again clears (playbook 7). */
+    tr.addEventListener("click", function(){
+      /* same filter the dropdown drives — set it, keep the <select> in step, and clicking the
+         selected row again clears it */
+      ST.camp = (ST.camp === r.name) ? "" : r.name;
+      var sel = byId("campsel");
+      if(sel){ sel.value = ST.camp; }
+      renderAll();
+    });
+    tb.appendChild(tr);
+  });
+  var foot = (shown.length < rows.length
+    ? "Top " + shown.length + " of " + rows.length + " campaigns"
+    : rows.length + " campaign" + (rows.length === 1 ? "" : "s"));
+  foot += ST.camp
+    ? " — showing data for the highlighted campaign; click it again (or the ×) to clear."
+    : " — click a row to filter the whole tab to that campaign.";
+  setText("campFoot", foot);
+
+  var chips = "";
+  if(ST.camp){
+    chips = '<span class="chip">' + esc(ST.camp.slice(0, 46)) +
+            '<button type="button" data-x="camp">×</button></span>';
+  }
+  setHTML("campChips", chips);
+  var x = document.querySelector('#campChips button[data-x="camp"]');
+  if(x){
+    x.addEventListener("click", function(){
+      ST.camp = "";
+      var sel = byId("campsel");
+      if(sel){ sel.value = ""; }
+      renderAll();
+    });
+  }
+}
+
+function renderAdTable(){
+  var rows = metaIn(ST.from, ST.to);
+  var by = {};
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i], k = r.ad || "(unnamed)";
+    if(!by[k]){ by[k] = { name:k, created:r.created, spend:0, imps:0, lclk:0, leads:0, fw:0, title:r.title }; }
+    var b = by[k];
+    b.spend += r.spend; b.imps += r.imps; b.lclk += r.lclk; b.leads += r.leads;
+    b.fw += (r.freq || 0) * r.imps;
+    if(r.created && (!b.created || r.created < b.created)){ b.created = r.created; }
+  }
+  var list = Object.keys(by).map(function(k){
+    var b = by[k];
+    b.freq = safe(b.fw, b.imps);
+    b.ctr = safe(b.lclk, b.imps) * 100;
+    b.cpl = b.leads ? safe(b.spend, b.leads) : 0;
+    return b;
+  });
+  var st = SORT.ad;
+  markSort("adTbl", st);
+  list = sortRows(list, st);
+  var shown = list.slice(0, 10);
+  var aMax = 0, aMin = 0;
+  shown.forEach(function(r){
+    if(r.cpl > aMax){ aMax = r.cpl; }
+    if(r.leads && (!aMin || r.cpl < aMin)){ aMin = r.cpl; }
+  });
+  var tb = document.querySelector("#adTbl tbody");
+  tb.innerHTML = "";
+  if(!shown.length){
+    tb.innerHTML = '<tr><td colspan="8" style="color:var(--muted);padding:16px">No ads in this range.</td></tr>';
+  }
+  shown.forEach(function(r){
+    var tr = document.createElement("tr");
+    /* Frequency above 2.5 is the fatigue threshold — flag the row rather than colour-ramping. */
+    if(r.freq >= 2.5){ tr.className = "lo"; }
+    tr.innerHTML =
+      '<td class="nm" title="' + esc(r.name + (r.title ? " — " + r.title : "")) + '">' + esc(r.name) + "</td>" +
+      "<td>" + (r.created ? prettyDate(r.created) : "—") + "</td>" +
+      '<td class="r">' + money(r.spend, 0) + "</td>" +
+      '<td class="r">' + num(r.imps) + "</td>" +
+      '<td class="r"' + (r.freq >= 2.5 ? ' style="color:var(--bad);font-weight:700"' : "") + ">" +
+        r.freq.toFixed(2) + "</td>" +
+      '<td class="r">' + pct(r.ctr, 2) + "</td>" +
+      '<td class="r">' + num(r.leads) + "</td>" +
+      '<td class="r"' + (r.leads ? ' style="background:' + heatBg(r.cpl, aMin, aMax) + '"' : "") +
+        ">" + (r.leads ? money(r.cpl, 2) : "—") + "</td>";
+    tb.appendChild(tr);
+  });
+  var fatigued = list.filter(function(r){ return r.freq >= 2.5; }).length;
+  setText("adFoot", "Top " + shown.length + " of " + list.length +
+    " ads — click any column header to re-rank. Rows in red are seen 2.5+ times per person, the " +
+    "point where click-through starts to decay" +
+    (fatigued ? " (" + fatigued + " of " + list.length + " ads overall)." : "."));
+}
+
+/* ---------- Creative gallery -----------------------------------------------------------------
+   The ads themselves, ranked by whatever the user picks. Delivery is aggregated from the SAME
+   `meta.rows` every other number on this tab uses (rows carry `cid`), so the gallery can never
+   disagree with the tiles above it, and it re-computes with the date range, campaign and ad
+   search like everything else. The creative TEXT and IMAGE come from `DATA.creatives.items`.
+
+   Images: prefer our cached copy at /creative-img/<cid> (the export takes one while Meta's link
+   is live), fall back to the live CDN url, then to a branded tile carrying the ad's headline —
+   Meta expires these links the moment an ad stops, and a wall of grey boxes is worse than text. */
+var CGAL = [];
+var CRANK = { imps:"Impressions", leads:"Leads", cpl:"Cheapest cost per lead", spend:"Spend" };
+
+function creativeRows(){
+  var meta = ((DATA.creatives || {}).items) || [];
+  if(!meta.length){ return []; }
+  var info = {};
+  for(var i = 0; i < meta.length; i++){ info[meta[i].cid] = meta[i]; }
+  var agg = {};
+  var rows = metaIn(ST.from, ST.to);
+  for(var j = 0; j < rows.length; j++){
+    var r = rows[j];
+    if(!r.cid || !info[r.cid]){ continue; }
+    var a = agg[r.cid];
+    if(!a){
+      a = agg[r.cid] = { cid:r.cid, spend:0, imps:0, lclk:0, leads:0 };
+      var m = info[r.cid];
+      a.head = m.head; a.ad = m.ad; a.body = m.body;
+      a.thumb = m.thumb; a.link = m.link; a.cached = !!m.cached;
+    }
+    a.spend += r.spend; a.imps += r.imps; a.lclk += r.lclk; a.leads += r.leads;
+  }
+  var out = [];
+  for(var k in agg){
+    var c = agg[k];
+    if(!c.imps){ continue; }
+    c.cpl = c.leads ? c.spend / c.leads : 0;
+    c.ctr = safe(c.lclk, c.imps) * 100;
+    out.push(c);
+  }
+  var key = SEG.crank;
+  out.sort(function(a, b){
+    if(key === "cpl"){
+      /* cheapest first, but a creative with no leads has no CPL — park those at the end rather
+         than letting a 0 masquerade as the best result */
+      var av = a.leads ? a.cpl : Infinity, bv = b.leads ? b.cpl : Infinity;
+      return av - bv;
+    }
+    return (b[key] || 0) - (a[key] || 0);
+  });
+  return out;
+}
+
+function cThumbTag(c, cls){
+  var src = c.cached ? ("/creative-img/" + encodeURIComponent(c.cid)) : (c.thumb || "");
+  if(!src){ return ""; }
+  return '<img class="' + cls + '" loading="lazy" alt="" data-cid="' + esc(c.cid) +
+         '" src="' + esc(src) + '">';
+}
+function cFallback(c){
+  return '<div class="cc-fb"><div class="mk">Rooming House Expert &middot; Ad</div>' +
+         '<div class="hd">' + esc(c.head || c.body || "Creative") + "</div></div>";
+}
+/* Meta's link died between the export and this page load — swap the branded tile in, in place.
+   Wired as a listener (not an inline onerror) so nothing has to survive HTML quoting. */
+function wireImgFallback(img, big){
+  img.addEventListener("error", function(){
+    var cid = img.getAttribute("data-cid");
+    var c = null;
+    for(var i = 0; i < CGAL.length; i++){ if(CGAL[i].cid === cid){ c = CGAL[i]; } }
+    var wrap = document.createElement("div");
+    if(big){
+      wrap.className = "cm-noimg";
+      wrap.textContent = "The image for this ad has expired on Meta's side. The full copy is beside it.";
+    } else {
+      wrap.innerHTML = cFallback(c || { head:"Creative" });
+      wrap = wrap.firstChild;
+    }
+    if(img.parentNode){ img.parentNode.replaceChild(wrap, img); }
+  });
+}
+
+function renderCreatives(){
+  var box = byId("creativeGallery");
+  if(!box){ return; }
+  var C = DATA.creatives || {};
+  if(!C.enabled){
+    box.innerHTML = "";
+    setHTML("galNote", emptyCard("Creative previews are not available",
+      "This panel needs the Meta creative pull. " + esc(C.error || "")));
+    setText("galFoot", "");
+    return;
+  }
+  var all = creativeRows();
+  CGAL = all.slice(0, 12);
+  if(!CGAL.length){
+    box.innerHTML = "";
+    setHTML("galNote", '<div class="empty"><h4>No creatives ran in this period</h4>' +
+      "<p>Widen the date range or clear the campaign filter.</p></div>");
+    setText("galFoot", "");
+    return;
+  }
+  var html = "";
+  for(var i = 0; i < CGAL.length; i++){
+    var c = CGAL[i];
+    var media = cThumbTag(c, "cc-thumb") || cFallback(c);
+    html += '<div class="ccard click" role="button" tabindex="0" data-ci="' + i +
+            '" title="Click to enlarge this ad">' + media +
+      '<div class="cc-b">' +
+        '<div class="cc-h">' + esc(c.head) + "</div>" +
+        (c.body ? '<div class="cc-copy">' + esc(c.body) + "</div>" : "") +
+        '<div class="cc-m"><span><b>' + compactN(c.imps) + "</b> impr</span>" +
+          "<span><b>" + num(c.lclk) + "</b> clicks</span>" +
+          "<span><b>" + compact(c.spend) + "</b></span>" +
+          "<span><b>" + num(c.leads) + "</b> leads</span>" +
+          (c.leads ? "<span><b>" + money(c.cpl, 2) + "</b>/lead</span>" : "") +
+        "</div></div></div>";
+  }
+  box.innerHTML = html;
+  var imgs = box.querySelectorAll("img.cc-thumb");
+  for(var m2 = 0; m2 < imgs.length; m2++){ wireImgFallback(imgs[m2], false); }
+  var cards = box.querySelectorAll(".ccard");
+  for(var k = 0; k < cards.length; k++){
+    (function(el){
+      var idx = parseInt(el.getAttribute("data-ci"), 10);
+      el.addEventListener("click", function(){ openCreative(idx); });
+      el.addEventListener("keydown", function(e){
+        if(e.key === "Enter" || e.key === " "){ e.preventDefault(); openCreative(idx); }
+      });
+    })(cards[k]);
+  }
+  var cachedN = 0;
+  for(var z = 0; z < all.length; z++){ if(all[z].cached){ cachedN++; } }
+  setHTML("galNote",
+    "The <b>" + CGAL.length + "</b> creatives with the " +
+    (SEG.crank === "cpl" ? "most efficient cost per lead"
+                         : "highest " + esc((CRANK[SEG.crank] || "").toLowerCase())) +
+    " over the selected period, each with its own delivery. <b>Click any card</b> to read the full " +
+    "copy and open where the ad pointed. Images are copied into our own storage while Meta's link " +
+    "is live — Meta expires them once an ad stops, so a card without one falls back to the ad's " +
+    "headline rather than a blank box.");
+  setText("galFoot", all.length + " creative" + (all.length === 1 ? "" : "s") +
+    " ran in this period \u00b7 " + cachedN + " with a stored image \u00b7 ranked by " +
+    (CRANK[SEG.crank] || SEG.crank).toLowerCase() + ".");
+}
+
+function openCreative(i){
+  var c = CGAL[i];
+  if(!c){ return; }
+  var media = cThumbTag(c, "cm-img");
+  var mediaHtml = media ||
+    '<div class="cm-noimg">The image for this ad has expired on Meta\u2019s side. ' +
+    "The full copy is shown beside it.</div>";
+  var link = c.link
+    ? '<div><a class="cm-link" href="' + esc(c.link) +
+      '" target="_blank" rel="noopener noreferrer">Open the ad &#8599;</a></div>'
+    : '<div class="cm-nolink">No destination link recorded for this creative.</div>';
+  setHTML("cModBody",
+    '<div class="cm-media">' + mediaHtml + "</div>" +
+    '<div class="cm-info">' +
+      "<h3>" + esc(c.head) + "</h3>" +
+      (c.ad && c.ad !== c.head ? '<div class="cm-ad">Ad name: ' + esc(c.ad) + "</div>" : "") +
+      (c.body ? '<p class="cm-body">' + esc(c.body) + "</p>" : "") +
+      '<div class="cm-metrics">' +
+        "<span><b>" + num(c.imps) + "</b> impressions</span>" +
+        "<span><b>" + num(c.lclk) + "</b> link clicks</span>" +
+        "<span><b>" + pct(c.ctr, 2) + "</b> CTR</span>" +
+        "<span><b>" + money(c.spend, 0) + "</b> spend</span>" +
+        "<span><b>" + num(c.leads) + "</b> leads</span>" +
+        (c.leads ? "<span><b>" + money(c.cpl, 2) + "</b> per lead</span>" : "") +
+      "</div>" + link +
+      '<div class="cm-cap">Creative ID ' + esc(c.cid) +
+        " &middot; figures are for the selected period</div>" +
+    "</div>");
+  var mi = document.querySelector("#cModBody img.cm-img");
+  if(mi){ wireImgFallback(mi, true); }
+  byId("cMod").classList.add("on");
+}
+function closeCreative(){
+  var m = byId("cMod");
+  if(m){ m.classList.remove("on"); }
+}
+
+function renderFunnelInsights(cur, bch, wks){
+  var out = [];
+  /* Only compare against the benchmark when it actually holds data (see cmpRow). */
+  var hasBench = bch.spend > 0 || bch.imps > 0;
+  var cplB = bch.cpl;
+  if(cur.leads){
+    out.push(hasBench && cplB
+      ? insightCard(cur.cpl <= cplB ? "✅" : "⚠️", "Cost per lead",
+          "You are paying <b>" + money(cur.cpl, 2) + "</b> per lead this period against a benchmark of <b>" +
+          money(cplB, 2) + "</b> — " +
+          (cur.cpl <= cplB
+            ? "that is <b>" + pct((1 - safe(cur.cpl, cplB)) * 100, 0) + " cheaper</b> than your own baseline."
+            : "that is <b>" + pct((safe(cur.cpl, cplB) - 1) * 100, 0) + " more expensive</b> than your own baseline."))
+      : insightCard("💰", "Cost per lead",
+          "You are paying <b>" + money(cur.cpl, 2) + "</b> per lead (" + num(cur.leads) +
+          " leads on " + money(cur.spend, 0) + "). There is no data in the selected benchmark range " +
+          "to compare against — widen it to get a baseline."));
+  }
+  var ctrB = bch.ctr;
+  out.push(hasBench && ctrB
+    ? insightCard(cur.ctr >= ctrB ? "📈" : "📉", "Consideration",
+        "CTR is <b>" + pct(cur.ctr, 2) + "</b> against a benchmark of <b>" + pct(ctrB, 2) + "</b>. " +
+        (cur.ctr >= ctrB ? "The creative is earning the click."
+                         : "This is the weak link — people see the ad and do not click."))
+    : insightCard("📈", "Consideration",
+        "<b>" + pct(cur.ctr, 2) + "</b> of people who saw an ad clicked through (" +
+        num(cur.lclk) + " of " + num(cur.imps) + ")."));
+  if(cur.lclk){
+    out.push(insightCard("🎯", "Click-to-lead",
+      "<b>" + pct(cur.ctl, 1) + "</b> of link clicks become a lead (" + num(cur.leads) + " from " +
+      num(cur.lclk) + ")." +
+      (hasBench && bch.ctl
+        ? " Benchmark <b>" + pct(bch.ctl, 1) + "</b>. " +
+          (cur.ctl >= bch.ctl ? "The landing experience is holding up."
+                              : "Clicks are arriving but the form is losing them.")
+        : "")));
+  }
+  if(cur.freq >= 2.5){
+    out.push(insightCard("🔁", "Audience fatigue",
+      "Average frequency is <b>" + cur.freq.toFixed(2) + "</b>, above the 2.5 threshold — the same people are " +
+      "seeing the ads repeatedly. Expect CTR to decay; refresh creative or widen the audience."));
+  }
+  /* Which single campaign is carrying the account, and which is dragging it. */
+  var camps = campRows().filter(function(c){ return c.leads >= 5; });
+  if(camps.length >= 2){
+    camps.sort(function(a, b){ return a.cpl - b.cpl; });
+    var bestC = camps[0], worstC = camps[camps.length - 1];
+    out.push(insightCard("🏆", "Best and worst campaign",
+      "<b>" + esc(bestC.name.slice(0, 44)) + "</b> is your cheapest at <b>" + money(bestC.cpl, 2) +
+      "</b> per lead; <b>" + esc(worstC.name.slice(0, 44)) + "</b> costs <b>" +
+      money(worstC.cpl, 2) + "</b> — " + (safe(worstC.cpl, bestC.cpl)).toFixed(1) +
+      "× more for the same outcome."));
+  }
+  setHTML("funnelInsights", out.join(""));
+}
+
+/* ===================================================================== TAB 2: EMAIL */
+function mailIn(from, to){
+  var d = ((DATA.email || {}).daily) || [];
+  var out = [];
+  for(var i = 0; i < d.length; i++){
+    if(d[i].d >= from && d[i].d <= to){ out.push(d[i]); }
+  }
+  return out;
+}
+/* ⚠️ There is NO per-day CLICK figure. ActiveCampaign's activity stream carries sends (`log`),
+   OPENS (`link-data`, a tracking-pixel read) and Apple MPP machine opens (`mpp-link-data`) — but
+   clicks appear only in the campaign aggregates. See EVENT_KINDS in job/activecampaign.py for the
+   verification (6,070 link-data rows vs 7,765 opens vs 133 clicks across the 12 campaigns).
+   So: all-mail gets sends + opens, and CLICKS come from `campaignRoll()` (broadcasts only). */
+function mailRoll(rows){
+  var a = { sends:0, opens:0, mpp:0 };
+  for(var i = 0; i < rows.length; i++){
+    a.sends += rows[i].sends;
+    a.opens += rows[i].opens || 0;
+    a.mpp += rows[i].mpp || 0;
+  }
+  a.orate = safe(a.opens, a.sends) * 100;
+  a.mpprate = safe(a.mpp, a.sends) * 100;
+  return a;
+}
+/* Campaign-level aggregates for a window — the authoritative open/click basis. */
+function campaignRoll(from, to){
+  var camps = ((DATA.email || {}).campaigns) || [];
+  var a = { sent:0, opens:0, clicks:0, unsubs:0, bounces:0, n:0 };
+  for(var i = 0; i < camps.length; i++){
+    var c = camps[i];
+    if(!c.date || c.date < from || c.date > to){ continue; }
+    a.n++; a.sent += c.sent; a.opens += c.opens; a.clicks += c.clicks;
+    a.unsubs += c.unsubs; a.bounces += c.bounces;
+  }
+  a.orate = safe(a.opens, a.sent) * 100;
+  a.crate = safe(a.clicks, a.sent) * 100;
+  a.cto = safe(a.clicks, a.opens) * 100;
+  a.urate = safe(a.unsubs, a.sent) * 100;
+  a.brate = safe(a.bounces, a.sent) * 100;
+  return a;
+}
+/* Opens and clicks come from an event stream that is page-capped per run, so engagement history
+   reaches back only as far as the crawl has got. Say so, rather than letting a client read an
+   empty early period as "nobody opened anything". */
+function engagementHorizonNote(E){
+  var wm = E.watermark || {};
+  var from = (wm.events_oldest || "").slice(0, 10);
+  var out = "";
+  if(from){
+    out += "<br><b>Engagement history starts " + prettyDate(from) + ".</b> Opens and clicks come " +
+           "from an event stream ActiveCampaign only serves 100 rows at a time, so earlier periods " +
+           "show sends without opens until the backfill reaches them. Send volume is complete for " +
+           "the whole range.";
+  }
+  if(E.partial){
+    out += "<br><b>Still backfilling</b> — each scheduled run extends the history, so these " +
+           "figures grow until the crawl catches up.";
+  }
+  return out;
+}
+
+function renderEmail(){
+  var E = DATA.email || {};
+  if(!E.enabled){
+    setHTML("emailTop", "");
+    setHTML("emailStages", emptyCard("ActiveCampaign is not connected",
+      "This panel is waiting on <code>ACTIVECAMPAIGN_URL</code> and <code>ACTIVECAMPAIGN_API_KEY</code>. " +
+      "Once the secret is mounted the whole tab fills in on the next export run. " +
+      (E.error ? "Last reported: " + esc(E.error) : "")));
+    return;
+  }
+  var T = E.totals || {};
+  var contacts = E.contacts || [];
+  var newInRange = 0, i;
+  for(i = 0; i < contacts.length; i++){
+    if(contacts[i].cdate >= ST.from && contacts[i].cdate <= ST.to){ newInRange++; }
+  }
+  var engaged = T.engaged || 0;
+
+  setHTML("emailTop",
+    kpiTile("Total contacts", num(T.contacts || contacts.length),
+            num(engaged) + " have opened at least once (" + pct(safe(engaged, contacts.length)*100, 0) + ")") +
+    kpiTile("New contacts in period", num(newInRange),
+            prettyDate(ST.from) + " → " + prettyDate(ST.to)) +
+    kpiTile("Emails sent (all time)", num(T.sends || 0),
+            (E.partial ? "still backfilling — see note" : "from the send log")) +
+    kpiTile("Broadcast campaigns", num(T.campaigns_sent || 0),
+            "of " + num(T.campaigns || 0) + " total; the rest are automations") +
+    kpiTile("Active automations", num((E.automations || []).filter(function(a){ return a.active; }).length),
+            num((E.automations || []).length) + " defined"));
+
+  var cur = mailRoll(mailIn(ST.from, ST.to));
+  var bch = mailRoll(mailIn(ST.bfrom, ST.bto));
+  var wks = weeksBetween(ST.bfrom, ST.bto);
+  var mN = function(v){ return num(v); };
+  var mP = function(v){ return pct(v, 2); };
+
+  var ccur = campaignRoll(ST.from, ST.to);
+  var cbch = campaignRoll(ST.bfrom, ST.bto);
+
+  setHTML("emailStages",
+    stageBlock("s1", 1, "Volume — all mail", "every email, broadcast and automated",
+      cmpRow("Emails sent", "sends", cur, bch, wks, mN) +
+      cmpRow("Opens", "opens", cur, bch, wks, mN) +
+      cmpRow("Open rate (opens ÷ sends)", "orate", cur, bch, wks, mP) +
+      cmpRow("Apple privacy prefetches", "mpp", cur, bch, wks, mN) +
+      naRow("Link clicks (all mail)", "clicks are only reported per campaign")) +
+    stageBlock("s2", 2, "Engagement — broadcasts", "measured on the campaigns, where it is exact",
+      (ccur.n
+        ? cmpRow("Recipients", "sent", ccur, cbch, wks, mN) +
+          cmpRow("Open rate (openers ÷ recipients)", "orate", ccur, cbch, wks, mP) +
+          cmpRow("Click rate (clickers ÷ recipients)", "crate", ccur, cbch, wks, mP) +
+          cmpRow("Openers → clickers", "cto", ccur, cbch, wks, mP)
+        : naRow("Open rate", "no broadcast campaigns in this period"))) +
+    stageBlock("s3", 3, "Deliverability", "the signals clients actually act on",
+      (ccur.n
+        ? cmpRow("Unsubscribes", "unsubs", ccur, cbch, wks, mN) +
+          cmpRow("Unsub rate", "urate", ccur, cbch, wks, mP) +
+          cmpRow("Bounces", "bounces", ccur, cbch, wks, mN) +
+          cmpRow("Bounce rate", "brate", ccur, cbch, wks, mP)
+        : naRow("Unsubscribes", "measured on broadcasts; none in this period"))));
+
+  var camps = E.campaigns || [];
+  var uo = 0, ulc = 0, lc = 0;
+  camps.forEach(function(c){ uo += c.opens; ulc += c.clicks; lc += c.clicks_total; });
+  setHTML("emailBasisNote",
+    "<b>Two different scopes, deliberately.</b> <b>Opens</b> are available for ALL mail — they come " +
+    "from the tracking-pixel read event, so the top block covers automated mail as well as " +
+    "broadcasts. <b>Clicks</b> are only reported per campaign, so every click figure is scoped to " +
+    "the <b>broadcasts</b> and the automated volume is excluded from it. Apple Mail privacy " +
+    "prefetches are shown as their own line, NOT as a share of opens: they are a separate record " +
+    "that ActiveCampaign keeps out of its open count, and this dashboard does the same. " +
+    "<br><b>Open-to-click basis.</b> The old Looker report showed 125–144% because it divided " +
+    "<i>total</i> clicks by <i>unique</i> opens. This uses <b>unique clicks ÷ unique opens</b>, " +
+    "which caps at 100%. Across all broadcasts that is <b>" + pct(safe(ulc, uo) * 100, 1) +
+    "</b> (the old basis would read " + pct(safe(lc, uo) * 100, 1) + "). " +
+    engagementHorizonNote(E));
+
+  renderEmailChart(cur, bch, wks);
+  renderDow();
+  renderAcTable();
+  renderAutoTable();
+  renderEmailInsights(cur, bch, wks, engaged, contacts.length);
+}
+function kpiTile(label, val, sub){
+  return '<div class="kpi"><div class="kl">' + esc(label) + '</div><div class="kv tnum">' + val +
+         '</div><div class="kd">' + sub + "</div></div>";
+}
+
+/* Only what the event stream genuinely provides — no synthetic "opens". */
+var ESERIES = [
+  { k:"sends", n:"Emails sent", c:"var(--s3)" },
+  { k:"opens", n:"Opens", c:"var(--s1)" },
+  { k:"mpp", n:"Apple privacy prefetches", c:"var(--s7)" }
+];
+function renderEmailChart(cur, bch, wks){
+  /* Scorecards double as series toggles: the tile's accent bar IS the line colour. */
+  var html = "";
+  ESERIES.forEach(function(s){
+    var v = cur[s.k];
+    var sub = s.k === "sends" ? "delivered in this period"
+            : s.k === "opens" ? pct(cur.orate, 1) + " of sends"
+            : "machine prefetches — NOT counted in the open rate";
+    html += '<div class="kpi sel' + (OFF.email[s.k] ? " off" : "") + '" data-s="' + s.k + '">' +
+            '<div class="kl"><span class="dot" style="background:' + s.c + '"></span>' + esc(s.n) + "</div>" +
+            '<div class="kv tnum">' + num(v) + "</div>" +
+            '<div class="kd">' + sub + "</div>" +
+            '<span style="position:absolute;left:0;right:0;bottom:0;height:5px;z-index:1;background:' +
+              s.c + (OFF.email[s.k] ? ";opacity:.25" : "") + '"></span></div>';
+  });
+  setHTML("emailScores", html);
+  var tiles = document.querySelectorAll("#emailScores .kpi.sel");
+  for(var i = 0; i < tiles.length; i++){
+    (function(t){
+      t.addEventListener("click", function(){
+        var k = t.getAttribute("data-s");
+        var on = 0;
+        ESERIES.forEach(function(s){ if(!OFF.email[s.k]){ on++; } });
+        if(!OFF.email[k] && on <= 1){ return; }   /* never allow an empty chart */
+        OFF.email[k] = !OFF.email[k];
+        renderAll();
+      });
+    })(tiles[i]);
+  }
+
+  var g = grainOf("email", ST.from, ST.to);
+  var rows = mailIn(ST.from, ST.to);
+  var by = {};
+  for(var j = 0; j < rows.length; j++){
+    var k2 = bucketOf(rows[j].d, g);
+    if(!by[k2]){ by[k2] = { sends:0, opens:0, mpp:0 }; }
+    by[k2].sends += rows[j].sends;
+    by[k2].opens += rows[j].opens || 0; by[k2].mpp += rows[j].mpp || 0;
+  }
+  var keys = denseBuckets(ST.from, ST.to, g, 420);
+  if(!keys){ keys = Object.keys(by).sort(); }
+  var svg = byId("emailChart");
+  var active = ESERIES.filter(function(s){ return !OFF.email[s.k]; });
+  var rel = SEG.eaxis === "rel";
+
+  var peaks = {};
+  active.forEach(function(s){
+    var m = 0;
+    keys.forEach(function(k){ var v = (by[k] || {})[s.k] || 0; if(v > m){ m = v; } });
+    peaks[s.k] = m || 1;
+  });
+  var maxV = 0;
+  if(rel){ maxV = 100; }
+  else {
+    active.forEach(function(s){ if(peaks[s.k] > maxV){ maxV = peaks[s.k]; } });
+  }
+  var fr = frame(svg, { max:maxV || 1, mB:34,
+                        fmt: rel ? function(v){ return Math.round(v) + "%"; } : compactN });
+  var N = keys.length;
+  if(N){
+    var eTop = active.length === 1 ? 0.30 : 0.13;
+    active.forEach(function(s){
+      var vals = keys.map(function(k){
+        var raw = (by[k] || {})[s.k] || 0;
+        return rel ? safe(raw, peaks[s.k]) * 100 : raw;
+      });
+      svg.appendChild(el("path", { d: areaPath(fr, vals, N), fill: areaGrad(svg, s.c, eTop, 0.01),
+                                   stroke:"none" }));
+      svg.appendChild(el("path", { d: linePath(fr, vals, N), fill:"none", stroke:s.c,
+                                   "stroke-width":2.2, "stroke-linejoin":"round",
+                                   "stroke-linecap":"round" }));
+    });
+    xLabels(svg, fr, keys.map(function(k){ return bucketLabel(k, g); }));
+    hoverBands(svg, fr, N, function(idx){
+      var b = by[keys[idx]] || { sends:0, opens:0, mpp:0 };
+      var h = tipTitle(bucketTip(keys[idx], g));
+      active.forEach(function(s){
+        var raw = b[s.k] || 0;
+        h += tipRow(s.n, num(raw) + (rel ? " (" + pct(safe(raw, peaks[s.k]) * 100, 0) + " of peak)" : ""));
+      });
+      h += tipRow("Open rate", b.sends ? pct(safe(b.opens, b.sends) * 100, 1) : "—");
+      return h;
+    });
+  }
+  legend("emailLegend", ESERIES.map(function(s){ return { k:s.k, n:s.n, c:s.c }; }),
+         OFF.email, function(){ renderAll(); });
+  setHTML("emailAxisNote", rel
+    ? "<b>Relative.</b> Every series is indexed to its own peak on a shared 0–100% axis, so metrics on " +
+      "very different scales can be compared <i>by shape</i>. Tooltips still show the real values."
+    : "<b>Absolute.</b> Real counts on one axis. Sends dwarf clicks here — switch to Relative to compare " +
+      "their shapes. Bucketed by <b>" + (g === "day" ? "day" : g === "month" ? "month" : "week") + "</b>.");
+}
+
+function renderDow(){
+  var rows = mailIn(ST.from, ST.to);
+  var sends = [0,0,0,0,0,0,0], opens = [0,0,0,0,0,0,0];
+  for(var i = 0; i < rows.length; i++){
+    var w = dObj(rows[i].d).getUTCDay();
+    sends[w] += rows[i].sends; opens[w] += rows[i].opens || 0;
+  }
+  /* Monday-first reads better for a weekly routine than Sunday-first. */
+  var order = [1,2,3,4,5,6,0];
+  hbars(byId("dowChart"), order.map(function(w, i){
+    return { n:DOW3[w], v:sends[w], c:rampOf(2), lbl:compactN(sends[w]),
+             tip: tipTitle(DOW[w]) + tipRow("Sends", num(sends[w])) + tipRow("Opens", num(opens[w])) +
+                  tipRow("Open rate", sends[w] ? pct(safe(opens[w], sends[w]) * 100, 1) : "—") };
+  }), { mL:52 });
+  hbars(byId("dowRate"), order.map(function(w){
+    var r = safe(opens[w], sends[w]) * 100;
+    var thin = sends[w] < 50;
+    return { n:DOW3[w] + (thin ? " ·" : ""), v:r, c:thin ? "var(--s7)" : rampOf(0),
+             lbl: sends[w] ? pct(r, 1) : "—",
+             tip: tipTitle(DOW[w]) + tipRow("Open rate", sends[w] ? pct(r, 1) : "—") +
+                  tipRow("Opens", num(opens[w])) + tipRow("Sends", num(sends[w])) +
+                  (thin ? tipRow("Note", "low volume") : "") };
+  }), { mL:52 });
+}
+
+function renderAcTable(){
+  var camps = ((DATA.email || {}).campaigns || []).filter(function(c){
+    return c.date >= ST.from && c.date <= ST.to;
+  }).map(function(c){
+    var o = {};
+    for(var k in c){ o[k] = c[k]; }
+    o.orate = safe(c.opens, c.sent) * 100;
+    o.cto = safe(c.clicks, c.opens) * 100;
+    return o;
+  });
+  var st = SORT.ac;
+  markSort("acTbl", st);
+  var rows = sortRows(camps, st);
+  var best = null, worst = null;
+  rows.forEach(function(r){
+    if(r.sent < 100){ return; }
+    if(!best || r.orate > best.orate){ best = r; }
+    if(!worst || r.orate < worst.orate){ worst = r; }
+  });
+  var tb = document.querySelector("#acTbl tbody");
+  tb.innerHTML = "";
+  if(!rows.length){
+    tb.innerHTML = '<tr><td colspan="9" style="color:var(--muted);padding:16px">' +
+      "No broadcast campaigns were sent in this period. Automations carry most of this account's volume — see below." +
+      "</td></tr>";
+  }
+  rows.forEach(function(r){
+    var tr = document.createElement("tr");
+    if(best && r.id === best.id){ tr.className = "hl"; }
+    else if(worst && r.id === worst.id){ tr.className = "lo"; }
+    tr.innerHTML =
+      '<td class="nm" title="' + esc(r.name) + '">' + esc(r.name) + "</td>" +
+      "<td>" + (r.date ? prettyDate(r.date) : "—") + "</td>" +
+      '<td class="r">' + num(r.sent) + "</td>" +
+      '<td class="r">' + num(r.opens) + "</td>" +
+      '<td class="r" style="background:' + heatBg(r.orate, 15, 45, true) + '">' +
+        (r.sent ? pct(r.orate, 1) : "—") + "</td>" +
+      '<td class="r">' + num(r.clicks) + "</td>" +
+      '<td class="r">' + (r.opens ? pct(r.cto, 1) : "—") + "</td>" +
+      '<td class="r">' + num(r.unsubs) + "</td>" +
+      '<td class="r">' + num(r.bounces) + "</td>";
+    tb.appendChild(tr);
+  });
+  setText("acFoot", rows.length
+    ? rows.length + " campaign" + (rows.length === 1 ? "" : "s") + " in range. Best open rate highlighted green, worst red (campaigns under 100 recipients excluded from that comparison)."
+    : "");
+}
+
+function renderAutoTable(){
+  var all = ((DATA.email || {}).automations || []).map(function(a){
+    var o = {};
+    for(var k in a){ o[k] = a[k]; }
+    o.comp = safe(a.exited, a.entered) * 100;
+    /* ActiveCampaign counts exits from cohorts that entered before this snapshot, so `exited`
+       can exceed `entered` (the live account has 26,445 exits against 26,444 entries). A
+       "173% completion" reads as a bug to a client, so the DISPLAY caps at 100% and says why;
+       the raw entered/exited columns beside it stay untouched. */
+    o.over = o.comp > 100.5;
+    o.compShown = o.over ? 100 : o.comp;
+    return o;
+  });
+  var st = SORT.auto;
+  markSort("autoTbl", st);
+  var autos = sortRows(all, st).slice(0, 12);
+  var tb = document.querySelector("#autoTbl tbody");
+  tb.innerHTML = "";
+  autos.forEach(function(a){
+    var tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td class="nm" title="' + esc(a.name) + '">' + esc(a.name) +
+        (a.active ? "" : ' <span style="color:var(--muted);font-size:11px">(off)</span>') + "</td>" +
+      '<td class="r">' + num(a.entered) + "</td>" +
+      '<td class="r">' + num(a.exited) + "</td>" +
+      '<td class="r"' + (a.over ? ' title="More exits than entries in this snapshot — ' +
+        'ActiveCampaign counts exits from cohorts that entered earlier. Capped at 100%."' : "") +
+        ">" + (a.entered ? pct(a.compShown, 0) + (a.over ? "*" : "") : "—") + "</td>";
+    tb.appendChild(tr);
+  });
+  var anyOver = autos.some(function(a){ return a.over; });
+  if(!autos.length){
+    tb.innerHTML = '<tr><td colspan="4" style="color:var(--muted);padding:16px">No automations.</td></tr>';
+  } else if(anyOver){
+    var note = document.createElement("tr");
+    note.innerHTML = '<td colspan="4" style="color:var(--muted);font-size:11.5px;padding:8px 12px">' +
+      "* capped at 100% — ActiveCampaign counts exits from cohorts that entered before this " +
+      "snapshot, so completed can exceed entered.</td>";
+    tb.appendChild(note);
+  }
+  var lists = ((DATA.email || {}).lists || []).filter(function(l){ return l.subscribers > 0; }).slice(0, 8);
+  hbars(byId("listChart"), lists.map(function(l, i){
+    return { n:l.name, v:l.subscribers, c:rampOf(i), lbl:num(l.subscribers),
+             tip: tipTitle(l.name) + tipRow("Active subscribers", num(l.subscribers)) };
+  }), { mL:170 });
+}
+
+function renderEmailInsights(cur, bch, wks, engaged, total){
+  var out = [];
+  /* Open rate is a BROADCAST measure here — see the basis note. */
+  var cc = campaignRoll(ST.from, ST.to);
+  if(cc.n){
+    out.push(insightCard(cc.orate >= 25 ? "✅" : "⚠️", "Open rate (broadcasts)",
+      "<b>" + pct(cc.orate, 1) + "</b> of the " + num(cc.sent) + " broadcast recipients in this " +
+      "period opened (" + cc.n + " campaign" + (cc.n === 1 ? "" : "s") + "). " +
+      (cc.orate >= 25 ? "That is healthy for a nurture list."
+                      : "Below the 25% mark this list should be clearing.") +
+      " Automated mail cannot be measured this way — ActiveCampaign records no open event for it."));
+    out.push(insightCard(cc.cto >= 5 ? "✅" : "🔴", "Clicks are the weak link",
+      "Of the " + num(cc.opens) + " people who opened, only <b>" + num(cc.clicks) + "</b> clicked — " +
+      "<b>" + pct(cc.cto, 1) + "</b>. People are reading and not acting: the subject line earns the " +
+      "open but the call to action is not converting. This is the single biggest lever on this tab."));
+  }
+  out.push(insightCard("📬", "Opens across all mail",
+    "<b>" + num(cur.opens) + "</b> opens on <b>" + num(cur.sends) + "</b> emails (<b>" +
+    pct(cur.orate, 1) + "</b>), counting automated mail as well as broadcasts. Separately, <b>" +
+    num(cur.mpp) + "</b> Apple Mail privacy prefetches were recorded — a machine fetching the " +
+    "tracking pixel, which ActiveCampaign excludes from the open count and so does this figure. " +
+    "Clicks are only measurable on broadcasts, which is why every click figure is scoped to them."));
+
+  out.push(insightCard("🌡️", "How much of the list is awake",
+    "<b>" + num(engaged) + "</b> of <b>" + num(total) + "</b> contacts (" +
+    pct(safe(engaged, total) * 100, 0) + ") have opened at least one email. The rest have never " +
+    "engaged — they are list weight, not pipeline."));
+
+  var camps = ((DATA.email || {}).campaigns || []).filter(function(c){
+    return c.date >= ST.from && c.date <= ST.to && c.sent >= 100;
+  });
+  if(camps.length){
+    var uns = 0, sent = 0;
+    camps.forEach(function(c){ uns += c.unsubs; sent += c.sent; });
+    var ur = safe(uns, sent) * 100;
+    out.push(insightCard(ur > 1 ? "🚨" : "📬", "Deliverability",
+      "<b>" + num(uns) + "</b> unsubscribes on " + num(sent) + " broadcast sends (<b>" + pct(ur, 2) +
+      "</b>). " + (ur > 1 ? "Above 1% is a spam-complaint risk — reduce frequency or tighten targeting."
+                          : "Within a normal range.")));
+  }
+  var mpp = 0;
+  mailIn(ST.from, ST.to).forEach(function(d){ mpp += d.mpp || 0; });
+  if(mpp){
+    out.push(insightCard("🍏", "Apple Mail privacy",
+      "<b>" + num(mpp) + "</b> Apple Mail privacy prefetches were recorded in this period — a " +
+      "machine fetching the tracking pixel, not a person. ActiveCampaign keeps them OUT of its " +
+      "open count and so does this dashboard, so they are shown as their own line rather than as " +
+      "a share of opens. Treat them as noise, not engagement."));
+  }
+  setHTML("emailInsights", out.join(""));
+}
+
+/* ===================================================================== TAB 3: LEAD MAGNET */
+/* Contacts filtered by the reporting period (on signup date) AND by any quiz cross-filter. */
+function contactsIn(){
+  var cs = ((DATA.email || {}).contacts) || [];
+  var out = [];
+  for(var i = 0; i < cs.length; i++){
+    var c = cs[i];
+    if(c.cdate < ST.from || c.cdate > ST.to){ continue; }
+    if(ST.quizExp && c.experience !== ST.quizExp){ continue; }
+    if(ST.quizTime && c.timeline !== ST.quizTime){ continue; }
+    out.push(c);
+  }
+  return out;
+}
+/* The donut source is deliberately NOT cross-filtered by its own dimension: you must be able to
+   see what you picked out of (playbook 7). */
+function contactsForDonut(dim){
+  var cs = ((DATA.email || {}).contacts) || [];
+  var out = [];
+  for(var i = 0; i < cs.length; i++){
+    var c = cs[i];
+    if(c.cdate < ST.from || c.cdate > ST.to){ continue; }
+    if(dim !== "experience" && ST.quizExp && c.experience !== ST.quizExp){ continue; }
+    if(dim !== "timeline" && ST.quizTime && c.timeline !== ST.quizTime){ continue; }
+    out.push(c);
+  }
+  return out;
+}
+function tally(list, field, order){
+  var by = {};
+  for(var i = 0; i < list.length; i++){
+    var v = list[i][field];
+    if(!v){ continue; }
+    by[v] = (by[v] || 0) + 1;
+  }
+  var keys = Object.keys(by);
+  if(order && order.length){
+    keys.sort(function(a, b){
+      var ia = order.indexOf(a), ib = order.indexOf(b);
+      if(ia < 0){ ia = 99; }
+      if(ib < 0){ ib = 99; }
+      if(ia !== ib){ return ia - ib; }
+      return by[b] - by[a];
+    });
+  } else {
+    keys.sort(function(a, b){ return by[b] - by[a]; });
+  }
+  return keys.map(function(k){ return { k:k, n:k, v:by[k] }; });
+}
+function renderMagnet(){
+  var E = DATA.email || {};
+  if(!E.enabled){
+    setHTML("quizChips", "");
+    setHTML("segScores", emptyCard("ActiveCampaign is not connected",
+      "The quiz answers and sequence data come from ActiveCampaign. Connect it and this tab fills in."));
+    return;
+  }
+  var quiz = E.quiz || {};
+  var expOrder = quiz.experience || [];
+  var timeOrder = quiz.timeline || [];
+
+  var expRows = tally(contactsForDonut("experience"), "experience", expOrder);
+  var timeRows = tally(contactsForDonut("timeline"), "timeline", timeOrder);
+  expRows.forEach(function(r, i){ r.c = rampOf(i); });
+  timeRows.forEach(function(r, i){ r.c = rampOf(i + 2); });
+
+  var inRange = contactsForDonut("experience");
+  var answered = expRows.reduce(function(s, r){ return s + r.v; }, 0);
+  setText("qzExpSub", num(answered) + " of " + num(inRange.length) + " contacts answered · click a slice to filter");
+  var tAns = timeRows.reduce(function(s, r){ return s + r.v; }, 0);
+  setText("qzTimeSub", num(tAns) + " of " + num(inRange.length) + " contacts answered · click a slice to filter");
+
+  donut(byId("expDonut"), expRows, null, function(k){
+    ST.quizExp = (ST.quizExp === k) ? "" : k; renderAll();
+  });
+  donut(byId("timeDonut"), timeRows, null, function(k){
+    ST.quizTime = (ST.quizTime === k) ? "" : k; renderAll();
+  });
+  donutLegend("expLegend", expRows, ST.quizExp, function(k){
+    ST.quizExp = (ST.quizExp === k) ? "" : k; renderAll();
+  });
+  donutLegend("timeLegend", timeRows, ST.quizTime, function(k){
+    ST.quizTime = (ST.quizTime === k) ? "" : k; renderAll();
+  });
+
+  var chips = "";
+  if(ST.quizExp){ chips += '<span class="chip">Experience: ' + esc(ST.quizExp) + '<button type="button" data-q="exp">×</button></span>'; }
+  if(ST.quizTime){ chips += '<span class="chip">Timeline: ' + esc(ST.quizTime) + '<button type="button" data-q="time">×</button></span>'; }
+  setHTML("quizChips", chips);
+  var be = document.querySelector('#quizChips button[data-q="exp"]');
+  if(be){ be.addEventListener("click", function(){ ST.quizExp = ""; renderAll(); }); }
+  var bt = document.querySelector('#quizChips button[data-q="time"]');
+  if(bt){ bt.addEventListener("click", function(){ ST.quizTime = ""; renderAll(); }); }
+
+  renderSegScores();
+  renderSegChart(expRows);
+  renderGrowth();
+  renderTplTable();
+  renderConvBlock();
+  renderMagnetInsights(expRows);
+}
+function donutLegend(id, rows, picked, onPick){
+  var box = byId(id);
+  if(!box){ return; }
+  var tot = rows.reduce(function(s, r){ return s + r.v; }, 0);
+  box.innerHTML = "";
+  rows.forEach(function(r){
+    var d = document.createElement("div");
+    d.className = "dl" + (picked && picked !== r.k ? " off" : "");
+    d.innerHTML = '<span class="sw" style="background:' + r.c + '"></span>' +
+                  '<span class="nm">' + esc(r.n) + "</span>" +
+                  '<span class="vv tnum">' + num(r.v) + "</span>" +
+                  '<span class="pp">' + pct(safe(r.v, tot) * 100, 0) + "</span>";
+    d.addEventListener("click", function(){ onPick(r.k); });
+    box.appendChild(d);
+  });
+  if(!rows.length){
+    box.innerHTML = '<div style="color:var(--muted);font-size:12px">No answers in this period.</div>';
+  }
+}
+function renderSegScores(){
+  var list = contactsIn();
+  var opened = 0, clicked = 0, conv = 0, sent = 0;
+  for(var i = 0; i < list.length; i++){
+    if(list[i].opened){ opened++; }
+    if(list[i].clicked){ clicked++; }
+    if(list[i].converted){ conv++; }
+    sent += list[i].sent;
+  }
+  setHTML("segScores",
+    kpiTile("Contacts in view", num(list.length),
+            (ST.quizExp || ST.quizTime) ? "filtered by the segment you picked" : "signed up in the selected period") +
+    kpiTile("Have opened", num(opened), pct(safe(opened, list.length) * 100, 1) + " of the segment") +
+    kpiTile("Have clicked", num(clicked), pct(safe(clicked, list.length) * 100, 1) + " of the segment") +
+    kpiTile("Emails received", num(sent),
+            list.length ? (sent / list.length).toFixed(1) + " per contact" : "—") +
+    kpiTile("Converted", num(conv),
+            conv ? pct(safe(conv, list.length) * 100, 1) + " of the segment" : "no contacts tagged as clients yet"));
+}
+function renderSegChart(expRows){
+  /* Grouped bars: open rate and click rate per experience segment. This is the question the
+     brief actually asks — do first-time investors open more but click less than portfolio
+     builders? */
+  var cs = contactsForDonut("experience");
+  var by = {};
+  for(var i = 0; i < cs.length; i++){
+    var k = cs[i].experience;
+    if(!k){ continue; }
+    if(!by[k]){ by[k] = { n:0, o:0, c:0 }; }
+    by[k].n++;
+    if(cs[i].opened){ by[k].o++; }
+    if(cs[i].clicked){ by[k].c++; }
+  }
+  var keys = expRows.map(function(r){ return r.k; }).filter(function(k){ return by[k]; });
+  var svg = byId("segChart");
+  if(!keys.length){
+    clear(svg);
+    var t = el("text", { x:590, y:130, "class":"axis", "text-anchor":"middle" });
+    t.textContent = "No quiz answers in this period";
+    svg.appendChild(t);
+    return;
+  }
+  var maxV = 0;
+  keys.forEach(function(k){
+    var o = safe(by[k].o, by[k].n) * 100, c = safe(by[k].c, by[k].n) * 100;
+    if(o > maxV){ maxV = o; }
+    if(c > maxV){ maxV = c; }
+  });
+  var fr = frame(svg, { max:maxV || 1, mB:36, fmt:pctAxis(maxV) });
+  var gSegO = barGrad(svg, "var(--s1)"), gSegC = barGrad(svg, "var(--s6)");
+  var N = keys.length, bw = fr.iw / N;
+  keys.forEach(function(k, i){
+    var g = by[k];
+    var orate = safe(g.o, g.n) * 100, crate = safe(g.c, g.n) * 100;
+    var x0 = fr.mL + bw * i + bw * 0.16;
+    var w = bw * 0.30;
+    var r1 = el("rect", { x:x0, y:fr.Y(orate), width:w, height:Math.max(1, fr.mT + fr.ih - fr.Y(orate)),
+                          rx:3, fill:gSegO });
+    bindTip(r1, tipTitle(k) + tipRow("Contacts", num(g.n)) + tipRow("Open rate", pct(orate, 1)) +
+                tipRow("Opened", num(g.o)));
+    svg.appendChild(r1);
+    var r2 = el("rect", { x:x0 + w + bw * 0.06, y:fr.Y(crate), width:w,
+                          height:Math.max(1, fr.mT + fr.ih - fr.Y(crate)), rx:3, fill:gSegC });
+    bindTip(r2, tipTitle(k) + tipRow("Contacts", num(g.n)) + tipRow("Click rate", pct(crate, 1)) +
+                tipRow("Clicked", num(g.c)));
+    svg.appendChild(r2);
+    var lb = el("text", { x:fr.mL + bw * (i + 0.5), y:fr.mT + fr.ih + 17, "class":"axis",
+                          "text-anchor":"middle" });
+    lb.textContent = k.length > 18 ? k.slice(0, 17) + "…" : k;
+    svg.appendChild(lb);
+  });
+  var lg = el("text", { x:fr.mL, y:fr.mT - 1, "class":"axis" });
+  lg.textContent = "■ open rate (green)   ■ click rate (pink)";
+  svg.appendChild(lg);
+}
+function renderGrowth(){
+  var g = grainOf("growth", ST.from, ST.to);
+  var cs = contactsIn();
+  var by = {};
+  for(var i = 0; i < cs.length; i++){
+    var k = bucketOf(cs[i].cdate, g);
+    by[k] = (by[k] || 0) + 1;
+  }
+  var keys = denseBuckets(ST.from, ST.to, g, 420);
+  if(!keys){ keys = Object.keys(by).sort(); }
+  var vals = keys.map(function(k){ return by[k] || 0; });
+  var svg = byId("growthChart");
+  var maxV = 0;
+  vals.forEach(function(v){ if(v > maxV){ maxV = v; } });
+  var fr = frame(svg, { max:maxV || 1, mB:34 });
+  var gGrowth = barGrad(svg, "var(--s3)");
+  var N = keys.length;
+  if(N){
+    var bw = fr.iw / N;
+    for(var j = 0; j < N; j++){
+      var h = Math.max(0, fr.mT + fr.ih - fr.Y(vals[j]));
+      var rect = el("rect", { x:fr.mL + bw * j + bw * 0.14, y:fr.Y(vals[j]),
+                              width:Math.max(1, bw * 0.72), height:Math.max(h, vals[j] ? 1 : 0),
+                              rx:3, fill:gGrowth });
+      bindTip(rect, tipTitle(bucketTip(keys[j], g)) + tipRow("New contacts", num(vals[j])));
+      svg.appendChild(rect);
+    }
+    xLabelsBand(svg, fr, keys.map(function(k){ return bucketLabel(k, g); }));
+  }
+  var tot = vals.reduce(function(s, v){ return s + v; }, 0);
+  setHTML("growthNote",
+    "<b>" + num(tot) + "</b> new contacts over " + grainNote(g, N) +
+    (GRAIN.growth === "auto" ? " (grain auto-selected from the span)" : "") +
+    ((ST.quizExp || ST.quizTime) ? " — filtered to the segment you picked above." : "."));
+}
+function renderTplTable(){
+  var tpls = ((DATA.email || {}).templates) || [];
+  var inRange = tpls.filter(function(t){
+    return !(t.last < ST.from || t.first > ST.to);
+  });
+  var tot = inRange.reduce(function(s, t){ return s + t.sends; }, 0);
+  inRange = inRange.map(function(t){
+    var o = {};
+    for(var k in t){ o[k] = t[k]; }
+    o.share = safe(t.sends, tot) * 100;
+    return o;
+  });
+  var st = SORT.tpl;
+  markSort("tplTbl", st);
+  var rows = sortRows(inRange, st);
+  var cap = SEG.tpl === "all" ? rows.length : parseInt(SEG.tpl, 10);
+  var shown = rows.slice(0, cap);
+  var maxS = 0;
+  shown.forEach(function(t){ if(t.sends > maxS){ maxS = t.sends; } });
+  var tb = document.querySelector("#tplTbl tbody");
+  tb.innerHTML = "";
+  if(!shown.length){
+    tb.innerHTML = '<tr><td colspan="5" style="color:var(--muted);padding:16px">No templates sent in this period.</td></tr>';
+  }
+  shown.forEach(function(t){
+    var w = maxS ? Math.max(3, (t.sends / maxS) * 100) : 0;
+    var tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td class="nm" title="' + esc(t.name) + '">' + esc(t.name) + "</td>" +
+      '<td class="r">' + num(t.sends) + "</td>" +
+      "<td>" + (t.first ? prettyDate(t.first) : "—") + "</td>" +
+      "<td>" + (t.last ? prettyDate(t.last) : "—") + "</td>" +
+      '<td class="r"><span class="bic"><i style="width:' + w.toFixed(0) + '%"></i>' +
+        "<span>" + pct(safe(t.sends, tot) * 100, 1) + "</span></span></td>";
+    tb.appendChild(tr);
+  });
+  setText("tplFoot", shown.length < rows.length
+    ? "Showing " + shown.length + " of " + rows.length + " templates — the share column is against all " +
+      rows.length + " (" + num(tot) + " sends)."
+    : rows.length + " template" + (rows.length === 1 ? "" : "s") + ", " + num(tot) + " sends. " +
+      "Per-template open and click rates need the send↔event join, which arrives with the first full backfill.");
+}
+function renderConvBlock(){
+  var E = DATA.email || {};
+  var T = E.totals || {};
+  var conv = T.converted || 0;
+  if(conv > 0){
+    var cs = E.contacts || [];
+    var inR = cs.filter(function(c){ return c.converted && c.cdate >= ST.from && c.cdate <= ST.to; });
+    setHTML("convBlock",
+      '<div class="kpis">' +
+      kpiTile("Converted (all time)", num(conv), "contacts with Status = Client or Returning Client") +
+      kpiTile("Converted in period", num(inR.length), prettyDate(ST.from) + " → " + prettyDate(ST.to)) +
+      kpiTile("Conversion rate", pct(safe(conv, cs.length) * 100, 2), "of all contacts") +
+      "</div>");
+    return;
+  }
+  setHTML("convBlock", emptyCard(
+    "No contacts are tagged as clients yet — so conversion reads zero, correctly",
+    "Conversion is defined as ActiveCampaign's <code>Status</code> field reading <b>Client</b> or " +
+    "<b>Returning Client</b> (agreed 2026-07-27). Right now every one of the " +
+    num((E.contacts || []).length) + " contacts is <b>Lead</b> or <b>Listing Lead</b>, so this is an " +
+    "empty metric rather than a broken one — it will populate as the team tags won business.<br><br>" +
+    "This replaces the old Colab join, which matched leads to a conversions spreadsheet on phone " +
+    "number and was silently returning <b>zero matches</b>, so the previous report's " +
+    "&ldquo;Converted&rdquo; filter showed nothing at all.<br><br>" +
+    "Until then the honest sales-readiness signal is an <b>engaged lead</b> — one that has opened at " +
+    "least one email — which is what the tiles above and the Cost per Engaged Lead figure use."));
+}
+function renderMagnetInsights(expRows){
+  var out = [];
+  var cs = contactsForDonut("experience");
+  var by = {};
+  cs.forEach(function(c){
+    var k = c.experience;
+    if(!k){ return; }
+    if(!by[k]){ by[k] = { n:0, o:0, c:0 }; }
+    by[k].n++;
+    if(c.opened){ by[k].o++; }
+    if(c.clicked){ by[k].c++; }
+  });
+  var keys = Object.keys(by).filter(function(k){ return by[k].n >= 20; });
+  if(keys.length >= 2){
+    var bestO = null, bestC = null;
+    keys.forEach(function(k){
+      var o = safe(by[k].o, by[k].n), c = safe(by[k].c, by[k].n);
+      if(!bestO || o > bestO.v){ bestO = { k:k, v:o }; }
+      if(!bestC || c > bestC.v){ bestC = { k:k, v:c }; }
+    });
+    out.push(insightCard("🥇", "Warmest segment",
+      "<b>" + esc(bestO.k) + "</b> has the highest open rate at <b>" + pct(bestO.v * 100, 1) +
+      "</b>" + (bestC && bestC.k !== bestO.k
+        ? ", but <b>" + esc(bestC.k) + "</b> clicks most (" + pct(bestC.v * 100, 1) +
+          "). Opening is attention; clicking is intent — write to the clickers."
+        : ", and it clicks most too.")));
+  }
+  var answered = expRows.reduce(function(s, r){ return s + r.v; }, 0);
+  var totalC = cs.length;
+  if(totalC){
+    out.push(insightCard(safe(answered, totalC) > 0.5 ? "📋" : "🕳️", "Quiz coverage",
+      "Only <b>" + pct(safe(answered, totalC) * 100, 0) + "</b> of contacts in this period answered the " +
+      "experience question (" + num(answered) + " of " + num(totalC) + "). Every segment cut below is " +
+      "based on that subset — worth making the question mandatory on the form."));
+  }
+  var tpls = ((DATA.email || {}).templates) || [];
+  if(tpls.length){
+    var top = tpls[0];
+    var totS = tpls.reduce(function(s, t){ return s + t.sends; }, 0);
+    out.push(insightCard("📨", "Sequence concentration",
+      "<b>" + esc(top.name.slice(0, 60)) + "</b> is the single biggest send at <b>" + num(top.sends) +
+      "</b> (" + pct(safe(top.sends, totS) * 100, 0) + " of all volume). " +
+      "A sequence this top-heavy means most contacts only ever see the first step."));
+  }
+  setHTML("magnetInsights", out.join(""));
+}
+
+/* ===================================================================== TAB 4: DEMOGRAPHICS */
+function bdRows(slug, from, to){
+  var b = ((DATA.breakdowns || {})[slug]) || {};
+  var rows = b.rows || [];
+  var out = [];
+  /* region is month-granular (see the job); everything else is daily. Compare on the same
+     resolution the row carries. */
+  var f = slug === "region" ? from.slice(0, 7) : from;
+  var t = slug === "region" ? to.slice(0, 7) : to;
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    if(r.d < f || r.d > t){ continue; }
+    /* Scope breakdowns to the SAME account as every other tab. Older payloads have no `acct`
+       on breakdown rows; those are let through rather than filtered to nothing, so a stale
+       publication degrades to "blended" instead of "empty". */
+    if(ACCT && r.acct !== undefined && r.acct !== ACCT){ continue; }
+    out.push(r);
+  }
+  return out;
+}
+function bdAgg(rows, dims){
+  var by = {};
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    var k = dims.map(function(d){ return r[d] || "Unknown"; }).join("|");
+    if(!by[k]){
+      by[k] = { key:k, spend:0, imps:0, clicks:0, lclk:0, reach:0, leads:0 };
+      dims.forEach(function(d, j){ by[k][d] = (r[d] || "Unknown"); });
+    }
+    var a = by[k];
+    a.spend += r.spend; a.imps += r.imps; a.clicks += r.clicks;
+    a.lclk += r.lclk; a.reach += r.reach; a.leads += r.leads;
+  }
+  return Object.keys(by).map(function(k){
+    var a = by[k];
+    a.cpl = a.leads ? a.spend / a.leads : 0;
+    a.ctr = safe(a.lclk, a.imps) * 100;
+    a.cpm = safe(a.spend, a.imps) * 1000;
+    return a;
+  });
+}
+function renderDemo(){
+  var B = DATA.breakdowns || {};
+  if(!B.enabled){
+    setHTML("scatterNote", "");
+    setHTML("crossWrap", emptyCard("Breakdowns are not available",
+      "The demographics tab needs the Meta breakdown pulls. " + esc(B.note || "")));
+    return;
+  }
+  renderDemoWindowNote();
+  var segs = demoSegments();
+  renderScatter(segs);
+  renderRank(segs);
+  renderShare(segs);
+  renderDemoTable(segs);
+  renderCross();
+  renderGeo();
+  renderDemoInsights();
+}
+
+/* The breakdown pulls cover a SHORTER window than the main Meta pull (Meta will not return
+   breakdowns as far back), so with a long period selected this tab legitimately shows fewer leads
+   and less spend than the funnel tab — 6,054 vs 7,030 leads on all-time when this was written.
+   That gap has to be stated: an unexplained 14% shortfall between two tabs is exactly the kind of
+   thing that destroys trust in a dashboard. */
+function bdCoverage(){
+  var best = "";
+  var B = DATA.breakdowns || {};
+  var slugs = ["age_gender", "platform", "position", "device"];
+  for(var i = 0; i < slugs.length; i++){
+    var rows = ((B[slugs[i]] || {}).rows) || [];
+    for(var j = 0; j < rows.length; j++){
+      if(!best || rows[j].d < best){ best = rows[j].d; }
+    }
+  }
+  return best;
+}
+function renderDemoWindowNote(){
+  var from = bdCoverage();
+  var box = byId("demoWindowNote");
+  if(!box){ return; }
+  if(!from || from <= ST.from){
+    box.innerHTML = "";
+    return;
+  }
+  /* how much of the selected period this tab cannot see */
+  var missing = 0, total = 0;
+  var rows = metaIn(ST.from, ST.to);
+  for(var i = 0; i < rows.length; i++){
+    total += rows[i].leads;
+    if(rows[i].d < from){ missing += rows[i].leads; }
+  }
+  box.innerHTML = '<div class="empty" style="margin-bottom:18px">' +
+    "<h4>These breakdowns start " + prettyDate(from) + ", later than the rest of the dashboard</h4>" +
+    "<p>Meta will not return age, placement, device or region as far back as the per-ad data, so " +
+    "this tab covers <b>" + prettyDate(from) + " onward</b> while the Meta funnel tab covers " +
+    "from " + prettyDate(ST.from) + ". For the period you have selected that leaves <b>" +
+    num(missing) + "</b> of " + num(total) + " leads (<b>" +
+    pct(safe(missing, total) * 100, 0) + "</b>) out of the figures below. " +
+    "Shorten the period to " + prettyDate(from) + " or later and the two tabs agree.</p></div>";
+}
+
+/* ONE segment builder feeds the scatter, the rank chart, the share bars and the table — so every
+   visual on this tab is the same numbers cut the same way, and the Split-by control moves all of
+   them at once. That is the difference between this and an Ads-Manager screenshot. */
+var DEMO_SPEC = {
+  age:      { slug:"age_gender", dim:"age",                label:"Age band" },
+  gender:   { slug:"age_gender", dim:"gender",             label:"Gender" },
+  platform: { slug:"platform",   dim:"publisher_platform", label:"Platform" },
+  position: { slug:"position",   dim:"platform_position",  label:"Placement" },
+  device:   { slug:"device",     dim:"impression_device",  label:"Device" }
+};
+function prettyDim(v){
+  return String(v).replace(/_/g, " ").replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+}
+function demoSegments(){
+  var spec = DEMO_SPEC[SEG.demo] || DEMO_SPEC.age;
+  var agg = bdAgg(bdRows(spec.slug, ST.from, ST.to), [spec.dim]);
+  var totS = 0, totL = 0;
+  agg.forEach(function(a){ totS += a.spend; totL += a.leads; });
+  agg.forEach(function(a){
+    a.name = prettyDim(a[spec.dim]);
+    a.dim = spec.label;
+    a.sharespend = safe(a.spend, totS) * 100;
+    a.shareleads = safe(a.leads, totL) * 100;
+  });
+  agg._totSpend = totS;
+  agg._totLeads = totL;
+  agg._label = spec.label;
+  agg._avgCpl = totL ? totS / totL : 0;
+  return agg;
+}
+
+/* A spend-vs-leads scatter with an "average CPL" diagonal: everything BELOW the line is buying
+   leads more cheaply than the account average, everything above is not. One glance, one decision. */
+function renderScatter(segs){
+  var svg = byId("scatterChart");
+  clear(svg);
+  if(!segs.length){
+    var t0 = el("text", { x:330, y:190, "class":"axis", "text-anchor":"middle" });
+    t0.textContent = "No breakdown data in this range";
+    svg.appendChild(t0);
+    setHTML("scatterNote", "");
+    return;
+  }
+  var W = 660, H = 380, mL = 62, mR = 22, mT = 18, mB = 46;
+  var iw = W - mL - mR, ih = H - mT - mB;
+  var maxS = 0, maxL = 0, maxSp = 0;
+  segs.forEach(function(a){
+    if(a.spend > maxS){ maxS = a.spend; }
+    if(a.leads > maxL){ maxL = a.leads; }
+    if(a.spend > maxSp){ maxSp = a.spend; }
+  });
+  maxS = niceMax(maxS * 1.12); maxL = niceMax(maxL * 1.12);
+  function X(v){ return mL + (v / maxS) * iw; }
+  function Y(v){ return mT + ih - (v / maxL) * ih; }
+  var i;
+  for(i = 0; i <= 4; i++){
+    var yv = maxL * i / 4, y = Y(yv);
+    svg.appendChild(el("line", { x1:mL, y1:y, x2:mL + iw, y2:y, "class":"gl" }));
+    var ty = el("text", { x:mL - 8, y:y + 3.5, "class":"axis", "text-anchor":"end" });
+    ty.textContent = compactN(yv);
+    svg.appendChild(ty);
+    var xv = maxS * i / 4, x = X(xv);
+    var tx = el("text", { x:x, y:mT + ih + 18, "class":"axis", "text-anchor":"middle" });
+    tx.textContent = compact(xv);
+    svg.appendChild(tx);
+  }
+  var avg = segs._avgCpl;
+  if(avg > 0){
+    /* leads = spend / avgCPL — the break-even diagonal */
+    var xEnd = Math.min(maxS, maxL * avg);
+    var yEnd = xEnd / avg;
+    svg.appendChild(el("line", { x1:X(0), y1:Y(0), x2:X(xEnd), y2:Y(yEnd), "class":"ref" }));
+    var lt = el("text", { x:X(xEnd) - 4, y:Y(yEnd) - 7, "class":"reflbl", "text-anchor":"end" });
+    lt.textContent = "average " + money(avg, 2) + " per lead";
+    svg.appendChild(lt);
+  }
+  segs.forEach(function(a, idx){
+    var r = 7 + 22 * Math.sqrt(safe(a.spend, maxSp));
+    var better = avg > 0 && a.leads > 0 && a.cpl < avg;
+    var c = a.leads === 0 ? "var(--muted)" : (better ? "var(--s1)" : "var(--s6)");
+    var cir = el("circle", { cx:X(a.spend), cy:Y(a.leads), r:r, fill:c, "fill-opacity":".28",
+                             stroke:c, "stroke-width":2 });
+    bindTip(cir, tipTitle(a.name) +
+      tipRow("Spend", money(a.spend, 0)) +
+      tipRow("Leads", num(a.leads)) +
+      tipRow("Cost per lead", a.leads ? money(a.cpl, 2) : "—") +
+      tipRow("vs average", a.leads ? (better ? "cheaper" : "dearer") : "—") +
+      tipRow("Budget share", pct(a.sharespend, 1)) +
+      tipRow("Lead share", pct(a.shareleads, 1)));
+    svg.appendChild(cir);
+    /* Label ABOVE the bubble, not inside it. Segments cluster tightly (they are shares of one
+       budget), so centred labels sat on top of each other and were unreadable. A halo stroke
+       keeps them legible where bubbles still overlap. */
+    var ly = Y(a.leads) - r - 5;
+    if(ly < mT + 9){ ly = Y(a.leads) + r + 12; }
+    var lb = el("text", { x:X(a.spend), y:ly, "text-anchor":"middle",
+                          style:"font:900 10.5px var(--sans);fill:var(--green-d);pointer-events:none;" +
+                                "paint-order:stroke;stroke:var(--white);stroke-width:3.5px;" +
+                                "stroke-linejoin:round" });
+    lb.textContent = a.name.length > 15 ? a.name.slice(0, 14) + "…" : a.name;
+    svg.appendChild(lb);
+  });
+  var xa = el("text", { x:mL + iw / 2, y:H - 6, "class":"axis", "text-anchor":"middle" });
+  xa.textContent = "Spend →";
+  svg.appendChild(xa);
+  var ya = el("text", { x:14, y:mT + ih / 2, "class":"axis", "text-anchor":"middle",
+                        transform:"rotate(-90 14 " + (mT + ih / 2) + ")" });
+  ya.textContent = "Leads →";
+  svg.appendChild(ya);
+  var winners = segs.filter(function(a){ return a.leads > 0 && a.cpl < avg; });
+  setHTML("scatterNote",
+    "<b>" + winners.length + " of " + segs.length + "</b> " + segs._label.toLowerCase() +
+    " segments beat the account average of <b>" + money(avg, 2) + "</b> per lead " +
+    "(green, below the dashed line). Bubble size is spend, so a large red bubble is where the " +
+    "money is going without the leads to justify it.");
+}
+
+function renderRank(segs){
+  var withLeads = segs.filter(function(a){ return a.leads > 0; })
+                      .sort(function(a, b){ return a.cpl - b.cpl; });
+  var svg = byId("rankChart");
+  if(!withLeads.length){
+    clear(svg);
+    var t = el("text", { x:210, y:190, "class":"axis", "text-anchor":"middle" });
+    t.textContent = "No leads on this split";
+    svg.appendChild(t);
+    return;
+  }
+  var best = withLeads[0].cpl;
+  hbars(svg, withLeads.map(function(a){
+    return {
+      n:a.name, v:a.cpl, c:a.cpl <= segs._avgCpl ? "var(--s1)" : "var(--s6)",
+      lbl:money(a.cpl, 2),
+      tip: tipTitle(a.name) + tipRow("Cost per lead", money(a.cpl, 2)) +
+           tipRow("vs best segment", best ? (a.cpl / best).toFixed(2) + "×" : "—") +
+           tipRow("Leads", num(a.leads)) + tipRow("Spend", money(a.spend, 0))
+    };
+  }), { mL:132 });
+  setText("rankSub", "cheapest at the top · best is " + withLeads[0].name +
+                     " at " + money(best, 2));
+}
+
+/* Budget share vs lead share as paired bars: if the spend bar is longer than the lead bar, that
+   segment is consuming more budget than it returns. */
+function renderShare(segs){
+  var svg = byId("shareChart");
+  var list = segs.slice().sort(function(a, b){ return b.spend - a.spend; }).slice(0, 9);
+  if(!list.length){
+    clear(svg);
+    var t = el("text", { x:590, y:130, "class":"axis", "text-anchor":"middle" });
+    t.textContent = "No breakdown data in this range";
+    svg.appendChild(t);
+    setHTML("shareNote", "");
+    return;
+  }
+  var maxV = 0;
+  list.forEach(function(a){
+    if(a.sharespend > maxV){ maxV = a.sharespend; }
+    if(a.shareleads > maxV){ maxV = a.shareleads; }
+  });
+  var fr = frame(svg, { max:maxV || 1, mB:40, fmt:pctAxis(maxV) });
+  var gShareB = barGrad(svg, "var(--s2)"), gShareL = barGrad(svg, "var(--s1)");
+  var N = list.length, bw = fr.iw / N;
+  list.forEach(function(a, i){
+    var x0 = fr.mL + bw * i + bw * 0.15;
+    var w = bw * 0.32;
+    var r1 = el("rect", { x:x0, y:fr.Y(a.sharespend), width:w,
+                          height:Math.max(1, fr.mT + fr.ih - fr.Y(a.sharespend)), rx:3,
+                          fill:gShareB });
+    bindTip(r1, tipTitle(a.name) + tipRow("Budget share", pct(a.sharespend, 1)) +
+                tipRow("Spend", money(a.spend, 0)));
+    svg.appendChild(r1);
+    var r2 = el("rect", { x:x0 + w + bw * 0.06, y:fr.Y(a.shareleads), width:w,
+                          height:Math.max(1, fr.mT + fr.ih - fr.Y(a.shareleads)), rx:3,
+                          fill:gShareL });
+    bindTip(r2, tipTitle(a.name) + tipRow("Lead share", pct(a.shareleads, 1)) +
+                tipRow("Leads", num(a.leads)));
+    svg.appendChild(r2);
+    var lb = el("text", { x:fr.mL + bw * (i + 0.5), y:fr.mT + fr.ih + 17, "class":"axis",
+                          "text-anchor":"middle" });
+    var nm = a.name;
+    lb.textContent = nm.length > 14 ? nm.slice(0, 13) + "…" : nm;
+    svg.appendChild(lb);
+  });
+  var lg = el("text", { x:fr.mL, y:fr.mT - 2, "class":"axis" });
+  lg.textContent = "■ share of budget (purple)   ■ share of leads (green)";
+  svg.appendChild(lg);
+  var over = segs.filter(function(a){ return a.sharespend - a.shareleads > 4; })
+                 .sort(function(a, b){ return (b.sharespend - b.shareleads) - (a.sharespend - a.shareleads); });
+  setHTML("shareNote", over.length
+    ? "<b>" + esc(over[0].name) + "</b> takes <b>" + pct(over[0].sharespend, 1) +
+      "</b> of the budget but returns <b>" + pct(over[0].shareleads, 1) + "</b> of the leads — the " +
+      "clearest place to move money out of."
+    : "Budget and lead share track each other closely on this split — no segment is obviously overfunded.");
+}
+
+function renderDemoTable(segs){
+  var st = SORT.demo;
+  markSort("demoTbl", st);
+  var rows = sortRows(segs.slice(), st);
+  var tb = document.querySelector("#demoTbl tbody");
+  tb.innerHTML = "";
+  if(!rows.length){
+    tb.innerHTML = '<tr><td colspan="9" style="color:var(--muted);padding:16px">No breakdown data in this range.</td></tr>';
+    setText("demoFoot", "");
+    return;
+  }
+  var withLeads = rows.filter(function(a){ return a.leads > 0; });
+  var bestCpl = withLeads.length ? Math.min.apply(null, withLeads.map(function(a){ return a.cpl; })) : 0;
+  var worstCpl = withLeads.length ? Math.max.apply(null, withLeads.map(function(a){ return a.cpl; })) : 0;
+  var dMin = bestCpl, dMax = worstCpl;
+  rows.forEach(function(a){
+    var tr = document.createElement("tr");
+    if(a.leads && a.cpl === bestCpl){ tr.className = "hl"; }
+    else if(a.leads && a.cpl === worstCpl && withLeads.length > 1){ tr.className = "lo"; }
+    tr.innerHTML =
+      '<td class="nm">' + esc(a.name) + "</td>" +
+      "<td>" + esc(a.dim) + "</td>" +
+      '<td class="r">' + money(a.spend, 0) + "</td>" +
+      '<td class="r">' + num(a.imps) + "</td>" +
+      '<td class="r">' + pct(a.ctr, 2) + "</td>" +
+      '<td class="r">' + num(a.leads) + "</td>" +
+      '<td class="r"' + (a.leads ? ' style="background:' + heatBg(a.cpl, dMin, dMax) + '"' : "") +
+        ">" + (a.leads ? money(a.cpl, 2) : "—") + "</td>" +
+      '<td class="r">' + pct(a.sharespend, 1) + "</td>" +
+      /* lead share ABOVE budget share is the segment paying its way — shade it that way round */
+      '<td class="r" style="background:' +
+        heatBg(a.shareleads - a.sharespend, -6, 6, true) + '">' +
+        (segs._totLeads ? pct(a.shareleads, 1) : "—") + "</td>";
+    tb.appendChild(tr);
+  });
+  setText("demoFoot", rows.length + " " + segs._label.toLowerCase() + " segments · " +
+    money(segs._totSpend, 0) + " spend · " + num(segs._totLeads) + " leads · cheapest highlighted " +
+    "green, dearest red.");
+}
+function renderCross(){
+  /* CPL by age × placement needs BOTH dimensions in one row, which Meta will not return
+     together. Approximate honestly: distribute each placement's leads across ages in proportion
+     to that age's share of leads, and say so. */
+  var ageAgg = bdAgg(bdRows("age_gender", ST.from, ST.to), ["age"]);
+  var posAgg = bdAgg(bdRows("position", ST.from, ST.to), ["platform_position"]);
+  if(!ageAgg.length || !posAgg.length){
+    setHTML("crossWrap", '<div style="color:var(--muted);font-size:12.5px;padding:10px 0">' +
+      "Not enough breakdown data in this range for the cross-tab.</div>");
+    setHTML("crossNote", "");
+    return;
+  }
+  ageAgg.sort(function(a, b){ return a.age < b.age ? -1 : 1; });
+  posAgg.sort(function(a, b){ return b.spend - a.spend; });
+  var poss = posAgg.slice(0, 6);
+  var totLeads = ageAgg.reduce(function(s, a){ return s + a.leads; }, 0);
+  var totSpend = ageAgg.reduce(function(s, a){ return s + a.spend; }, 0);
+
+  var vals = [], cells = [];
+  poss.forEach(function(p){
+    ageAgg.forEach(function(a){
+      var shareL = safe(a.leads, totLeads);
+      var shareS = safe(a.spend, totSpend);
+      var leads = p.leads * shareL;
+      var spend = p.spend * shareS;
+      var cpl = leads >= 1 ? spend / leads : 0;
+      cells.push({ pos:p.platform_position, age:a.age, cpl:cpl, leads:leads, spend:spend });
+      if(cpl > 0){ vals.push(cpl); }
+    });
+  });
+  vals.sort(function(x, y){ return x - y; });
+  var lo = vals.length ? vals[0] : 0;
+  var hi = vals.length ? vals[vals.length - 1] : 1;
+
+  var ages = ageAgg.map(function(a){ return a.age; });
+  var html = '<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr><th>Placement</th>';
+  ages.forEach(function(a){ html += '<th class="r">' + esc(a) + "</th>"; });
+  html += "</tr></thead><tbody>";
+  poss.forEach(function(p) {
+    html += '<tr><td class="nm">' + esc(String(p.platform_position).replace(/_/g, " ")) + "</td>";
+    ages.forEach(function(a){
+      var c = null;
+      for(var i = 0; i < cells.length; i++){
+        if(cells[i].pos === p.platform_position && cells[i].age === a){ c = cells[i]; break; }
+      }
+      if(!c || !c.cpl){ html += '<td class="r" style="color:var(--muted)">—</td>'; return; }
+      /* sqrt the scale so mid-volume values stay visible */
+      var t = hi > lo ? Math.sqrt((c.cpl - lo) / (hi - lo)) : 0.5;
+      var bg = "rgba(212,42,42," + (0.06 + t * 0.42).toFixed(3) + ")";
+      html += '<td class="r" style="background:' + bg + '" title="' +
+              esc(a + " · " + String(p.platform_position).replace(/_/g, " ") +
+                  " — approx " + Math.round(c.leads) + " leads") + '">' +
+              money(c.cpl, 0) + "</td>";
+    });
+    html += "</tr>";
+  });
+  html += "</tbody></table></div>";
+  setHTML("crossWrap", html);
+  setHTML("crossNote",
+    "<b>Approximate by construction.</b> Meta will not return age and placement in the same query, so " +
+    "each placement's leads and spend are distributed across the age bands in proportion to those " +
+    "bands' own share. Read it for <i>direction</i> — which corner is expensive — not as an exact CPL. " +
+    "Darker red is a higher cost per lead; the scale is square-rooted so mid-range cells stay legible.");
+}
+function renderGeo(){
+  var rows = bdRows("region", ST.from, ST.to);
+  var agg = bdAgg(rows, ["region"]);
+  var key = SEG.geo;
+  agg.sort(function(a, b){ return (b[key] || 0) - (a[key] || 0); });
+  var svg = byId("geoChart");
+  if(!agg.length){
+    clear(svg);
+    var t = el("text", { x:590, y:150, "class":"axis", "text-anchor":"middle" });
+    t.textContent = "No geographic data in this range";
+    svg.appendChild(t);
+    setText("geoSub", "—");
+    setHTML("geoNote", "");
+    return;
+  }
+  var fmt = key === "spend" ? function(v){ return compact(v); }
+          : key === "ctr" ? function(v){ return pct(v, 2); } : function(v){ return compactN(v); };
+  hbars(svg, agg.slice(0, 10).map(function(r, i){
+    return {
+      n:r.region, v:r[key] || 0, c:rampOf(i), lbl:fmt(r[key] || 0),
+      tip: tipTitle(r.region) + tipRow("Spend", money(r.spend, 0)) +
+           tipRow("Impressions", num(r.imps)) + tipRow("Reach", num(r.reach)) +
+           tipRow("Link clicks", num(r.lclk)) + tipRow("CTR", pct(r.ctr, 2))
+    };
+  }), { mL:190 });
+  setText("geoSub", agg.length + " states/territories · month-granular");
+  setHTML("geoNote",
+    "<b>No leads by state.</b> Meta returns <code>actions_lead</code> as identically zero on the region " +
+    "breakdown — every variant was tested, including <code>unique_actions_lead</code>. So geography can " +
+    "show delivery (spend, impressions, reach, CTR) but <b>not</b> leads or CPL. The build brief asked " +
+    "for a lead/CPL map; that is a Meta limitation, not a missing field, and age × gender above is the " +
+    "actionable cut instead. Region is rolled to month to keep the payload small.");
+}
+function renderDemoInsights(){
+  var out = [];
+  /* lead with the split the user is currently looking at */
+  var segs = demoSegments();
+  var live = segs.filter(function(a){ return a.leads > 0; });
+  if(live.length >= 2){
+    live.sort(function(a, b){ return a.cpl - b.cpl; });
+    var b0 = live[0], w0 = live[live.length - 1];
+    out.push(insightCard("🔀", "Best " + segs._label.toLowerCase() + " to buy",
+      "<b>" + esc(b0.name) + "</b> delivers leads at <b>" + money(b0.cpl, 2) + "</b> against <b>" +
+      money(w0.cpl, 2) + "</b> for " + esc(w0.name) + ". Shifting budget from the second to the " +
+      "first is the cheapest win available on this split."));
+  }
+  var agg = bdAgg(bdRows("age_gender", ST.from, ST.to), ["age", "gender"]);
+  var withLeads = agg.filter(function(a){ return a.leads >= 10; });
+  if(withLeads.length >= 2){
+    withLeads.sort(function(a, b){ return a.cpl - b.cpl; });
+    var b = withLeads[0], w = withLeads[withLeads.length - 1];
+    out.push(insightCard("🎯", "Where the cheap leads are",
+      "<b>" + esc(b.age + " " + b.gender) + "</b> converts at <b>" + money(b.cpl, 2) + "</b> per lead " +
+      "(" + num(b.leads) + " leads on " + money(b.spend, 0) + "). The worst, <b>" +
+      esc(w.age + " " + w.gender) + "</b>, costs <b>" + money(w.cpl, 2) + "</b> — " +
+      (safe(w.cpl, b.cpl)).toFixed(1) + "× more for the same outcome."));
+  }
+  var plat = bdAgg(bdRows("platform", ST.from, ST.to), ["publisher_platform"]);
+  plat.sort(function(a, b){ return b.spend - a.spend; });
+  if(plat.length >= 2){
+    var lead = plat[0];
+    var an = null;
+    plat.forEach(function(p){ if(p.publisher_platform === "audience_network"){ an = p; } });
+    out.push(insightCard("📱", "Platform mix",
+      "<b>" + esc(String(lead.publisher_platform).replace(/_/g, " ")) + "</b> takes <b>" +
+      pct(safe(lead.spend, plat.reduce(function(s, p){ return s + p.spend; }, 0)) * 100, 0) +
+      "</b> of spend" + (lead.leads ? " at " + money(lead.cpl, 2) + " per lead" : "") + ". " +
+      (an && an.leads && lead.leads && an.cpl > lead.cpl * 1.3
+        ? "Audience Network is running " + (an.cpl / lead.cpl).toFixed(1) + "× more expensive — a common place to trim."
+        : "")));
+  }
+  var pos = bdAgg(bdRows("position", ST.from, ST.to), ["platform_position"]);
+  var posL = pos.filter(function(p){ return p.leads >= 10; });
+  if(posL.length >= 2){
+    posL.sort(function(a, b){ return a.cpl - b.cpl; });
+    out.push(insightCard("🧭", "Best placement",
+      "<b>" + esc(String(posL[0].platform_position).replace(/_/g, " ")) + "</b> is the cheapest placement at <b>" +
+      money(posL[0].cpl, 2) + "</b> per lead. The most expensive of the tested placements is <b>" +
+      esc(String(posL[posL.length-1].platform_position).replace(/_/g, " ")) + "</b> at <b>" +
+      money(posL[posL.length-1].cpl, 2) + "</b>."));
+  }
+  var dev = bdAgg(bdRows("device", ST.from, ST.to), ["impression_device"]);
+  var devL = dev.filter(function(d){ return d.leads >= 10; });
+  if(devL.length){
+    devL.sort(function(a, b){ return b.leads - a.leads; });
+    out.push(insightCard("💻", "Device",
+      "<b>" + esc(String(devL[0].impression_device).replace(/_/g, " ")) + "</b> produces the most leads (" +
+      num(devL[0].leads) + " at " + money(devL[0].cpl, 2) + "). Check the lead form renders well there first."));
+  }
+  setHTML("demoInsights", out.join(""));
+}
+
+boot();
+</script>
+</body>
+</html>

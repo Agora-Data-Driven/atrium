@@ -48,6 +48,13 @@ consumed) — that is WHY those two sources read from the snapshot; don't chase 
 - **`meta_ads` / `google_ads` / `ga4` / `email` are wired-but-dormant JSON keys** — the
   Marketing tab renders designed empty states until the export job fills them. Google Ads
   account id: `668-008-6591`.
+- **There is NO Windsor connector for this client** — not an empty pull, none at all: no
+  `meloyelo-windsor-key` secret and no Windsor code in `job/`. So Meta/Google Ads/GA4 cannot be
+  probed, and anything built on them (e.g. the **creative gallery** RHE and Honey Tribe have) is
+  unbuildable until the connector exists. Checked 2026-07-29. When it lands, the gallery is the
+  `client_RHE` / `client_honeytribe` pattern: put `creative_id` on the main Meta pull (it rides
+  along free), add `fetch_creatives` + `cache_creative_images`, and serve images through an
+  authed `/creative-img/<cid>` route so the bucket stays private.
 - Local preview port is **8146** (8140 belongs to client_RHE's preview).
 
 ## ⚠️ `context/` is git-ignored and holds LIVE credentials

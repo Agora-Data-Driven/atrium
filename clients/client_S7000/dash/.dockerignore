@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.log
+data/
+.venv/
+*.md
+deploy_*.ps1

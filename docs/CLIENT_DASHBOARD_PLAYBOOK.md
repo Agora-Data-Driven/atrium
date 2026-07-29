@@ -13,8 +13,10 @@ Section 5 is a per-connector appendix — **read only the connectors you are act
 | Live API pull, no BigQuery | [`clients/client_honeytribe/`](../clients/client_honeytribe/) |
 | The original Windsor-live pattern | [`clients/client_riverdance/`](../clients/client_riverdance/) |
 | BigQuery-fed (views + export job) | [`clients/client_template/`](../clients/client_template/) |
-| **ActiveCampaign connector (done)** | [`clients/client_riverdance/job/activecampaign.py`](../clients/client_riverdance/job/activecampaign.py) |
+| **Lead-gen client (CPL, no revenue)** | [`clients/client_RHE/`](../clients/client_RHE/) — Meta ×3 accounts + ActiveCampaign |
+| **ActiveCampaign connector (done)** | [`clients/client_riverdance/job/activecampaign.py`](../clients/client_riverdance/job/activecampaign.py) — extended in [`client_RHE`](../clients/client_RHE/job/activecampaign.py) with contacts/quiz + per-day sends and events |
 | **ActiveCampaign dashboard tab (done)** | [`clients/client_riverdance/ACTIVECAMPAIGN_TAB_GUIDE.md`](../clients/client_riverdance/ACTIVECAMPAIGN_TAB_GUIDE.md) |
+| **Day/Week/Month grain on every chart** | [`clients/client_RHE/dash/dashboard.html`](../clients/client_RHE/dash/dashboard.html) (`GRAIN` + `grainOf` + `segWire`) |
 | Absolute/Relative axis toggle | `clients/client_resetdata/dash/dashboard.html` (other repo) |
 
 ---
@@ -53,7 +55,15 @@ Meta is required, ActiveCampaign rides along and degrades to a "not configured" 
 3. **Never trust a spreadsheet export as the source.** It is a point-in-time snapshot. Build against
    the API; keep the workbook only as a no-credentials fallback.
 4. **Emit no PII.** Reduce people to a salted hash used only for distinct counts and
-   first-time/returning. Then *assert* it in the audit (§8).
+   first-time/returning. Then *assert* it in the audit (§8). **Hashing the person is not enough:
+   free text authored in the source can carry PII too.** On RHE a live subject line read
+   `"Did you get the Warragul brochure, j.smith@example.com" (address anonymised here)` — a merge tag fell back to
+   the recipient's email instead of their first name, and that address rode into the payload
+   inside a *template name*. Only the audit caught it. Run every source-authored string (subjects,
+   campaign/list/automation names, free-text custom fields) through one `redact()` that strips
+   email and phone **patterns** — not a length heuristic; the original "strip a short trailing
+   name" rule let a 27-character address straight through. Re-redact carried-forward values on
+   merge, or a publication written before the fix keeps re-publishing the leak.
 5. **Get ambiguous metric definitions in writing** (§6).
 
 ---
@@ -165,7 +175,53 @@ do not rewrite.**
   commonly off) degrades to a partial block with an `error` string. The tab renders a
   "not configured" state rather than breaking.
 - Pagination is `limit`/`offset` with a `meta.total`; cap the page count so a runaway account can't
-  hang the job.
+  hang the job. **`limit` is hard-capped at 100** — 200/500/1000 all silently return 100.
+- **Campaigns are usually a minority of the volume.** On RHE only 11 of 312 campaigns were ever
+  sent (14,976 sends) against 54,243 `emailActivities` — the rest is automation mail. A
+  campaign-only backbone understated sends 3.5×. Use `/emailActivities` for the send series.
+- **Only `after=<ISO8601>` narrows `/activities`.** Every `filters[...]` form is silently ignored
+  and returns the full unfiltered total. `/emailActivities` ignores `filters[tstamp][gt]` too, but
+  honours `orders[tstamp]=DESC`, so page it newest-first and stop at a watermark.
+- **Do not assume an event type means what its name suggests — and sanity-check the RATIO.**
+  RHE's `/activities` stream has `referenceModelName == "log"`, which looks like an engagement log
+  and is actually the **send/delivery record** (`/logs` totals 54,304 against `/emailActivities`'
+  54,243; a `/logs/<id>` row carries `sendid` and `successful: 1`). Mapping it to "open" produced a
+  **100.00% open rate** — opens exactly equalled sends. That equality is the tell: **any rate that
+  lands on exactly 100% is a misclassification, not a triumph.** Assert it in the audit.
+  **Verify every event type against an aggregate you already trust, and keep going until the ratios
+  are sane.** It took three attempts on RHE: `link-data` looked like a click but is an **open**
+  (6,070 rows against 7,765 campaign opens, versus 133 actual clicks — 45x off), and calling it a
+  click produced a 21.78% "click rate" where the campaign aggregate said 0.69%. Meanwhile
+  `mpp-link-data` (Apple Mail Privacy prefetches) is on its own endpoint and is **not a subset** of
+  opens, so it must be reported as its own line, not as a share. And clicks turned out not to be in
+  the stream at all — they exist only per campaign, so every click figure had to be scoped to
+  broadcasts with the UI saying so. Version the stored shape (`DAILY_VERSION`) so a publication
+  written under an earlier, wrong meaning is migrated rather than silently mixed with corrected
+  numbers, and make the audit assert the ratio bounds so a future regression fails loudly.
+- **Page event streams NEWEST-first, and verify which end you are reading from.** `/activities` is
+  oldest-first by default. This cost two full rebuild cycles on RHE: paging from offset 0 returned
+  2025 events and nothing recent; adding an `after=<floor>` cold start was still oldest-first
+  *within* the window, so the page cap covered two old months and left the latest two empty. Both
+  times the dashboard's default view showed **zero opens** and looked like real data.
+  `orders[tstamp]=DESC` **is** honoured even though every `filters[...]` is ignored — so walk back
+  from newest and stop at the watermark. Record the oldest timestamp reached so the history
+  horizon can be stated rather than guessed. **General rule: when a paginated source is capped,
+  make sure the cap costs you the OLDEST data, never the newest.**
+- **A long crawl earns you a 503, and "best-effort" will hide it.** After 543 send pages RHE's
+  event leg 503'd on its first request; the wrapper swallowed it and published a year of
+  `opens: 0` that looked like real data. Retry `429/500/502/503/504` with backoff (honour
+  `Retry-After`), **return the pages already fetched** rather than raising out of the whole leg,
+  and make the audit FAIL on a non-empty `error` field or on "sends but zero opens". A
+  best-effort source that degrades silently to zeros is worse than one that fails loudly.
+- **`/contacts?include=fieldValues`** returns custom-field answers alongside the page (~305 per 100
+  contacts) — one cheap 49-page pass replaces a per-contact fan-out. Contact rows also carry
+  `sentcnt`, `last_open_date`, `last_click_date` and bounce counters.
+- **`automation_name` is always null** on emailActivities — the SUBJECT LINE is the only template
+  identifier, so group templates by a normalised subject.
+- **Watch for double-coded custom-field values.** A Meta lead form writes the raw machine value
+  (`some_experience`) while the AC dropdown stores the display label (`Some experience`). Left
+  alone every segment chart splits in two. Normalise against the field's own
+  `/fields/<id>/options` labels, and assert in the audit that no value is double-coded.
 - Metrics worth surfacing: recipients, opens, clicks, **click-to-open rate**, and — the ones clients
   actually act on — **unsubscribes and bounces** (deliverability/spam signals). Plus lists +
   subscriber counts, and automations (entered / completed / completion %).
@@ -176,6 +232,28 @@ do not rewrite.**
   400. It also **caps the response**: the full ~19-field list works at `last_365d` but 400s at
   `last_730d`, while a two-field query works at `last_1095d`. **Test with your real field list.**
   Because of the cap, history must accumulate (§3.4).
+- **The window cap is caused by specific FIELDS, not the field count.** On RHE the 400 came
+  entirely from the two `unique_actions_*` fields ("breakdowns for unique-count fields are only
+  available for…"). Dropping them let the same 18-field pull reach `last_1095d` — 2.5 years of
+  real history instead of one. **Split the pull**: a deep one without the unique fields, and a
+  shallow one with them, joined on `(date, campaign, ad)`. Unique counts are not additive, so
+  attach each group's value to its largest row and zero the rest.
+- **Sum on key collision, never overwrite.** Windsor returns rows that share even
+  `(date, account, campaign, adset, ad)`, differing only on a descriptive field. Overwriting them
+  silently dropped $321 of spend on RHE; the audit caught it against the lifetime total.
+- **A field can be returned and always empty.** `unique_actions_lead` is present but identically 0
+  account-wide while `unique_actions_link_click` works. Render that as **n/a**, never `0` — `0`
+  reads as "we got none", which is a lie.
+- **Breakdowns do not all carry the same metrics.** On RHE, age × gender returns leads and
+  reconciles exactly to the main pull, but the **region breakdown returns leads identically 0** on
+  every field combination — so a "CPL by state" map is not buildable, however reasonable the ask.
+  Check each breakdown for what it actually populates and flag it in the payload
+  (`has_leads: false`) so the dashboard can hide the cuts it cannot support.
+- **A client with several ad accounts may have several BRANDS.** RHE's three accounts are three
+  different businesses; blending them by default hid that one had a much worse CPL. Carry the
+  account on every row and make the toggle first-class. Also check more than one window before
+  concluding an account is dead — two of the three looked empty at `last_30d` and were merely
+  dormant.
 - **Breakdowns are separate pulls.** Meta will not return age/gender/region alongside per-ad/day
   rows, and **rejects revenue fields on a breakdown query** — breakdowns carry delivery metrics only
   (spend / impressions / clicks / link clicks / reach). Use a shorter window for per-day breakdowns;
@@ -400,6 +478,16 @@ Deploy with the standup script (`deploy_honeytribe.ps1` is the template) — ide
 Artifact Registry + private bucket → SAs + least-privilege IAM → secrets → export job (build, deploy,
 first run) → `run.developer` grants → scheduler → dash service.
 
+- **A client key with UPPER CASE breaks the derivation.** GCS bucket names, Cloud Run service and
+  job names, and service-account ids are all **lowercase-only**, so `<c>` = `RHE` fails at the
+  first bucket create (`Invalid bucket name: 'agora-data-driven-RHE-dash'`). Derive every cloud
+  resource from a lower-cased key and keep the original casing only for display and the data
+  object. Cheapest fix of all: **choose a lowercase key**.
+- **`--set-env-vars` splits on commas, so a value that CONTAINS commas breaks it.** RHE passes
+  three Windsor ad-account ids in one variable and gcloud read the second as a stray key
+  ("Bad syntax for dict arg"). Switch the delimiter with a leading `^@^`:
+  `--set-env-vars "^@^K1=v1@K2=a,b,c"`. Single-account clients never hit this, so it will surprise
+  you on the first multi-value client.
 - **Build as yourself; never Cloud Build from a laptop** (the Cloud Build SA cannot `actAs` the
   runtime SA). `gcloud builds submit --tag` for the image only is fine.
 - **Never `--allow-unauthenticated`** — org policy forbids it. Use `--no-invoker-iam-check` and do

@@ -1,0 +1,6 @@
+# JOB pins -- independent of dash/ on purpose (the two would otherwise fight over the
+# google-cloud-storage version).
+google-cloud-storage==3.10.1
+requests==2.34.2
+# Europe/Zurich must resolve inside the container for the account-timezone day boundaries.
+tzdata==2025.2

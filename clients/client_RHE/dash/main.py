@@ -1,8 +1,8 @@
-"""Flask web service for the `honeytribe` client dashboard (Stage 3 of the data contract).
+"""Flask web service for the `RHE` client dashboard (Stage 3 of the data contract).
 
 Serving model -- private bucket, OPEN dashboard (no login), same as riverdance:
-  The per-client data JSON (`honeytribe.json`) lives in a PRIVATE GCS bucket
-  (`agora-data-driven-honeytribe-dash`) and is NEVER public -- it is only ever reachable
+  The per-client data JSON (`RHE.json`) lives in a PRIVATE GCS bucket
+  (`agora-data-driven-RHE-dash`) and is NEVER public -- it is only ever reachable
   through this service's `/data.json` proxy. The BUCKET stays private in every posture; what
   `DASH_OPEN` controls is whether this service asks for a password first.
 
@@ -18,8 +18,8 @@ Serving model -- private bucket, OPEN dashboard (no login), same as riverdance:
 The org forbids public Cloud Run, so this service is deployed with --no-invoker-iam-check
 (never --allow-unauthenticated) and does its OWN password/SSO auth in-process.
 
-Data contract: this client is Windsor/Shopify-LIVE (no BigQuery views) -- job/main.py assembles
-`honeytribe.json` and the `data.*` keys it writes are exactly what dashboard.html reads.
+Data contract: this client is Windsor + ActiveCampaign LIVE (no BigQuery views) -- job/main.py assembles
+`RHE.json` and the `data.*` keys it writes are exactly what dashboard.html reads.
 dashboard.html is baked into the image and read relative to __file__, so there is no filesystem
 dependency at runtime.
 """
@@ -44,15 +44,15 @@ import platform_sso
 
 # --- Configuration from the environment --------------------------------------------------
 # SESSION_SECRET signs the Flask session cookie; it is mounted from Secret Manager
-# (honeytribe-dash-session-key) at deploy time. A missing secret is a hard misconfig.
+# (RHE-dash-session-key) at deploy time. A missing secret is a hard misconfig.
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "")
-# The dashboard's own password (mounted from honeytribe-dash-password). compare_digest below
+# The dashboard's own password (mounted from RHE-dash-password). compare_digest below
 # is constant-time, so never compare it with `==`.
 DASH_PASSWORD = os.environ.get("DASH_PASSWORD", "")
 # The PRIVATE bucket + object holding this client's exported data JSON.
-GCS_BUCKET = os.environ.get("GCS_BUCKET", "agora-data-driven-honeytribe-dash")
-DATA_OBJECT = os.environ.get("DATA_OBJECT", "honeytribe.json")
-# No-login mode. ON by default for Honey Tribe (2026-07-27, at the operator's request): the
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "agora-data-driven-rhe-dash")
+DATA_OBJECT = os.environ.get("DATA_OBJECT", "rhe.json")
+# No-login mode. ON by default for Rooming House Expert (2026-07-27, at the operator's request): the
 # dashboard is embedded in the gated Atrium workspace, where a password prompt inside the frame
 # is a dead end. Set DASH_OPEN=0 to put the password back -- the secret and the /login route are
 # left in place, so re-gating is one env var.
@@ -62,7 +62,7 @@ app = Flask(__name__)
 app.secret_key = SESSION_SECRET
 
 # Cookie hardening. SameSite=None + Secure is REQUIRED for the cross-subdomain portal
-# flow (portal.agoradatadriven.com -> honeytribe.agoradatadriven.com): a Lax/Strict cookie
+# flow (portal.agoradatadriven.com -> RHE.agoradatadriven.com): a Lax/Strict cookie
 # would be dropped on the cross-site navigation. HttpOnly keeps it out of JS.
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -145,7 +145,7 @@ LOGIN_HTML = """<!doctype html>
 <body>
   <form class="card" method="POST" action="/login">
     <div class="brand">Agora Data Driven<span class="dot">.</span></div>
-    <div class="sub">Sign in to view the Honey Tribe dashboard.</div>
+    <div class="sub">Sign in to view the Rooming House Expert dashboard.</div>
     {% if error %}<div class="err">{{ error }}</div>{% endif %}
     <label for="password">Password</label>
     <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
@@ -196,19 +196,22 @@ def data_json():
 
 @app.route("/creative-img/<cid>", methods=["GET"])
 def creative_img(cid):
-    """Serve a Meta creative image the export job copied into our bucket.
+    """Serve a Meta creative image that the export job copied into our bucket.
 
     Meta's CDN links expire once an ad stops running, so the export takes a permanent copy while
-    the link is live. Same auth posture as /data.json - the bucket stays private.
+    the link is still live and the gallery reads it from here. Same auth posture as /data.json —
+    the bucket stays private and this is the only way out.
     """
     if not authed():
         return Response('{"error":"unauthorized"}', status=401, mimetype="application/json")
+    # creative ids are numeric from Meta; refuse anything that could escape the prefix
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", cid or ""):
         return Response("not found", status=404, mimetype="text/plain")
     blob = _storage_client.bucket(GCS_BUCKET).blob("creatives/%s" % cid)
     if not blob.exists():
         return Response("not found", status=404, mimetype="text/plain")
     blob.reload()
+    # our copy never changes, so let the browser hold on to it
     return Response(blob.download_as_bytes(),
                     mimetype=blob.content_type or "image/jpeg",
                     headers={"Cache-Control": "private, max-age=86400"})
@@ -216,7 +219,7 @@ def creative_img(cid):
 
 @app.route("/refresh", methods=["POST"])
 def refresh():
-    """Trigger a fresh Windsor/Shopify pull, for the dashboard's Sync button.
+    """Trigger a fresh Windsor + ActiveCampaign pull, for the dashboard's Sync button.
 
     OPT-IN: only fires when REFRESH_JOB names the export job AND the web SA holds
     `roles/run.developer` on it (run.invoker does NOT carry runWithOverrides — the same trap

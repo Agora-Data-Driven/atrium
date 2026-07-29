@@ -25,6 +25,13 @@ job/main.py (data dict key)  ->  dash/dashboard.html (DATA.* key)
   misattributed until the audit caught it).
 - **`dash/dashboard.html`** is one self-contained file; inline JS must be **esprima-4.x-safe**
   (no `?.`, no `??`). Three tabs: `sales` · `funnel` · `product`, selected by URL hash.
+- **The creative gallery (funnel tab) takes its numbers from `meta.rows`, never its own pull.**
+  `creative_id` rides on the main Meta pull for free (measured: 813 rows and identical spend with
+  and without it) and lands on every row as `cid`; `fetch_creatives()` pulls only the ad's *text
+  and image* keyed by that id, and `cache_creative_images()` copies the busiest
+  `CREATIVE_CACHE_MAX` (60) images into our own bucket because Meta's CDN links expire when an ad
+  stops. Served through the authed `/creative-img/<cid>` route — the bucket stays private. One
+  source of numbers is what keeps the gallery from disagreeing with the tiles above it.
 
 ## Two traps that already bit this client (do not undo these)
 
@@ -39,6 +46,15 @@ job/main.py (data dict key)  ->  dash/dashboard.html (DATA.* key)
   backfill. Orders and lines therefore BOTH carry `oid` — do not drop it, or every run silently
   degrades to a full crawl. First-time/returning and the line→order index are always recomputed
   across the whole merged set, never incrementally.
+- **Meta's grey "no preview" tile is a VALID image, so `onerror` never saves you.** For a creative
+  with no real image Meta returns its external image PROXY —
+  `external-<edge>.xx.fbcdn.net/emg1/…?url=<page>`, a link preview of the destination page rather
+  than the ad. It loads fine, so no `error` event fires, the branded-tile fallback never runs, and
+  three Honey Tribe cards rendered as grey boxes. `_is_link_preview()`/`_usable_image()` reject it
+  at the source. ⚠️ The first fix was "any image whose bytes are shared by 2+ creatives is the
+  placeholder" — **wrong, and it deleted real artwork**: this account genuinely reuses one
+  1080×1080 image (65k colours) across two ad variants. Duplication is not the signal; the URL is.
+  `tools/_creative_gallery_test.py` guards both halves.
 
 ## Windows and API limits (do not "fix" these — they are the API's)
 
@@ -81,8 +97,18 @@ table in [README.md](README.md).
 
 `deploy_honeytribe.ps1` — one-shot, idempotent, no dataset and no views. It validates the JS gate,
 builds both images as you, and grants **`roles/run.developer`** (not `run.invoker`) on the export
-job to the portal SA and the web SA, which is what makes the Sync button and the 6-hourly
-`sync-refresh` work. Re-running rotates the secrets to whatever you pass.
+job to the portal SA and the web SA. Re-running rotates the secrets to whatever you pass.
+
+**There is deliberately NO Cloud Scheduler** (client decision 2026-07-29, matching `client_RHE`
+and `client_MeloYelo`): refresh runs off the dashboard's **Sync button**, because each run costs
+paid Windsor/Meta and Shopify calls. Honey Tribe is not in the portal registry either, so the
+platform-wide `sync-refresh` never reached it — the Sync button is genuinely the only trigger,
+which is what makes that `run.developer` grant load-bearing rather than a nicety
+(`run.invoker` does NOT carry `runWithOverrides`). Running the script without `-WithScheduler`
+REMOVES any scheduler it finds, so re-running converges on that state instead of quietly leaving
+a timer behind. The `/refresh` route's 10-minute cooldown (keyed on the data object's age, so it
+is shared across instances) is what stops repeat clicks running up the bill — do not remove it
+while `DASH_OPEN=1`, since there is no login in front of that route.
 
 Derived names: bucket `agora-data-driven-honeytribe-dash` · job `honeytribe-export` · service
 `honeytribe-dash` · secrets `honeytribe-{dash-password,dash-session-key,windsor-key,shopify-token}`.
