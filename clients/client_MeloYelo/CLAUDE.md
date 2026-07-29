@@ -45,9 +45,16 @@ consumed) — that is WHY those two sources read from the snapshot; don't chase 
   (no `?.`, no `??`). Four tabs: `sales` · `riders` · `inventory` · `marketing`, in the URL hash.
   Chart palette is the validated categorical set in `PALETTE` (adjacent-CVD-checked on white);
   status colours (`STATUS`) are reserved for stock/timeliness and always ship with icon + label.
-- **`meta_ads` / `google_ads` / `ga4` / `email` are wired-but-dormant JSON keys** — the
-  Marketing tab renders designed empty states until the export job fills them. Google Ads
-  account id: `668-008-6591`.
+- **`meta_ads` is LIVE via Windsor.ai since 2026-07-29** (secret `meloyelo-windsor-key`, account
+  `facebook__465444904516684`, `job/main.py pull_meta`): per-ad/day rows with `actions_lead` +
+  `actions_landing_page_view`, WINDSOR_PRESET last_365d with older rows carried forward from the
+  previous publication (the honeytribe merge). The Marketing tab renders the full Meta section
+  (tiles, click funnel, trends, campaign table) whenever `meta_ads.enabled` — and falls back to
+  the designed empty state otherwise. **`google_ads` / `ga4` remain dormant JSON keys**: those
+  accounts (`668-008-6591`, GA4 property `312428782`) are NOT connected in Windsor yet — the
+  user is adding them; wire them the same way when they appear. A **creative gallery** is now
+  buildable too (the `client_RHE`/`client_honeytribe` pattern: `creative_id` on the main pull,
+  `fetch_creatives` + `cache_creative_images`, authed `/creative-img/<cid>` route).
 - Local preview port is **8146** (8140 belongs to client_RHE's preview).
 
 ## ⚠️ `context/` is git-ignored and holds LIVE credentials

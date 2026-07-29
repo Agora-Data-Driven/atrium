@@ -809,6 +809,59 @@
       </div>
     </section>
 
+    <section id="metaSection" hidden>
+      <div class="shead">
+        <h2>Meta Ads</h2>
+        <span class="sub" id="metaSub">live via Windsor.ai</span>
+        <span class="spacer"></span>
+        <div class="seg mini" id="metaRangeSeg">
+          <button type="button" data-mr="30" class="on">30d</button>
+          <button type="button" data-mr="90">90d</button>
+          <button type="button" data-mr="365">12m</button>
+          <button type="button" data-mr="all">All</button>
+        </div>
+      </div>
+      <div class="kpis" id="metaKpis"></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr));margin-top:16px">
+        <div class="card">
+          <h3>Click funnel</h3>
+          <div class="csub" id="metaFunnelSub">from impressions to leads, selected range</div>
+          <div class="funnel" id="metaFunnel"></div>
+          <div class="note">Leads are Meta form/pixel leads. Bookings close offline in the CRM, so read this beside the test-ride pipeline on the Riders &amp; Leads tab.</div>
+        </div>
+        <div class="card">
+          <div class="cardhead"><div>
+            <h3>Leads over time</h3>
+            <div class="csub" id="metaLeadsSub">form leads per bucket</div>
+          </div></div>
+          <svg class="ch" id="chartMetaLeads" style="max-height:230px" viewBox="0 0 560 220" role="img" aria-label="Meta leads over time"></svg>
+        </div>
+        <div class="card">
+          <div class="cardhead"><div>
+            <h3>Spend over time</h3>
+            <div class="csub" id="metaSpendSub">ad spend per bucket, NZD</div>
+          </div></div>
+          <svg class="ch" id="chartMetaSpend" style="max-height:230px" viewBox="0 0 560 220" role="img" aria-label="Meta spend over time"></svg>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="cardhead"><div>
+          <h3>Campaigns</h3>
+          <div class="csub">biggest spenders first, selected range</div>
+        </div></div>
+        <div class="tblwrap" style="max-height:380px;overflow-y:auto">
+          <table id="tblMetaCamps">
+            <thead><tr>
+              <th>#</th><th>Campaign</th><th class="r">Spend</th><th class="r">Impressions</th>
+              <th class="r">Link clicks</th><th class="r">CTR</th><th class="r">Leads</th><th class="r">Cost / lead</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="tfoot" id="metaCampFoot"></div>
+      </div>
+    </section>
+
     <section>
       <div class="shead">
         <h2>Paid &amp; site channels</h2>
@@ -1392,6 +1445,7 @@ function wireControls(){
   segWire("reqGrainSeg", "data-gv", function(v){ GRAIN.req = v; renderReqChart(); });
   segWire("riderViewSeg", "data-rv", function(v){ RIDER_VIEW = v; renderRiderChart(); });
   segWire("invGroupSeg", "data-iv", function(v){ INV_VIEW = v; renderStockChart(); });
+  segWire("metaRangeSeg", "data-mr", function(v){ META_RANGE = v; renderMetaAds(); });
 }
 </script>
 <script>
@@ -2649,6 +2703,110 @@ function renderEmail(){
       : "wire the Campaign Monitor pull into the export job to light this up");
 }
 
+/* ------------------------------------------------------------------- Meta Ads (Windsor) */
+var META_RANGE = "30";
+function renderMetaAds(){
+  var M = DATA.meta_ads || {};
+  var sec = byId("metaSection");
+  if(!sec){ return; }
+  var on = !!(M.enabled && M.rows && M.rows.length);
+  sec.hidden = !on;
+  if(!on){ return; }
+  var minD = M.range[0], maxD = M.range[1];
+  var r = META_RANGE === "all" ? [minD, maxD] : presetRange(META_RANGE, maxD, minD);
+  var rows = [];
+  for(var i = 0; i < M.rows.length; i++){
+    var x = M.rows[i];
+    if(x.d >= r[0] && x.d <= r[1]){ rows.push(x); }
+  }
+  var s = { sp:0, im:0, cl:0, lc:0, ld:0, lpv:0 };
+  rows.forEach(function(x2){
+    s.sp += x2.sp; s.im += x2.im; s.cl += x2.cl; s.lc += x2.lc;
+    s.ld += x2.ld; s.lpv += x2.lpv;
+  });
+  byId("metaSub").textContent = "live via Windsor.ai · " + prettyDate(r[0]) + " to " +
+    prettyDate(r[1]) + " · data through " + prettyDate(maxD);
+
+  var ctr = s.im > 0 ? s.lc / s.im : null;
+  var cpm = s.im > 0 ? s.sp / s.im * 1000 : null;
+  var cpl = s.ld > 0 ? s.sp / s.ld : null;
+  var tiles = [
+    { l:"Spend", v:compact(s.sp), d:"NZD, selected range", c:PALETTE[0] },
+    { l:"Impressions", v:compactN(s.im), d:cpm != null ? money(cpm, 2) + " CPM" : "", c:PALETTE[1] },
+    { l:"Link clicks", v:compactN(s.lc), d:thousands(s.cl) + " clicks incl. engagement", c:PALETTE[2] },
+    { l:"CTR", v:ctr != null ? pct(ctr, 2) : "-", d:"link clicks over impressions", c:PALETTE[3] },
+    { l:"Leads", v:thousands(s.ld), d:"Meta form + pixel leads", c:PALETTE[4] },
+    { l:"Cost per lead", v:cpl != null ? money(cpl, 2) : "-", d:"spend over leads", c:PALETTE[5] }
+  ];
+  byId("metaKpis").innerHTML = tiles.map(function(t){
+    return '<div class="kpi" style="--accent:' + t.c + '"><div class="kl">' + t.l +
+      '</div><div class="kv tnum">' + t.v + '</div><div class="kd">' + t.d + "</div></div>";
+  }).join("");
+
+  var steps = [
+    { l:"Impressions", v:s.im },
+    { l:"Link clicks", v:s.lc },
+    { l:"Landing views", v:s.lpv },
+    { l:"Leads", v:s.ld }
+  ];
+  var fmax = Math.max(s.im, 1);
+  byId("metaFunnel").innerHTML = steps.map(function(st, i3){
+    var prev = i3 > 0 ? steps[i3-1].v : null;
+    var conv = prev ? (prev > 0 ? st.v/prev : 0) : null;
+    var w = Math.max(1.2, 100 * st.v / fmax);
+    return '<div class="frow"><div class="fl">' + st.l + "</div>" +
+      '<div class="fbar"><i style="width:' + w.toFixed(1) + "%;background-color:" + FUNNEL_RAMP[i3+1] + '"></i></div>' +
+      '<div class="fv"><b>' + compactN(st.v) + "</b>" +
+      (conv != null ? ' <span class="cv">' + pct(conv, 1) + " of prev</span>" : "") + "</div></div>";
+  }).join("");
+  byId("metaFunnelSub").textContent = "from impressions to leads, " + prettyDate(r[0]) + " to " + prettyDate(r[1]);
+
+  var grain = autoGrain(r[0], r[1]);
+  var buckets = denseBuckets(r[0], r[1], grain);
+  var ix = {};
+  buckets.forEach(function(b, n){ ix[b] = n; });
+  var leadVals = buckets.map(function(){ return 0; });
+  var spendVals = buckets.map(function(){ return 0; });
+  rows.forEach(function(x3){
+    var n = ix[bucketOf(x3.d, grain)];
+    if(n == null){ return; }
+    leadVals[n] += x3.ld; spendVals[n] += x3.sp;
+  });
+  stackedColumns("chartMetaLeads", buckets,
+    [{ key:"ld", label:"Leads", color:PALETTE[0], vals:leadVals }], grain,
+    { fmt:function(v){ return thousands(Math.round(v)); } });
+  stackedColumns("chartMetaSpend", buckets,
+    [{ key:"sp", label:"Spend", color:PALETTE[1], vals:spendVals }], grain,
+    { fmt:compact });
+  byId("metaLeadsSub").textContent = "form leads per " + grain;
+  byId("metaSpendSub").textContent = "ad spend per " + grain + ", NZD";
+
+  var byCamp = {};
+  rows.forEach(function(x4){
+    var k = x4.camp || "(no campaign)";
+    if(!byCamp[k]){ byCamp[k] = { camp:k, sp:0, im:0, lc:0, ld:0 }; }
+    byCamp[k].sp += x4.sp; byCamp[k].im += x4.im; byCamp[k].lc += x4.lc; byCamp[k].ld += x4.ld;
+  });
+  var camps = Object.keys(byCamp).map(function(k){ return byCamp[k]; })
+    .sort(function(a, b){ return b.sp - a.sp; });
+  byId("tblMetaCamps").tBodies[0].innerHTML = camps.slice(0, 12).map(function(cm, i5){
+    var cctr = cm.im > 0 ? cm.lc/cm.im : null;
+    var ccpl = cm.ld > 0 ? cm.sp/cm.ld : null;
+    return '<tr><td class="rank' + (i5 < 3 ? " top" + (i5+1) : "") + '">' + (i5+1) + "</td>" +
+      "<td>" + esc(cm.camp) + "</td>" +
+      '<td class="r">' + compact(cm.sp) + "</td>" +
+      '<td class="r">' + compactN(cm.im) + "</td>" +
+      '<td class="r">' + thousands(cm.lc) + "</td>" +
+      '<td class="r">' + (cctr != null ? pct(cctr, 2) : "-") + "</td>" +
+      '<td class="r">' + thousands(cm.ld) + "</td>" +
+      '<td class="r">' + (ccpl != null ? money(ccpl, 2) : "-") + "</td></tr>";
+  }).join("");
+  byId("metaCampFoot").innerHTML = "Totals across ALL " + camps.length + " campaigns in range: <b>" +
+    compact(s.sp) + "</b> spend · <b>" + thousands(s.ld) + "</b> leads" +
+    (cpl != null ? " · <b>" + money(cpl, 2) + "</b> per lead" : "") +
+    (camps.length > 12 ? " · showing the top 12 by spend" : "");
+}
+
 function renderChannels(){
   function pane(title, ico, points, wire, extra){
     return '<div class="card"><h3>' + ico + " " + title + "</h3>" +
@@ -2658,13 +2816,16 @@ function renderChannels(){
       '<div style="margin-top:9px;color:var(--ink2)">' + wire + "</div></div></div>";
   }
   var html = "";
+  if(!(DATA.meta_ads && DATA.meta_ads.enabled)){
   html += pane("Meta Ads", "📣", [
       "Awareness / Consideration / Conversion funnel · reach, impressions, CPM, link clicks, CTR, leads, cost per lead",
       "current period beside a per-week benchmark, the Honey Tribe pattern",
       "campaign table with sortable columns and cross-filtering",
-      "frequency fatigue line at 2.5"
+      "frequency fatigue line at 2.5",
+      "creative gallery &mdash; the actual ads that ran, each with its own delivery over the selected period (the RHE / Honey Tribe pattern)"
     ], 'Wire: Windsor.ai <code>all</code> connector, Meta account &rarr; <code>meta_ads.rows</code> in the export job. The dashboard renders it the moment the key exists.',
     "lead-gen focused · bookings close offline in the CRM, so lead volume and cost-per-lead are the honest Meta numbers");
+  }
   html += pane("Google Ads", "🔎", [
       "clicks, impressions, CTR, conversions, cost, cost / conversion",
       "campaign and search-term tables",
@@ -2700,6 +2861,17 @@ function renderS4Insights(){
       "Across the whole history: <b>" + compactN(t.sends) + "</b> emails, <b>" + compactN(t.clicks) +
       "</b> clicks (" + pct(t.clicks/t.sends) + " of delivered). Per-campaign open/click rates arrive with the scheduled pull."));
   }
+  var M = DATA.meta_ads || {};
+  if(M.enabled && M.rows && M.rows.length){
+    var last30 = presetRange("30", M.range[1], M.range[0]);
+    var msp = 0, mld = 0;
+    M.rows.forEach(function(x){ if(x.d >= last30[0]){ msp += x.sp; mld += x.ld; } });
+    if(mld > 0){
+      cards.push(insightCard("📣", "Meta lead engine",
+        "Last 30 days: <b>" + compact(msp) + "</b> spent, <b>" + thousands(mld) +
+        "</b> Meta leads at <b>" + money(msp/mld, 2) + "</b> each. The CRM funnel on the Riders tab shows how many become test rides."));
+    }
+  }
   cards.push(insightCard("🔌", "One job, four connectors",
     "Sales, riders, leads and inventory are already live on this dashboard. Meta, Google Ads, GA4 and Campaign Monitor slot into the same export job · no dashboard changes needed."));
   byId("s4insights").innerHTML = cards.join("");
@@ -2707,6 +2879,7 @@ function renderS4Insights(){
 
 function renderS4(){
   renderEmail();
+  renderMetaAds();
   renderChannels();
   renderS4Insights();
 }

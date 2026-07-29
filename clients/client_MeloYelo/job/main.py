@@ -284,8 +284,24 @@ def creds():
                   or _from_notebook(cm_nb, r'API_KEY\s*=\s*"([^"]+)"'),
         "cm_client": os.environ.get("CAMPAIGN_MONITOR_CLIENT_ID")
                      or _from_notebook(cm_nb, r'CLIENT_ID\s*=\s*"([^"]+)"'),
+        "w_key": os.environ.get("WINDSOR_API_KEY") or _windsor_key_local(),
     }
     return c
+
+
+def _windsor_key_local():
+    """Off-cloud convenience: read the Windsor key from Secret Manager as the operator.
+    Absent gcloud/permissions this returns None and the Meta pull degrades gracefully."""
+    try:
+        import subprocess
+        r = subprocess.run(
+            "gcloud secrets versions access latest --secret meloyelo-windsor-key "
+            "--project agora-data-driven --account info@agoradatadriven.com",
+            capture_output=True, text=True, shell=True, timeout=30)
+        key = (r.stdout or "").strip()
+        return key if len(key) > 10 else None
+    except Exception:  # noqa: BLE001 — no gcloud locally is normal
+        return None
 
 
 # ----------------------------------------------------------------------- Unleashed plumbing
@@ -602,6 +618,87 @@ def pull_email(c):
     }
 
 
+# --------------------------------------------------------- LIVE: Meta Ads via Windsor.ai
+WINDSOR_URL = "https://connectors.windsor.ai/all"
+WINDSOR_ACCOUNT = os.environ.get("WINDSOR_ACCOUNT", "facebook__465444904516684")
+WINDSOR_PRESET = os.environ.get("WINDSOR_PRESET", "last_365d")
+_META_FIELDS = ["date", "campaign", "adset_name", "ad_name", "spend", "impressions", "clicks",
+                "link_clicks", "reach", "frequency", "actions_lead",
+                "actions_landing_page_view"]
+
+
+def pull_meta(c, previous):
+    """Per-ad/day Meta rows via the Windsor `all` connector. Windsor caps a wide pull at ~12
+    months, so each run fetches WINDSOR_PRESET and older rows are CARRIED FORWARD from the
+    previous publication keyed by (date, campaign, adset, ad) — the honeytribe merge pattern.
+    No key / any failure -> the previous publication's meta section (or a disabled stub)."""
+    prev_meta = (previous or {}).get("meta_ads") or {}
+    fallback = prev_meta if prev_meta.get("enabled") else {
+        "enabled": False, "rows": [],
+        "note": "Meta per-ad/day rows via Windsor.ai (spend, impressions, reach, link clicks, "
+                "leads, frequency)."}
+    if not c.get("w_key"):
+        print("[meta] no Windsor key — carrying the previous section forward", flush=True)
+        return fallback
+    try:
+        q = urllib.parse.urlencode({
+            "api_key": c["w_key"], "date_preset": WINDSOR_PRESET,
+            "fields": ",".join(_META_FIELDS), "select_accounts": WINDSOR_ACCOUNT})
+        with urllib.request.urlopen(WINDSOR_URL + "?" + q, timeout=300) as r:
+            data = json.load(r).get("data", [])
+    except Exception as e:  # noqa: BLE001 — Windsor being down never kills the publish
+        body = ""
+        if hasattr(e, "read"):
+            try:
+                body = e.read().decode()[:160]
+            except Exception:  # noqa: BLE001
+                body = ""
+        print("[meta] Windsor pull failed (%s %s) — carrying forward" % (e, body), flush=True)
+        return fallback
+
+    seen = {}
+    for row in data:
+        d = bl._date(row.get("date"))
+        if not d:
+            continue
+        camp = str(row.get("campaign") or "").strip()
+        adset = str(row.get("adset_name") or "").strip()
+        ad = str(row.get("ad_name") or "").strip()
+        seen[(d, camp, adset, ad)] = {
+            "d": d, "camp": camp, "adset": adset, "ad": ad,
+            "sp": round(_num(row.get("spend")), 2),
+            "im": int(_num(row.get("impressions"))),
+            "cl": int(_num(row.get("clicks"))),
+            "lc": int(_num(row.get("link_clicks"))),
+            "re": int(_num(row.get("reach"))),
+            "fq": round(_num(row.get("frequency")), 4),
+            "ld": int(_num(row.get("actions_lead"))),
+            "lpv": int(_num(row.get("actions_landing_page_view"))),
+        }
+    if not seen:
+        print("[meta] Windsor returned no rows — carrying forward", flush=True)
+        return fallback
+    fresh_min = min(k[0] for k in seen)
+    kept = 0
+    for old in prev_meta.get("rows", []):
+        if old.get("d") and old["d"] < fresh_min:
+            key = (old["d"], old.get("camp", ""), old.get("adset", ""), old.get("ad", ""))
+            if key not in seen:
+                seen[key] = old
+                kept += 1
+    rows = sorted(seen.values(), key=lambda x: (x["d"], x["camp"], x["ad"]))
+    dates = [r2["d"] for r2 in rows]
+    print("[meta] LIVE: %d ad-day rows %s .. %s (%d carried forward)"
+          % (len(rows), dates[0], dates[-1], kept), flush=True)
+    return {
+        "enabled": True, "mode": "live",
+        "account": WINDSOR_ACCOUNT,
+        "rows": rows,
+        "range": [dates[0], dates[-1]],
+        "campaigns": sorted({r2["camp"] for r2 in rows if r2["camp"]}),
+    }
+
+
 # ------------------------------------------------------------------------------------ main
 def main():
     import openpyxl
@@ -617,6 +714,7 @@ def main():
     sales, srange, products = pull_sales(c)
     avail = pull_stock(c, products)
     email = pull_email(c)
+    meta_ads = pull_meta(c, previous)
 
     # CRM: live sheet -> dropped workbook -> previous publication (carry-forward).
     crm_mode = "live sheet"
@@ -687,9 +785,7 @@ def main():
         "crm": crm,
         "inventory": {"available": avail, "onway": onway},
         "email": email,
-        "meta_ads": {"enabled": False, "rows": [],
-                     "note": "Meta per-ad/day rows via Windsor.ai (spend, impressions, reach, "
-                             "link clicks, leads, frequency)."},
+        "meta_ads": meta_ads,
         "google_ads": {"enabled": False, "rows": [],
                        "note": "Google Ads account 668-008-6591 via Windsor.ai (campaign/day: "
                                "cost, impressions, clicks, conversions)."},
