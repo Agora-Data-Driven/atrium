@@ -29,8 +29,12 @@ launchers/validators the day-to-day scripts call for you.
 | `start_day.ps1` | Morning preflight: checks BOTH `gcloud` credential systems are still valid and reauths whichever expired overnight. | **Every morning** before you run anything else. |
 | `setup.cmd` | Double-click launcher that runs `setup.ps1` (sets the PowerShell execution policy for that one process so you do not have to). | When you want to run `setup` without opening a terminal. |
 | `start_day.cmd` | Double-click launcher that runs `start_day.ps1`. | When you want the morning check without opening a terminal. |
-| `_validate_dash_js.py` | Pre-deploy gate that parses every dashboard's inline JS under esprima to catch a syntax error before it ships. | Invoked automatically by the deploy path; run by hand only when debugging a dashboard build. |
-| `deploy_ingest_jobs.ps1` | **Touches production.** Builds + deploys the shared Windsor ingest jobs and their daily Cloud Scheduler triggers from the canonical `$JOBS` table. | When you add/update a Windsor connector or need to (re)deploy the ingest jobs. |
+| `_validate_dash_js.py` | Pre-deploy esprima gate over ONE file's inline JS. **Takes an explicit path** (`python tools\_validate_dash_js.py <path\to\dashboard.html or template>`); a **bare run validates only `clients/client_template/dash/dashboard.html`** — it never walks the other clients, so pass the file you actually changed. Exit 0 = clean (the `?.`/`??` esprima-4.x notice is a warning), 1 = real syntax error. | Invoked by the deploy scripts and CI (which globs every dashboard + portal template); run by hand with your file's path when debugging. |
+| `_creative_gallery_test.py` | Off-cloud creative-gallery test for the Meta-fed clients (RHE + honeytribe): link-preview rejection, reused-artwork preservation, headline cleaning. No network/GCS/API cost. | `python tools\_creative_gallery_test.py` before touching creative-gallery code; CI runs it too. |
+| `push-branch.ps1` | Commits ALL local work and pushes it to THIS machine's own branch (name from `-Dev` → `tools/.devname` → machine name) for PR/merge. | End of a work session, per `docs/dev-workflow.md`. |
+| `merge-branches.ps1` | **Touches production.** The agent-driven release pipeline: fetch → `integration/merge` → CI tests → land on `main` → auto-deploy changed services → prune. See the flags section below. | To ship this repo (the root AGENTS.md "Team workflow" section is the contract). |
+| `deploy_ingest_jobs.ps1` | Builds + deploys the shared **Windsor** ingest jobs from its `$JOBS` table. ⚠️ As of 2026-07-29 effectively DORMANT — no Windsor jobs are deployed and the shared `windsor-api-key` secret no longer exists; the seven `tcs-*` jobs deploy via `services/ingest/deploy_tcs_ingest.ps1` instead (see [`services/ingest/README.md`](../services/ingest/README.md)). | Only for a future shared-Windsor standup. |
+| `glm-bypass-mode.ps1`/`.cmd` · `kimi-bypass-mode.ps1`/`.cmd` | Claude Code launchers pinning the GLM / Kimi coding-plan endpoints. **Mirrored FROM `agora-devtools` — never edit the copies here**; edit in agora-devtools and let the sync mirror them. | Launching an agent session on the alternate providers. |
 | `enable_platform_sso.ps1` | Wires deployed `<c>-dash` dashboards to additively trust the portal SSO cookie (grants + mounts `platform-sso-key`, sets `CLIENT_KEY`). | After portal standup, once dashboards are rebuilt on the SSO-capable image. |
 | `enable_super_admin.ps1` | Grants the portal front-door (`platform-dash`) god-mode: a bootstrap super-admin password, `run.developer`, and per-dashboard password-rotation / act-as IAM. | Once, during platform standup; safe to re-run. |
 
@@ -63,6 +67,24 @@ If PowerShell blocks the script, either use the `.cmd` launcher or run once:
 > absolute path — `& C:\Users\you\…\Agora Data Driven\Portal\tools\setup.ps1` — fails with
 > *"The term 'C:\Users\you\…\Agora' is not recognized…"* because PowerShell splits the command on
 > the space before `Data`. The `.cmd` launchers and the `-File` form already quote the path for you.
+
+## Team workflow: `push-branch.ps1` / `merge-branches.ps1`
+
+`push-branch.ps1` (params `-Dev`, `-Desc`, `-Message`) is one-branch-per-machine; `merge-branches.ps1`
+is the release SOP (full contract + AGENT RUNBOOK in the script header and the root
+[`AGENTS.md`](../AGENTS.md)). The switches that matter:
+
+- **`-DryRun`** — preview the land + deploy plan, change nothing.
+- **`-Resume`** — continue a run that STOPPED on a merge conflict or red gate: the conflict is left
+  in the tree; resolve it, `git add -A; git commit --no-edit`, then re-run with `-Resume` (it
+  expects a clean tree on `integration/merge`). Never bypass the conflict any other way.
+- **`-DeleteMerged`** — the standalone prune of already-merged branches.
+- **`-AllowReverts`** — acknowledge the reversion net's finding and proceed anyway (it otherwise
+  stops when the integration would revert commits already on `main`).
+- Also: `-NoPush` / `-NoDeploy` (review-first behavior), `-NoPrune`, `-Exclude <branches>`.
+
+**`wip/*` branches are PARKED work** (`agora-park.ps1` in agora-devtools): merge-branches skips
+them and never prunes them — parked work is visible on origin and shipped nowhere.
 
 ## Shared Windsor ingest jobs
 

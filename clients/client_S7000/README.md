@@ -321,6 +321,15 @@ leaks in visible text, no horizontal overflow on a phone, and the whole stale-pu
 The dashboard, the contract, the three-scope isolation and the deploy are done. **The live Windsor
 pull is not**, and it is blocked on decisions rather than code:
 
+> **Status (verified 2026-07-29):** all three deployed dashes (`s7000-internal-dash` ·
+> `s7000-into-dash` · `s7000-service-dash`) currently serve **demo-flagged data BY DESIGN** —
+> `job/build_local.py` hardcodes `"demo": True` and `scope_payload()` carries it into every scope,
+> which is what shows the on-page "Demo data" ribbon and the `*** DEMO DATA ***` line in the copy
+> summary. This stays true until the live Windsor pull below is built. Also note:
+> **`job/Dockerfile`'s `CMD` references `job/main.py`, which does not exist** (only
+> `build_local.py` does) — building that image today yields a container that exits immediately;
+> it is a placeholder for the future live-pull job.
+
 ### Blocking (brief §10)
 
 1. **Which action carries conversions for each account.** Unresolved. Fastest route: check the
