@@ -122,4 +122,15 @@ Derived names: bucket `agora-data-driven-s7000-dash` · services `s7000-{interna
 · SAs `s7000-{internal,into,service}-web@…` · secrets `s7000-<scope>-dash-{password,session-key}`.
 
 **The live Windsor pull is not built yet**: see [README.md](README.md) "What is left" for the field
-list, the two pull cadences, and the open questions that block it.
+list, the two pull cadences, and the open questions that block it. Until it exists, **all three
+deployed dashes serve demo-flagged data BY DESIGN** — `job/build_local.py` hardcodes `"demo": True`
+(~line 657) and `scope_payload()` propagates it into every per-scope payload (~line 775), which is
+what renders the standing "Demo data" ribbon (`dash/dashboard.html` ~line 633) and the
+`*** DEMO DATA ***` line in the copy-summary export (~line 2333). That flag is the honesty guard —
+do not strip it; it disappears only when a real pull writes payloads without it.
+
+⚠️ **`job/Dockerfile` is a landmine (audited 2026-07-29): its `CMD ["python", "main.py"]` points at
+`job/main.py`, which DOES NOT EXIST** — the job folder holds only `build_local.py` (the local demo
+builder). Building and running that image today produces a container that exits immediately. It is
+the placeholder for the future live-pull job: when you build the real pull, either create
+`job/main.py` or fix the CMD — until then do not deploy the job image and expect it to run.

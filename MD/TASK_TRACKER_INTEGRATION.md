@@ -7,7 +7,6 @@
 > guards, Bin restore (`kind:"task"`), audit entries, and the `_atrium_smoketest.py` coverage
 > (routes, gating, no-leak render) are all in place and passing. The §13 prompts remain useful as
 > the per-phase review map. Original instruction set below, unchanged.
-> Companion planning docs: `ATRIUM_CONSOLE_REDESIGN_PLAN.md`.
 > **Design contract:** §14 is the pixel-level spec (tokens + component specs) taken from the two
 > prototypes — build/verify the UI against it.
 

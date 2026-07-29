@@ -1,4 +1,9 @@
-# Windsor ingest (`services/ingest/`)
+# Ingest (`services/ingest/`) — the writers of `raw_windsor`
+
+The loaders that land source data into the shared BigQuery raw layer `raw_windsor`.
+Two families: **Windsor connector loaders** (the original pattern — one shared REST
+API over every ad platform) and the **`tcs_*` direct-API loaders** (a sanctioned,
+documented exception for grains Windsor doesn't serve).
 
 ## What Windsor.ai is
 
@@ -8,8 +13,12 @@ Ads, Meta/Facebook Ads, and many more) and exposes their metrics through a singl
 REST API. Instead of integrating each ad platform's bespoke API ourselves, we pull
 everything through Windsor with one shared API key.
 
-Windsor is the **only** ingest source in this monorepo. If a new data source is needed,
-it arrives as a new Windsor *connector*, not a new ingest mechanism.
+Windsor is the **default** ingest source. If a new data source is needed, it should
+arrive as a new Windsor *connector* — with ONE documented exception: the **`tcs_*`
+family** pulls Shopify / Klaviyo / the quiz sheet / Tapfiliate **directly** because
+the TCS diagnostic needs per-recipient Klaviyo open/click events, a grain Windsor's
+connector does not serve. Direct-API loaders still write the same shared
+`raw_windsor` layer and follow the same job pattern.
 
 ## The shared raw layer: `raw_windsor`
 
@@ -17,14 +26,34 @@ Every connector loader lands its rows into the **one shared** BigQuery dataset
 `raw_windsor` (project `agora-data-driven`, location `asia-southeast1`). One table per
 connector:
 
+**Windsor connectors** (`<dir>/<dir>_loader.py` + `create_<x>_table.py` each):
+
 | connector    | raw target               |
 |--------------|--------------------------|
 | `ga4`        | `raw_windsor.ga4`        |
 | `google_ads` | `raw_windsor.google_ads` |
 | `meta`       | `raw_windsor.meta`       |
+| `tradedesk`  | `raw_windsor.tradedesk`  |
+| `reddit`     | `raw_windsor.reddit`     |
+| `hubspot`    | `raw_windsor.hubspot`    |
+| `fields`     | `raw_windsor.fields` (Windsor's own field/metadata catalogue, not a marketing source) |
+
+**`tcs_*` direct-API loaders** (each `<dir>/<dir>_loader.py`; `tcs_affiliates`,
+`tcs_klaviyo_campaigns`, `tcs_klaviyo_profiles` and `tcs_sessions` create their
+tables in-loader — no `create_*_table.py`):
+
+| dir | what it pulls | raw target |
+|---|---|---|
+| `tcs_shopify/` | Shopify orders + marketing attribution | `raw_windsor.tcs_shopify_orders` |
+| `tcs_klaviyo/` | Klaviyo email events — one row per send, per-recipient open/click flags | `raw_windsor.tcs_klaviyo_events` |
+| `tcs_klaviyo_campaigns/` | Klaviyo campaign metadata + values report (attributed revenue) | `raw_windsor.tcs_klaviyo_campaigns` |
+| `tcs_klaviyo_profiles/` | Klaviyo profiles — person dimension + CLV/churn predictions | `raw_windsor.tcs_klaviyo_profiles` |
+| `tcs_quiz/` | Business-Quiz Google Sheet (Typeform archive + live Paperform tab) | `raw_windsor.tcs_quiz` |
+| `tcs_sessions/` | Shopify storefront sessions (ShopifyQL) | `raw_windsor.tcs_shopify_sessions` |
+| `tcs_affiliates/` | Tapfiliate affiliates + conversions | `raw_windsor.tcs_affiliates` + `raw_windsor.tcs_affiliate_conversions` |
 
 `create_dataset.py` creates the `raw_windsor` dataset itself (idempotent). Each
-connector sub-directory owns a `create_<x>_table.py` that creates its own table.
+Windsor connector sub-directory owns a `create_<x>_table.py` that creates its own table.
 
 Per-client SQL views read **downstream** from these mirror tables (for example a
 client's `stg_source` view UNIONs `raw_windsor.ga4` + `raw_windsor.google_ads`). The
@@ -63,12 +92,30 @@ The self-gating lives **downstream in the consumers**: each client EXPORT job (o
 past their `_freshness.json` watermark before rebuilding. The ingest jobs just keep the
 raw layer fresh on their daily schedule.
 
-## Deploy / schedule
+## Deploy / schedule — TWO deployers, don't mix them up
 
-These jobs are built, deployed, and scheduled by
-[`tools/deploy_ingest_jobs.ps1`](../../tools/deploy_ingest_jobs.ps1). Its `$JOBS`
+🔴 **The wrong-deployer gotcha:** there are two deploy scripts and they own DIFFERENT
+job families. Pointing the wrong one at a loader fails confusingly (and `/go`'s deploy
+map has routed `services/ingest/**` changes to the Windsor script before):
+
+- **`services/ingest/deploy_tcs_ingest.ps1`** owns the **seven `tcs-*` jobs**
+  (`tcs-shopify-ingest` `45 1 * * *` · `tcs-klaviyo-ingest` `50 1` · `tcs-quiz-ingest`
+  `55 1` · `tcs-sessions-ingest` `10 2` · `tcs-klaviyo-profiles-ingest` `20 2` ·
+  `tcs-klaviyo-campaigns-ingest` `35 2` · `tcs-affiliates-ingest` `45 2`; same
+  `-Only`/`-SkipBuild`/`-Run` switches). The loaders read their own secrets by id
+  (`tcs-shopify-token` / `tcs-klaviyo-key` / `tcs-tapfiliate-key`) via ADC — no
+  `--set-secrets`; run `tcs_provision_secrets.ps1` once to create them and grant
+  `ingest-runner@` access.
+- **`tools/deploy_ingest_jobs.ps1`** owns only the **Windsor `windsor-*` jobs** below.
+  ⚠️ **Volatile status (audited 2026-07-29):** no Windsor ingest jobs are deployed in
+  production and the shared `windsor-api-key` secret does not exist any more (clients
+  moved to per-client Windsor keys), so running this script today fails on the missing
+  secret. It is kept as the pattern for a future shared-Windsor standup; the `/go`
+  deploy-map entry that still points at it is pending retirement.
+
+For the Windsor family, the script's `$JOBS`
 array is the **single source of truth** for which connectors exist; the sub-directories
-here must match it exactly. The currently-built rows are:
+here must match it exactly. Its rows are:
 
 | key                  | dir                                    | job                         | mem   | cpu | cron          |
 |----------------------|----------------------------------------|-----------------------------|-------|-----|---------------|
@@ -88,8 +135,27 @@ Run examples:
 .\tools\deploy_ingest_jobs.ps1 -Run            # also execute each job once after deploy
 ```
 
+TCS run examples:
+
+```powershell
+.\services\ingest\tcs_provision_secrets.ps1        # once: secrets + ingest-runner@ access
+.\services\ingest\deploy_tcs_ingest.ps1            # build + deploy + schedule all 7 tcs jobs
+.\services\ingest\deploy_tcs_ingest.ps1 -Only tcs-klaviyo -Run
+```
+
 Create the shared dataset once (idempotent; safe to re-run):
 
 ```powershell
 .\.venv\Scripts\python.exe services\ingest\create_dataset.py
 ```
+
+## DO-NOT-TOUCH: the `raw_windsor` contract
+
+The dataset name `raw_windsor` and the one-table-per-connector naming above are a
+**binding contract**: every client's `sql/` views select from these exact
+`agora-data-driven.raw_windsor.<table>` names, and every export job's freshness gate
+probes them as its GATING_TABLES. There is no shared constants module — each loader
+re-declares `RAW_DATASET = os.environ.get("RAW_DATASET", "raw_windsor")` (canonical
+site: `create_dataset.py`; also hardcoded in both deploy scripts). Renaming a dataset,
+table, or column here silently breaks views downstream AND stalls freshness gating.
+Additive columns are fine; renames/moves are not.

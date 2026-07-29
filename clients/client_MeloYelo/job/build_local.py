@@ -479,10 +479,14 @@ def build_email():
     if not tm:
         tm = re.search(r"Sends:\s*([\d,]+)[\s\S]{0,80}?Opens:\s*([\d,]+)[\s\S]{0,80}?Clicks:\s*([\d,]+)", blob)
     if tm:
+        # unique_opens is None (not 0): the notebook's printed totals carry only
+        # Sends/Opens/Clicks, and the live pull_email() shape has the key — the
+        # two builders must emit the same shape (see CLAUDE.md).
         out["totals"] = {"campaigns": n_camp,
                          "sends": int(tm.group(1).replace(",", "")),
                          "opens": int(tm.group(2).replace(",", "")),
-                         "clicks": int(tm.group(3).replace(",", ""))}
+                         "clicks": int(tm.group(3).replace(",", "")),
+                         "unique_opens": None}
     seen = {}
     for m in re.finditer(r"\[START\] (.{1,60}?)\s+\(expected ([\d,?]+) recipients\)", blob):
         name = m.group(1).strip()
@@ -492,7 +496,10 @@ def build_email():
             continue
         seen[name] = max(rec, seen.get(name, 0))
     camps = sorted(seen.items(), key=lambda kv: -kv[1])
-    out["campaigns"] = [{"name": k, "recipients": v} for k, v in camps]
+    # date/uopens/uclicks exist in the live pull_email() rows; the notebook's
+    # [START] lines carry neither, so they ship as empty/None for shape parity.
+    out["campaigns"] = [{"name": k, "date": "", "recipients": v,
+                         "uopens": None, "uclicks": None} for k, v in camps]
     dm = re.findall(r"(\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}", blob)
     if dm:
         out["extracted_through"] = max(dm)

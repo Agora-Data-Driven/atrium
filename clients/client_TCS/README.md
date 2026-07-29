@@ -53,6 +53,22 @@ Self-contained, dark `--ag-*` theme, esprima-4.x-safe inline JS (no `?.` / `??`)
 + this-year callout; **open/click-rate-over-time** (two lines, one % axis) with a volume bar strip
 below; **buyers vs non-buyers** open-rate lines; cohort table; leads drill-down.
 
+## Audit notes 2026-07-29 (informational — this client is mid-build, owned by another dev)
+
+- **`data.conversion_trend` and `data.monthly` are DEAD on the render path** — each costs its own
+  BigQuery query per job run (`job/main.py` `_read_conversion_trend` ~:91 / `_read_monthly` ~:116,
+  assigned at ~:309-310) and neither key is read anywhere in `dash/dashboard.html` (zero matches).
+  Before deleting: `_data_through()` (`job/main.py` ~:280-286) falls back to `monthly[-1]["month"]`,
+  and both arrays appear in the completion log line (~:323) — rehome those uses first.
+- **Near-miss hazard:** the dashboard's `ACT.monthly` variable is fed from **`data.activity_monthly`**
+  (`dashboard.html:700`), NOT `data.monthly` — a casual grep for "monthly" makes the dead key look
+  consumed. They are different views (`engagement_monthly` vs `activity_monthly`).
+- **`lead_emails` is a POSITIONAL contract:** the job appends compact arrays
+  `[sent_at, subject, is_open, is_click]` (`job/main.py:271-276`) and the dashboard maps positions
+  to `{d, s, o, c}` (`dashboard.html:579`) read by `EM.leadCols` (`dashboard.html:528-531`).
+  Reordering the append — or the `SELECT` at `job/main.py:265` — silently mislabels the
+  Opened/Clicked pills; nothing asserts the order anywhere.
+
 ## Prerequisites before deploy
 
 1. **Secrets:** run [`services/ingest/tcs_provision_secrets.ps1`](../../services/ingest/tcs_provision_secrets.ps1)

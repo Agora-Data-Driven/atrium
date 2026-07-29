@@ -8,7 +8,10 @@ Rooming House Expert is an **API-LIVE** client — the [`client_honeytribe`](../
 [`client_riverdance`](../client_riverdance/) pattern, **not** the BigQuery-fed
 [`client_template`](../client_template/). There is **no dataset and no SQL views**; `job/main.py`
 pulls Meta (Windsor `all`, 3 ad accounts) and ActiveCampaign (REST v3) directly each run and writes
-`RHE.json` itself. Two-stage contract:
+`rhe.json` itself (the data object is **lowercase** — `deploy_RHE.ps1` derives `$KEY.json` from
+`$KEY = $CLIENT.ToLowerInvariant()` and `dash/main.py` defaults `DATA_OBJECT` to `rhe.json`;
+`job/main.py`'s docstring still says `RHE.json`, which is only the prose being stale — the local
+fixture at `data/RHE.json` genuinely IS uppercase). Two-stage contract:
 
 ```
 job/main.py (data dict key)  ->  dash/dashboard.html (DATA.* key)
@@ -138,6 +141,12 @@ yourself adding a revenue metric, you are on the wrong client.
   `unique_actions_link_click` works. The dashboard renders it **n/a**, never `0`.
 - **The region breakdown returns no leads** on any field combination — geography is delivery-only.
   Age × gender does carry leads and reconciles exactly to the main pull.
+  ⚠️ **Doc/behavior drift (audited 2026-07-29):** `fetch_breakdowns()` emits a per-breakdown
+  `has_leads` flag (false for region) and `job/main.py`'s docstring says the dashboard uses it to
+  hide lead/CPL cuts — but **`dash/dashboard.html` never reads `has_leads`**. Region stays hidden
+  simply because `region` has no entry in `DEMO_SPEC` (`dash/dashboard.html` ~line 3384, the one
+  Split-by registry); only `job/audit.py` consumes the flag today. If you ever add a `region` split
+  to `DEMO_SPEC`, wire `has_leads` first or the lead/CPL columns render as zeros.
 - **ActiveCampaign `limit` is hard-capped at 100** everywhere.
 - **`/activities` ignores every `filters[...]`**; only `after=<ISO>` narrows it.
 - **`/emailActivities` ignores `filters[tstamp][gt]`** but honours `orders[tstamp]=DESC`.

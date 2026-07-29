@@ -26,8 +26,8 @@ _FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans
 
 # --- Official brand palette (mirrors assets/brand.json) -------------------------------------
 # Standardized 2026-07 on the WEBSITE design system (website/src/styles/global.css) so the whole
-# customer-facing suite -- site, login, portal, console -- reads as one brand (see
-# ATRIUM_CONSOLE_REDESIGN_PLAN.md Phase 5).
+# customer-facing suite -- site, login, portal, console -- reads as one brand. assets/brand.json
+# is the palette's source of truth; keep the two in step.
 GREEN = "#4FA84A"          # Data Green -- primary CTA / positive (website brand-500)
 GREEN_DARK = "#3F8B3B"     # deeper green -- text on light, hovers, accents (website brand-600)
 GREEN_TINT = "#EEF6ED"     # soft green wash -- tints / chips (website tint)
