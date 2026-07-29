@@ -200,6 +200,18 @@ if (Test-SecretExists "DEEPSEEK_API_KEY") {
     Write-Host "[..] DEEPSEEK_API_KEY absent -- DeepSeek models stay unavailable (Gemini still works)" -ForegroundColor Yellow
 }
 
+# Kimi Code (the third brain). NOTE the case: the SERVICES key is the upper-case `KIMI_API_KEY`
+# secret. There is ALSO a lower-case `kimi-api-key` secret -- that one is the VS Code / Claude Code
+# launcher key and is deliberately NOT the same value. Never mount that one here.
+if (Test-SecretExists "KIMI_API_KEY") {
+    gcloud secrets add-iam-policy-binding "KIMI_API_KEY" --project=$PROJECT `
+        --member="serviceAccount:$WEB_SA" --role="roles/secretmanager.secretAccessor" *> $null
+    $SECRETS += ",KIMI_API_KEY=KIMI_API_KEY:latest"
+    Write-Host "[OK] KIMI_API_KEY found -- mounting it (Kimi models available)" -ForegroundColor Green
+} else {
+    Write-Host "[..] KIMI_API_KEY absent -- Kimi models stay unavailable (Gemini still works)" -ForegroundColor Yellow
+}
+
 # Atrium Mail (OPT-IN, mailroom.py). App-password (imap) mailboxes need nothing from the deploy;
 # the Workspace-delegation (dwd) connector needs the one-time enable_atrium_mail.ps1, after which
 # the mail-sync SA exists and we ship its address so the app can mint delegated Gmail tokens.

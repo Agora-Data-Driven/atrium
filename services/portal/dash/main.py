@@ -2779,13 +2779,33 @@ def atrium_admin_website_health_check(client):
 _WATCHER_PREVIEW_CHARS = 260
 
 
+# Per-source display wording. The archive shape is identical for every platform, so ONLY the words
+# differ: a YouTube channel has videos with transcripts, a website has posts with article text.
+# (`_watcher_view` hands these to the template so no Jinja has to branch on the platform.)
+# ⚠️ NO key here may be named `items`, `keys` or `values`: in Jinja `labels.items` resolves to the
+# dict METHOD, not the key, and the template would silently print "<built-in method items…>".
+_WATCHER_LABELS = {
+    "youtube": {"platform": "YouTube", "item": "video", "item_plural": "videos",
+                "body": "transcript", "body_plural": "transcripts", "open": "Open channel",
+                "empty": "Transcript not fetched yet.", "missing": "no transcript"},
+    "blog": {"platform": "Website", "item": "post", "item_plural": "posts",
+             "body": "article", "body_plural": "articles", "open": "Open site",
+             "empty": "Article not fetched yet.", "missing": "no article text"},
+}
+
+
+def _watcher_labels(platform):
+    """The display wording for a source type (falls back to the YouTube set for unknown ones)."""
+    return _WATCHER_LABELS.get(platform or "youtube", _WATCHER_LABELS["youtube"])
+
+
 def _watcher_view(ws, client):
-    """The Watcher pane's render model: each registry entry + its video cards, transcript bodies
-    trimmed to a short preview (the full text is served on demand by atrium_watcher_video).
+    """The Watcher pane's render model: each registry entry + its item cards, bodies trimmed to a
+    short preview (the full text is served on demand by atrium_watcher_video).
 
     Adds the filter/sort fields the creator grid needs: platform/industry/kind (with defaults for
-    channels added before those fields existed) and `latest` -- the newest video's estimated
-    publish date (fallback: the day the channel was added) -- which drives the date sort."""
+    channels added before those fields existed), the per-source wording (`labels`), and `latest` --
+    the newest item's publish date (fallback: the day the channel was added) -- for the date sort."""
     out = []
     safe_queue = set(workspace.watcher_safe_pull_queue(ws))
     for ch in workspace.watcher_channels(ws):
@@ -2793,7 +2813,11 @@ def _watcher_view(ws, client):
         entry.setdefault("platform", "youtube")
         entry.setdefault("industry", "")
         entry.setdefault("kind", "creator")
-        entry["loose"] = bool(ch.get("loose"))  # the "Saved videos" pseudo-channel (single scrapes)
+        entry["loose"] = bool(ch.get("loose"))  # a "Saved videos"/"Saved articles" pseudo-channel
+        entry["labels"] = _watcher_labels(entry["platform"])
+        # Safe pull is a YOUTUBE-only escape hatch (it exists because YouTube blocks datacenter
+        # IPs). Websites serve Cloud Run fine, so a blog card never offers it.
+        entry["can_safe_pull"] = entry["platform"] != "blog"
         entry["safe_queued"] = ch.get("id") in safe_queue
         cards = []
         latest = ""
@@ -2823,21 +2847,21 @@ _WATCHER_KINDS = ("creator", "competitor")
 
 
 def _watcher_autolabel(title, video_titles):
-    """Ask the intel AI for a short industry label for a creator ('AI Automation', 'Fitness', ...).
+    """Ask the intel AI for a short industry label for a source ('AI Automation', 'Fitness', ...).
 
-    Judged from the channel name + its video titles (plenty of signal, no transcript needed).
-    Returns (industry, error) -- ("", reason) when no AI provider is configured or the call fails,
-    so adding a channel NEVER breaks on labeling; the chip just stays empty and hand-editable."""
+    Judged from the channel/site name + its video or post titles (plenty of signal, no body text
+    needed). Returns (industry, error) -- ("", reason) when no AI provider is configured or the call
+    fails, so adding a source NEVER breaks on labeling; the chip stays empty and hand-editable."""
     titles = [t for t in (video_titles or []) if t][:40]
     if not titles:
-        return "", "no video titles to judge from"
+        return "", "no titles to judge from"
     system = (
-        "You classify content creators into ONE short industry/niche label (1-3 words, Title Case) "
-        "for a marketing team's watchlist. Examples: \"AI Automation\", \"E-commerce\", \"Fitness\", "
-        "\"Personal Finance\", \"Real Estate\", \"Digital Marketing\". "
-        "Answer with JSON only: {\"industry\": \"<label>\"}"
+        "You classify content sources (YouTube creators, company blogs, competitors) into ONE short "
+        "industry/niche label (1-3 words, Title Case) for a marketing team's watchlist. Examples: "
+        "\"AI Automation\", \"E-commerce\", \"Fitness\", \"Personal Finance\", \"Real Estate\", "
+        "\"Digital Marketing\". Answer with JSON only: {\"industry\": \"<label>\"}"
     )
-    user = "Creator: %s\nRecent video titles:\n%s" % (title, "\n".join("- " + t for t in titles))
+    user = "Source: %s\nRecent titles:\n%s" % (title, "\n".join("- " + t for t in titles))
     raw, err = intel_ai.classify_text(system, user, max_tokens=128)
     if err:
         return "", err
@@ -2871,17 +2895,56 @@ def _watcher_video_entry(v):
             "published": watcher.published_estimate(published_text)}
 
 
+def _watcher_add_post(client, url):
+    """Scrape ONE pasted blog-post URL into the per-client "Saved articles" pseudo-channel.
+
+    The blog twin of the `add_video` branch below, and deliberately identical in shape: same
+    de-dupe-by-id, same inline fetch, same JSON keys (`transcript`/`words`/`blocked`), so the page's
+    single-item card handles a video and an article with the same code."""
+    import watcher_blog  # lazy: only the blog ops need it
+    page_url = watcher_blog.normalize_site_url(url)
+    if not page_url:
+        return jsonify(ok=False, message="That doesn't look like a video or an article link.")
+    channel = workspace.ensure_loose_channel(client, platform="blog")
+    posts = workspace.read_watcher_videos(client, channel["id"])
+    pid = watcher_blog.post_id(page_url)
+    entry = next((p for p in posts if p.get("id") == pid), None)
+    already = entry is not None
+    if entry is None:
+        entry = watcher_blog.post_entry({"id": pid, "url": page_url.rstrip("/"),
+                                         "title": watcher_blog._title_from_slug(page_url)})
+        posts.insert(0, entry)
+    result = watcher_blog.fetch_post(entry["url"])
+    # A throttled site is a session condition, not a fact about the post: leave it pending so
+    # "Fetch missing" finishes it later -- exactly how a rate-limited video is treated.
+    blocked = watcher_blog._apply_post(entry, result, workspace.now_iso()) == "blocked"
+    workspace.write_watcher_videos(client, channel["id"], posts)
+    _watcher_counts(client, channel["id"], posts)
+    _audit(client, "scraped single article", (entry.get("title") or page_url)[:80])
+    return jsonify(ok=True, channel=channel["id"], video_id=entry["id"],
+                   title=entry.get("title", ""), url=entry.get("url", ""),
+                   transcript=entry.get("transcript", ""),
+                   words=len((entry.get("transcript") or "").split()),
+                   language="", error=entry.get("error", ""),
+                   blocked=blocked, already=already)
+
+
 @app.route("/w/<client>/admin/watcher", methods=["POST"])
 def atrium_admin_watcher(client):
-    """Manage watched YouTube channels (team-only). `op` is one of:
+    """Manage watched sources -- YouTube channels AND website blogs (team-only). `op` is one of:
 
     * add     -- resolve the pasted channel `url`, list EVERY video, auto-label the industry,
                  store the (transcript-less) archive; transcripts come from repeated `fetch` calls.
-    * add_video - scrape a SINGLE pasted video `url`: resolve its title, fetch its transcript inline,
-                 and save it under the per-client "Saved videos" pseudo-channel. The transcript is
-                 returned in the response (shown immediately); a rate-limit is reported `blocked` and
-                 the video is saved pending, so Fetch missing / Safe pull on the card can finish it.
-    * fetch   -- fetch the next batch of MISSING transcripts only (the page JS loops this until
+    * add_site - the WEBSITE twin of `add`: resolve the pasted site `url`, list EVERY blog post
+                 (sitemap-first, see watcher_blog.list_posts), auto-label the industry, and store
+                 the (text-less) archive. Post bodies come from the same repeated `fetch` calls --
+                 a blog channel differs ONLY in which fetcher runs.
+    * add_video - scrape a SINGLE pasted `url`: a YouTube link saves under the per-client "Saved
+                 videos" pseudo-channel, ANY OTHER link is treated as a blog post and saves under
+                 "Saved articles" (auto-detected, so one box takes both). The body is returned in
+                 the response (shown immediately); a rate-limit is reported `blocked` and the item
+                 is saved pending, so Fetch missing / Safe pull on the card can finish it.
+    * fetch   -- fetch the next batch of MISSING bodies only (the page JS loops this until
                  `remaining` hits 0, so each request stays short). A YouTube rate-limit stops the
                  batch and reports `blocked` WITHOUT marking any video failed, so the next fetch
                  resumes exactly where it stopped. `retry=1` first clears non-permanent errors.
@@ -2889,8 +2952,8 @@ def atrium_admin_watcher(client):
                  IPs get blocked regardless of pacing). The operator machine's scheduled task
                  (safe_scrape_local.py --queue) picks the queue up within minutes and works through
                  it slowly; transcripts appear as they sync back.
-    * refresh -- re-list the channel: add newly uploaded videos, refresh upload dates (existing
-                 transcripts kept).
+    * refresh -- re-list the source: add newly published videos/posts, refresh dates (existing
+                 transcripts and article text kept).
     * meta    -- hand-edit the classification (industry text and/or kind creator|competitor).
     * label   -- re-run the AI industry auto-label from the stored video titles.
     * delete  -- remove the channel and its whole transcript archive.
@@ -2926,8 +2989,39 @@ def atrium_admin_watcher(client):
         _audit(client, "added watcher channel", "%s (%d videos)" % (info["title"], len(listing["videos"])))
         return jsonify(ok=True, channel=entry["id"])
 
+    if op == "add_site":
+        # A website's blog: same pipeline as a YouTube channel, different fetcher. The site's origin
+        # is the entry's `channel_id`, so the duplicate check below is the same one-liner.
+        import watcher_blog  # lazy: only the blog ops need it
+        info = watcher_blog.resolve_site(request.form.get("url", ""))
+        if not info["ok"]:
+            return jsonify(ok=False, message=info["error"])
+        for ch in workspace.watcher_channels(ws):
+            if ch.get("channel_id") == info["site"]:
+                return jsonify(ok=False, message="Already watching %s." % (ch.get("title") or "that site"))
+        listing = watcher_blog.list_posts(info["site"], start_url=info["url"])
+        if not listing["ok"]:
+            return jsonify(ok=False, message=listing["error"])
+        industry, _label_err = _watcher_autolabel(info["title"],
+                                                  [p.get("title", "") for p in listing["posts"]])
+        entry = workspace.add_watcher_channel(client, {
+            "url": info["url"] or info["site"], "title": info["title"], "channel_id": info["site"],
+            "platform": "blog", "industry": industry, "kind": "creator",
+            "video_count": len(listing["posts"]),
+        })
+        workspace.write_watcher_videos(client, entry["id"],
+                                       [watcher_blog.post_entry(p) for p in listing["posts"]])
+        _audit(client, "added watcher website", "%s (%d posts)" % (info["title"], len(listing["posts"])))
+        return jsonify(ok=True, channel=entry["id"], posts=len(listing["posts"]),
+                       source=listing["source"], title=info["title"])
+
     if op == "add_video":
-        info = watcher.resolve_video(request.form.get("url", ""))
+        # ONE box, both sources: a YouTube link goes down the video path, anything else is treated
+        # as a blog post URL (a website link has no 11-char video id to extract).
+        raw_url = request.form.get("url", "")
+        if not watcher.extract_video_id(raw_url):
+            return _watcher_add_post(client, raw_url)
+        info = watcher.resolve_video(raw_url)
         if not info["ok"]:
             return jsonify(ok=False, message=info["error"])
         channel = workspace.ensure_loose_channel(client)
@@ -2965,8 +3059,10 @@ def atrium_admin_watcher(client):
                        blocked=blocked, already=already)
 
     channel_id = request.form.get("channel_id", "").strip()
-    if workspace.find_watcher_channel(ws, channel_id) is None:
+    channel = workspace.find_watcher_channel(ws, channel_id)
+    if channel is None:
         return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+    is_blog = (channel.get("platform") or "youtube") == "blog"
 
     if op == "fetch":
         videos = workspace.read_watcher_videos(client, channel_id)
@@ -2974,13 +3070,19 @@ def atrium_admin_watcher(client):
             for v in videos:
                 if v.get("error") and not v.get("permanent"):
                     v["error"] = ""
-        # Behind a rotating proxy each concurrent request is a different IP, so fetch the batch in
-        # parallel (fast, ~a couple minutes for a whole channel); with no proxy keep the serial,
-        # politely-paced path that a datacenter IP needs to avoid an instant block.
-        if watcher.proxied():
+        if is_blog:
+            # Websites serve Cloud Run fine (no datacenter-IP block, so no proxy and no Safe pull):
+            # a modest paced concurrency is both quick and polite.
+            import watcher_blog
+            fetched, blocked = watcher_blog.fetch_posts_batch(videos)
+        elif watcher.proxied():
+            # Behind a rotating proxy each concurrent request is a different IP, so fetch the batch
+            # in parallel (fast, ~a couple minutes for a whole channel).
             fetched, blocked = watcher.fetch_transcripts_batch(
                 videos, limit=watcher.FETCH_BATCH, workers=watcher.FETCH_WORKERS)
         else:
+            # No proxy: the serial, politely-paced path a datacenter IP needs to avoid an instant
+            # YouTube block.
             fetched, blocked = watcher.fetch_transcripts_batch(videos)
         workspace.write_watcher_videos(client, channel_id, videos)
         pending = _watcher_counts(client, channel_id, videos)
@@ -2990,32 +3092,48 @@ def atrium_admin_watcher(client):
                        total=len(videos), done=len(videos) - pending)
 
     if op == "safe_pull":
+        if is_blog:
+            return jsonify(ok=False, message="Safe pull is only for YouTube (websites aren't "
+                                             "blocked here) — just click Fetch missing.")
         workspace.queue_watcher_safe_pull(client, channel_id)
-        ch = workspace.find_watcher_channel(ws, channel_id)
-        _audit(client, "queued watcher safe pull", ch.get("title", ""))
+        _audit(client, "queued watcher safe pull", channel.get("title", ""))
         return jsonify(ok=True)
 
     if op == "refresh":
-        ch = workspace.find_watcher_channel(ws, channel_id)
-        listing = watcher.list_videos(ch.get("channel_id", ""))
-        if not listing["ok"]:
-            return jsonify(ok=False, message=listing["error"])
         videos = workspace.read_watcher_videos(client, channel_id)
         by_id = {v.get("id"): v for v in videos}
         new = []
-        for lv in listing["videos"]:
-            known = by_id.get(lv["id"])
-            if known is None:
-                new.append(_watcher_video_entry(lv))
-            elif lv.get("published_text"):
-                # Backfill/refresh the upload age on videos we already hold (older archives
-                # predate date capture, and relative ages drift as time passes).
-                known["published_text"] = lv["published_text"]
-                known["published"] = watcher.published_estimate(lv["published_text"])
+        if is_blog:
+            import watcher_blog
+            listing = watcher_blog.list_posts(channel.get("channel_id", ""),
+                                              start_url=channel.get("url", ""))
+            if not listing["ok"]:
+                return jsonify(ok=False, message=listing["error"])
+            for p in listing["posts"]:
+                known = by_id.get(p["id"])
+                if known is None:
+                    new.append(watcher_blog.post_entry(p))
+                elif p.get("published") and not known.get("published"):
+                    # Backfill a date onto posts archived before the site published a lastmod.
+                    known["published"] = p["published"]
+                    known["published_text"] = p.get("published_text", "")
+        else:
+            listing = watcher.list_videos(channel.get("channel_id", ""))
+            if not listing["ok"]:
+                return jsonify(ok=False, message=listing["error"])
+            for lv in listing["videos"]:
+                known = by_id.get(lv["id"])
+                if known is None:
+                    new.append(_watcher_video_entry(lv))
+                elif lv.get("published_text"):
+                    # Backfill/refresh the upload age on videos we already hold (older archives
+                    # predate date capture, and relative ages drift as time passes).
+                    known["published_text"] = lv["published_text"]
+                    known["published"] = watcher.published_estimate(lv["published_text"])
         videos = new + videos  # the listing is newest-first; keep the archive that way too
         workspace.write_watcher_videos(client, channel_id, videos)
         _watcher_counts(client, channel_id, videos)
-        _audit(client, "refreshed watcher channel", "%s: %d new" % (ch.get("title", ""), len(new)))
+        _audit(client, "refreshed watcher source", "%s: %d new" % (channel.get("title", ""), len(new)))
         return jsonify(ok=True, new=len(new))
 
     if op == "meta":
@@ -3036,14 +3154,13 @@ def atrium_admin_watcher(client):
         return jsonify(ok=True)
 
     if op == "label":
-        # Re-run the AI industry label from the stored video titles.
-        ch = workspace.find_watcher_channel(ws, channel_id)
+        # Re-run the AI industry label from the stored video / post titles.
         titles = [v.get("title", "") for v in workspace.read_watcher_videos(client, channel_id)]
-        industry, err = _watcher_autolabel(ch.get("title", ""), titles)
+        industry, err = _watcher_autolabel(channel.get("title", ""), titles)
         if not industry:
             return jsonify(ok=False, message="Could not auto-label: %s." % (err or "no label"))
         workspace.update_watcher_channel(client, channel_id, {"industry": industry})
-        _audit(client, "auto-labeled watcher channel", "%s -> %s" % (ch.get("title", ""), industry))
+        _audit(client, "auto-labeled watcher source", "%s -> %s" % (channel.get("title", ""), industry))
         return jsonify(ok=True, industry=industry)
 
     if op == "delete":
@@ -3470,16 +3587,22 @@ def atrium_admin_assistant_stream(client):
 
 @app.route("/w/<client>/watcher/video/<channel_id>/<video_id>", methods=["GET"])
 def atrium_watcher_video(client, channel_id, video_id):
-    """One video's FULL transcript as JSON (team-only) -- the click-to-expand behind the cards."""
+    """One item's FULL text as JSON (team-only) -- the click-to-expand behind the cards.
+
+    Serves a video transcript and a blog post's article text alike (they share the archive shape);
+    `platform` tells the reader modal which wording + link label to show."""
     gate = _atrium_admin_json_gate(client)
     if gate:
         return gate
+    ws = workspace.load_workspace(client)
+    channel = workspace.find_watcher_channel(ws, channel_id) if ws else None
+    platform = (channel or {}).get("platform") or "youtube"
     for v in workspace.read_watcher_videos(client, channel_id):
         if v.get("id") == video_id:
             return jsonify(ok=True, title=v.get("title", ""), url=v.get("url", ""),
                            transcript=v.get("transcript", ""), error=v.get("error", ""),
                            language=v.get("language", ""), fetched_at=v.get("fetched_at", ""),
-                           published_text=v.get("published_text", ""))
+                           published_text=v.get("published_text", ""), platform=platform)
     return Response('{"error":"not_found"}', status=404, mimetype="application/json")
 
 
