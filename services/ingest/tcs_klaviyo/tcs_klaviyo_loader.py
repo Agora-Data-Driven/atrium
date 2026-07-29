@@ -2,7 +2,8 @@
 
 Raw target : raw_windsor.tcs_klaviyo_events  (the shared raw layer; project
              agora-data-driven, dataset raw_windsor, location asia-southeast1).
-Source     : Klaviyo Events API -- Received / Opened / Clicked Email metrics.
+Source     : Klaviyo Events API -- Received / Opened / Clicked / Bounced / Dropped /
+             Unsubscribed / Marked-as-Spam Email metrics.
 Cadence    : daily scheduled pull (see services/ingest/deploy_tcs_ingest.ps1).
 
 WHY THIS IS A DIRECT-API LOADER (a documented exception to "Windsor is the only ingest
@@ -10,22 +11,36 @@ source"): the Business-Quiz diagnostic ("are these quiz leads opening/clicking L
 year?") needs PER-RECIPIENT open/click events, which Windsor's Klaviyo connector does not
 expose (it serves campaign-level aggregates). This loader ports the "Email Activity" pull
 from clients/TCS/archive_code/analytics.py: it produces ONE ROW PER SEND, flagged
-is_open / is_click, joined to opens/clicks by Klaviyo's per-send $message id.
+is_open / is_click / is_bounce / is_unsub / is_spam / is_dropped.
 
-INCREMENTAL, NEWEST-FIRST, RESUMABLE (rewritten 2026-07-08):
-  The account is large (tens of thousands of sends/month), so a single all-history pull
-  used to crash mid-stream (urllib3 ProtocolError) and, because it wrote all-or-nothing at
-  the very end, lost every row. This loader instead walks **calendar months newest-first**
-  and APPENDS each month atomically (one BigQuery load job per month), so:
-    * recent data lands first (something to show immediately), and
-    * a crash / timeout only costs the current month -- the next run resumes.
-  The **table itself is the checkpoint** (no sidecar/DB): MIN/MAX(sent_at) tell us how far
-  back we have gone and how recent we are. Each run does two phases:
-    1. FORWARD  -- pull sends newer than MAX(sent_at) (new activity since last run).
-    2. BACKFILL -- walk months down from MIN(sent_at) to now-BACKFILL_MONTHS, stopping when
-                   RUN_BUDGET_SEC is exhausted (the next scheduled tick continues).
+INCREMENTAL, HOLE-AWARE, RESUMABLE (rewritten 2026-07-28):
+  The account is large (up to ~270k sends/month), so the whole history cannot land in one
+  Cloud Run task. This loader walks CALENDAR MONTHS and APPENDS each month atomically (one
+  BigQuery load job per month), so a crash / timeout only ever costs the current month.
+
+  >>> THE CHECKPOINT IS PER-MONTH COVERAGE, NOT MIN/MAX. <<<
+  The previous version checkpointed on MIN(sent_at) and only ever walked DOWNWARD from it.
+  That could not express "month X in the middle is missing": once MIN reached the floor the
+  backfill loop was skipped entirely, and 12 interior months (2024-09..2025-05, 2025-07,
+  2025-11, 2026-04) stayed permanently empty -- they had been skipped when the parallel
+  --tasks shards each ran out of RUN_BUDGET_SEC partway through their stride. Coverage is now
+  read from the table as a SET of months (see covered_months), the work list is the SET
+  DIFFERENCE against the target span, and every run chips away at whatever is genuinely
+  missing. Holes cannot survive repeated runs, whatever order months land in.
+
+  Each run does two phases:
+    1. FORWARD  -- pull sends newer than MAX(sent_at) (new activity since the last run).
+    2. BACKFILL -- pull MISSING months, newest-first, until RUN_BUDGET_SEC is exhausted.
   Every request retries on 429 + transient network/5xx errors. Rows carry the Klaviyo
   event_id so stg_email_events can de-dupe (a re-run of the same window is harmless).
+
+PULL VERSION (why rows carry `pull_version`):
+  The deliverability metrics (bounce / unsub / spam / dropped) were added in v2. Rows loaded
+  by v1 have those columns NULL, which is INDISTINGUISHABLE from "this send did not bounce"
+  -- a silent correctness trap for any list-health metric. So every row records the
+  PULL_VERSION that produced it, and a month only counts as covered at the CURRENT version
+  (see covered_months). Old v1 months are therefore re-pulled by later runs and converge to
+  v2; stg_email_events keeps the highest-pull_version row per event_id.
 
 Grain: one row per (recipient, message) send -> exactly what client_tcs.stg_email_events
 reads.
@@ -38,7 +53,7 @@ Auth:
 import os
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
 from dateutil.relativedelta import relativedelta
@@ -55,10 +70,15 @@ KLAVIYO_SECRET = "tcs-klaviyo-key"  # Secret Manager id holding the Klaviyo priv
 KLAVIYO_BASE = "https://a.klaviyo.com/api"
 KLAVIYO_REVISION = "2024-10-15"
 
-# How far back to backfill (calendar months, newest-first). The first run covers this
-# window; later ticks walk further only if this is raised. Default 24mo = this-year vs
-# prior-year, which is what the dashboard diagnostic compares.
-BACKFILL_MONTHS = int(os.environ.get("BACKFILL_MONTHS", "24"))
+# Schema/semantics version of the rows this build writes. BUMP THIS whenever a change makes
+# older rows wrong or incomplete (e.g. a new flag column) -- months are re-pulled until every
+# row is at the current version. See covered_months.
+PULL_VERSION = 2
+
+# Earliest month worth asking for. The account's first "Received Email" event is 2023-06-10;
+# anything before that is guaranteed empty, so we do not waste a request on it. Override to
+# shorten a run (e.g. BACKFILL_START=2025-01 for a quick catch-up).
+BACKFILL_START = os.environ.get("BACKFILL_START", "2023-06")
 # Soft wall-clock budget per run (< the 3600s Cloud Run task timeout). When exceeded we
 # stop cleanly after the current month; the next scheduled tick resumes from the checkpoint.
 RUN_BUDGET_SEC = int(os.environ.get("RUN_BUDGET_SEC", "3000"))
@@ -80,6 +100,29 @@ SCHEMA = [
     bigquery.SchemaField("clicked_at", "TIMESTAMP"),
     bigquery.SchemaField("is_open", "BOOL"),
     bigquery.SchemaField("is_click", "BOOL"),
+    # --- v2: deliverability / list health -------------------------------------------------
+    bigquery.SchemaField("bounced_at", "TIMESTAMP"),
+    bigquery.SchemaField("unsubscribed_at", "TIMESTAMP"),
+    bigquery.SchemaField("spam_at", "TIMESTAMP"),
+    bigquery.SchemaField("dropped_at", "TIMESTAMP"),
+    bigquery.SchemaField("is_bounce", "BOOL"),
+    bigquery.SchemaField("is_unsub", "BOOL"),
+    bigquery.SchemaField("is_spam", "BOOL"),
+    bigquery.SchemaField("is_dropped", "BOOL"),
+    bigquery.SchemaField("pull_version", "INT64"),
+]
+
+# The Klaviyo metric names we join onto each send, and the row fields they populate.
+# "Received Email" is the SPINE (one row per send); the rest are interactions matched back
+# to a send by (recipient email, $message). Missing metrics are simply skipped.
+INTERACTIONS: List[Tuple[str, str, str]] = [
+    # (Klaviyo metric name,               timestamp column, boolean column)
+    ("Opened Email",                      "opened_at",      "is_open"),
+    ("Clicked Email",                     "clicked_at",     "is_click"),
+    ("Bounced Email",                     "bounced_at",     "is_bounce"),
+    ("Unsubscribed from Email Marketing", "unsubscribed_at", "is_unsub"),
+    ("Marked Email as Spam",              "spam_at",        "is_spam"),
+    ("Dropped Email",                     "dropped_at",     "is_dropped"),
 ]
 
 
@@ -183,40 +226,35 @@ def _email_of(ev: Dict[str, Any]) -> str:
 
 
 def collect_window(headers, metrics, start, end) -> List[Dict[str, Any]]:
-    """Pull one [start, end) window and emit ONE ROW PER SEND, flagged is_open / is_click.
+    """Pull one [start, end) window and emit ONE ROW PER SEND, flagged with each interaction.
 
-    ATTRIBUTION IS PER-RECIPIENT: opens/clicks are matched to a send by the pair
+    ATTRIBUTION IS PER-RECIPIENT: interactions are matched to a send by the pair
     (recipient email, $message), NOT by $message alone. $message is the CAMPAIGN message id,
     shared by every recipient of that campaign -- keying on it alone marked EVERY recipient of
     a campaign as having opened/clicked if ANYONE did (it produced ~99% open/click rates). So we
-    fetch the profile on the opens/clicks pulls too and join on (email, message).
-    Opens/clicks lag sends, so their fetch window extends +7d to catch late interactions."""
+    fetch the profile on the interaction pulls too and join on (email, message).
+    Interactions lag sends, so their fetch window extends +7d to catch late activity (a bounce
+    is near-immediate, but an open/click/unsubscribe can arrive days later)."""
     received = metrics.get("Received Email")
-    opened = metrics.get("Opened Email")
-    clicked = metrics.get("Clicked Email")
     if not received:
         raise RuntimeError("Klaviyo metric 'Received Email' not found for this account.")
 
     lag_end = end + timedelta(days=7)
     sends = fetch_events(headers, received, start, end, fetch_profile=True)
-    opens = fetch_events(headers, opened, start, lag_end, fetch_profile=True) if opened else []
-    clicks = fetch_events(headers, clicked, start, lag_end, fetch_profile=True) if clicked else []
 
-    # Maps keyed by (email, $message) -> earliest interaction datetime.
-    open_at: Dict[tuple, str] = {}
-    for ev in opens:
-        mid = _props(ev).get("$message")
+    # For each interaction metric, map (email, $message) -> earliest occurrence.
+    seen_at: Dict[str, Dict[tuple, str]] = {}
+    for metric_name, ts_col, _flag_col in INTERACTIONS:
+        mid = metrics.get(metric_name)
+        found: Dict[tuple, str] = {}
         if mid:
-            k = (_email_of(ev), mid)
-            if k not in open_at:
-                open_at[k] = ev["attributes"]["datetime"]
-    click_at: Dict[tuple, str] = {}
-    for ev in clicks:
-        mid = _props(ev).get("$message")
-        if mid:
-            k = (_email_of(ev), mid)
-            if k not in click_at:
-                click_at[k] = ev["attributes"]["datetime"]
+            for ev in fetch_events(headers, mid, start, lag_end, fetch_profile=True):
+                msg = _props(ev).get("$message")
+                if msg:
+                    k = (_email_of(ev), msg)
+                    if k not in found:
+                        found[k] = ev["attributes"]["datetime"]
+        seen_at[ts_col] = found
 
     rows: List[Dict[str, Any]] = []
     for ev in sends:
@@ -224,7 +262,7 @@ def collect_window(headers, metrics, start, end) -> List[Dict[str, Any]]:
         mid = p.get("$message")
         email = _email_of(ev)
         k = (email, mid)
-        rows.append({
+        row = {
             "event_id": ev.get("id"),
             "message_id": mid,
             "email": email or None,
@@ -232,23 +270,104 @@ def collect_window(headers, metrics, start, end) -> List[Dict[str, Any]]:
             "campaign": p.get("Campaign Name"),
             "flow": p.get("$flow") or "Campaign",
             "sent_at": ev["attributes"]["datetime"],
-            "opened_at": open_at.get(k),
-            "clicked_at": click_at.get(k),
-            "is_open": k in open_at,
-            "is_click": k in click_at,
-        })
+            "pull_version": PULL_VERSION,
+        }
+        for _metric_name, ts_col, flag_col in INTERACTIONS:
+            hit = seen_at[ts_col].get(k)
+            row[ts_col] = hit
+            row[flag_col] = hit is not None
+        rows.append(row)
     return rows
 
 
 def ensure_table(bq: bigquery.Client) -> None:
-    bq.create_table(bigquery.Table(FQTN, schema=SCHEMA), exists_ok=True)
+    """Create the table if absent, and ADD any schema columns it is missing.
+
+    The additive ALTER matters on every version bump: the table already exists in production
+    with the v1 columns, and a load job with an explicit schema fails if the destination lacks
+    a column. Widening is always safe -- existing rows read the new columns as NULL, which is
+    exactly why those rows are also re-pulled (see PULL_VERSION)."""
+    table = bq.create_table(bigquery.Table(FQTN, schema=SCHEMA), exists_ok=True)
+    have = {f.name for f in table.schema}
+    missing = [f for f in SCHEMA if f.name not in have]
+    if missing:
+        table.schema = list(table.schema) + missing
+        bq.update_table(table, ["schema"])
+        print(f"[tcs_klaviyo] schema widened: +{', '.join(f.name for f in missing)}")
 
 
-def table_bounds(bq: bigquery.Client):
-    """(min_sent_at, max_sent_at) already in the table, or (None, None) if empty."""
-    r = list(bq.query(f"SELECT MIN(sent_at) AS lo, MAX(sent_at) AS hi FROM `{FQTN}`",
-                      location=LOCATION).result())[0]
-    return r["lo"], r["hi"]
+def _month_start(dt: datetime) -> datetime:
+    return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def month_state(bq: bigquery.Client) -> Dict[datetime, int]:
+    """{month: lowest pull_version present} for every month that has ANY rows.
+
+    This -- not MIN/MAX -- is the checkpoint. Returning the full map is what makes interior
+    holes expressible: a month absent from this map has NO data at all, and a month whose
+    lowest version is below PULL_VERSION has data that is stale/incomplete. `target months`
+    minus this map is the work list, so a month skipped by an earlier crashed or
+    budget-capped run is simply still in it next time."""
+    sql = f"""
+        SELECT DATE_TRUNC(DATE(sent_at), MONTH) AS m,
+               MIN(COALESCE(pull_version, 1))   AS min_ver
+        FROM `{FQTN}`
+        GROUP BY m
+    """
+    return {datetime(r["m"].year, r["m"].month, 1, tzinfo=timezone.utc): int(r["min_ver"])
+            for r in bq.query(sql, location=LOCATION).result()}
+
+
+def covered_months(bq: bigquery.Client) -> Set[datetime]:
+    """Months already loaded AT THE CURRENT PULL_VERSION -- i.e. nothing left to do for them."""
+    return {m for m, ver in month_state(bq).items() if ver >= PULL_VERSION}
+
+
+def max_sent_at(bq: bigquery.Client) -> Optional[datetime]:
+    """Newest send already loaded (any version) -- the start of the FORWARD phase."""
+    r = list(bq.query(f"SELECT MAX(sent_at) AS hi FROM `{FQTN}`", location=LOCATION).result())[0]
+    return r["hi"]
+
+
+def _parse_floor() -> datetime:
+    """BACKFILL_START ('YYYY-MM') -> the first month we will ever ask Klaviyo for."""
+    year, month = (int(x) for x in BACKFILL_START.split("-")[:2])
+    return datetime(year, month, 1, tzinfo=timezone.utc)
+
+
+def target_months(now: datetime) -> List[datetime]:
+    """Every month from the floor up to and including the current one, NEWEST FIRST.
+
+    Newest-first is deliberate: recent data is the most valuable, so a run that exhausts its
+    budget still leaves the dashboard with the freshest possible history."""
+    floor = _parse_floor()
+    months: List[datetime] = []
+    cur = _month_start(now)
+    while cur >= floor:
+        months.append(cur)
+        cur = _month_start(cur - timedelta(microseconds=1))
+    return months
+
+
+def missing_months(bq: bigquery.Client, now: datetime) -> List[datetime]:
+    """The work list, in the order the months are worth doing.
+
+    EMPTY MONTHS FIRST, then version-stale ones -- each group newest-first. The ordering is not
+    cosmetic: a month with NO rows is a visible hole that breaks every time series (the monthly
+    views drop such months outright), whereas a version-stale month already has usable
+    open/click data and is only missing the newer deliverability flags. When a run is cut short
+    by RUN_BUDGET_SEC -- which, on a full 37-month rebuild, it always is -- filling holes buys
+    far more than upgrading rows that already work.
+
+    The CURRENT month is always excluded: it is still accumulating, so the FORWARD phase owns
+    it (treating it as 'covered' mid-month would freeze it half-loaded forever)."""
+    state = month_state(bq)
+    this_month = _month_start(now)
+    candidates = [m for m in target_months(now)
+                  if m != this_month and state.get(m, 0) < PULL_VERSION]
+    empty = [m for m in candidates if m not in state]
+    stale = [m for m in candidates if m in state]
+    return empty + stale
 
 
 def append_rows(bq: bigquery.Client, rows: List[Dict[str, Any]]) -> None:
@@ -262,40 +381,13 @@ def append_rows(bq: bigquery.Client, rows: List[Dict[str, Any]]) -> None:
     bq.load_table_from_json(rows, FQTN, job_config=job_config).result()
 
 
-def _month_start(dt: datetime) -> datetime:
-    return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-
-def _month_windows(now: datetime, floor: datetime):
-    """Calendar-month [start, end) windows covering [floor, now), newest-first."""
-    wins = []
-    win_end = now
-    while win_end > floor:
-        win_start = max(_month_start(win_end - timedelta(microseconds=1)), floor)
-        wins.append((win_start, win_end))
-        win_end = win_start
-    return wins
-
-
-def _run_parallel_shard(bq, headers, metrics, now, floor, started, task_index, task_count) -> None:
-    """PARALLEL BACKFILL: this execution was launched with --tasks N. Each task deterministically
-    owns a stride of the month windows (index-strided so heavy recent months spread across tasks)
-    and appends its months atomically. No checkpoint/forward -- the whole [floor, now) span is
-    covered exactly once across the fleet; stg_email_events de-dupes by event_id as insurance."""
-    windows = _month_windows(now, floor)
-    mine = [w for i, w in enumerate(windows) if i % task_count == task_index]
-    print(f"[tcs_klaviyo] task {task_index}/{task_count}: {len(mine)} of {len(windows)} months")
-    total = 0
-    for win_start, win_end in mine:
-        if time.monotonic() - started > RUN_BUDGET_SEC:
-            print(f"[tcs_klaviyo] task {task_index}: run budget reached at {win_end.date()}.")
-            break
-        rows = collect_window(headers, metrics, win_start, win_end)
-        append_rows(bq, rows)
-        total += len(rows)
-        print(f"[tcs_klaviyo] task {task_index} {win_start.date()}..{win_end.date()}: "
-              f"+{len(rows)} sends (task total {total})")
-    print(f"[tcs_klaviyo] task {task_index} done: +{total} sends.")
+def _pull_month(bq, headers, metrics, month: datetime, label: str) -> int:
+    """Pull one calendar month and append it atomically. Returns the row count."""
+    win_end = _month_start(month + relativedelta(months=1))
+    rows = collect_window(headers, metrics, month, win_end)
+    append_rows(bq, rows)
+    print(f"[tcs_klaviyo] {label} {month.date()}: +{len(rows)} sends")
+    return len(rows)
 
 
 def main() -> None:
@@ -306,49 +398,54 @@ def main() -> None:
     metrics = get_metric_map(headers)
 
     now = datetime.now(timezone.utc)
-    floor = now - relativedelta(months=BACKFILL_MONTHS)
-
-    # PARALLEL MODE: when launched with --tasks N (Cloud Run sets CLOUD_RUN_TASK_COUNT>1) shard
-    # the whole backfill across the tasks for a fast one-shot load. The DAILY scheduled run uses
-    # 1 task and falls through to the incremental forward + resume path below.
-    task_count = int(os.environ.get("CLOUD_RUN_TASK_COUNT", "1"))
-    task_index = int(os.environ.get("CLOUD_RUN_TASK_INDEX", "0"))
-    if task_count > 1:
-        _run_parallel_shard(bq, headers, metrics, now, floor, started, task_index, task_count)
-        return
-
-    lo, hi = table_bounds(bq)
     total = 0
 
+    todo = missing_months(bq, now)
+    task_count = int(os.environ.get("CLOUD_RUN_TASK_COUNT", "1"))
+    task_index = int(os.environ.get("CLOUD_RUN_TASK_INDEX", "0"))
+
+    # PARALLEL MODE: when launched with --tasks N, shard the MISSING months across tasks for a
+    # fast bulk backfill. Sharding the *missing* list (rather than the whole span, as the old
+    # version did) means repeated parallel runs converge instead of re-doing loaded work -- and
+    # any month a task drops on the floor is simply picked up by the next run.
+    if task_count > 1:
+        mine = [m for i, m in enumerate(todo) if i % task_count == task_index]
+        print(f"[tcs_klaviyo] task {task_index}/{task_count}: {len(mine)} of {len(todo)} missing months")
+        for month in mine:
+            if time.monotonic() - started > RUN_BUDGET_SEC:
+                print(f"[tcs_klaviyo] task {task_index}: run budget reached at {month.date()}; "
+                      f"remaining months resume next run.")
+                break
+            total += _pull_month(bq, headers, metrics, month, f"task {task_index} backfill")
+        print(f"[tcs_klaviyo] task {task_index} done: +{total} sends.")
+        return
+
     # -- Phase 1: FORWARD -- new sends since the newest we have (skip on an empty table).
+    #    This also keeps the CURRENT month up to date, which missing_months deliberately skips.
+    hi = max_sent_at(bq)
     if hi is not None:
         rows = collect_window(headers, metrics, hi, now)
         append_rows(bq, rows)
         total += len(rows)
         print(f"[tcs_klaviyo] forward {hi.date()}..{now.date()}: +{len(rows)} sends")
 
-    # -- Phase 2: BACKFILL -- walk months newest-first from the current oldest down to floor.
-    #    An empty table starts at `now` (so the current partial month is captured too);
-    #    a resume starts at MIN(sent_at)'s month (months at/above it are already loaded).
-    win_end = now if lo is None else _month_start(lo)
-    while win_end > floor:
+    # -- Phase 2: BACKFILL -- empty months first, then version-stale ones (see missing_months).
+    print(f"[tcs_klaviyo] {len(todo)} month(s) to load at v{PULL_VERSION}, in priority order: "
+          f"{', '.join(m.strftime('%Y-%m') for m in todo[:12])}"
+          f"{' ...' if len(todo) > 12 else ''}")
+    done_now = 0
+    for month in todo:
         if time.monotonic() - started > RUN_BUDGET_SEC:
-            print(f"[tcs_klaviyo] run budget ({RUN_BUDGET_SEC}s) reached at {win_end.date()}; "
-                  f"backfill resumes next tick.")
+            print(f"[tcs_klaviyo] run budget ({RUN_BUDGET_SEC}s) reached at {month.date()}; "
+                  f"{len(todo) - done_now} month(s) resume next tick.")
             break
-        win_start = max(_month_start(win_end - timedelta(microseconds=1)), floor)
-        rows = collect_window(headers, metrics, win_start, win_end)
-        append_rows(bq, rows)
-        total += len(rows)
-        print(f"[tcs_klaviyo] backfill {win_start.date()}..{win_end.date()}: +{len(rows)} sends "
-              f"(run total {total})")
-        win_end = win_start
+        total += _pull_month(bq, headers, metrics, month, "backfill")
+        done_now += 1
 
-    lo2, hi2 = table_bounds(bq)
-    done = lo2 is not None and lo2 <= floor + timedelta(days=1)
-    print(f"[tcs_klaviyo] done: +{total} sends this run; table now spans "
-          f"{lo2.date() if lo2 else '-'}..{hi2.date() if hi2 else '-'}; "
-          f"backfill_complete={done} (target floor {floor.date()}).")
+    remaining = len(todo) - done_now
+    print(f"[tcs_klaviyo] done: +{total} sends this run; "
+          f"{done_now} month(s) filled, {remaining} still missing "
+          f"(target span from {BACKFILL_START}).")
 
 
 if __name__ == "__main__":

@@ -179,7 +179,13 @@ auto-refresh (see those bullets below). Product name is one constant:
   (`safe_scrape_local.write_status` / `workspace.read_safe_pull_status`); `GET
   /w/<c>/watcher/safe-pull-status` fuses it with the queued channels' counts and the Watcher tab
   polls it (~12s) to show what's fetching now / cooldowns / idle-since + a progress bar, instead of
-  "check back later". Off-cloud test: `dash/_watcher_localtest.py` (in CI; stubs GCS + the YouTube
+  "check back later". **Sentinel imports from this archive** over `GET /api/internal/watcher/
+  {channels,videos,transcript}` (HMAC-gated by `_internal_gate`, same scheme as the task bridge) —
+  its Growth hub → Mentor Library pulls a transcript instead of hand-pasting one. READ-ONLY (Sentinel
+  copies the text into its own table) and **cross-workspace by default like `/api/internal/tasks`**:
+  a mentor is nobody's client, so `?client=` is an optional filter, and channel ids come back
+  namespaced `"<client_key>:<channel_id>"` so the follow-up calls can find the archive object.
+  Off-cloud test: `dash/_watcher_localtest.py` (in CI; stubs GCS + the YouTube
   fetchers).
   - **Internal read bridge (Sentinel's Mentor Library, 2026-07-28):** three HMAC-gated,
     server-to-server, READ-ONLY routes let Sentinel's Growth hub import a transcript Watcher
@@ -468,11 +474,14 @@ auto-refresh (see those bullets below). Product name is one constant:
     now; **rerun after any `intel_feed`/`intel_refresh`/`intel_ai` change** — image-pinned) AND
     `deploy_dash_platform.ps1` (the web service's Refresh-now runs `refresh_client` in-process).
     Off-cloud tests: `dash/_intel_feed_localtest.py` + `dash/_intel_ai_localtest.py` (inject fetchers).
-- **Task tracker = the internal Delivery board + the client Progress tab, ONE data source**
+- **Task tracker = the internal Delivery board + the client Tasks tab, ONE data source**
   (spec: `TASK_TRACKER_INTEGRATION.md`, extended 2026-07-14 with the two-level breakdown +
   dates/charge): `ws["tasks"]` per client — a task ("service") is a deliverable travelling
-  `in_process → for_launch → launched → closed` (stage KEYS are canonical, never rename;
-  the client sees friendlier labels In progress / In review / Live / Completed). `workspace.py` is
+  `todo → in_progress → blocked → revision → completed` (stage KEYS are canonical, never rename;
+  both surfaces show the same `TASK_STAGE_META` labels. For Review + Waiting for Client were
+  REMOVED 2026-07-29 — both just meant "blocked on someone" — and Blocked moved up beside
+  In Progress; retired keys, incl. the pre-2026-07-27 four-stage set, land on a live column via
+  `workspace._STAGE_ALIASES`). `workspace.py` is
   the only writer (`add_task`/`update_task`/`move_task_stage`/`delete_task`/`insert_task` +
   main-task, sub-task and comment helpers). Work is a **two-level breakdown**: `maintasks[]`, each
   a named group with its own owner and its own `subs[]` (sub-tasks that each carry their own
@@ -490,9 +499,11 @@ auto-refresh (see those bullets below). Product name is one constant:
   Progress shape strips `dod`),
   an internal-only **`service_charge`**, and a single **label AUTO-derived from the department**
   (`main.TASK_DEPT_LABEL`: Acquisition→Paid Media, Lifecycle→Organic, rest→Website — no manual
-  label picker; the form's one name field is LABELED "Campaign" but stores as `title`). A move to
-  `closed` is BLOCKED while any sub-task is open or a client change request is unresolved (the
-  route surfaces the blocker list verbatim). The **team board** is a console pane (Delivery → Task
+  label picker; the form's one name field is LABELED "Campaign" but stores as `title`). **Stage
+  moves are UNGUARDED (2026-07-28):** a move to `completed` used to be refused while a sub-task was
+  open, a change request unresolved, or the service had no steps at all — a refused drop reads as a
+  broken board, so the blockers are now only SURFACED (progress bar, "Changes requested" tag), never
+  enforced. The **team board** is a console pane (Delivery → Task
   Board in `admin_atrium.html`): cross-client stage columns collected in `admin_atrium()` from the
   already-loaded workspaces (no extra reads), columns sorted **Urgent-first then launch date**,
   drag-to-move, client/department/person/priority filters, and per-task detail/edit/new overlays
@@ -504,13 +515,22 @@ auto-refresh (see those bullets below). Product name is one constant:
   Team routes: `POST /w/<c>/admin/task{,/move,/delete,/maintask,/subtask,/comment}` gated
   `is_superadmin()` (`/maintask` op=add|assign|delete; `/subtask` op=add takes a `maintask_id`);
   deletes soft-delete to the Bin (`kind:"task"`, restored via `workspace.insert_task`) and every
-  mutation `_audit`s. The **client Progress tab** (`progress` in ATRIUM_TABS, pane in
-  `atrium.html`) renders `main._progress_tasks(ws)` — SERVER-FILTERED to `client_facing` tasks and
+  mutation `_audit`s. The **client Tasks tab** (nav LABEL "Tasks" since 2026-07-29; the tab key
+  stays `progress` in ATRIUM_TABS/routes — canonical, never rename, same posture as `leadgen`;
+  pane in `atrium.html`) renders `main._progress_tasks(ws)` — SERVER-FILTERED to `client_facing` tasks and
   client-safe fields only (lead/support/main-task/sub-task owners, priority, `service_charge`,
   `internal_notes`, and the account manager NEVER reach the client's HTML); the two-level
   breakdown reaches the client as **phases** (name + steps, no owners), the detail modal shows a
   **Started → Going live timeline**, cards say **"Launching <date>"** ("Live" once launched), and
-  columns sort by soonest launch. TWO client-surface writes: `POST /w/<c>/task-comment`
+  columns sort by soonest launch. **The TEAM also gets drag-to-move + a per-card delete ✕ on this
+  same board (2026-07-28)** — `{% if is_superadmin %}` markup only (draggable `.ax-pg-cardwrap`
+  wrappers, `data-pgcol` drop targets, `data-pgdel` buttons), posting the EXISTING
+  `/w/<c>/admin/task/move` + `/admin/task/delete` routes; a client's HTML carries none of it, so
+  their board is as read-only as it ever was (asserted in `_atrium_smoketest.py`). The row of
+  per-stage count TILES above the board was removed in the same change — the column heads already
+  showed the same numbers. ⚠️ Don't style team affordances with an `[data-admin="1"]` selector: the
+  stylesheet ships to every viewer, so that literal string then appears in a client's HTML and trips
+  the no-leak check. TWO client-surface writes: `POST /w/<c>/task-comment`
   (comment / request-changes — a `kind:"changes"` comment flags the task on BOTH surfaces;
   resolving is team-only, `op=resolve`, which also notifies via the `notify.py` task functions)
   and `POST /w/<c>/task-add` (the Progress tab's **quick-add composer**, rendered for client AND
@@ -527,8 +547,21 @@ auto-refresh (see those bullets below). Product name is one constant:
   priority/charge/owners stay console-only. Client-filed requests show a "Requested by <name>"
   chip on Progress and a "Client req" pill + overlay chip on the console board; a client add
   fires `notify.client_task_added`).
+  **SENTINEL edits these cards too — the internal task bridge is two-way** (`/api/internal/task*` in
+  `main.py`, HMAC-gated by `_internal_gate`, same scheme as the Watcher bridge): Sentinel's board
+  LISTS them (`GET /api/internal/tasks`, cross-workspace), and since 2026-07-29 also **opens, edits,
+  deletes and comments on** them — `GET /api/internal/task` (full card + the roster/department/stage
+  vocabularies), `POST /api/internal/task-{update,delete,comment}` (+ the older `-move`, `-add`).
+  Purposes: `tasks` · `task-detail` · `task-update` · `task-delete` · `task-move` · `task-add` ·
+  `task-comment`. Every one goes through the **same `workspace.py` helpers the console's own forms
+  call**, so the stored shape, the derived label, the history entries and the Bin behave identically
+  whichever app the edit came from (a delete soft-deletes to the console Bin, credited to the
+  Sentinel user; `set_task_maintasks` is the array-shaped breakdown setter Sentinel's drawer needs,
+  and it re-mints foreign ids + preserves the internal `dod` the other side can't see).
+  Fail-CLOSED like every internal route. Covered in `_atrium_smoketest.py` + `_workspace_localtest.py`.
 - **Nav labels vs tab keys:** the sidebar was regrouped 2026-07-13 — the `leadgen` tab is LABELED
-  **"Paid Media"** (the key `leadgen` stays in every route/data shape, never rename it), Paid Media +
+  **"Paid Media"** and the `progress` tab is LABELED **"Tasks"** (2026-07-29; the keys `leadgen` /
+  `progress` stay in every route/data shape, never rename them), Paid Media +
   Organic Content sit under an expandable **Campaigns** parent (head badge = combined awaiting
   count), and Market Intelligence + the team-only Website Health/Watcher sit under an **Insights**
   parent. Group heads are expand/collapse buttons only (auto-open when a child tab is active); the

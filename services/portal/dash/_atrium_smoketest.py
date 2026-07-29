@@ -849,7 +849,7 @@ def run():
     _check("console form posts redirect back to the Tasks pane",
            c.post("/w/%s/admin/task/move" % CLIENT,
                   data={"redirect": "console", "task_id": task_id,
-                        "stage": "for_review"}).status_code == 302)
+                        "stage": "revision"}).status_code == 302)
 
     # The CLIENT sees the Progress tab: their client-facing task, client-safe fields ONLY.
     with c.session_transaction() as s:
@@ -914,14 +914,16 @@ def run():
     _check("the composer is a real form that posts to task-add without JS",
            'method="post"' in pg2 and ('action="/w/%s/task-add"' % CLIENT) in pg2
            and 'name="title"' in pg2)
-    # The Progress board now mirrors SENTINEL's board: same 7 columns, same words.
-    _check("Progress renders all 7 Sentinel stage columns",
-           all(name in pg2 for name in ("To Do", "In Progress", "For Review", "Waiting for Client",
-                                        "Revision Needed", "Completed", "Blocked")))
+    # The 2026-07-29 stage trim: For Review + Waiting for Client are gone (both just meant
+    # "blocked on someone") and Blocked sits right after In Progress.
+    _check("Tasks board renders exactly the 5 stage columns, Blocked right after In Progress",
+           all(name in pg2 for name in ("To Do", "In Progress", "Blocked",
+                                        "Revision Needed", "Completed"))
+           and "For Review" not in pg2 and "Waiting for Client" not in pg2
+           and pg2.index("In Progress") < pg2.index("Blocked") < pg2.index("Revision Needed"))
     _check("every column has its own no-JS '+ Add card' form",
            all(('data-pgcol-form="%s"' % k) in pg2
-               for k in ("todo", "in_progress", "for_review", "waiting_client",
-                         "revision", "completed", "blocked")))
+               for k in ("todo", "in_progress", "blocked", "revision", "completed")))
     # Adding from a column files straight into THAT column, with the client implied by the URL.
     rcol = c.post("/w/%s/task-add" % CLIENT,
                   data={"title": "FILED-INTO-BLOCKED", "stage": "blocked", "redirect": "progress"})
@@ -944,6 +946,12 @@ def run():
     _check("the internal 'More options' block is NOT in the client's HTML",
            '<details class="ax-pg-more"' not in pg2
            and 'name="internal_notes"' not in pg2 and 'name="priority"' not in pg2)
+    # The team's board controls are markup, not just hidden CSS: a client's HTML must not carry the
+    # draggable wrappers or the delete buttons at all (same no-leak posture as the internal fields).
+    _check("drag + delete affordances are NOT in the client's HTML",
+           "data-pgdrag=" not in pg2 and "data-pgdel=" not in pg2)
+    _check("the duplicated per-stage count tiles are gone from the board",
+           "ax-pg-summary" not in pg2)
     rforge = c.post("/w/%s/task-add" % CLIENT,
                     data={"title": "CLIENT-FORGERY", "priority": "Urgent",
                           "internal_notes": "should never stick", "due_date": "2026-09-01"})
@@ -953,10 +961,13 @@ def run():
            _forged.get("priority") == "Medium" and not _forged.get("internal_notes"))
     _check("but the client's own due date IS honoured",
            _forged.get("due_date") == "2026-09-01")
-    # Legacy rows written under the OLD 4-stage keys must still land in a real column.
+    # Rows written under a RETIRED stage key must still land in a real column: the old 4-stage
+    # keys, and (since 2026-07-29) For Review / Waiting for Client, which fold into Blocked.
     _check("a legacy stage key is translated, not dropped",
-           workspace.canon_stage("for_launch") == "for_review"
+           workspace.canon_stage("for_launch") == "blocked"
            and workspace.canon_stage("launched") == "completed"
+           and workspace.canon_stage("for_review") == "blocked"
+           and workspace.canon_stage("waiting_client") == "blocked"
            and workspace.canon_stage("") == "todo")
 
     # Back to the team: the open change request blocks closing, resolving unblocks it.
@@ -975,6 +986,9 @@ def run():
     _check("the team's add form carries the collapsed 'More options' block",
            '<details class="ax-pg-more"' in pg_team and 'name="internal_notes"' in pg_team
            and 'name="priority"' in pg_team)
+    _check("the team's cards are draggable, deletable, and every column is a drop target",
+           'data-pgdrag="' in pg_team and 'data-pgdel="' in pg_team
+           and 'data-pgcol="todo"' in pg_team and 'data-pgcol="completed"' in pg_team)
     rteam = c.post("/w/%s/task-add" % CLIENT,
                    data={"title": "TEAM-WITH-EXTRAS", "priority": "Urgent",
                          "internal_notes": "keep this internal", "note": "client sees this",
@@ -986,16 +1000,15 @@ def run():
            and _extra["client_note"] == "client sees this" and _extra["due_date"] == "2026-10-05")
     # (The no-leak rule itself is asserted against a real client session by the
     #  "internal notes never reach the client HTML" check earlier in this file.)
-    blocked = c.post("/w/%s/admin/task/move" % CLIENT, data={"task_id": task_id, "stage": "completed"})
-    _check("close is blocked while a change request is open",
-           blocked.get_json().get("ok") is False and "change request" in blocked.get_json()["error"])
+    # Stage moves are UNGUARDED (2026-07-28) -- an open change request no longer vetoes a move to
+    # Completed, so the board's drag never bounces a card back. It is still surfaced as a flag.
+    _check("close is allowed while a change request is open",
+           c.post("/w/%s/admin/task/move" % CLIENT,
+                  data={"task_id": task_id, "stage": "completed"}).get_json().get("ok") is True)
     _check("team resolves the change request",
            c.post("/w/%s/admin/task/comment" % CLIENT,
                   data={"op": "resolve", "task_id": task_id,
                         "comment_id": chg_id}).get_json().get("open_changes") == 0)
-    _check("close allowed once resolved",
-           c.post("/w/%s/admin/task/move" % CLIENT,
-                  data={"task_id": task_id, "stage": "completed"}).get_json().get("ok") is True)
 
     # Delete -> Bin -> restore round-trip.
     _check("task delete is a soft-delete",
@@ -1043,6 +1056,133 @@ def run():
     _check("import ADDED the new task", "tk_imported_new" in after)
     _check("import skipped a client that no longer exists",
            workspace.load_workspace("ghostclient") is None)
+
+    # ---- The internal task bridge, WRITE half (Sentinel edits these cards without leaving its own
+    # board). HMAC-gated, server-to-server. Sentinel already READ the board over
+    # /api/internal/tasks; these four routes are what replaced its "open it in Atrium to edit"
+    # dead end, so they must go through the SAME workspace helpers the console forms use.
+    import hashlib as _hashlib
+    import hmac as _hmac
+    import time as _time
+    import audit as _audit_mod
+    real_secret = main.SSO_SECRET
+    main.SSO_SECRET = "bridge-test-secret"
+    store.add_client(CLIENT, "Riverdance RV")     # the bridge names the client from the registry
+
+    def _sign(purpose):
+        ts = str(int(_time.time()))
+        return {"X-Academy-Ts": ts,
+                "X-Academy-Sig": _hmac.new(main.SSO_SECRET.encode(),
+                                           ("%s:%s" % (purpose, ts)).encode(),
+                                           _hashlib.sha256).hexdigest()}
+
+    def _bridge(purpose, path, payload=None):
+        if payload is None:
+            return c.get(path, headers=_sign(purpose))
+        return c.post(path, json=payload, headers=_sign(purpose))
+
+    _check("every internal task write is refused unsigned",
+           c.get("/api/internal/task?client=%s&task=x" % CLIENT).status_code == 401
+           and c.post("/api/internal/task-update", json={}).status_code == 401
+           and c.post("/api/internal/task-delete", json={}).status_code == 401
+           and c.post("/api/internal/task-comment", json={}).status_code == 401)
+    _check("a wrong signature is refused",
+           c.get("/api/internal/task?client=%s&task=x" % CLIENT,
+                 headers={"X-Academy-Ts": str(int(_time.time())),
+                          "X-Academy-Sig": "0" * 64}).status_code == 401)
+
+    btid = _bridge("task-add", "/api/internal/task-add",
+                   {"client_key": CLIENT, "title": "Bridge-edited card", "client_facing": True,
+                    "actor": "leo@agora.ph"}).get_json()["task_id"]
+
+    det = _bridge("task-detail", "/api/internal/task?client=%s&task=%s" % (CLIENT, btid)).get_json()
+    _check("task-detail returns the card PLUS the pickers' vocabularies",
+           det["task"]["task_id"] == btid and det["task"]["client_name"]
+           and det["roster"] and det["departments"] and det["stages"])
+    _check("task-detail 404s on a card that no longer exists (never an empty answer)",
+           _bridge("task-detail",
+                   "/api/internal/task?client=%s&task=nope" % CLIENT).status_code == 404)
+
+    upd = _bridge("task-update", "/api/internal/task-update", {
+        "client_key": CLIENT, "task_id": btid, "actor": "leo@agora.ph",
+        "fields": {"title": "Renamed from Sentinel", "department": "acquisition",
+                   "priority": "Urgent", "due_date": "2026-09-30", "service_charge": "$4,200",
+                   "internal_notes": "internal only", "client_note": "the client reads this",
+                   "lead_id": "leo@agora.ph", "client_facing": True,
+                   "on_hold": True, "hold_reason": "waiting on assets",
+                   "maintasks": [{"id": "", "text": "Phase 1", "assignee_id": "",
+                                  "subs": [{"id": "st_new_1", "text": "Draft", "done": False}]}]},
+    }).get_json()["task"]
+    _check("an edit over the bridge writes every field it was given",
+           upd["title"] == "Renamed from Sentinel" and upd["priority"] == "Urgent"
+           and upd["due_date"] == "2026-09-30" and upd["internal_notes"] == "internal only"
+           and upd["client_note"] == "the client reads this" and upd["on_hold"] is True
+           and upd["hold_reason"] == "waiting on assets")
+    _check("the department drives the label, exactly as the console form derives it",
+           upd["labels"] == ["Paid Media"])
+    _check("the service charge is normalised, not stored with $ and commas",
+           upd["service_charge"] == "4200")
+    _sid = upd["maintasks"][0]["subs"][0]["id"]
+    _check("a foreign placeholder id never becomes an Atrium id",
+           _sid.startswith("st_") and _sid != "st_new_1")
+
+    # `dod` is Atrium-internal: Sentinel neither shows nor sends it, so a breakdown edit from over
+    # there must not quietly drop it off a sub-task that kept its id.
+    workspace.edit_subtask(CLIENT, btid, _sid, dod="done when the client approves")
+    kept = _bridge("task-update", "/api/internal/task-update", {
+        "client_key": CLIENT, "task_id": btid, "actor": "leo@agora.ph",
+        "fields": {"maintasks": [{"id": upd["maintasks"][0]["id"], "text": "Phase 1",
+                                  "subs": [{"id": _sid, "text": "Draft v2", "done": True}]}]},
+    }).get_json()["task"]
+    _check("an edit that can't see 'done when' still preserves it",
+           kept["maintasks"][0]["subs"][0]["dod"] == "done when the client approves"
+           and kept["maintasks"][0]["subs"][0]["text"] == "Draft v2"
+           and kept["maintasks"][0]["subs"][0]["done"] is True)
+
+    moved = _bridge("task-update", "/api/internal/task-update",
+                    {"client_key": CLIENT, "task_id": btid, "actor": "leo@agora.ph",
+                     "fields": {"stage": "revision"}}).get_json()["task"]
+    _check("a stage move over the bridge is a real move, with its own history entry",
+           moved["stage"] == "revision" and moved["status"] == "Revision Needed"
+           and any(h["field"] == "stage" for h in moved["history"]))
+    # A Sentinel that still speaks the retired keys (its board keeps For Review / Waiting for
+    # Client columns) must not error or invent a column: the write lands on Blocked.
+    aliased = _bridge("task-update", "/api/internal/task-update",
+                      {"client_key": CLIENT, "task_id": btid, "actor": "leo@agora.ph",
+                       "fields": {"stage": "for_review"}}).get_json()["task"]
+    _check("a retired stage key from the bridge lands on Blocked",
+           aliased["stage"] == "blocked" and aliased["status"] == "Blocked")
+
+    cm = _bridge("task-comment", "/api/internal/task-comment",
+                 {"client_key": CLIENT, "task_id": btid, "body": "Posted from Sentinel",
+                  "actor": "leo@agora.ph", "actor_name": "Leo"}).get_json()
+    _check("a comment from the bridge is a TEAM comment on the client's own thread",
+           cm["comment"]["sender"] == "agora" and cm["comment"]["sender_name"] == "Leo"
+           and cm["comment_count"] == 1)
+
+    workspace.add_task_comment(CLIENT, btid, "client", "Owner", "please redo", kind="changes")
+    _open = workspace._find_task(workspace.load_workspace(CLIENT), btid)
+    _cid = workspace.task_open_changes(_open)[0]["id"]
+    res = _bridge("task-comment", "/api/internal/task-comment",
+                  {"client_key": CLIENT, "task_id": btid, "op": "resolve", "comment_id": _cid,
+                   "actor": "leo@agora.ph"}).get_json()
+    _check("the team can clear a client's change request from the bridge too",
+           res["ok"] is True and res["open_changes"] == 0)
+
+    _check("delete over the bridge soft-deletes into the console Bin",
+           _bridge("task-delete", "/api/internal/task-delete",
+                   {"client_key": CLIENT, "task_id": btid,
+                    "actor": "leo@agora.ph"}).get_json()["ok"] is True
+           and not any(t["id"] == btid for t in workspace.load_workspace(CLIENT)["tasks"])
+           and any(e.get("kind") == "task" and e.get("payload", {}).get("id") == btid
+                   for e in _audit_mod.trash_list()))
+    _check("a mutation on a card that is gone 404s rather than half-succeeding",
+           _bridge("task-update", "/api/internal/task-update",
+                   {"client_key": CLIENT, "task_id": btid,
+                    "fields": {"title": "x"}}).status_code == 404
+           and _bridge("task-delete", "/api/internal/task-delete",
+                       {"client_key": CLIENT, "task_id": btid}).status_code == 404)
+    main.SSO_SECRET = real_secret
 
     print("[smoketest] PASS")
     return 0

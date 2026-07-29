@@ -1,8 +1,13 @@
 # tcs_provision_secrets.ps1 -- provision the direct-API secrets the TCS ingest loaders read.
 #
-# The TCS loaders (tcs_shopify / tcs_klaviyo) read their OWN key from Secret Manager BY ID via ADC
-# (mirroring services/ingest/ga4/ga4_loader.py, which reads windsor-api-key). This script creates
-# (or adds a new version to) those secrets and grants the shared ingest runtime SA read access.
+# The TCS loaders read their OWN key from Secret Manager BY ID via ADC (mirroring
+# services/ingest/ga4/ga4_loader.py, which reads windsor-api-key). This script creates (or adds a
+# new version to) those secrets and grants the shared ingest runtime SA read access.
+#
+#   tcs-shopify-token   -> tcs_shopify (orders) AND tcs_sessions (ShopifyQL storefront sessions)
+#   tcs-klaviyo-key     -> tcs_klaviyo (events), tcs_klaviyo_profiles, tcs_klaviyo_campaigns
+#   tcs-tapfiliate-key  -> tcs_affiliates (affiliate roster + conversions)
+#
 # The quiz loader needs NO secret -- it reads the Google Sheet via ADC (share the sheet with the
 # ingest SA instead; see the note at the end).
 #
@@ -16,7 +21,8 @@
 [CmdletBinding()]
 param(
   [string]$ShopifyToken,
-  [string]$KlaviyoKey
+  [string]$KlaviyoKey,
+  [string]$TapfiliateKey
 )
 
 $ErrorActionPreference = "Continue"
@@ -65,11 +71,16 @@ function Set-Secret([string]$name, [string]$value) {
   }
 }
 
-if (-not $ShopifyToken) { $ShopifyToken = Read-Host "Shopify Admin API token (tcs-shopify-token), blank to skip" }
-if (-not $KlaviyoKey)   { $KlaviyoKey   = Read-Host "Klaviyo private API key (tcs-klaviyo-key), blank to skip" }
+# Prompt ONLY for parameters the caller did not pass at all. Testing the variable for
+# emptiness instead would re-prompt for an explicitly-empty value -- which is how a caller
+# says "skip this one" -- and Read-Host hard-fails under -NonInteractive (CI, agents).
+if (-not $PSBoundParameters.ContainsKey('ShopifyToken'))  { $ShopifyToken  = Read-Host "Shopify Admin API token (tcs-shopify-token), blank to skip" }
+if (-not $PSBoundParameters.ContainsKey('KlaviyoKey'))    { $KlaviyoKey    = Read-Host "Klaviyo private API key (tcs-klaviyo-key), blank to skip" }
+if (-not $PSBoundParameters.ContainsKey('TapfiliateKey')) { $TapfiliateKey = Read-Host "Tapfiliate API key (tcs-tapfiliate-key), blank to skip" }
 
-Set-Secret "tcs-shopify-token" $ShopifyToken
-Set-Secret "tcs-klaviyo-key"   $KlaviyoKey
+Set-Secret "tcs-shopify-token"  $ShopifyToken
+Set-Secret "tcs-klaviyo-key"    $KlaviyoKey
+Set-Secret "tcs-tapfiliate-key" $TapfiliateKey
 
 Write-Host ""
 Write-Host "Quiz loader uses ADC Google Sheets access -- no secret needed. Instead:" -ForegroundColor Yellow
