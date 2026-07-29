@@ -1,0 +1,9 @@
+# The context drop contains LIVE credentials and customer PII — never commit it.
+#   - Lark_Unleashed_Dash.ipynb                    -> Lark app secret + refresh token, Unleashed API id/key
+#   - Campaign_Monitor_Full_Email_Extract.ipynb    -> Campaign Monitor API key, subscriber emails
+#   - Customer Data - master (4).xlsx              -> CRM PII: names, emails, phones, addresses
+#   - Melo Yelo Unleashed Data (7).xlsx            -> CRM PII in the CRM/lead tabs
+context/
+
+# Locally built data JSON (rebuilt from context/ by job/build_local.py)
+data/
