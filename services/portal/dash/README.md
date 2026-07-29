@@ -19,7 +19,10 @@ App / library (grep the anchor to land in the right place):
 | `store.py` | Registry CRUD over the ONE private `platform.json`; resolves logins | UTF-8-bytes write at :102 |
 | `atrium_view.py` | Pure presentation helpers (sparklines, calendar grid, awaiting rollup) | `_event_done` / `intel_sections` |
 | `service_templates.py` | Recipe book seeding the Delivery board's work breakdown | `TEMPLATES`:34 · `AD_PRODUCTION`:168 · `build_maintasks`:234 |
-| `assistant_ai.py` | Team-only RAG chat over the whole workspace (hybrid BM25+embed+rerank) | `build_chunks` · `ask_stream` · `DEPTHS` |
+| `assistant_ai.py` | Team-only RAG chat over the whole workspace (hybrid BM25+embed+rerank; digest/full chunk levels + small-to-big expansion; the ===ATRIUM_ACTIONS=== proposal protocol) | `build_chunks` · `ask_stream` · `DEPTHS` · `split_actions` · `summarize_videos` |
+| `digest.py` | The distilled-insight layer: raw data -> titled analyst-note sections (both dashboard shapes, comms/tasks/intel snapshots) | `dashboard_sections` · `task_text` |
+| `assistant_actions.py` | Everything the Assistant may PROPOSE + how an approval executes it (same workspace writers as the human forms; nothing runs unapproved) | `_ACTIONS` · `validate` · `execute` |
+| `report_ai.py` | The Reports tab's deck maker: gather from the distilled layer -> model (or honest draft) -> self-contained scroll-snap HTML | `gather` · `generate` · `revise` · `render_html` |
 | `intel_ai.py` / `intel_feed.py` / `intel_refresh.py` | AI brain (Gemini/DeepSeek/Kimi registry) / legacy RSS / daily `intel-refresh` job | `MODELS` · `_call` / `stream_call` |
 | `mailroom.py` / `mail_refresh.py` | Client email archive + AI digest / hourly `mail-refresh` job | `classify_thread` · `summarize_thread` |
 | `watcher.py` / `watcher_blog.py` / `safe_scrape_local.py` | YouTube archive / blog twin / residential-IP safe-pull agent | `resolve_channel` · `resolve_site` |
@@ -53,6 +56,8 @@ the template consumes. Verified examples:
 | Task | `add_task`:1687 | `POST /w/<c>/admin/task` (:4572) | `admin_atrium.html`:1753 board · `atrium.html` Tasks pane via `_progress_tasks`:1297 |
 | Intel entry | `add_intel_entry`:2261 | `POST /w/<c>/admin/intel` (:2912) | `atrium.html`:3129 (`view.intel`) |
 | Content piece | `add_content`:1281 | `POST /w/<c>/admin/content` (:2291) | `atrium.html`:2402 (content loop) |
+| Report deck | `add_report`/`write_report_html` | `POST /w/<c>/admin/report` · `GET /w/<c>/report/<id>` | `atrium.html` Reports pane (`ws.reports` card grid) |
+| Assistant action | (executes via the writers above) | `POST /w/<c>/admin/assistant` op=execute | chat approval cards (`makeActionsCard` in `atrium.html`) |
 
 Client-safe filtering happens **server-side before the template** (`_progress_tasks`,
 `_communications_view`) — that is the no-leak boundary; never move it into Jinja/JS.
@@ -83,7 +88,8 @@ Client-safe filtering happens **server-side before the template** (`_progress_ta
    Flask-capable interpreter — `run_local.ps1` builds `.venv-portal`; CI runs every one):
    `_workspace_localtest.py` · `_accounts_localtest.py` · `_google_oauth_localtest.py` ·
    `_audit_localtest.py` · `_intel_feed_localtest.py` · `_intel_ai_localtest.py` ·
-   `_watcher_localtest.py` · `_assistant_localtest.py` · `_mail_localtest.py` ·
+   `_watcher_localtest.py` · `_assistant_localtest.py` · `_report_localtest.py` ·
+   `_mail_localtest.py` ·
    `_upwork_import_localtest.py` — plus smoketests `_atrium_smoketest.py` (every tab renders,
    every POST persists) and `_auth_smoketest.py`, and the regression `_slashid_creative_test.py`.
 8. **Redeploy** — validate first, then:

@@ -988,7 +988,7 @@ def feedback():
 # service, bucket, SA, IAM, or domain. Client-facing routes live under /w/<c>/; team management
 # extends the operator console under /admin/atrium/.
 ATRIUM_TABS = {"overview", "dashboard", "leadgen", "organic", "calendar", "conversations",
-               "intel", "progress", "settings"}
+               "intel", "reports", "progress", "settings"}
 # Team-only tabs: rendered ONLY for admins/super-admins (is_superadmin), never shown to clients. The
 # Website Health tab monitors the client's live site + the marketing tags installed on it; the
 # Watcher tab archives every video transcript from watched YouTube channels; the Assistant tab is
@@ -3631,6 +3631,55 @@ def _assistant_reranker():
     return lambda query, records, top_n: intel_ai.rerank(query, records, top_n=top_n)
 
 
+def _dash_stamp(client):
+    """The dashboard export blob's last-modified marker (metadata-only GET), or None.
+
+    Feeds the index fingerprint so a refreshed dashboard re-indexes -- without it the dashboard
+    chunks sat stale until some OTHER source moved. Any failure (no bucket, no access, local dev)
+    is None, which fingerprints consistently."""
+    try:
+        from google.cloud import storage  # lazy
+        blob = storage.Client().bucket("agora-data-driven-%s-dash" % client) \
+                               .get_blob("%s.json" % client)
+        return blob.updated.isoformat() if blob is not None and blob.updated else None
+    except Exception:
+        return None
+
+
+def _assistant_caller(ws):
+    """A one-shot (system, user) -> (text, err) model seam bound to the Assistant's model choice
+    (used by the report generator, the video summarizer, and approved assistant actions), or None
+    when no provider is configured."""
+    mid = _assistant_model(ws) or intel_ai.default_model()
+    meta = intel_ai.model_meta(mid)
+    if not meta or not intel_ai.model_available(mid):
+        return None
+
+    def caller(system, user):
+        text, err, _think = intel_ai._call(meta, system, user, None, 8192, think=False)
+        return text, err
+    return caller
+
+
+def _report_inputs(ws, client):
+    """The report generator's source pack (loads archives + the dashboard export)."""
+    import assistant_ai
+    import report_ai
+    return report_ai.gather(ws, _assistant_archives(ws, client),
+                            assistant_ai.read_client_dash_data(client))
+
+
+def _assistant_action_ctx(ws, client):
+    """Everything an APPROVED assistant action needs to execute (assistant_actions.execute)."""
+    return {
+        "actor": _admin_sender_name(current_user()),
+        "is_root": is_root_admin(),
+        "caller": _assistant_caller(ws),
+        "report_inputs": lambda: _report_inputs(ws, client),
+        "reindex": lambda: len(_assistant_index(ws, client, force=True).get("chunks") or []),
+    }
+
+
 def _assistant_index(ws, client, force=False):
     """The client's knowledge index, rebuilt lazily whenever any source changed (or on `force`).
 
@@ -3638,7 +3687,7 @@ def _assistant_index(ws, client, force=False):
     an existing, still-current index the first time embeddings are enabled -- no need to rechunk)."""
     import assistant_ai
     archives = _assistant_archives(ws, client)
-    fp = assistant_ai.fingerprint(ws, archives)
+    fp = assistant_ai.fingerprint(ws, archives, dash_stamp=_dash_stamp(client))
     want_emb = intel_ai.embeddings_configured()
     # Always read the previous index: reused as-is when nothing changed, and as the SOURCE OF
     # CARRIED-OVER VECTORS when the data moved -- so a rebuild only embeds the chunks that changed
@@ -3703,13 +3752,44 @@ def atrium_admin_assistant(client):
     op = request.form.get("op", "ask")
 
     if op == "reindex":
+        # The explicit rebuild is ALSO where new Watcher transcripts get their cached AI summaries
+        # (a capped batch per run) -- deliberately here and never on the lazy ask path, so chat
+        # latency stays flat while the digest layer fills in over successive reindexes.
+        summarized = 0
+        caller = _assistant_caller(ws)
+        if caller is not None:
+            archives = _assistant_archives(ws, client)
+            updates, summarized, _serr = assistant_ai.summarize_videos(archives, caller)
+            for ch_id, videos in updates.items():
+                workspace.write_watcher_videos(client, ch_id, videos)
+            if summarized:
+                _audit(client, "summarized watcher videos", "%d new" % summarized)
         index = _assistant_index(ws, client, force=True)
         embedded = index.get("emb_count", 0)
         _audit(client, "rebuilt assistant index",
                "%d chunks%s" % (len(index.get("chunks") or []),
                                 (", %d embedded" % embedded) if embedded else ""))
         return jsonify(ok=True, chunks=len(index.get("chunks") or []), embedded=embedded,
-                       built_at=index.get("built_at", ""))
+                       summarized=summarized, built_at=index.get("built_at", ""))
+
+    if op == "execute":
+        # An APPROVED action proposal (the human clicked Approve on the card). Re-validated here
+        # against the registry -- the browser's payload is never trusted -- then executed through
+        # the same workspace writers the human forms call. Root-gated actions re-check the
+        # approver's role inside execute().
+        import assistant_actions
+        try:
+            proposal = json.loads(request.form.get("action", "") or "{}")
+        except ValueError:
+            proposal = {}
+        clean, verr = assistant_actions.validate(proposal)
+        if clean is None:
+            return jsonify(ok=False, message=verr or "Invalid action.")
+        ok, message = assistant_actions.execute(client, clean, _assistant_action_ctx(ws, client))
+        if ok:
+            _audit(client, "approved an assistant action",
+                   "%s -- %s" % (clean["action"], clean["label"]))
+        return jsonify(ok=ok, message=message, label=clean["label"])
 
     if op == "settings":
         # Save whichever settings the form carries (the two dropdowns each post just their own
@@ -3742,17 +3822,29 @@ def atrium_admin_assistant(client):
             history = json.loads(request.form.get("history", "") or "[]")
         except ValueError:
             history = []
+        import assistant_actions
         index = _assistant_index(ws, client)
         usage = {}
+        proposals = []
         answer, sources, err = assistant_ai.ask(
             ws.get("display_name") or client, index, question,
             history=history if isinstance(history, list) else [],
             date_from=request.form.get("date_from", "").strip(),
             date_to=request.form.get("date_to", "").strip(),
             model=_assistant_model(ws), usage_out=usage, depth=_assistant_depth(ws),
-            query_embedder=_assistant_query_embedder(index), reranker=_assistant_reranker())
+            query_embedder=_assistant_query_embedder(index), reranker=_assistant_reranker(),
+            actions_catalog=assistant_actions.catalog_text(), actions_out=proposals)
         if err:
             return jsonify(ok=False, message=err, sources=sources)
+        # Validate any action proposals against the registry; invalid ones surface as errors on
+        # the card (never silently dropped) and NOTHING executes until op=execute.
+        actions, action_errors = [], []
+        for p in proposals:
+            clean, perr = assistant_actions.validate(p)
+            if clean is not None:
+                actions.append(clean)
+            else:
+                action_errors.append(perr)
         # Spend accounting: price this call and fold it into the client's all-time tally so the
         # cost pill (this answer + session + all-time) has real numbers. Best-effort -- a tally
         # failure must never eat an answer the model already produced.
@@ -3765,7 +3857,8 @@ def atrium_admin_assistant(client):
         except Exception:
             totals = workspace.assistant_usage(ws)
         _audit(client, "asked the assistant", question[:80])
-        return jsonify(ok=True, answer=answer, sources=sources, usage=usage, totals=totals)
+        return jsonify(ok=True, answer=answer, sources=sources, usage=usage, totals=totals,
+                       actions=actions, action_errors=action_errors)
 
     # --- Conversation history (team-shared, server-side; new sessions still start fresh) ----------
     if op == "history_list":
@@ -3826,6 +3919,7 @@ def atrium_admin_assistant_stream(client):
     ws = workspace.load_workspace(client)
     if ws is None:
         return Response('{"error":"no_workspace"}', status=404, mimetype="application/json")
+    import assistant_actions
     import assistant_ai
 
     question = request.form.get("question", "").strip()
@@ -3889,11 +3983,25 @@ def atrium_admin_assistant_stream(client):
             for ev in assistant_ai.ask_stream(
                     name, index, question, history=history, date_from=date_from, date_to=date_to,
                     depth=depth, steer=steer, query_embedder=q_emb, reranker=reranker,
-                    plan_caller=plan_caller, stream_caller=stream_caller):
+                    plan_caller=plan_caller, stream_caller=stream_caller,
+                    actions_catalog=assistant_actions.catalog_text()):
                 t = ev.get("type")
                 if t == "usage":                       # capture (provider sends cumulative totals)
                     usage["input_tokens"] = ev.get("input_tokens", 0)
                     usage["output_tokens"] = ev.get("output_tokens", 0)
+                    continue
+                if t == "proposals":
+                    # Raw model proposals -> validated approval cards. Invalid ones surface as
+                    # errors; approval posts back op=execute, which re-validates server-side.
+                    acts, bad = [], []
+                    for p in ev.get("proposals") or []:
+                        clean, perr = assistant_actions.validate(p)
+                        if clean is not None:
+                            acts.append(clean)
+                        else:
+                            bad.append(perr)
+                    if acts or bad:
+                        yield _sse("actions", {"actions": acts, "errors": bad})
                     continue
                 yield _sse(t, ev)
             # Spend accounting (best-effort) -> emit a priced usage frame so the cost pill updates.
@@ -3915,6 +4023,98 @@ def atrium_admin_assistant_stream(client):
     resp.headers["Cache-Control"] = "no-cache"
     resp.headers["X-Accel-Buffering"] = "no"          # ask any proxy NOT to buffer the stream
     return resp
+
+
+# --- Reports (client-visible tab: every meeting deck, date-first; report_ai.py) -------------------
+@app.route("/w/<client>/report/<report_id>", methods=["GET"])
+def atrium_report(client, report_id):
+    """One meeting deck's self-contained HTML (client-visible), served only through the authed
+    session -- the same posture as /data.json and creatives, never a public object."""
+    if not authed():
+        return redirect(url_for("login", next=request.full_path))
+    if not can_open(client):
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    html_doc = workspace.read_report_html(client, report_id)
+    if html_doc is None:
+        # A restored (or partially written) entry may miss its rendered object -- re-render it
+        # lazily from the payload stored in the index entry, so a Trash restore never 404s.
+        ws = workspace.load_workspace(client)
+        entry = workspace.find_report(ws, report_id) if ws else None
+        if entry is None:
+            return Response("No such report.", status=404, mimetype="text/plain")
+        import report_ai
+        html_doc = report_ai.render_html(ws.get("display_name") or client,
+                                         entry.get("payload") or {}, entry.get("date") or "",
+                                         title=entry.get("title") or "")
+        workspace.write_report_html(client, report_id, html_doc)
+    resp = Response(html_doc, mimetype="text/html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.route("/w/<client>/admin/report", methods=["POST"])
+def atrium_admin_report(client):
+    """Reports tab team actions (team-only). `op` is:
+
+    * generate -- draft a new deck from everything the workspace knows: report_ai.gather over the
+                  distilled layer -> the configured model writes the slide payload (no model =
+                  the honest deterministic draft) -> rendered + stored, entry newest-first.
+                  Fields: optional `date` (YYYY-MM-DD, default today) + `title`.
+    * rename   -- retitle/redate a deck (`id` + `title`/`date`); the deck re-renders.
+    * delete   -- remove a deck (soft-deletes to the Bin; the payload restores + re-renders).
+    """
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    ws = workspace.load_workspace(client)
+    if ws is None:
+        return Response('{"error":"no_workspace"}', status=404, mimetype="application/json")
+    import report_ai
+    op = request.form.get("op", "generate")
+    name = ws.get("display_name") or client
+
+    if op == "generate":
+        when = (request.form.get("date", "").strip() or workspace.now_iso())[:10]
+        title = request.form.get("title", "").strip() or "Performance Review"
+        payload, gen_err = report_ai.generate(name, when, _report_inputs(ws, client),
+                                              _assistant_caller(ws))
+        entry = workspace.add_report(client, title, when, payload=payload,
+                                     origin="draft" if gen_err else "ai")
+        workspace.write_report_html(client, entry["id"],
+                                    report_ai.render_html(name, payload, when, title=title))
+        _audit(client, "generated a client report", "%s (%s)" % (title, when))
+        return jsonify(ok=True, id=entry["id"], title=entry["title"], date=entry["date"],
+                       url="/w/%s/report/%s" % (client, entry["id"]),
+                       note=("Drafted without AI: %s" % gen_err) if gen_err else "")
+
+    if op == "rename":
+        fields = {}
+        if request.form.get("title", "").strip():
+            fields["title"] = request.form.get("title").strip()
+        if request.form.get("date", "").strip():
+            fields["date"] = request.form.get("date").strip()[:10]
+        if not fields:
+            return jsonify(ok=False, message="Give a new title and/or date.")
+        try:
+            entry = workspace.update_report(client, request.form.get("id", "").strip(), fields)
+        except KeyError:
+            return jsonify(ok=False, message="No such report.")
+        workspace.write_report_html(client, entry["id"],
+                                    report_ai.render_html(name, entry.get("payload") or {},
+                                                          entry.get("date") or "",
+                                                          title=entry.get("title") or ""))
+        _audit(client, "renamed a client report", entry.get("title", ""))
+        return jsonify(ok=True, id=entry["id"], title=entry["title"], date=entry["date"])
+
+    if op == "delete":
+        entry = workspace.delete_report(client, request.form.get("id", "").strip())
+        if entry is None:
+            return jsonify(ok=False, message="No such report.")
+        _trash(client, "report", entry.get("title") or "report", entry)
+        _audit(client, "deleted a client report", entry.get("title", ""))
+        return jsonify(ok=True)
+
+    return Response('{"error":"bad_op"}', status=400, mimetype="application/json")
 
 
 @app.route("/w/<client>/watcher/video/<channel_id>/<video_id>", methods=["GET"])
@@ -5437,6 +5637,10 @@ def admin_atrium_restore():
             workspace.insert_calendar_event(client, payload)
         elif kind == "task":
             workspace.insert_task(client, payload)
+        elif kind == "report":
+            # The deck HTML object was deleted with the entry; the serve route re-renders it
+            # lazily from the payload stored in the restored entry, so no render needed here.
+            workspace.insert_report(client, payload)
         elif kind == "client":
             store.restore_client(payload)
             if extra.get("workspace") is not None:

@@ -45,6 +45,7 @@
 {%- elif name == 'campaigns' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l17-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
 {%- elif name == 'insights' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 21.5h4"/><path d="M12 2.5a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3a7 7 0 0 0-4-12.7z"/></svg>
 {%- elif name == 'progress' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>
+{%- elif name == 'reports' -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="18" height="12.5" rx="2"/><path d="M12 16v3.5M8 22.5l4-3 4 3"/><path d="M7 12.5v-2M12 12.5V7.5M17 12.5V10"/></svg>
 {%- else -%}<svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/></svg>
 {%- endif -%}
 {%- endmacro %}
@@ -112,11 +113,11 @@
 {%- set _sel = (current.split(' · ') if current else []) -%}
 {%- for x in _sel %}{%- if x %}<span class="ax-platone">{{ plat_ic(x) }}<span>{{ x }}</span></span>{%- endif %}{%- endfor %}
 {%- endmacro %}
-{% set tab_titles = {'overview':'Overview','dashboard':'Dashboard','leadgen':'Paid Media','organic':'Organic Content','calendar':'Content Calendar','conversations':'Communications','intel':'Market Intelligence','progress':'Tasks','settings':'Notification settings','website-health':'Website Health','watcher':'Watcher','assistant':'Assistant'} %}
+{% set tab_titles = {'overview':'Overview','dashboard':'Dashboard','leadgen':'Paid Media','organic':'Organic Content','calendar':'Content Calendar','conversations':'Communications','intel':'Market Intelligence','reports':'Reports','progress':'Tasks','settings':'Notification settings','website-health':'Website Health','watcher':'Watcher','assistant':'Assistant'} %}
 {#- Top-bar subtitles: the one-line description shown under the page title in the header. Set ONLY
    for tabs whose in-pane <h1> merely repeated the title (that duplicate is now removed); tabs with a
    distinct in-pane heading (overview greeting, calendar, campaigns) keep an empty subtitle. -#}
-{% set tab_subtitles = {'overview':"Everything, visible: what's working, what's live, and what's coming next.",'dashboard':'Your live campaign data, updated automatically.','calendar':'Tracking the work from kickoff to delivered, paid and organic publish dates included.','conversations':'One running record of every conversation so nothing gets lost.','intel':"Your weekly briefing: what's moving in your industry and the platform updates worth acting on.",'progress':"Everything we're building for you and exactly where each piece stands.",'settings':'Choose what AGORA emails you about. Everything still appears here in your workspace either way.'} %}
+{% set tab_subtitles = {'overview':"Everything, visible: what's working, what's live, and what's coming next.",'dashboard':'Your live campaign data, updated automatically.','calendar':'Tracking the work from kickoff to delivered, paid and organic publish dates included.','conversations':'One running record of every conversation so nothing gets lost.','intel':"Your weekly briefing: what's moving in your industry and the platform updates worth acting on.",'reports':'Every meeting deck in one place, newest first.','progress':"Everything we're building for you and exactly where each piece stands.",'settings':'Choose what AGORA emails you about. Everything still appears here in your workspace either way.'} %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -1867,6 +1868,54 @@
     .ax-pg-empty h3 { font-size: 17px; margin: 0 0 6px; color: var(--ax-ink); }
     @media (max-width: 640px) { .ax-pg-board > .ax-pg-col { flex-basis: 84vw; min-width: 84vw; } }
 
+    /* ---- Reports tab: date-first deck cards + the team's generate bar ---- */
+    .ax-rep-admin { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px;
+      background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: var(--ax-radius);
+      padding: 14px 16px; margin-bottom: 18px; box-shadow: var(--ax-shadow); }
+    .ax-rep-lab { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 700;
+      color: var(--ax-sub); }
+    .ax-rep-lab .ax-editbox { margin-bottom: 0; width: auto; min-width: 170px; }
+    .ax-rep-msg { font-size: 12.5px; color: var(--ax-sub); flex: 1 1 160px; }
+    .ax-rep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px; }
+    .ax-rep-card { position: relative; }
+    .ax-rep-open { display: flex; flex-direction: column; gap: 4px; text-decoration: none;
+      background: var(--ax-white); border: 1px solid var(--ax-line); border-radius: var(--ax-radius);
+      padding: 20px 20px 18px; box-shadow: var(--ax-shadow); min-height: 128px;
+      transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+    .ax-rep-open:hover { transform: translateY(-2px); border-color: var(--ax-green);
+      box-shadow: 0 8px 22px rgba(16, 24, 40, .10); }
+    .ax-rep-eyebrow { font-size: 10.5px; font-weight: 800; letter-spacing: .14em;
+      text-transform: uppercase; color: var(--ax-green-d); }
+    .ax-rep-date { font-size: 23px; font-weight: 800; letter-spacing: -.01em; color: var(--ax-ink);
+      margin-top: 4px; }
+    .ax-rep-title { font-size: 13px; color: var(--ax-sub); margin-top: 2px; }
+    .ax-rep-del { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border: 0;
+      border-radius: 7px; background: transparent; color: var(--ax-sub); font-size: 16px;
+      line-height: 1; cursor: pointer; opacity: 0; transition: opacity .12s ease; }
+    .ax-rep-card:hover .ax-rep-del { opacity: 1; }
+    .ax-rep-del:hover { background: #FDECEC; color: #B3261E; }
+    .ax-rep-empty { background: var(--ax-white); border: 1px dashed var(--ax-line);
+      border-radius: var(--ax-radius); padding: 44px 24px; text-align: center; color: var(--ax-sub);
+      box-shadow: var(--ax-shadow); }
+
+    /* ---- Assistant action proposals: the approval card (nothing runs until Approve) ---- */
+    .ax-as-actions { margin-top: 10px; border: 1px solid var(--ax-line); border-radius: 12px;
+      background: #FBFDFB; overflow: hidden; }
+    .ax-as-act-head { font-size: 11px; font-weight: 800; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--ax-green-d); padding: 9px 12px 7px;
+      border-bottom: 1px solid var(--ax-line); }
+    .ax-as-act { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 10px 12px; border-bottom: 1px solid var(--ax-line); }
+    .ax-as-act:last-child { border-bottom: 0; }
+    .ax-as-act-main { flex: 1 1 220px; min-width: 0; }
+    .ax-as-act-label { font-size: 13.5px; font-weight: 700; color: var(--ax-ink); }
+    .ax-as-act-note { font-size: 12px; color: var(--ax-sub); margin-top: 2px; }
+    .ax-as-act-status { flex: 1 1 100%; font-size: 12.5px; color: var(--ax-sub); }
+    .ax-as-act.is-ok .ax-as-act-status { color: var(--ax-green-d); font-weight: 700; }
+    .ax-as-act.is-fail .ax-as-act-status { color: #B3261E; font-weight: 700; }
+    .ax-as-act-err { padding: 8px 12px; font-size: 12px; color: #B3261E; }
+
     /* On the Assistant tab the pane IS the chat, so the bubble would be redundant, hide it there
        (showTab keeps the root's data-tab current; the FAB/panel live inside .atrium). */
     .atrium[data-tab="assistant"] .ax-asfab, .atrium[data-tab="assistant"] .ax-aspanel { display: none; }
@@ -1952,7 +2001,7 @@
           </div>
         </div>
 
-        {% for key, label in [('calendar','Content Calendar'),('conversations','Communications')] %}
+        {% for key, label in [('calendar','Content Calendar'),('conversations','Communications'),('reports','Reports')] %}
         <a href="{{ '/w/' ~ view.client ~ '/' ~ key }}" data-tab="{{ key }}" title="{{ label }}" class="{{ 'is-active' if view.active_tab == key else '' }}">
           {{ ic(key) }}<span>{{ label }}</span>
         </a>
@@ -3221,6 +3270,44 @@
           </div>
         </section>
 
+        {#- ============ REPORTS (client-visible: every meeting deck, date-first) ============
+           The card face IS the presentation date; clicking opens the self-contained HTML deck at
+           /w/<c>/report/<id> in a new tab. The team generates a new deck (drafted from the whole
+           workspace via report_ai) and can retitle/delete; clients just read. -#}
+        <section class="ax-pane {{ 'is-active' if view.active_tab=='reports' else '' }}" data-pane="reports">
+          {% if is_superadmin %}
+          <div class="ax-rep-admin" data-repadmin>
+            <label class="ax-rep-lab">Presentation date
+              <input class="ax-editbox" type="date" data-repdate>
+            </label>
+            <label class="ax-rep-lab">Title (optional)
+              <input class="ax-editbox" type="text" data-reptitle placeholder="Performance Review" maxlength="80">
+            </label>
+            <button class="ax-btn green" type="button" data-repgen>{{ ic('sparkle') }} Generate report</button>
+            <span class="ax-rep-msg" data-repmsg></span>
+          </div>
+          {% endif %}
+          {% set _reports = ws.reports|default([], true) %}
+          {% if _reports %}
+          <div class="ax-rep-grid">
+            {% for r in _reports|sort(attribute='date', reverse=true) %}
+            <div class="ax-rep-card">
+              <a class="ax-rep-open" href="{{ '/w/' ~ view.client ~ '/report/' ~ r.id }}" target="_blank" rel="noopener">
+                <span class="ax-rep-eyebrow">Meeting deck</span>
+                <span class="ax-rep-date">{{ r.date|atrium_date }}</span>
+                <span class="ax-rep-title">{{ r.title }}</span>
+              </a>
+              {% if is_superadmin %}<button class="ax-rep-del" type="button" data-repdel="{{ r.id }}" title="Delete this report">&times;</button>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="ax-rep-empty">
+            No decks here yet.{% if is_superadmin %} Generate the first one - it drafts itself from the dashboard, Market Intelligence, Watcher and the task board.{% endif %}
+          </div>
+          {% endif %}
+        </section>
+
         <!-- ============ NOTIFICATION SETTINGS ============ -->
         {#- ============ PROGRESS (the client-facing read-only delivery board) ============
            Renders ONLY what main._progress_tasks shaped: client_facing tasks, client-safe fields.
@@ -3982,7 +4069,8 @@
   var titles = {
     overview: "Overview", dashboard: "Dashboard", leadgen: "Paid Media",
     organic: "Organic Content", calendar: "Content Calendar",
-    conversations: "Communications", intel: "Market Intelligence", progress: "Tasks",
+    conversations: "Communications", intel: "Market Intelligence", reports: "Reports",
+    progress: "Tasks",
     settings: "Notification settings", "website-health": "Website Health", watcher: "Watcher",
     assistant: "Assistant", mail: "Mail"
   };
@@ -3993,6 +4081,7 @@
     calendar: "Tracking the work from kickoff to delivered, paid and organic publish dates included.",
     conversations: "One running record of every conversation so nothing gets lost.",
     intel: "Your weekly briefing: what's moving in your industry and the platform updates worth acting on.",
+    reports: "Every meeting deck in one place, newest first.",
     progress: "Everything we're building for you and exactly where each piece stands.",
     settings: "Choose what AGORA emails you about. Everything still appears here in your workspace either way."
   };
@@ -5457,6 +5546,64 @@
       return b;
     }
 
+    // ---- Action proposals -> the approval card. The model only PROPOSES; nothing runs until a
+    // human clicks Approve, which POSTs op=execute (the server re-validates + re-checks the gate).
+    function makeActionRow(act) {
+      var row = document.createElement("div"); row.className = "ax-as-act";
+      var main = document.createElement("div"); main.className = "ax-as-act-main";
+      var lab = document.createElement("div"); lab.className = "ax-as-act-label";
+      lab.textContent = act.label || act.action;
+      main.appendChild(lab);
+      if (act.note) {
+        var n = document.createElement("div"); n.className = "ax-as-act-note";
+        n.textContent = act.note; main.appendChild(n);
+      }
+      var btns = document.createElement("div"); btns.className = "ax-as-ctrl";
+      var ok = mini("Approve", true), no = mini("Dismiss", false);
+      btns.appendChild(ok); btns.appendChild(no);
+      var status = document.createElement("div"); status.className = "ax-as-act-status";
+      row.appendChild(main); row.appendChild(btns); row.appendChild(status);
+      no.addEventListener("click", function () {
+        btns.innerHTML = ""; status.textContent = "Dismissed.";
+      });
+      ok.addEventListener("click", function () {
+        ok.setAttribute("disabled", "disabled"); no.setAttribute("disabled", "disabled");
+        status.textContent = "Running…";
+        post("/admin/assistant", { op: "execute",
+          action: JSON.stringify({ action: act.action, params: act.params, note: act.note }) })
+          .then(function (r) {
+            btns.innerHTML = "";
+            row.classList.add(r.ok ? "is-ok" : "is-fail");
+            status.textContent = r.message || (r.ok ? "Done." : "Failed.");
+            history.push({ role: "bot", text: (r.ok ? "Approved: " : "Failed: ") +
+                           (r.message || act.label) });
+            saveHistory(); saveConversation();
+          })
+          .catch(function () {
+            ok.removeAttribute("disabled"); no.removeAttribute("disabled");
+            status.textContent = "Request failed - try again.";
+          });
+      });
+      return row;
+    }
+    function makeActionsCard(payload) {
+      var acts = (payload && payload.actions) || [];
+      var errs = (payload && payload.errors) || [];
+      if (!acts.length && !errs.length) { return null; }
+      var card = document.createElement("div"); card.className = "ax-as-actions";
+      var head = document.createElement("div"); head.className = "ax-as-act-head";
+      head.textContent = "Proposed actions - nothing runs until you approve";
+      card.appendChild(head);
+      var i;
+      for (i = 0; i < acts.length; i++) { card.appendChild(makeActionRow(acts[i])); }
+      for (i = 0; i < errs.length; i++) {
+        var e = document.createElement("div"); e.className = "ax-as-act-err";
+        e.textContent = "Skipped an invalid proposal: " + errs[i];
+        card.appendChild(e);
+      }
+      return card;
+    }
+
     // Replay the current-session conversation; otherwise open with the surface's greeting.
     function replayTurns(turns) {
       var si;
@@ -5561,7 +5708,7 @@
       ctrl.appendChild(pauseBtn);
 
       var rawAnswer = "", thinkText = "";
-      var gotThinking = false, gotAnswer = false, sources = null;
+      var gotThinking = false, gotAnswer = false, sources = null, actions = null;
       var finished = false, paused = false;
       var ac = null;
 
@@ -5577,6 +5724,7 @@
         if (isError) { bubble.classList.add("is-err"); answer.textContent = msg || "Could not answer. Please try again."; return; }
         answer.innerHTML = mdToHtml(rawAnswer);
         var srow = makeSourcesRow(sources); if (srow) { bubble.appendChild(srow); }
+        var acard = makeActionsCard(actions); if (acard) { bubble.appendChild(acard); }
         history.push({ role: "bot", text: rawAnswer }); saveHistory();
         saveConversation();   // persist to the team-shared server history
         log.scrollTop = log.scrollHeight;
@@ -5593,6 +5741,8 @@
           rawAnswer += (payload.text || "");
           answer.innerHTML = mdToHtml(rawAnswer); answer.appendChild(cursor);
           log.scrollTop = log.scrollHeight;
+        } else if (ev === "actions") {
+          actions = payload;   // validated proposals; rendered as the approval card on finish
         } else if (ev === "usage") {
           if (assistCost && payload.usage) { assistCost.note(payload.usage, payload.totals); }
         } else if (ev === "error") { finish(true, payload.message); }
@@ -7376,6 +7526,52 @@
           var section = b.getAttribute("data-bulkclear");
           checksFor(section).forEach(function (c) { c.checked = false; });
           syncBar(section);
+        });
+      });
+    })();
+
+    // --- Reports: generate a new deck / delete one (team-only controls on the Reports tab) ---
+    (function () {
+      var pane = document.querySelector('[data-pane="reports"]');
+      if (!pane) { return; }
+      var gen = pane.querySelector("[data-repgen]");
+      var msg = pane.querySelector("[data-repmsg]");
+      function say(text, bad) {
+        if (msg) { msg.textContent = text || ""; msg.style.color = bad ? "#B3261E" : ""; }
+      }
+      if (gen) {
+        gen.addEventListener("click", function () {
+          var d = pane.querySelector("[data-repdate]");
+          var t = pane.querySelector("[data-reptitle]");
+          gen.setAttribute("disabled", "disabled");
+          say("Drafting the deck from everything in this workspace. This can take a minute…");
+          post("/admin/report", { op: "generate", date: (d && d.value) || "",
+                                  title: (t && t.value) || "" })
+            .then(function (r) {
+              if (!r.ok) {
+                gen.removeAttribute("disabled");
+                say(r.message || "Could not generate the report.", true);
+                return;
+              }
+              window.location.reload();
+            })
+            .catch(function () {
+              gen.removeAttribute("disabled");
+              say("Could not generate (network error).", true);
+            });
+        });
+      }
+      qsa("[data-repdel]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          axConfirm({ title: "Delete this report?",
+                      message: "It moves to the Bin and can be restored from there." }, function () {
+            post("/admin/report", { op: "delete", id: btn.getAttribute("data-repdel") })
+              .then(function (r) {
+                if (!r.ok) { say(r.message || "Could not delete.", true); return; }
+                window.location.reload();
+              })
+              .catch(function () { say("Could not delete (network error).", true); });
+          });
         });
       });
     })();

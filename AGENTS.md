@@ -104,7 +104,9 @@ auto-refresh (see those bullets below). Product name is one constant:
   and optional uploaded-creative `image_object`/`image_mime`),
   `calendar[]`, `conversations[]` (`client`/`agora` messages), `intel`
   (`business_research[]`/`media_buying[]`, each entry `heading`/`title`/`body`/`source`/`link`/`date`)
-  for the Market Intelligence tab, per-user `notify` prefs,
+  for the Market Intelligence tab, `reports[]` (the Reports tab's small index — each entry
+  `id`/`title`/`date`/`origin`/`payload`; the rendered deck HTML is its OWN object, see the
+  Reports bullet), per-user `notify` prefs,
   and `website_health` (`url`/`notes`/`last_check`) for the team-only Website Health tab.
 - **Website Health is a TEAM-ONLY tab (admins see it, THE super admin edits):** an extra nav tab +
   pane rendered ONLY for `is_superadmin()` (never shown to clients — the nav, the pane, AND the
@@ -270,6 +272,33 @@ auto-refresh (see those bullets below). Product name is one constant:
   Vertex code paths run off-cloud with a `gcloud auth print-access-token` token. Off-cloud test:
   `dash/_assistant_localtest.py` (in CI). The Watcher tab also gained a Looker-style upload-date
   range control (presets + custom from/to) that filters videos and creators client-side.
+  - **The distilled layer (`digest.py`, 2026-07-29, INDEX_VERSION 4):** the Assistant is fed
+    INSIGHTS, not raw dumps. `digest.py` (pure, stdlib) derives titled sections from raw data:
+    the dashboard export becomes overview/campaigns/creatives/trend/audience/email sections
+    (handles BOTH shapes — the template `kpis`/`daily` contract AND the Windsor-live per-ad/day
+    `rows` export, which previously indexed as ONE opaque JSON dump the retriever matched on
+    noise); the Communications timeline, the task board (each task chunk carries its id so the
+    Assistant can act on it) and the Reports payloads are now indexed too, plus rolling
+    intel/comms/board snapshot chunks for broad questions. Chunks carry `level`
+    (`digest`|`full`) + `parent`: a video's cached AI summary or an email card is the DIGEST, the
+    transcript/thread chunks are its FULL siblings, and `_expand_hits` (small-to-big retrieval)
+    unfolds the best full siblings behind a top-ranked digest hit — compact context by default,
+    the whole document when the question needs it. Per-video summaries are written by
+    `assistant_ai.summarize_videos` ONLY on the explicit Reindex (capped batch/run, stored into
+    the archive objects) so chat latency never pays for them. `fingerprint` also stamps the
+    dashboard blob's last-modified (`main._dash_stamp`) — before that a refreshed dashboard never
+    re-indexed until some other source moved.
+  - **Assistant ACTIONS (propose → approve → execute, 2026-07-29):** the Assistant can do
+    anything an admin can do — but ONLY by proposing. `assistant_actions.py` is the one registry
+    (add/move/complete/comment task, calendar event, intel add/edit/delete, log communication,
+    website check + notes (root-gated), generate/edit/rename/delete report, reindex; adding an
+    action = one `_ACTIONS` entry + one executor). The model emits proposals after its answer via
+    the `===ATRIUM_ACTIONS===` marker protocol (`assistant_ai.split_actions` / the `_ActionTail`
+    stream filter keep it off-screen); the server VALIDATES each against the registry and the UI
+    renders approval cards — **nothing executes until a human clicks Approve** (`op=execute` on
+    `/w/<c>/admin/assistant` re-validates + re-checks the role gate; root-gated actions require
+    `is_root_admin`). Every executor calls the SAME `workspace.py` writers the human forms call
+    (the Sentinel-bridge rule), and every approval is `_audit`ed.
   The same chat is ALSO a **floating bubble** (team-only FAB bottom-right, Mastery-Engine style,
   brand-green 72px since 2026-07-13 — and the PRIMARY surface now that the nav tab is gone)
   reachable from every tab: one `wireAssistantChat` wiring in `atrium.html` serves both surfaces
@@ -478,6 +507,26 @@ auto-refresh (see those bullets below). Product name is one constant:
     now; **rerun after any `intel_feed`/`intel_refresh`/`intel_ai` change** — image-pinned) AND
     `deploy_dash_platform.ps1` (the web service's Refresh-now runs `refresh_client` in-process).
     Off-cloud tests: `dash/_intel_feed_localtest.py` + `dash/_intel_ai_localtest.py` (inject fetchers).
+- **Reports is a CLIENT-VISIBLE, TEAM-GENERATED tab (every meeting deck, date-first; 2026-07-29):**
+  a `reports` nav tab (between Communications and Tasks) listing every presentation as a card whose
+  face is the presentation DATE (newest first); clicking opens a **self-contained HTML deck**
+  (scroll-snap slides, zero JS, no external assets — HTML over Google Slides on purpose: no new
+  infra and it matches the Riverdance deck pattern) served ONLY through the authed
+  `GET /w/<c>/report/<id>` (no-store; a missing object re-renders lazily from the stored payload,
+  so a Trash restore never 404s). Fixed slide flow: Cover (the date) → **The Landscape** (Business
+  Research | Media Buying News | **Market Voices** — what watched competitors/creators are talking
+  about) → **What Happened** (stat tiles + narrative, with a **What's Working** subsection) →
+  **Why It Happened** → **What We Should Do** → **What We Need From You** (client asks + blocked
+  work). `report_ai.py` owns it: `gather` pulls from the SAME distilled layer the Assistant reads
+  (digest sections, intel entries, watcher summaries, board asks), `generate` has the configured
+  model write the slide payload as JSON (no model ⇒ an honest deterministic draft — never blocks),
+  `revise` applies an edit instruction (the Assistant's edit-report action), `render_html` renders
+  any payload. State: `ws["reports"]` index entries (payload included, so decks re-render and the
+  Assistant indexes what we told the client) + per-deck HTML objects
+  `workspace/reports/<c>/<id>.html` (`workspace.add/update/delete/insert_report`,
+  `read/write_report_html`). Team ops `POST /w/<c>/admin/report` (op generate|rename|delete —
+  delete soft-deletes to the Bin, kind `report`); clients read only. Off-cloud test:
+  `dash/_report_localtest.py` (in CI, also covers `digest.py`).
 - **Task tracker = the internal Delivery board + the client Tasks tab, ONE data source**
   (spec: `TASK_TRACKER_INTEGRATION.md`, extended 2026-07-14 with the two-level breakdown +
   dates/charge): `ws["tasks"]` per client — a task ("service") is a deliverable travelling
@@ -573,7 +622,8 @@ auto-refresh (see those bullets below). Product name is one constant:
   removed** — the floating bubble (FAB) is the chat surface; the `/w/<c>/assistant` route + pane
   still exist (reachable by URL, keeps the date-range + reindex controls).
 - **Routes (all behind existing session auth):** client `GET /w/<c>/` + `/w/<c>/<tab>` (overview,
-  dashboard, leadgen, organic, calendar, conversations, intel, settings) gated `authed()`+`can_open(<c>)`;
+  dashboard, leadgen, organic, calendar, conversations, intel, reports, settings) gated
+  `authed()`+`can_open(<c>)`;
   client POSTs `/w/<c>/{approve,request-changes,save-note,comment,send-message,save-notify,logo}` +
   creative GET above; team-only POSTs `/w/<c>/resolve-comment` + `/w/<c>/admin/*` gated `is_superadmin()`. The team console
   (`GET /admin/atrium`, gated `is_superadmin()`) is a **focused console** (the old "Your Agora suite"
