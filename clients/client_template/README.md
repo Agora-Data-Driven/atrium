@@ -161,3 +161,25 @@ clients/client_template/
                              + platform_sso.py + Dockerfile + deploy_dash_template.ps1
   data/                      local scratch for the JSON during dev (gitignored)
 ```
+
+## Gotchas / DO-NOT-TOUCH
+
+- **Never rename a contract key in one stage only** — the three stages match BY NAME (see the
+  contract section above); a rename is a three-file change or a breakage.
+- **Inline JS is esprima-4.x-safe** (no `?.` / `??`) — `tools/_validate_dash_js.py` gates it; pass
+  THIS client's `dash/dashboard.html` path explicitly (a bare run only checks the template copy —
+  which here is the same file, but copies must pass their own path).
+- **`FORCE_REBUILD=1` is mandatory for view-only / code / seed changes** (they don't advance the
+  watermark — see the dedicated section above).
+- **Never edit views in the BigQuery console** — `sql/*.sql` + `create_views.py` are the source of
+  truth. Never `--allow-unauthenticated`; never Cloud Build a deploy from a laptop.
+- `freshness.py` and `platform_sso.py` are **vendored byte-identically** into every client — fix
+  them everywhere or nowhere.
+
+## Status (volatile)
+
+The shipped `template` client (dataset `client_template`, service `template-dash`) is the worked
+example, filtered out of the portal console's client cards. Copying this directory + running
+`deploy_template.ps1` is the standup path for every new BQ 3-stage client. Per-client live status
+belongs in each client's own README (see [`../README.md`](../README.md) for the index; verified
+2026-07-29).

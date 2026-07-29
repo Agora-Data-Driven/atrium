@@ -392,7 +392,7 @@ SORTS = {
 
 JOB_COLS = ("id,date,title,url,category,budget_type,rate_min,rate_max,fixed_budget,"
             "level,contract_to_hire,skills,description,feed,country,rating,reviews,"
-            "client_jobs,hire_rate,avg_rate,spent,verified,tags")
+            "client_jobs,hire_rate,avg_rate,spent,verified,tags,dup_count")
 
 
 def _jobs_select(where, order):

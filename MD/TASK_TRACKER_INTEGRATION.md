@@ -7,7 +7,6 @@
 > guards, Bin restore (`kind:"task"`), audit entries, and the `_atrium_smoketest.py` coverage
 > (routes, gating, no-leak render) are all in place and passing. The §13 prompts remain useful as
 > the per-phase review map. Original instruction set below, unchanged.
-> Companion planning docs: `ATRIUM_CONSOLE_REDESIGN_PLAN.md`.
 > **Design contract:** §14 is the pixel-level spec (tokens + component specs) taken from the two
 > prototypes — build/verify the UI against it.
 
@@ -163,6 +162,11 @@ Port from `task_tracker_prototype.html` — its CSS already uses those tokens.
 **Stage guards** (optional, from the matrix prototype — port if wanted): block `→ launched` unless
 billing/paid or launch conditions met; block `→ closed` while any sub-task/task is still open. Show a
 clear message listing what to resolve.
+
+> **As built (2026-07-28): there are NO stage guards.** The close guard shipped, then came out —
+> a drop that bounces back reads as a broken board. Blockers are surfaced on the card (progress
+> bar, "Changes requested" tag), never enforced. `move_task_stage` still raises `ValueError` in
+> principle and both routes still catch it, so re-introducing a guard needs no route change.
 
 ---
 

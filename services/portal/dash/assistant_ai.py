@@ -1,14 +1,24 @@
 """The Atrium Assistant (team-only tab): retrieval-augmented chat over EVERYTHING in a workspace.
 
 Sources it reads (all already in the portal's hands, no new database):
-  * Watcher transcript archives  -- every video's transcript, chunked ~1000 words
-  * Market Intelligence          -- every briefing entry (both sections)
+  * Watcher transcript archives  -- every video's transcript, chunked ~1000 words, PLUS a cached
+                                    per-video AI summary (digest chunk) once summarize_videos ran
+  * Market Intelligence          -- every briefing entry (both sections) + a rolling digest
   * Campaigns + content          -- strategy, AI summary, every piece + its comments
   * Workspace metrics            -- the metrics/today/split snapshot the client sees
   * Content calendar + client conversations + website health notes
-  * Client dashboard data        -- the per-client `<c>.json` KPI export (OPT-IN: needs the portal
-                                    SA granted objectViewer on the client's dash bucket — run
-                                    enable_assistant_dash_data.ps1; absent access is skipped).
+  * Communications timeline      -- every card (email/upwork/slack/meeting/call/note) + a snapshot
+  * Delivery board tasks         -- one compact chunk per task (with its id) + a board snapshot
+  * Generated client reports     -- each deck's payload (what we told the client, and when)
+  * Client dashboard data        -- the per-client `<c>.json` export, indexed as DERIVED insight
+                                    sections (digest.dashboard_sections), never a raw JSON dump
+                                    (OPT-IN: needs the portal SA granted objectViewer on the
+                                    client's dash bucket — run enable_assistant_dash_data.ps1;
+                                    absent access is skipped).
+
+Beyond answering, the assistant can PROPOSE workspace actions (add/move tasks, edit intel, build
+or edit a report, ...) via the ===ATRIUM_ACTIONS=== protocol below — proposals are validated and
+EXECUTED ONLY after a human approves (assistant_actions.py owns the registry + executors).
 
 How it works (deliberately no new infra -- mirrors the workspace-JSON posture):
   1. `build_chunks` flattens every source into small text chunks with a kind/title/date.
@@ -50,6 +60,8 @@ import math
 import re
 import struct
 
+import digest
+
 # Small, boring stopword list -- enough to keep BM25 focused without a dependency.
 _STOP = frozenset(
     "a an and are as at be but by for from has have how i if in into is it its me my not of on or "
@@ -59,8 +71,10 @@ _STOP = frozenset(
 CHUNK_WORDS = 1000          # transcript chunk size (words)
 TOP_K = 18                  # excerpts handed to the model per question
 MAX_CONTEXT_CHARS = 90000   # hard cap on packed context (stays well inside Gemini's window)
-INDEX_VERSION = 3           # bump to force a one-time rebuild when the index SHAPE changes
-                            # (v3: titles are indexed/embedded, so retrieval finds entities by name)
+INDEX_VERSION = 4           # bump to force a one-time rebuild when the index SHAPE changes
+                            # (v4: the distilled layer -- dashboard digests instead of raw JSON,
+                            #  communications/tasks/reports indexed, video summary chunks with
+                            #  parent pointers for small-to-big expansion)
 
 
 def _tokens(text):
@@ -83,34 +97,59 @@ def _searchable(chunk):
 
 
 # --- 1. Flatten the workspace into chunks ---------------------------------------------------------
+# Chunks come in two LEVELS (the small-to-big / parent-document retrieval pattern):
+#   * "digest" -- a distilled insight chunk (a video's AI summary, a communication card, a computed
+#     dashboard section). Small, high-signal, what retrieval should usually surface.
+#   * "full"   -- the underlying raw material (transcript excerpts, full email thread text). A
+#     digest chunk carries a `parent` id shared with its full chunks, so _expand_hits can UNFOLD
+#     the full document behind a top-ranked digest when the question needs the detail.
+# Level-less chunks (metrics, calendar, ...) have no hierarchy and behave exactly as before.
 def build_chunks(ws, archives, dash_data=None, mail_threads=None):
-    """Every source in the workspace as a flat list of {id, kind, title, url, date, text} chunks.
+    """Every source in the workspace as a flat list of
+    {id, kind, title, url, date, text[, parent, level]} chunks.
 
     `archives` is [(channel_entry, videos), ...] -- the Watcher registry entries with their video
     lists (loaded by the caller so this stays I/O-free). `dash_data` is the optional client
-    dashboard JSON (None when the bucket isn't readable). `mail_threads` is the optional list of
+    dashboard JSON (None when the bucket isn't readable) -- indexed as DERIVED insight sections
+    (digest.dashboard_sections), never as a raw JSON dump. `mail_threads` is the optional list of
     loaded Mail thread archives (subject + full messages), so the chat can answer over the
     client's actual email correspondence too."""
     chunks = []
 
-    def add(cid, kind, title, text, url="", date=""):
+    def add(cid, kind, title, text, url="", date="", parent="", level=""):
         text = (text or "").strip()
         if text:
-            chunks.append({"id": cid, "kind": kind, "title": title, "url": url,
-                           "date": date, "text": text})
+            c = {"id": cid, "kind": kind, "title": title, "url": url,
+                 "date": date, "text": text}
+            if parent:
+                c["parent"] = parent
+            if level:
+                c["level"] = level
+            chunks.append(c)
 
-    # Watcher transcripts, chunked so one video can yield several retrievable excerpts.
+    # Watcher transcripts. Each video with a cached AI summary gets a compact DIGEST chunk (the
+    # usual retrieval target); the raw transcript stays indexed as FULL chunks under the same
+    # parent id, so a strong digest hit can unfold the actual words (small-to-big).
     for ch, videos in archives or []:
         cname = ch.get("title", "channel")
         for v in videos:
+            vparent = "yt:%s:%s" % (ch.get("id", ""), v.get("id", ""))
+            summary = (v.get("summary") or "").strip()
+            if summary:
+                add("yts:%s:%s" % (ch.get("id", ""), v.get("id", "")),
+                    "video", "%s — %s (summary)" % (cname, v.get("title", "")),
+                    summary, url=v.get("url", ""), date=v.get("published", ""),
+                    parent=vparent, level="digest")
             words = (v.get("transcript") or "").split()
             for i in range(0, len(words), CHUNK_WORDS):
                 part = " ".join(words[i:i + CHUNK_WORDS])
-                add("yt:%s:%s:%d" % (ch.get("id", ""), v.get("id", ""), i // CHUNK_WORDS),
+                add("%s:%d" % (vparent, i // CHUNK_WORDS),
                     "video", "%s — %s" % (cname, v.get("title", "")),
-                    part, url=v.get("url", ""), date=v.get("published", ""))
+                    part, url=v.get("url", ""), date=v.get("published", ""),
+                    parent=vparent, level="full")
 
-    # Market Intelligence briefing entries.
+    # Market Intelligence briefing entries, plus one rolling digest of the freshest items (the
+    # single strong hit for broad "what's happening out there?" questions).
     intel = ws.get("intel") or {}
     for section, label in (("business_research", "Business Research"),
                            ("media_buying", "Media Buying News")):
@@ -120,6 +159,10 @@ def build_chunks(ws, archives, dash_data=None, mail_threads=None):
                 " ".join(filter(None, [e.get("title", ""), e.get("body", ""),
                                        e.get("relevance", ""), "Source: " + (e.get("source") or "")])),
                 url=e.get("link", ""), date=e.get("date", ""))
+    idig = digest.intel_digest(ws)
+    if idig:
+        add("intel:digest", "intel", "Market Intelligence digest (latest items, both sections)",
+            idig)
 
     # Campaigns: strategy + AI summary, then every content piece with its status and comments.
     for camp in ws.get("campaigns") or []:
@@ -168,6 +211,41 @@ def build_chunks(ws, archives, dash_data=None, mail_threads=None):
             "Site: %s. Notes: %s. Last check: %s"
             % (wh.get("url", ""), wh.get("notes", ""), json.dumps(wh.get("last_check") or {})))
 
+    # The unified Communications timeline: every card (email/upwork/slack/meeting/call/note) is a
+    # DIGEST chunk; an email/upwork card points at its full thread archive (parent mail:<key>) so
+    # the small-to-big expansion can unfold the actual correspondence. One computed snapshot chunk
+    # answers the broad "what's the latest with this client?" in a single hit.
+    for it in ws.get("communications") or []:
+        parent = ("mail:%s" % it.get("thread_key")) if it.get("thread_key") else ""
+        add("comm:%s" % it.get("id", ""), "comms",
+            "Communication (%s): %s" % (it.get("channel") or "note", it.get("title") or ""),
+            " ".join(filter(None, [
+                "Audience: %s." % ("team-only" if it.get("audience") == "team"
+                                   else "client-visible"),
+                ("People: %s." % it.get("people")) if it.get("people") else "",
+                it.get("summary") or ""])),
+            date=(it.get("date") or "")[:10], parent=parent, level="digest" if parent else "")
+    csnap = digest.comms_snapshot(ws)
+    if csnap:
+        add("comms:snapshot", "comms", "Communications overview (all channels, latest first)",
+            csnap)
+
+    # The delivery board: one compact chunk per task (id included, so the assistant can PROPOSE
+    # precise actions on it) + a board snapshot. Tasks are deliberately UNDATED chunks -- a
+    # date-range scope on transcripts must never make the task list invisible.
+    for t in ws.get("tasks") or []:
+        add("task:%s" % t.get("id", ""), "task",
+            "Task: %s" % (t.get("title") or "(untitled)"), digest.task_text(t))
+    tsnap = digest.tasks_snapshot(ws)
+    if tsnap:
+        add("tasks:board", "task", "Delivery board snapshot (stages, blockers, launches)", tsnap)
+
+    # Generated client reports: what we told (or will tell) the client, and when.
+    for r in ws.get("reports") or []:
+        add("report:%s" % r.get("id", ""), "report",
+            "Client report: %s (%s)" % (r.get("title") or "report", (r.get("date") or "")[:10]),
+            _flatten_text(r.get("payload") or {}), date=(r.get("date") or "")[:10])
+
     # Client email threads (the Mail tab's archive), chunked like transcripts so one long thread
     # can yield several retrievable excerpts. The summary rides along for cheap high-level hits.
     snapshot = []
@@ -188,44 +266,67 @@ def build_chunks(ws, archives, dash_data=None, mail_threads=None):
             body_lines.append("From %s on %s: %s" % (m.get("from", ""), (m.get("date") or "")[:10],
                                                      m.get("body", "")))
         words = "\n".join(body_lines).split()
+        mparent = "mail:%s" % t.get("id", "")
         for i in range(0, len(words), CHUNK_WORDS):
-            add("mail:%s:%d" % (t.get("id", ""), i // CHUNK_WORDS), "email",
+            add("%s:%d" % (mparent, i // CHUNK_WORDS), "email",
                 "%s — %s" % (head, t.get("subject", "")),
-                " ".join(words[i:i + CHUNK_WORDS]), date=(t.get("last_date") or "")[:10])
+                " ".join(words[i:i + CHUNK_WORDS]), date=(t.get("last_date") or "")[:10],
+                parent=mparent, level="full")
     # One computed responsiveness snapshot across ALL threads, so "how well are we handling this
     # client's email?" retrieves real numbers (reply speed, threads left hanging) in one hit.
     if snapshot:
         add("mail:responsiveness", "email",
             "Email responsiveness snapshot (reply speed, who owes whom)", "\n".join(snapshot))
 
-    # The client dashboard KPI export (opt-in source; None when unreadable).
-    if dash_data:
-        kpis = dash_data.get("kpis")
-        if kpis:
-            add("dash:kpis", "dashboard", "Dashboard KPIs", json.dumps(kpis))
-        daily = dash_data.get("daily")
-        if daily:
-            add("dash:daily", "dashboard", "Dashboard daily performance",
-                json.dumps(daily[-120:]))  # most recent ~4 months keeps the chunk sane
+    # The client dashboard export (opt-in source; None when unreadable) -- indexed as DERIVED
+    # insight sections (totals/momentum, campaigns, creatives, weekly trend, audience, email),
+    # never as a raw JSON dump: focused sections retrieve on merit and leave context budget for
+    # other sources, where one 5,000-row dump matched on noise and drowned the prompt.
+    for sid, title, text in digest.dashboard_sections(dash_data or {}):
+        add("dash:%s" % sid, "dashboard", title, text)
 
     return chunks
 
 
-def fingerprint(ws, archives):
-    """A cheap change-detector for the index: rebuild whenever any source moved."""
+def _flatten_text(v):
+    """A report payload (nested dicts/lists of strings) as flat searchable text."""
+    if isinstance(v, str):
+        return v.strip()
+    if isinstance(v, dict):
+        return " ".join(filter(None, ("%s: %s" % (k, _flatten_text(x)) for k, x in v.items())))
+    if isinstance(v, list):
+        return " ".join(filter(None, (_flatten_text(x) for x in v)))
+    return "" if v is None else str(v)
+
+
+def fingerprint(ws, archives, dash_stamp=None):
+    """A cheap change-detector for the index: rebuild whenever any source moved.
+
+    `dash_stamp` is the dashboard export's last-modified marker (blob metadata, probed by the
+    caller) -- without it a refreshed dashboard never re-indexed until some other source moved."""
     import hashlib
     intel = ws.get("intel") or {}
     desc = {
         "watcher": [(ch.get("id"), ch.get("transcript_count"), ch.get("last_fetch"))
                     for ch, _v in archives or []],
+        # Cached per-video AI summaries change the chunk set without touching the registry entry.
+        "summaries": [(ch.get("id"), sum(1 for v in vids or [] if v.get("summary")))
+                      for ch, vids in archives or []],
         "intel": [len(intel.get("business_research") or []), len(intel.get("media_buying") or [])],
         "campaigns": [(c.get("id"), len(c.get("content") or [])) for c in ws.get("campaigns") or []],
         "metrics": ws.get("metrics"),
         "calendar": len(ws.get("calendar") or []),
         "conversations": [(c.get("id"), len(c.get("messages") or []))
                           for c in ws.get("conversations") or []],
+        "communications": [(c.get("id"), c.get("date"), len(c.get("summary") or ""))
+                           for c in ws.get("communications") or []],
+        "tasks": [(t.get("id"), t.get("stage"), len(t.get("comments") or []), t.get("due_date"))
+                  for t in ws.get("tasks") or []],
+        "reports": [(r.get("id"), r.get("updated_at") or r.get("created_at"))
+                    for r in ws.get("reports") or []],
         "mail": [(t.get("id"), t.get("message_count"), t.get("last_date"))
                  for t in ((ws.get("mail") or {}).get("threads") or [])],
+        "dash": dash_stamp,
     }
     return hashlib.md5(json.dumps(desc, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
@@ -343,7 +444,7 @@ def has_embeddings(index):
 # --- 2c. Metadata filtering -----------------------------------------------------------------------
 # All source kinds the chunker emits (used to validate an inferred single-source filter).
 _KINDS = {"video", "intel", "campaign", "content", "metrics", "calendar", "conversation",
-          "website", "email", "dashboard"}
+          "website", "email", "dashboard", "comms", "task", "report"}
 
 # Conservative source inference: a phrase group -> the chunk kinds it means. Pre-filtering is
 # POWERFUL but dangerous (wrongly excluding relevant chunks), so we only ever apply it when EXACTLY
@@ -351,11 +452,16 @@ _KINDS = {"video", "intel", "campaign", "content", "metrics", "calendar", "conve
 # -- a cross-source question ("campaigns vs what creators say") matches several groups and stays
 # unfiltered. `ask` also relaxes the filter if it would leave nothing eligible.
 _KIND_HINTS = (
-    (("email", "inbox", "reply", "replied", "responsiveness", "correspond"), {"email"}),
+    (("email", "inbox", "reply", "replied", "responsiveness", "correspond"),
+     {"email", "comms"}),
     (("transcript", "video", "youtube", "creator", "episode", "watched"), {"video"}),
     (("market intelligence", "industry news", "competitor news", "briefing", "the news"), {"intel"}),
     (("campaign", "content piece", "ad copy", "creative", "caption"), {"content", "campaign"}),
     (("dashboard", "kpi", "roas", "cpl", "cost per lead", "spend"), {"dashboard", "metrics"}),
+    (("meeting", "call notes", "upwork", "communication", "told the client", "client said"),
+     {"comms", "email", "conversation"}),
+    (("task", "tasks", "deliverable", "blocked", "to-do", "delivery board"), {"task"}),
+    (("report", "presentation", "deck", "slides"), {"report"}),
 )
 
 
@@ -498,6 +604,52 @@ class _Retriever:
         return [i for _s, i in scored]
 
 
+# --- 2e. Small-to-big expansion -------------------------------------------------------------------
+# Digest chunks retrieve BEST (small, high-signal) but sometimes the answer needs the words behind
+# them ("what exactly did they say?"). When a top hit is a digest with a `parent`, unfold the most
+# question-relevant FULL chunks under the same parent into the context -- compact by default, the
+# whole document when it matters. Bounded so expansion can never crowd out source diversity.
+_EXPAND_TOP = 4        # only the best few digest hits are expanded
+_EXPAND_PER = 2        # full sibling chunks pulled in per expanded hit
+_EXPAND_BUDGET = 30000  # total chars of expansion text
+
+
+def _expand_hits(index, hits, question):
+    """`hits` with each top digest hit followed by its best full-text siblings. Pure; no I/O."""
+    chunks = index.get("chunks") or []
+    by_parent = {}
+    for i, c in enumerate(chunks):
+        if c.get("level") == "full" and c.get("parent"):
+            by_parent.setdefault(c["parent"], []).append(i)
+    if not by_parent:
+        return hits
+    have = {c.get("id") for c in hits}
+    retr = _Retriever(index)
+    out, used, expanded = [], 0, 0
+    for c in hits:
+        out.append(c)
+        parent = c.get("parent")
+        if (c.get("level") != "digest" or not parent or parent not in by_parent
+                or expanded >= _EXPAND_TOP or used >= _EXPAND_BUDGET):
+            continue
+        siblings = by_parent[parent]
+        ranked = retr.bm25(question, siblings) or siblings
+        added = 0
+        for i in ranked:
+            sib = chunks[i]
+            if sib.get("id") in have:
+                continue
+            out.append(sib)
+            have.add(sib.get("id"))
+            used += len(sib.get("text") or "")
+            added += 1
+            if added >= _EXPAND_PER or used >= _EXPAND_BUDGET:
+                break
+        if added:
+            expanded += 1
+    return out
+
+
 def _rrf(rankings, k=60, limit=None):
     """Reciprocal Rank Fusion of several ranked index-lists into one. Rank-only (score scales never
     fight): each list contributes 1/(k + rank) to an item's fused score. Returns fused indices desc."""
@@ -507,6 +659,53 @@ def _rrf(rankings, k=60, limit=None):
             scores[idx] = scores.get(idx, 0.0) + 1.0 / (k + rank + 1)
     fused = sorted(scores, key=lambda i: -scores[i])
     return fused[:limit] if limit else fused
+
+
+# --- 2f. Watcher video summaries (the hierarchical-summarization leg) -----------------------------
+# One cached AI summary per transcript, stored back INTO the archive object (v["summary"]) so it is
+# written once and indexed forever. Deliberately run ONLY from the explicit Reindex path (and the
+# report generator) -- never inside a chat request, where a batch of model calls would stall the
+# stream the way whole-corpus re-embedding once did.
+_SUMMARY_SYSTEM = (
+    "You distill a creator/competitor video transcript (or blog article) for a marketing agency's "
+    "intelligence archive. Write a compact plain-text summary: one line stating what the piece is "
+    "about, then 4-7 short bullet lines ('- ') with the concrete claims, strategies, numbers, and "
+    "recommendations it makes, then one line 'Takeaway: ...' with what a marketer should act on. "
+    "No preamble, no markdown headings, under 180 words.")
+
+SUMMARY_BATCH = 8           # summaries per reindex run (the rest catch the next run)
+_SUMMARY_MAX_WORDS = 9000   # transcript words handed to the summarizer
+
+
+def summarize_videos(archives, caller, cap=SUMMARY_BATCH):
+    """Fill missing `summary` fields on archived videos, at most `cap` model calls.
+
+    Mutates the video dicts IN PLACE and returns (updates, count, last_error) where `updates` maps
+    channel_id -> its (mutated) videos list, so the caller persists exactly the archives that
+    changed. `caller(system, user) -> (text, err)` is the model seam; any per-video failure is
+    skipped (retried on a later run) and never raises."""
+    updates, count, last_err = {}, 0, ""
+    for ch, videos in archives or []:
+        for v in videos or []:
+            if count >= cap:
+                return updates, count, last_err
+            transcript = (v.get("transcript") or "").strip()
+            if not transcript or (v.get("summary") or "").strip():
+                continue
+            body = " ".join(transcript.split()[:_SUMMARY_MAX_WORDS])
+            user = "Title: %s\nChannel/site: %s\n\nTranscript:\n%s" % (
+                v.get("title", ""), ch.get("title", ""), body)
+            try:
+                text, err = caller(_SUMMARY_SYSTEM, user)
+            except Exception as e:  # a summarizer crash must never sink the reindex
+                text, err = "", str(e)
+            if err or not (text or "").strip():
+                last_err = err or "empty summary"
+                continue
+            v["summary"] = text.strip()
+            updates[ch.get("id", "")] = videos
+            count += 1
+    return updates, count, last_err
 
 
 # BM25-only top-k (kept for callers/tests that want a single lexical ranking without the full ask
@@ -576,6 +775,96 @@ def _steer_note(steer):
         return ""
     return ("\n\nIMPORTANT — the AGORA team reviewed your approach and added this guidance. Follow "
             "it, and let it override your earlier direction where they conflict:\n%s" % steer[:1000])
+
+
+# --- Action proposals (propose -> approve -> execute) ---------------------------------------------
+# The assistant can DO things -- but only by PROPOSING them. When the team's message asks for a
+# change, the model appends a marker line + a JSON array of {action, params, note}; the server
+# validates each proposal against assistant_actions.ACTIONS and the UI renders approval cards.
+# NOTHING executes until a human clicks Approve (the Sentinel approval posture): the model has no
+# execute path at all, so a hallucinated or hostile proposal is inert by construction.
+ACTIONS_MARKER = "===ATRIUM_ACTIONS==="
+
+
+def _actions_note(catalog):
+    """The system-prompt suffix that teaches the model the proposal protocol. `catalog` is the
+    human-readable action list from assistant_actions.catalog_text(); empty = actions disabled."""
+    if not catalog:
+        return ""
+    return (
+        "\n\nYou can also PROPOSE workspace actions for the team to approve -- you cannot execute "
+        "anything yourself. Available actions:\n%s\n"
+        "When (and ONLY when) the team asks you to change something -- add or move a task, mark "
+        "one done, comment, edit market intelligence, log a communication, build or edit a "
+        "report, run a check -- finish your reply, then on a new line write exactly %s followed "
+        "by a JSON array like "
+        "[{\"action\": \"<name>\", \"params\": {...}, \"note\": \"one line on what this does\"}]. "
+        "Propose the minimal set of actions that fulfils the request, and use exact ids from the "
+        "excerpts when you have them (tasks state their id). Never say a change has been made -- "
+        "every proposal waits for the team's approval. If the message is only a question, do not "
+        "write the marker at all." % (catalog, ACTIONS_MARKER))
+
+
+def split_actions(text):
+    """Split an answer into (visible_text, proposals). Lenient like _parse_answer: fenced or
+    junk-wrapped JSON after the marker still parses; anything unparseable -> no proposals."""
+    text = text or ""
+    if ACTIONS_MARKER not in text:
+        return text, []
+    head, _sep, tail = text.partition(ACTIONS_MARKER)
+    raw = tail.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```[a-z]*\s*|\s*```$", "", raw, flags=re.I)
+    proposals = []
+    start = raw.find("[")
+    if start >= 0:
+        try:
+            parsed, _end = json.JSONDecoder(strict=False).raw_decode(raw, start)
+            if isinstance(parsed, list):
+                proposals = [p for p in parsed
+                             if isinstance(p, dict) and (p.get("action") or "").strip()]
+        except ValueError:
+            proposals = []
+    return head.rstrip(), proposals
+
+
+class _ActionTail:
+    """Streaming filter for the proposal block: forward answer deltas while holding back a small
+    tail (the marker could straddle two deltas), and once the marker appears, swallow the rest of
+    the stream as the proposal JSON. The UI never sees a half-rendered marker."""
+
+    _HOLD = len(ACTIONS_MARKER) + 2
+
+    def __init__(self):
+        self._buf = ""
+        self._tail = ""
+        self._in_actions = False
+
+    def feed(self, text):
+        """Forwardable visible text for this delta (may be '')."""
+        if self._in_actions:
+            self._tail += text
+            return ""
+        self._buf += text
+        p = self._buf.find(ACTIONS_MARKER)
+        if p >= 0:
+            visible = self._buf[:p].rstrip()
+            self._tail = self._buf[p + len(ACTIONS_MARKER):]
+            self._in_actions = True
+            self._buf = ""
+            return visible
+        if len(self._buf) <= self._HOLD:
+            return ""
+        visible, self._buf = self._buf[:-self._HOLD], self._buf[-self._HOLD:]
+        return visible
+
+    def finish(self):
+        """(remaining_visible_text, proposals) once the stream has ended."""
+        if self._in_actions:
+            _head, proposals = split_actions(ACTIONS_MARKER + self._tail)
+            return "", proposals
+        out, self._buf = self._buf, ""
+        return out, []
 
 
 _PLAN_SYSTEM = (
@@ -740,12 +1029,17 @@ def _retrieve(index, question, queries, depth, date_from, date_to, query_embedde
             except (TypeError, ValueError, KeyError):
                 pass
         fused = order or fused
-    return [chunks[i] for i in fused[:final]]
+    return _expand_hits(index, [chunks[i] for i in fused[:final]], question)
 
 
 def ask(client_name, index, question, history=None, date_from="", date_to="", model=None,
-        caller=None, usage_out=None, depth=DEFAULT_DEPTH, query_embedder=None, reranker=None):
+        caller=None, usage_out=None, depth=DEFAULT_DEPTH, query_embedder=None, reranker=None,
+        actions_catalog="", actions_out=None):
     """Answer `question` from the workspace index with HYBRID retrieval. Returns (answer, sources, error).
+
+    `actions_catalog` (assistant_actions.catalog_text()) enables the propose-actions protocol;
+    RAW proposals the model emitted are appended to the `actions_out` list (the caller validates
+    them against the registry before showing approval cards -- nothing here executes anything).
 
     `depth` ('quick'|'standard'|'deep') is the admin's detail control: deep query-plans first (an
     extra model call), retrieves wider, turns provider thinking ON, and asks for a structured
@@ -800,12 +1094,14 @@ def ask(client_name, index, question, history=None, date_from="", date_to="", mo
             seen.add(key)
             sources.append({"title": c["title"], "kind": c["kind"],
                             "date": c.get("date", ""), "url": c.get("url", "")})
-    raw, err = answer_call(_system_prompt(client_name, depth),
+    raw, err = answer_call(_system_prompt(client_name, depth) + _actions_note(actions_catalog),
                            _user_prompt(question, hits, history or []))
     if err:
         return "", sources, err
-    answer = _parse_answer(raw)
-    if not answer:
+    answer, proposals = split_actions(_parse_answer(raw))
+    if actions_out is not None:
+        actions_out.extend(proposals)
+    if not answer and not proposals:
         return "", sources, "The model returned an empty answer — try again."
     return answer, sources, ""
 
@@ -850,18 +1146,22 @@ def plan_stage(index, question, history=None, depth=DEFAULT_DEPTH, date_from="",
 
 def ask_stream(client_name, index, question, history=None, date_from="", date_to="",
                depth=DEFAULT_DEPTH, steer="", query_embedder=None, reranker=None,
-               plan_caller=None, stream_caller=None):
+               plan_caller=None, stream_caller=None, actions_catalog=""):
     """Stream an answer to `question`. A GENERATOR yielding event dicts (mirrors intel_ai.stream_call):
       {"type":"sources","sources":[...]}         -- retrieved citations (emitted first)
       {"type":"thinking","text":<delta>}         -- reasoning delta (the live think panel)
       {"type":"answer","text":<delta>}           -- answer delta (plain markdown)
+      {"type":"proposals","proposals":[...]}     -- RAW action proposals (only with actions_catalog;
+                                                    the caller validates before showing approvals)
       {"type":"usage", ...}                       -- token counts (from the provider, near the end)
       {"type":"error","message":<reason>}        -- a short reason; the stream then ends
 
     `steer` (from the plan checkpoint or a pause-and-restart) is injected so the answer follows the
     team's redirection. `stream_caller(system, user) -> iterator of intel_ai stream events` is the
     injected model seam (tests pass a fake); `plan_caller(system,user)->(text,err)` powers deep's
-    query planning. Retrieval reuses the hybrid pipeline (query_embedder/reranker optional)."""
+    query planning. Retrieval reuses the hybrid pipeline (query_embedder/reranker optional).
+    With `actions_catalog` set, the answer stream is filtered so the proposal block never renders
+    as text -- it arrives once, parsed, as the `proposals` event."""
     depth = depth if depth in DEPTHS else DEFAULT_DEPTH
     queries = _build_queries(question, depth, history, plan_caller)
     hits = _retrieve(index, question, queries, depth, date_from, date_to, query_embedder, reranker)
@@ -873,15 +1173,28 @@ def ask_stream(client_name, index, question, history=None, date_from="", date_to
     if stream_caller is None:
         yield {"type": "error", "message": "no streaming model configured"}
         return
-    system = _system_prompt(client_name, depth, as_json=False)
+    system = _system_prompt(client_name, depth, as_json=False) + _actions_note(actions_catalog)
     user = _user_prompt(question, hits, history or []) + _steer_note(steer)
+    filt = _ActionTail() if actions_catalog else None
     got_answer = False
     for ev in stream_caller(system, user):
         if not isinstance(ev, dict):
             continue
-        if ev.get("type") == "answer" and ev.get("text"):
-            got_answer = True
+        if ev.get("type") == "answer":
+            if ev.get("text"):
+                got_answer = True
+            if filt is not None:
+                visible = filt.feed(ev.get("text") or "")
+                if visible:
+                    yield {"type": "answer", "text": visible}
+                continue
         yield ev
+    if filt is not None:
+        rest, proposals = filt.finish()
+        if rest:
+            yield {"type": "answer", "text": rest}
+        if proposals:
+            yield {"type": "proposals", "proposals": proposals}
     if not got_answer:
         yield {"type": "error", "message": "The model returned an empty answer — try again."}
 

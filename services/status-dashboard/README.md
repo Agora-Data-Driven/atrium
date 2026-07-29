@@ -1,5 +1,14 @@
 # Status dashboard — agency-wide freshness monitor
 
+> ## 🔴 STATUS (volatile — verified 2026-07-29): NOT DEPLOYED
+>
+> As of **2026-07-29 there is NO status-dashboard service in Cloud Run** — nothing responds at
+> any probed hostname, and no `status-dash` service (nor its `status-export` job/scheduler) exists
+> in the project. Everything below describes the **designed** stack: `deploy_status.ps1` defines
+> Cloud Run service **`status-dash`** and would stand the whole thing up, but **deploying it is a
+> pending human decision** — do not deploy it as a side effect of another task, and do not
+> "debug" the missing service as if it were an outage.
+
 The status dashboard is Agora Data Driven's **meta** dashboard. It does not show marketing data; it
 shows how fresh every client's marketing data is. It reuses the exact same serving pattern as a
 client dashboard (private bucket + Flask password gate, deployed `--no-invoker-iam-check`, SSO

@@ -68,7 +68,9 @@ $ROOT     = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $JOB_DIR  = Join-Path $PSScriptRoot "job"
 $DASH_DIR = Join-Path $PSScriptRoot "dash"
 $VALIDATOR = Join-Path $ROOT "tools\_validate_dash_js.py"
-$PY = (Get-Command py -ErrorAction SilentlyContinue) ? "py" : "python"
+# PS 5.1 has no ternary operator — this estate runs Windows PowerShell 5.1, and the
+# `?:` form made this whole script fail to parse (found by the 2026-07-29 audit).
+$PY = "python"; if (Get-Command py -ErrorAction SilentlyContinue) { $PY = "py" }
 
 function Die([string]$msg) { Write-Host "[ERROR] $msg" -ForegroundColor Red; exit 1 }
 function Must([string]$what) { if ($LASTEXITCODE -ne 0) { Die "$what (exit $LASTEXITCODE)" } }

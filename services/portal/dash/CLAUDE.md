@@ -84,7 +84,10 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   Channels are classified: `platform` / `industry` (auto-labeled via `intel_ai.classify_text`,
   hand-editable) / `kind` creator|competitor. Registry in `ws["watcher"]`; each channel's
   transcripts in its own `workspace/watcher/<c>/<id>.json` object. `POST /w/<c>/admin/watcher`
-  (op add|add_video|fetch|safe_pull|refresh|meta|label|delete; fetch = MISSING-only batches (parallel
+  (op add|**add_site**|add_video|fetch|safe_pull|refresh|meta|label|delete; **`add_site` = the
+  website-blog twin of `add`** (see `watcher_blog.py` below), and **`add_video` auto-detects** — a
+  link with no YouTube video id is scraped as a blog post into a separate "Saved articles" loose
+  channel, so ONE box takes both; fetch = MISSING-only batches (parallel
   `FETCH_WORKERS`/`FETCH_BATCH` waves behind a proxy, else serial), page JS loops it and AUTO-RETRIES
   with backoff on a `blocked` rate-limit / network error instead of stopping (button toggles to Stop);
   a rate-limit reports `blocked` and never marks videos failed) +
@@ -118,7 +121,61 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   heartbeat with the queued channels' registry counts; the Watcher tab polls it every ~12s while a
   card is queued and shows what's happening ("Fetching now: …", "cooling down ~10 min", "idle, last
   active 3 min ago", counts + a progress bar) instead of a static "check back later", auto-refreshing
-  once a channel clears the queue. Test: `python _watcher_localtest.py`.
+  once a channel clears the queue. ⚠️ `scrape_channel` **skips `platform=="blog"` channels** — their
+  archives hold page URLs, not video ids, and the app fetches them itself. Test:
+  `python _watcher_localtest.py`.
+  **Sentinel reads this archive over the internal bridge** (`GET /api/internal/watcher/{channels,
+  videos,transcript}` in `main.py`, HMAC-gated by `_internal_gate` exactly like the task bridge):
+  Sentinel's Growth hub → Mentor Library imports a transcript instead of making a worker paste one.
+  READ-ONLY — Sentinel *copies* the text into its own table, so an Atrium outage never breaks an
+  already-imported transcript. 🔴 **Cross-workspace by default, like `/api/internal/tasks`:** a
+  MENTOR is nobody's client, so `?client=` is an OPTIONAL narrowing filter, never a required scope.
+  Channel ids come back namespaced **`"<client_key>:<channel_id>"`** (`_internal_watcher_split`
+  parses them back) because `videos`/`transcript` need the client key to locate
+  `workspace/watcher/<c>/<channel_id>.json`. `videos` deliberately omits transcript bodies (an
+  archive runs to MBs); an archived-but-unfetched item 404s `no_transcript` so Sentinel reports
+  "not available yet" rather than importing an empty string.
+  **`GET /api/internal/watcher/transcripts`** is the BULK leg behind Sentinel's "Import all": one
+  channel's whole archive, bodies included, in a single call. The bodies are FREE here —
+  `read_watcher_videos` already downloads the entire archive object to answer the light `videos`
+  listing, so fetching one transcript at a time re-downloads those same megabytes **once per
+  video** (199 GCS reads for one creator). Bounded by a **byte budget**
+  (`_INTERNAL_TRANSCRIPTS_BUDGET`, 8 MiB) rather than a fixed page size, since item sizes vary
+  hugely; a response that hits it returns `next_offset` to resume from (`0` = done) and never emits
+  an empty page — so every response stays under Cloud Run's ~32 MiB fixed-length cap while usually
+  finishing in ONE trip. Offsets index the RAW archive list so they stay stable across calls.
+  Measured live: 104 transcripts / 6.3 MB of text → 2.1 MB gzipped in ~4 s.
+  Gating, the namespacing and the paging walk are covered
+  in `_watcher_localtest.py`.
+- **`watcher_blog.py`** — the **WEBSITE twin of `watcher.py`**: paste a site, archive EVERY blog
+  post's full article text. Same tab, same archive object, same UI, same Assistant index — the ONLY
+  difference is which fetcher runs, chosen by the registry entry's `platform` (`youtube`|`blog`).
+  Three helpers mirror watcher.py one-for-one: `resolve_site(url)` (→ origin + og:site_name; the
+  **origin is the entry's `channel_id`**, so the duplicate check is unchanged), `list_posts(origin)`
+  (**sitemap-first**: robots.txt `Sitemap:` → sitemap index → recurse ONLY into blog-named children,
+  so a shop's 10k-product sitemap is never downloaded → conventional `/sitemap.xml`-style paths as a
+  backstop → an index-page **crawl** only when no sitemap yields anything, reported in `source`), and
+  `fetch_post(url)` (→ the body in a field literally named **`transcript`**, so every consumer works
+  unchanged). A post's `id` is `bp<sha1(url)[:16]>` — stable (re-listing never duplicates) and
+  URL-safe (it is a path segment in the reader route). Listing drops a URL that is a **parent of
+  other collected URLs** — that is what removes a blog's own index pages without hardcoding any CMS.
+  **Extraction is a readability-lite scorer, stdlib only** (`html.parser` tree → score every
+  container by text length × (1 − link density) with class/id hints → **deepest of the near-ties**
+  wins, so the article's own wrapper beats the page div that also holds the sidebar); title/date/
+  author come from og:/JSON-LD/`<time>` metadata, and the fetch **heals** the listing's slug-title
+  and lastmod with the page's real ones. **robots.txt is obeyed properly** — full wildcard/`$`
+  matching, longest-match-wins, `Allow` precedence. 🔴 Prefix-matching the text before the first `*`
+  is NOT good enough: Shopify ships `Disallow: /blogs/*+*`, whose literal prefix is `/blogs/`, which
+  read as a prefix bans EVERY post on the site and silently returns zero (this exact bug cost a
+  debugging round; there is a regression test for it). 🔴 **TLS compatibility (`_session`)**:
+  Python's default SSL cipher list is fingerprinted by Cloudflare-fronted Shopify sites, which then
+  answer every HTML request `429 local_rate_limited` forever while curl gets 200 — pinning an
+  ordinary explicit cipher suite fixes it. We do NOT impersonate a browser (the UA still says
+  AgoraAtriumWatcher, robots is obeyed, `Retry-After`/429 backs off, concurrency is 6 and paced).
+  Websites don't block datacenter IPs, so blogs fetch fine FROM CLOUD RUN — no proxy, and **Safe
+  pull is hidden on blog cards** (`can_safe_pull`; `op=safe_pull` refuses them). Verified live on
+  thelegalpaige.com: 330 posts listed in ~2s, 24 full articles per fetch batch in ~2.6s, 0 errors.
+  Tests: `_run_blog_checks` in `_watcher_localtest.py` (fetchers injected — no network in CI).
 - **`assistant_ai.py`** — the team-only Assistant tab: RAG chat over EVERY workspace source
   (watcher transcripts, intel, campaigns/content, metrics, calendar, conversations, health, plus
   the opt-in client dashboard export — grant via `enable_assistant_dash_data.ps1`). Index stored as
@@ -156,7 +213,8 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   tests). **STREAMING chat (the live UI path):** `POST /w/<c>/admin/assistant/stream` returns
   **Server-Sent Events** (`text/event-stream`, `stream_with_context`) so the reasoning + answer
   arrive as deltas. `intel_ai.stream_call` normalises each provider's SSE (Vertex
-  `:streamGenerateContent?alt=sse` with `includeThoughts`; DeepSeek `stream:true`) to flat events
+  `:streamGenerateContent?alt=sse` with `includeThoughts`; DeepSeek + Kimi `stream:true`, both the
+  OpenAI `reasoning_content`/`content` delta shape) to flat events
   `{thinking|answer|usage|error}`; `assistant_ai.ask_stream` retrieves (hybrid) then streams the
   answer as **plain markdown** (NOT the `{"answer":...}` envelope — a wrapper can't stream), honouring
   a `steer` string. `stage=plan` (`assistant_ai.plan_stage`) is the Claude-style **plan-mode
@@ -256,6 +314,24 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   genuinely-new messages (dedupe by date+sender+trimmed-body signature, returns an `added` count),
   then `normalize_chat_thread` re-tags/re-orders and the card's date/people/subject are refreshed —
   no duplicate card, idempotent (a re-paste adds 0). Test: `python _upwork_import_localtest.py`.
+- **`intel_ai.py`** — the ONE model registry + transport for every AI surface in this app (the
+  Assistant, the intel research brain, the Mail digest, the Watcher auto-label). `MODELS` lists what
+  the dropdowns offer; `provider_configured()` gates each provider on its env; `_call`/`stream_call`
+  dispatch. **Three providers:** `gemini` (Vertex, SA-token auth, GCP-billed — the ONLY one that can
+  ground on live Google Search), `deepseek` (`DEEPSEEK_API_KEY`, `api.deepseek.com`, JSON-mode) and
+  `kimi` (`KIMI_API_KEY`, `api.kimi.com/coding/v1`). ⚠️ Kimi notes: it is the **Kimi Code
+  subscription** — its `sk-kimi-…` key authenticates ONLY against that coding host (Moonshot's
+  `api.moonshot.ai` 401s), it is flat weekly quota so `PRICING` is $0/token (real, not a missing
+  price), it is sent **without** `response_format: json_object` (that mode forbids the top-level
+  arrays some callers need — `_parse_json`/`assistant_ai._parse_answer` strip the resulting fence),
+  and its models are thinking-first so only `think is False` sends the disable flag. 🔴 The
+  Secret-Manager secret is the UPPER-case `KIMI_API_KEY`; the lower-case `kimi-api-key` secret is
+  the VS Code / Claude Code launcher key and is a DIFFERENT value — never mount it here. Kimi sits
+  LAST in `MODELS` so `default_model()` (first available) keeps resolving to Gemini Flash. Adding a
+  provider = a MODELS entry + a `provider_configured` branch + `_call_*`/`_stream_*` + the secret in
+  the three deploy scripts (`deploy_dash_platform.ps1`, `deploy_intel_refresh.ps1`,
+  `deploy_mail_refresh.ps1` — the jobs run this same code and need the key too). Test:
+  `python _intel_ai_localtest.py`.
 - **`intel_feed.py` / `intel_refresh.py`** — the DAILY Market Intelligence auto-refresh (opt-in,
   `INTEL_AUTO_ENABLED=1`). `intel_feed` parses Google News RSS + publisher feeds (keyless, stdlib
   `xml.etree` + lazy `requests`, degrades to `[]`); `intel_refresh.main()` is the Cloud Run **job**
@@ -268,10 +344,14 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   sync trigger: the manual "Sync all dashboards" button was removed (a browser refresh must never
   fire the paid Windsor/Meta pulls); the console shows a read-only "Last synced: Xh ago" via
   `GET /admin/atrium/sync-status`. Deploy: `deploy_sync_refresh.ps1` (`-Run` once now, `-Disable` off).
-- **Task tracker (Delivery board + client Progress tab):** `ws["tasks"]` per client, helpers in
-  `workspace.py` (stages `in_process|for_launch|launched|closed` — keys canonical; lead +
-  `support_ids` never overlap; `move_task_stage` blocks `closed` while sub-tasks/change-requests
-  are open). Work is TWO-LEVEL: `maintasks[]` (named groups, each with an `assignee_id` + its own
+- **Task tracker (Delivery board + client Tasks tab):** `ws["tasks"]` per client, helpers in
+  `workspace.py` (stages `todo|in_progress|blocked|revision|completed` — keys canonical; For
+  Review + Waiting for Client were removed 2026-07-29, both fold into Blocked, and retired keys
+  incl. the old `in_process|for_launch|launched|closed` set land on a live column via
+  `_STAGE_ALIASES`/`canon_stage`; lead +
+  `support_ids` never overlap; `move_task_stage` is UNGUARDED since 2026-07-28 — it used to refuse
+  `completed` while sub-tasks/change-requests were open, but a bounced drop reads as a broken board,
+  so blockers are surfaced, not enforced). Work is TWO-LEVEL: `maintasks[]` (named groups, each with an `assignee_id` + its own
   `subs[]` of owner-carrying sub-tasks); legacy flat `subtasks[]` migrates in place via
   `normalize_task` (called by `_find_task`) and `task_subtasks()` flattens for counts/guards.
   **Service templates auto-build the breakdown (`service_templates.py`):** the New-Service form's
@@ -339,11 +419,23 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   script REOPENS the same detail overlay on the same tab after the redirect (params scrubbed via
   replaceState; the Delete form deliberately carries none). The filter bar has a client-side
   **sort selector** (`#tk-f-sort` Priority / Launch date / Client, reordering cards via
-  `data-priority/data-due/data-cname`; the default matches the server order). Client side: the `progress` tab renders
+  `data-priority/data-due/data-cname`; the default matches the server order). Client side: the `progress` tab (nav LABEL
+  "Tasks" since 2026-07-29 — the key stays `progress` in every route, never rename it) renders
   `main._progress_tasks(ws)` (client_facing + client-safe fields ONLY — owners/priority/charge/
   internal notes never reach the client HTML; the breakdown arrives as owner-less **phases**;
   the modal shows a Started → Going live timeline; cards say "Launching <date>" / "Live"; columns
-  sort by soonest launch; client stage labels In progress / In review / Live / Completed); the
+  sort by soonest launch; both surfaces share the `TASK_STAGE_META` stage labels).
+  **On that same board the TEAM gets drag-to-move + a per-card delete ✕ (2026-07-28)** — rendered
+  `{% if is_superadmin %}` only (a `.ax-pg-cardwrap` draggable wrapper per card because the card is
+  a `<button>` and a ✕ can't nest inside one; `data-pgcol` drop targets; `data-pgdel` buttons) and
+  wired in **its own IIFE** in `atrium.html`, deliberately NOT sharing the board IIFE's
+  `if (!root || !veil || !storeBox) return;` guard — the same lesson the quick-add composer records.
+  It posts the existing `/admin/task/move` + `/admin/task/delete` routes (optimistic move, rolled
+  back + alerted on failure; delete confirms, then soft-deletes to the Bin). The per-stage count
+  TILES above the board were removed in the same change (the column heads already show the counts).
+  🔴 **Never key team-only CSS off `[data-admin="1"]`** — the stylesheet ships to every viewer, so
+  the literal string lands in a client's HTML and trips `_atrium_smoketest`'s no-leak assertion
+  (cost a test round; that CSS keys off `[data-pgcol]`, which is itself team-only markup). The
   client-surface writes are `POST /w/<c>/task-comment` (comment / request-changes; resolve is
   team-only) and `POST /w/<c>/task-add` (the Progress quick-add composer, client AND team — the
   reporter is AUTO-TAGGED from the session as agora|client + a derived `reporter_name`, never a
@@ -359,7 +451,29 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   JSON → reload with the input refocused; fetch failure → `form.submit()` so a typed request is
   never lost. Covered by the "no-JS form post" checks in `_atrium_smoketest.py`.
   Notifications: `notify.client_task_commented/client_task_changes/
-  team_task_commented/team_task_resolved`. **Delivery Calendar** = a 2nd Delivery nav pane
+  team_task_commented/team_task_resolved`.
+  **THE INTERNAL BRIDGE IS TWO-WAY (2026-07-29) — Sentinel edits these cards in place.** Its board
+  already LISTED them (`GET /api/internal/tasks`); it can now open, edit, delete and comment on one
+  without leaving its own board, because "open it in Atrium to edit" is a dead end, not an answer.
+  Routes (all `_internal_gate`-HMAC'd, fail-CLOSED, **no session**): `GET /api/internal/task`
+  (`_internal_task_detail` = the board view PLUS every internal field, the two-level breakdown, the
+  comment thread and the history — wrapped by `_internal_task_envelope` with the roster/department/
+  stage vocabularies so the caller's form can render Atrium's OWN pickers), and `POST
+  /api/internal/task-{update,delete,comment}` alongside the older `-move`/`-add`. Purposes:
+  `task-detail` · `task-update` · `task-delete` · `task-comment`.
+  🔴 **Every one of them calls the SAME `workspace.py` helper the console form calls** —
+  `update_task` / `set_task_hold` / `set_task_maintasks` / `move_task_stage` / `delete_task` /
+  `add_task_comment` / `resolve_task_comment` — so the stored shape, the auto-derived
+  `TASK_DEPT_LABEL`, the history entries, the client notifications and the Bin are identical
+  whichever app the edit came from. Two details that only matter for a foreign caller: the delete
+  calls `audit.trash_put` DIRECTLY (not `_trash`, which stamps the session actor — there is no
+  session, so the Bin would credit "system"), and `_internal_audit` logs the Sentinel user's email
+  with role `sentinel`. `workspace.set_task_maintasks` is the array-shaped breakdown setter that
+  exists FOR this caller (Sentinel PATCHes the whole breakdown): an id this task doesn't already
+  hold is **re-minted** here, and a sub-task keeping its id **keeps its internal `dod`**, which
+  Sentinel neither sees nor sends. Covered end-to-end in `_atrium_smoketest.py` (gating, field
+  round-trip, label derivation, dod preservation, Bin) + `_workspace_localtest.py` (the setter).
+  **Delivery Calendar** = a 2nd Delivery nav pane
   (`data-section/pane="calendar"`) in `admin_atrium.html`: a month grid built CLIENT-SIDE from a
   hidden `#cal-store` of `.cal-ev` nodes (one per service WITH a `due_date`, server-rendered from
   `task_cols`), plotting each service on its **launch date**, discipline-tinted, ⏸ for on-hold;

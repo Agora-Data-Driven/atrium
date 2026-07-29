@@ -1,9 +1,11 @@
 """Create the raw_windsor.tcs_klaviyo_events table (idempotent).
 
 TCS's per-recipient email-events slot in the shared raw layer: ONE ROW PER SEND, flagged
-is_open / is_click. This is the grain client_tcs.stg_email_events reads to answer the
-Business-Quiz diagnostic (are quiz leads opening/clicking less over time?). Direct-API
-source (Klaviyo Events API), not Windsor -- see tcs_klaviyo_loader.py.
+is_open / is_click plus the deliverability signals (bounce / unsub / spam / dropped). This is
+the grain client_tcs.stg_email_events reads to answer the Business-Quiz diagnostic (are quiz
+leads opening/clicking less over time?). Direct-API source (Klaviyo Events API), not Windsor
+-- see tcs_klaviyo_loader.py, which is the authority on this schema and widens the table
+itself when it gains columns.
 
 Auth: Application Default Credentials (ADC).
 """
@@ -29,6 +31,19 @@ SCHEMA = [
     bigquery.SchemaField("clicked_at", "TIMESTAMP"),
     bigquery.SchemaField("is_open", "BOOL"),
     bigquery.SchemaField("is_click", "BOOL"),
+    # --- deliverability / list health (pull_version 2) ---------------------------------
+    bigquery.SchemaField("bounced_at", "TIMESTAMP"),
+    bigquery.SchemaField("unsubscribed_at", "TIMESTAMP"),
+    bigquery.SchemaField("spam_at", "TIMESTAMP"),
+    bigquery.SchemaField("dropped_at", "TIMESTAMP"),
+    bigquery.SchemaField("is_bounce", "BOOL"),
+    bigquery.SchemaField("is_unsub", "BOOL"),
+    bigquery.SchemaField("is_spam", "BOOL"),
+    bigquery.SchemaField("is_dropped", "BOOL"),
+    # Which loader version wrote the row. NULL/1 rows predate the deliverability columns, so
+    # their is_bounce/is_unsub/... are NULL rather than FALSE -- the loader re-pulls those
+    # months and stg_email_events keeps the highest-version row per event_id.
+    bigquery.SchemaField("pull_version", "INT64"),
 ]
 
 

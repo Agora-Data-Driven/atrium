@@ -32,21 +32,26 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install --quiet esprima "Flask==3.0.3" "requests==2.32.3"
 
+      # DISCOVERED, not hand-listed. The old fixed list silently fell behind: client_MeloYelo,
+      # client_S7000, client_riverdance, client_TCS, the status dashboard and five portal
+      # templates were all missing, so a broken inline script in any of them would have passed
+      # CI and only failed at deploy. A glob cannot fall behind -- every new client is covered
+      # the moment its dashboard.html exists.
       - name: Validate inline JS (esprima gate)
         run: |
-          set -e
-          for f in \
-            services/portal/dash/templates/atrium.html \
-            services/portal/dash/templates/portal.html \
-            services/portal/dash/templates/login.html \
-            services/portal/dash/templates/signup.html \
-            services/portal/dash/templates/request_access.html \
-            services/portal/dash/templates/admin_atrium.html \
-            clients/client_template/dash/dashboard.html ; do
-            if [ -f "$f" ]; then
-              echo "== validating $f =="
-              python tools/_validate_dash_js.py "$f"
-            fi
+          set -euo pipefail
+          mapfile -t FILES < <(
+            find clients services -type f \
+              \( -path '*/dash/dashboard.html' -o -path '*/dash/templates/*.html' \) \
+              | sort
+          )
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "no dashboards or templates found -- the glob is wrong"; exit 1
+          fi
+          echo "validating ${#FILES[@]} file(s)"
+          for f in "${FILES[@]}"; do
+            echo "== $f =="
+            python tools/_validate_dash_js.py "$f"
           done
 
       - name: Compile all dash modules
@@ -84,9 +89,13 @@ jobs:
         working-directory: services/portal/dash
         run: python _watcher_localtest.py
 
-      - name: Assistant RAG test (chunking, hybrid BM25+vector, RRF, rerank, route; LLM stubbed)
+      - name: Assistant RAG test (chunking, hybrid BM25+vector, RRF, rerank, actions, route; LLM stubbed)
         working-directory: services/portal/dash
         run: python _assistant_localtest.py
+
+      - name: Reports + distilled-layer test (digest sections, deck generate/render, routes; LLM stubbed)
+        working-directory: services/portal/dash
+        run: python _report_localtest.py
 
       - name: Audit feed + Trash restore test (stubs GCS)
         working-directory: services/portal/dash
@@ -103,3 +112,6 @@ jobs:
       - name: Upwork import parser test (pure; no network/storage/AI)
         working-directory: services/portal/dash
         run: python _upwork_import_localtest.py
+
+      - name: Creative gallery test, every Meta-fed client (no network, no GCS, no API cost)
+        run: python tools/_creative_gallery_test.py

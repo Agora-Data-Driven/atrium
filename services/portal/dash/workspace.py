@@ -259,9 +259,11 @@ def add_watcher_channel(client, fields):
         "url": fields.get("url", ""),
         "title": fields.get("title", ""),
         "channel_id": fields.get("channel_id", ""),
-        # Classification: platform is fixed per source type (YouTube-only today, the field exists
-        # so Website/podcast/etc. can join later); industry is the auto/AI label (hand-editable);
-        # kind separates the creators we learn from ("creator") from rivals ("competitor").
+        # Classification: `platform` is the SOURCE TYPE and decides which fetcher runs for this
+        # entry -- "youtube" (watcher.py: channel_id -> videos -> transcripts) or "blog"
+        # (watcher_blog.py: site origin -> posts -> article text). Both store into the same archive
+        # shape, so only the fetch/refresh branch cares. `industry` is the auto/AI label
+        # (hand-editable); `kind` separates creators we learn from from rivals ("competitor").
         "platform": fields.get("platform", "youtube"),
         "industry": fields.get("industry", ""),
         "kind": fields.get("kind", "creator"),
@@ -278,24 +280,31 @@ def add_watcher_channel(client, fields):
     return _mutate(client, fn)
 
 
-# The single-video scraper has no parent channel, so its videos are archived under ONE per-client
-# pseudo-channel (marked `loose`). It renders as a normal creator card and the Assistant indexes it
-# like any other channel; only the channel-specific actions (Check new / Auto-label) are hidden for
-# it in the UI. `list_videos`/`refresh` never run against it (its channel_id is "").
+# The single-item scrapers have no parent channel/site, so their items are archived under ONE
+# per-client pseudo-channel PER PLATFORM (marked `loose`): "Saved videos" for one-off YouTube links
+# and "Saved articles" for one-off blog links. Each renders as a normal card and the Assistant
+# indexes it like any other channel; only the source-wide actions (Check new / Auto-label) are
+# hidden for it in the UI. `list_videos`/`list_posts` never run against it (its channel_id is "").
 LOOSE_CHANNEL_TITLE = "Saved videos"
+LOOSE_BLOG_TITLE = "Saved articles"
 
 
-def ensure_loose_channel(client):
-    """Find (or create, newest-first) the per-client 'Saved videos' pseudo-channel. Returns it."""
+def ensure_loose_channel(client, platform="youtube"):
+    """Find (or create, newest-first) the per-client loose pseudo-channel for `platform`.
+
+    Keyed on platform as well as the `loose` marker so a saved article never lands in the video
+    archive (their fetchers are different: one takes a video id, the other a page URL)."""
     def fn(ws):
         channels = ws.setdefault("watcher", {}).setdefault("channels", [])
         for ch in channels:
-            if ch.get("loose"):
+            if ch.get("loose") and (ch.get("platform") or "youtube") == platform:
                 return ch
         entry = {
             "id": _new_id("wch"),
-            "url": "", "title": LOOSE_CHANNEL_TITLE, "channel_id": "",
-            "platform": "youtube", "industry": "", "kind": "creator", "loose": True,
+            "url": "",
+            "title": LOOSE_BLOG_TITLE if platform == "blog" else LOOSE_CHANNEL_TITLE,
+            "channel_id": "",
+            "platform": platform, "industry": "", "kind": "creator", "loose": True,
             "video_count": 0, "transcript_count": 0, "failed_count": 0,
             "last_fetch": "", "added_at": now_iso(),
         }
@@ -378,6 +387,103 @@ def read_safe_pull_status():
         return json.loads(raw.decode("utf-8")) or {}
     except (ValueError, AttributeError):
         return {}
+
+
+# --- Reports (client-visible tab: every meeting deck, date-first) --------------------------------
+# The small per-report index rides in workspace/<c>.json (ws["reports"], newest first: id, title,
+# date, origin, payload -- the structured slide content the generator/editor works on); each deck's
+# rendered self-contained HTML is its OWN object (a deck runs to hundreds of KB -- same posture as
+# creatives/watcher/mail archives), served ONLY through the authed /w/<c>/report/<id> route.
+def reports_of(ws):
+    """The workspace's report index entries (never None)."""
+    return list((ws or {}).get("reports") or [])
+
+
+def find_report(ws, report_id):
+    """The report index entry with id `report_id`, or None."""
+    for r in (ws or {}).get("reports") or []:
+        if r.get("id") == report_id:
+            return r
+    return None
+
+
+def report_object_name(client, report_id):
+    """One report's rendered-deck object, e.g. 'workspace/reports/riverdance/rp_1a2b3c4d.html'."""
+    return "%sreports/%s/%s.html" % (_prefix(), client, report_id)
+
+
+def read_report_html(client, report_id):
+    """The stored deck HTML (str), or None when it doesn't exist / can't decode."""
+    raw = _read_object(report_object_name(client, report_id))
+    if raw is None:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except (UnicodeDecodeError, AttributeError):
+        return None
+
+
+def write_report_html(client, report_id, html):
+    """Persist a report's rendered deck (its own object, NOT the workspace JSON)."""
+    _write_object(report_object_name(client, report_id), (html or "").encode("utf-8"),
+                  content_type="text/html; charset=utf-8")
+
+
+def add_report(client, title, date, payload=None, origin="ai", report_id=None):
+    """Create a report index entry (newest first). Returns it. The caller renders + writes the
+    deck HTML separately (write_report_html) -- index and object are two writes on purpose, so a
+    failed render never strands a phantom index row ahead of it."""
+    entry = {
+        "id": report_id or _new_id("rp"),
+        "title": title or "Performance review",
+        "date": (date or now_iso())[:10],
+        "origin": origin or "ai",
+        "payload": payload or {},
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+
+    def fn(ws):
+        ws.setdefault("reports", []).insert(0, entry)
+        return entry
+    return _mutate(client, fn)
+
+
+def update_report(client, report_id, fields):
+    """Patch a report entry's title/date/payload in place. Returns it (KeyError if missing)."""
+    def fn(ws):
+        entry = find_report(ws, report_id)
+        if entry is None:
+            raise KeyError("no report '%s'" % report_id)
+        for k in ("title", "date", "payload"):
+            if k in (fields or {}):
+                entry[k] = fields[k]
+        entry["updated_at"] = now_iso()
+        return entry
+    return _mutate(client, fn)
+
+
+def delete_report(client, report_id):
+    """Remove a report entry AND its deck object. Returns the removed entry (for the Trash)."""
+    def fn(ws):
+        reports = ws.get("reports", [])
+        entry = next((r for r in reports if r.get("id") == report_id), None)
+        if entry is not None:
+            reports.remove(entry)
+        return entry
+    entry = _mutate(client, fn)
+    if entry is not None:
+        _delete_object(report_object_name(client, report_id))
+    return entry
+
+
+def insert_report(client, entry):
+    """Re-insert a previously removed report entry (Trash restore; the caller re-renders the
+    deck HTML from the entry's stored payload). Returns the entry."""
+    def fn(ws):
+        ws.setdefault("reports", []).insert(0, entry)
+        return entry
+    return _mutate(client, fn)
 
 
 # --- Assistant (team-only tab: the workspace knowledge index) ------------------------------------
@@ -1571,17 +1677,19 @@ def set_calendar_status(client, index, status):
 #   internal_notes, account_manager_id                  <- internal only
 # LEGACY: tasks written before the two-level model carry a flat subtasks[] -- normalize_task()
 # migrates that into one maintask in place (called by _find_task, so every mutation persists it).
-# Stage KEYS are canonical (never rename) and now MIRROR SENTINEL'S BOARD (constants.TASK_STATUSES:
-# To Do / In Progress / For Review / Waiting for Client / Revision Needed / Completed / Blocked), so
-# the client Progress board and the internal Sentinel board speak the same language. Replaced the
-# original 4-stage set (in_process/for_launch/launched/closed) on 2026-07-27 at the user's request;
-# `_STAGE_ALIASES` keeps any task written under the old keys readable.
-TASK_STAGES = ("todo", "in_progress", "for_review", "waiting_client",
-               "revision", "completed", "blocked")
+# Stage KEYS are canonical (never rename). The set was aligned to Sentinel's board wording on
+# 2026-07-27 (replacing in_process/for_launch/launched/closed); on 2026-07-29 For Review and
+# Waiting for Client were REMOVED at the user's request -- both just meant "blocked on someone",
+# so they collapse into Blocked, which now sits right after In Progress on the board.
+# `_STAGE_ALIASES` keeps any task written under a retired key readable.
+TASK_STAGES = ("todo", "in_progress", "blocked", "revision", "completed")
 # Old key -> new key, applied on read by normalize_task so legacy/imported rows never vanish off the
-# board (an unknown stage would otherwise fall into the first column silently).
-_STAGE_ALIASES = {"in_process": "in_progress", "for_launch": "for_review",
-                  "launched": "completed", "closed": "completed"}
+# board (an unknown stage would otherwise fall into the first column silently). for_review /
+# waiting_client also arrive from a stale Sentinel bridge write -- they land on Blocked, their
+# nearest surviving meaning (for_launch was "in review" too, so it follows them there).
+_STAGE_ALIASES = {"in_process": "in_progress", "for_launch": "blocked",
+                  "launched": "completed", "closed": "completed",
+                  "for_review": "blocked", "waiting_client": "blocked"}
 
 
 def canon_stage(stage):
@@ -1747,10 +1855,15 @@ def update_task(client, task_id, fields, actor=""):
 
 
 def move_task_stage(client, task_id, stage, actor=""):
-    """Move a task to `stage`, guarded: a move to `completed` is BLOCKED while any sub-task is still
-    open, any client change request is unresolved, OR the service has no sub-tasks at all (nothing
-    was tracked as done). Raises ValueError listing what to resolve. Records the move in the task's
-    history. Returns the task; no-op if already there."""
+    """Move a task to `stage`. Records the move in the task's history. Returns the task; no-op if
+    it is already there.
+
+    EVERY move is allowed, on purpose (2026-07-28). A move to `completed` used to be BLOCKED while
+    a sub-task was still open, a client change request was unresolved, or the service had no steps
+    at all -- and a refused drop reads as a broken board rather than as a rule. The blockers are
+    still SURFACED on both boards (the progress bar, the "Changes requested" tag, the open-changes
+    count); they just no longer veto the move. Callers still catch ValueError, so re-introducing a
+    guard here needs no route change."""
     stage = _STAGE_ALIASES.get(stage, stage)
     if stage not in TASK_STAGES:
         raise KeyError("no task stage '%s'" % stage)
@@ -1761,17 +1874,6 @@ def move_task_stage(client, task_id, stage, actor=""):
             raise KeyError("no task '%s'" % task_id)
         if task.get("stage") == stage:
             return task
-        if stage == "completed":
-            # A service with no steps at all can't be "complete" -- nothing was tracked as done.
-            if not task_subtasks(task):
-                raise ValueError("Can't complete a service with no sub-tasks yet -- "
-                                 "add at least one step (or a template) first.")
-            blockers = ["sub-task: %s" % s.get("text", "")
-                        for s in task_subtasks(task) if not s.get("done")]
-            blockers += ["open change request: %s" % (c.get("body", "")[:60])
-                         for c in task_open_changes(task)]
-            if blockers:
-                raise ValueError("Can't close this task yet -- resolve first: " + "; ".join(blockers))
         _task_history(task, actor, "stage", task.get("stage", ""), stage)
         task["stage"] = stage
         return task
@@ -2028,6 +2130,59 @@ def delete_subtask(client, task_id, subtask_id):
             raise KeyError("no task '%s'" % task_id)
         for m in task.get("maintasks", []):
             m["subs"] = [s for s in m.get("subs", []) if s.get("id") != subtask_id]
+        return task
+    return _mutate(client, fn)
+
+
+def set_task_maintasks(client, task_id, maintasks, actor=""):
+    """Replace a task's WHOLE work breakdown in one write. Returns the task.
+
+    The array-shaped twin of add_maintask / rename_maintask / add_subtask / ... : the Sentinel
+    board's detail drawer edits the breakdown as one array and PATCHes the lot, so it needs a
+    single-call setter rather than a dozen fine-grained ops (see main.py's
+    `/api/internal/task-update`). The console keeps using the fine-grained helpers.
+
+    Two rules make it safe to accept an array from another system:
+      * an id the task doesn't already hold gets a FRESH canonical id -- a caller that invents
+        placeholder ids for new rows ("st_new_1721…") can never mint an Atrium id.
+      * a sub-task that KEEPS its id keeps its internal `dod` ("done when") unless the caller
+        explicitly sent one. Sentinel neither shows nor sends `dod`, and an edit from over there
+        must not silently drop a field that surface can't see.
+    """
+    def fn(ws):
+        task = _find_task(ws, task_id)
+        if task is None:
+            raise KeyError("no task '%s'" % task_id)
+        known_mains = {m.get("id") for m in task.get("maintasks") or []}
+        known_subs = {s.get("id"): s for s in task_subtasks(task)}
+        clean = []
+        for m in maintasks or []:
+            if not isinstance(m, dict):
+                continue
+            subs = []
+            for s in m.get("subs") or []:
+                if not isinstance(s, dict):
+                    continue
+                text = str(s.get("text") or "").strip()
+                if not text:
+                    continue
+                prev = known_subs.get(s.get("id"))
+                dod = s.get("dod")
+                subs.append({
+                    "id": s.get("id") if prev is not None else _new_id("st"),
+                    "text": text,
+                    "done": bool(s.get("done")),
+                    "assignee_id": s.get("assignee_id") or "",
+                    "dod": (dod if dod is not None else (prev or {}).get("dod", "")) or "",
+                })
+            clean.append({
+                "id": m.get("id") if m.get("id") in known_mains else _new_id("mt"),
+                "text": str(m.get("text") or "").strip() or "Untitled",
+                "assignee_id": m.get("assignee_id") or "",
+                "subs": subs,
+            })
+        task["maintasks"] = clean
+        _task_history(task, actor, "breakdown", "", "work breakdown updated")
         return task
     return _mutate(client, fn)
 

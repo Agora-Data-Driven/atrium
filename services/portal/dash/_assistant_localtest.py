@@ -7,6 +7,7 @@ paths), and the team-only gating.
 Run: python _assistant_localtest.py        # prints PASS / FAIL, exits 0 / 1
 """
 
+import json
 import os
 import shutil
 import sys
@@ -88,6 +89,119 @@ def run():
     archives[0][0]["transcript_count"] = 2
     fp2 = assistant_ai.fingerprint(ws, archives)
     _check("fingerprint moves when watcher data moves", fp1 != fp2)
+
+    # --- The distilled layer (v4): dashboard digests, comms/tasks/reports chunks, summary chunks --
+    ws2 = workspace.load_workspace(CLIENT)
+    ws2["communications"] = [
+        {"id": "cm1", "channel": "meeting", "audience": "client", "title": "July strategy call",
+         "summary": "Agreed to double down on retargeting.", "date": "2026-07-10",
+         "people": "Ian, Jade", "origin": "manual", "thread_key": ""},
+        {"id": "mail_k1", "channel": "email", "audience": "client", "title": "Budget approval",
+         "summary": "Client approved the August budget.", "date": "2026-07-12", "people": "",
+         "origin": "mail", "thread_key": "k1"},
+    ]
+    ws2["tasks"] = [{"id": "tk_test1", "title": "Launch retargeting", "stage": "blocked",
+                     "department": "Acquisition", "priority": "High", "due_date": "2026-08-01",
+                     "hold_reason": "waiting on creative approval", "maintasks": [],
+                     "comments": []}]
+    ws2["reports"] = [{"id": "rp_t1", "title": "July review", "date": "2026-07-15",
+                       "payload": {"why": ["CTR fell as frequency rose"]},
+                       "created_at": "x", "updated_at": "x"}]
+    arch2 = _fake_archives()
+    arch2[0][1][0]["summary"] = "- Charge monthly retainers\nTakeaway: retainers beat one-off fees."
+    mail_threads = [{"id": "k1", "subject": "Budget approval", "participants": ["client@x.com"],
+                     "last_date": "2026-07-12",
+                     "messages": [{"from": "client@x.com", "date": "2026-07-12",
+                                   "body": "Approved, go ahead with the August budget increase."}],
+                     "stats": {"awaiting_reply": False}}]
+    # The Windsor-live dashboard shape (riverdance): per-ad/day rows -- the raw-CSV case the digest
+    # layer exists for. Two campaigns, two ads, demographics + an email block.
+    rows = [{"date": d, "ad": "V_Escape", "camp": "Summer", "spend": 100.0, "imps": 10000,
+             "clicks": 150, "lclk": 120, "reach": 8000, "pur": 3, "rev": 900.0, "book_init": 5}
+            for d in ("2026-07-01", "2026-07-02", "2026-07-08")]
+    rows.append({"date": "2026-07-02", "ad": "S_Static", "camp": "Brand", "spend": 50.0,
+                 "imps": 9000, "clicks": 30, "lclk": 20, "reach": 6000, "pur": 0, "rev": 0.0,
+                 "book_init": 0})
+    dash_rd = {"rows": rows, "dates": ["2026-07-01", "2026-07-02", "2026-07-08"],
+               "demographics": {"age_gender": [{"date": "2026-07-01", "age": "25-34",
+                                                "gender": "female", "spend": 60.0, "imps": 5000,
+                                                "clicks": 80, "lclk": 60}],
+                                "region": [{"date": "2026-07-01", "region": "Colorado",
+                                            "spend": 90.0, "imps": 7000, "clicks": 100,
+                                            "lclk": 80}]},
+               "activecampaign": {"enabled": True, "campaigns": [
+                   {"name": "July newsletter", "date": "2026-07-05", "sent": 1000, "opens": 400,
+                    "clicks": 50}]}}
+    chunks2 = assistant_ai.build_chunks(ws2, arch2, dash_data=dash_rd, mail_threads=mail_threads)
+    ids2 = {c["id"] for c in chunks2}
+    _check("distilled dashboard sections replace the raw JSON dump",
+           {"dash:overview", "dash:campaigns", "dash:creatives", "dash:trend", "dash:audience",
+            "dash:email"} <= ids2 and "dash:kpis" not in ids2 and "dash:daily" not in ids2)
+    dash_txt = next(c["text"] for c in chunks2 if c["id"] == "dash:overview")
+    _check("dashboard overview carries computed totals, not row dumps",
+           "$350.00" in dash_txt and "ROAS" in dash_txt and '"spend"' not in dash_txt)
+    _check("communications cards + snapshot are indexed",
+           "comm:cm1" in ids2 and "comms:snapshot" in ids2)
+    _check("an email card points at its thread archive (the unfold parent)",
+           next(c for c in chunks2 if c["id"] == "comm:mail_k1").get("parent") == "mail:k1")
+    _check("tasks are indexed with their id + a board snapshot",
+           "task:tk_test1" in ids2 and "tasks:board" in ids2
+           and "tk_test1" in next(c["text"] for c in chunks2 if c["id"] == "task:tk_test1"))
+    _check("task chunks are undated (a transcript date-scope never hides the board)",
+           not next(c for c in chunks2 if c["id"] == "task:tk_test1").get("date"))
+    _check("reports are indexed",
+           "report:rp_t1" in ids2
+           and "CTR fell" in next(c["text"] for c in chunks2 if c["id"] == "report:rp_t1"))
+    _check("a summarized video gains a digest chunk with a parent pointer",
+           any(c["id"] == "yts:wch_test01:v1" and c.get("level") == "digest"
+               and c.get("parent") == "yt:wch_test01:v1" for c in chunks2))
+    _check("mail body chunks carry their thread parent (full level)",
+           any(c.get("parent") == "mail:k1" and c.get("level") == "full" for c in chunks2))
+    _check("the intel digest chunk exists", "intel:digest" in ids2)
+    fpa = assistant_ai.fingerprint(ws2, arch2)
+    ws2["communications"].append({"id": "cm9", "channel": "call", "audience": "client",
+                                  "title": "Quick call", "summary": "notes",
+                                  "date": "2026-07-14"})
+    _check("fingerprint moves when communications move",
+           fpa != assistant_ai.fingerprint(ws2, arch2))
+    _check("fingerprint moves when the dashboard export moves (the stamp)",
+           assistant_ai.fingerprint(ws2, arch2, dash_stamp="s1")
+           != assistant_ai.fingerprint(ws2, arch2, dash_stamp="s2"))
+
+    # --- Small-to-big expansion: a strong digest hit unfolds its best FULL sibling ---------------
+    schunks = [
+        {"id": "d1", "kind": "video", "title": "Ch — Vid (summary)", "url": "", "date": "",
+         "text": "summary of the pricing talk", "parent": "p1", "level": "digest"},
+        {"id": "f1", "kind": "video", "title": "Ch — Vid", "url": "", "date": "",
+         "text": "full transcript about pricing retainers monthly", "parent": "p1",
+         "level": "full"},
+        {"id": "f2", "kind": "video", "title": "Ch — Vid", "url": "", "date": "",
+         "text": "unrelated chatter about the weather", "parent": "p1", "level": "full"},
+    ]
+    sidx = assistant_ai.build_index(schunks)
+    out = assistant_ai._expand_hits(sidx, [dict(schunks[0])], "pricing retainers")
+    _check("small-to-big expansion pulls the most relevant full sibling after the digest",
+           [c["id"] for c in out][:2] == ["d1", "f1"])
+    _check("expansion never duplicates a chunk already retrieved",
+           [c["id"] for c in assistant_ai._expand_hits(
+               sidx, [dict(schunks[0]), dict(schunks[1])], "pricing retainers")].count("f1") == 1)
+
+    # --- Watcher summaries: capped batch, in-place, skip-already-summarized ----------------------
+    sum_arch = _fake_archives()
+    updates, n_sum, serr = assistant_ai.summarize_videos(
+        sum_arch, lambda s, u: ("- Bullet one\nTakeaway: do the thing.", ""), cap=1)
+    _check("summarize_videos caps the batch and stores the summary in place",
+           n_sum == 1 and serr == "" and "wch_test01" in updates
+           and sum_arch[0][1][0]["summary"].startswith("- Bullet")
+           and not sum_arch[0][1][1].get("summary"))
+    _u2, n_sum2, _e2 = assistant_ai.summarize_videos(
+        sum_arch, lambda s, u: ("- Bullet one\nTakeaway: do the thing.", ""), cap=8)
+    _check("already-summarized videos are skipped on the next run",
+           n_sum2 == 1 and sum_arch[0][1][1].get("summary"))
+    _u3, n_sum3, serr3 = assistant_ai.summarize_videos(
+        _fake_archives(), lambda s, u: ("", "model down"), cap=8)
+    _check("a failing summarizer skips (retried later), never raises",
+           n_sum3 == 0 and serr3 == "model down")
 
     # --- BM25 retrieval + the date filter ---------------------------------------------------------
     index = assistant_ai.build_index(chunks, fp=fp2)
@@ -239,8 +353,11 @@ def run():
     _check("RRF de-dupes across lists", set(assistant_ai._rrf([[1, 2], [2, 3]])) == {1, 2, 3})
 
     # --- Metadata pre-filter: confident single-source only, never a cross-source/generic question -
+    # (email questions scope to email AND comms since v4 -- the Communications timeline mirrors
+    # client-tier email threads, so an email ask must see both.)
     _check("single-source question infers its kind",
-           assistant_ai._infer_kinds("how are we handling the client's email replies") == {"email"})
+           assistant_ai._infer_kinds("how are we handling the client's email replies")
+           == {"email", "comms"})
     _check("cross-source question stays unfiltered",
            assistant_ai._infer_kinds("compare our campaigns with what creators say in videos") is None)
     _check("generic question stays unfiltered",
@@ -324,6 +441,108 @@ def run():
     _check("plan_stage returns the planned sub-questions + sources",
            "keep customers vs win new ones" in queries and len(queries) >= 2 and psources)
 
+    # --- Action proposals: split, stream filter, catalog-prompted ask, validation, execution ------
+    vis, props = assistant_ai.split_actions(
+        "Done.\n" + assistant_ai.ACTIONS_MARKER
+        + '\n[{"action": "add_task", "params": {"title": "New LP"}, "note": "adds it"}]')
+    _check("split_actions separates the visible answer from the proposals",
+           vis == "Done." and props and props[0]["action"] == "add_task")
+    _check("split_actions tolerates fenced JSON",
+           assistant_ai.split_actions(
+               "ok\n%s\n```json\n[{\"action\":\"reindex\"}]\n```" % assistant_ai.ACTIONS_MARKER
+           )[1][0]["action"] == "reindex")
+    _check("no marker -> no proposals",
+           assistant_ai.split_actions("plain answer") == ("plain answer", []))
+
+    tail = assistant_ai._ActionTail()
+    seen_text = tail.feed("The answer is yes.\n===ATRIUM_")
+    seen_text += tail.feed("ACTIONS===\n[{\"action\":\"reindex\"")
+    seen_text += tail.feed(",\"params\":{}}]")
+    rest, tprops = tail.finish()
+    _check("stream filter never shows the marker (even split across deltas) and parses proposals",
+           "ATRIUM_ACTIONS" not in (seen_text + rest)
+           and "The answer is yes." in (seen_text + rest)
+           and tprops and tprops[0]["action"] == "reindex")
+    tail2 = assistant_ai._ActionTail()
+    plain = tail2.feed("Just a normal answer with no proposals in it at all.")
+    rest2, props2 = tail2.finish()
+    _check("stream filter passes a plain answer through untouched",
+           plain + rest2 == "Just a normal answer with no proposals in it at all."
+           and props2 == [])
+
+    inner = ("Proposing it now.\n" + assistant_ai.ACTIONS_MARKER
+             + '\n[{"action": "add_task", "params": {"title": "Launch retargeting"}}]')
+    acts_out = []
+    answer, sources, err = assistant_ai.ask(
+        "Riverdance", index, "add a task to launch the retargeting campaign",
+        caller=lambda system, user: (json.dumps({"answer": inner}), ""),
+        actions_catalog="- add_task(title*)", actions_out=acts_out)
+    _check("ask strips the proposal block from the answer and fills actions_out",
+           err == "" and "ATRIUM_ACTIONS" not in answer and acts_out
+           and acts_out[0]["action"] == "add_task")
+    _check("the catalog is taught to the model only when actions are enabled",
+           "PROPOSE workspace actions" in assistant_ai._actions_note("- add_task(title*)")
+           and assistant_ai._actions_note("") == "")
+
+    def _act_stream(system, user):
+        yield {"type": "answer", "text": "Sure - proposing.\n"}
+        yield {"type": "answer",
+               "text": assistant_ai.ACTIONS_MARKER + '\n[{"action":"reindex","params":{}}]'}
+
+    evs = list(assistant_ai.ask_stream(
+        "X", hidx, "how do we get customers coming back",
+        query_embedder=lambda q: (_fake_embed([q])[0][0], ""),
+        stream_caller=_act_stream, actions_catalog="- reindex()"))
+    txt = "".join(e.get("text", "") for e in evs if e["type"] == "answer")
+    _check("streamed proposals never render as text and arrive as one proposals event",
+           "ATRIUM_ACTIONS" not in txt and "Sure - proposing." in txt
+           and any(e["type"] == "proposals" and e["proposals"][0]["action"] == "reindex"
+                   for e in evs))
+
+    import assistant_actions
+    clean, verr = assistant_actions.validate(
+        {"action": "add_task", "params": {"title": "From AI"}, "note": "test"})
+    _check("validate accepts a known action and labels it",
+           clean is not None and verr == "" and clean["gate"] == "admin"
+           and "From AI" in clean["label"])
+    _check("validate rejects unknown actions",
+           assistant_actions.validate({"action": "rm_rf", "params": {}})[1].startswith("unknown"))
+    _check("validate enforces required params",
+           "missing required" in assistant_actions.validate(
+               {"action": "move_task", "params": {"task": "x"}})[1])
+    _check("validate enforces choice params",
+           "must be one of" in assistant_actions.validate(
+               {"action": "add_intel", "params": {"section": "nope", "title": "t"}})[1])
+    _check("every registry action is described in the catalog",
+           all(name in assistant_actions.catalog_text()
+               for name in ("add_task", "move_task", "generate_report", "edit_report",
+                            "run_website_check", "reindex")))
+    _check("a root-gated action refuses a non-root approver",
+           assistant_actions.execute(
+               CLIENT, assistant_actions.validate(
+                   {"action": "set_website_notes", "params": {"notes": "x"}})[0],
+               {"is_root": False})
+           == (False, "only the super admin can approve this action"))
+    ok, msg = assistant_actions.execute(CLIENT, clean, {"actor": "Tester", "is_root": True})
+    _check("an approved add_task lands on the board via the same workspace writer",
+           ok and "From AI" in msg
+           and any(t.get("title") == "From AI"
+                   for t in workspace.load_workspace(CLIENT).get("tasks") or []))
+    ok2, _msg2 = assistant_actions.execute(
+        CLIENT, assistant_actions.validate(
+            {"action": "complete_task", "params": {"task": "From AI"}})[0],
+        {"actor": "Tester", "is_root": False})
+    _check("complete_task resolves by title and moves the stage",
+           ok2 and any(t.get("title") == "From AI" and t.get("stage") == "completed"
+                       for t in workspace.load_workspace(CLIENT).get("tasks") or []))
+    ok3, msg3 = assistant_actions.execute(
+        CLIENT, assistant_actions.validate(
+            {"action": "move_task", "params": {"task": "no such task xyz",
+                                              "stage": "todo"}})[0],
+        {"actor": "Tester", "is_root": False})
+    _check("an unresolvable target fails with a friendly reason, never raises",
+           ok3 is False and "not found" in msg3)
+
     # --- The route: lazy rebuild, reindex, ask (stubbed), gating ---------------------------------
     main.app.config.update(TESTING=True, SESSION_COOKIE_SECURE=False, SESSION_COOKIE_SAMESITE="Lax")
     c = main.app.test_client()
@@ -334,6 +553,17 @@ def run():
     data = r.get_json()
     _check("op=reindex builds + stores the index", data["ok"] is True and data["chunks"] > 0)
     _check("index object persisted", workspace.read_assistant_index(CLIENT) is not None)
+
+    r = c.post("/w/%s/admin/assistant" % CLIENT,
+               data={"op": "execute", "action": json.dumps(
+                   {"action": "comment_task", "params": {"task": "From AI",
+                                                         "body": "ship it"}})})
+    data = r.get_json()
+    _check("op=execute runs an approved action through the route",
+           data["ok"] is True and "Commented" in data["message"])
+    _check("op=execute rejects garbage",
+           c.post("/w/%s/admin/assistant" % CLIENT,
+                  data={"op": "execute", "action": "not json"}).get_json()["ok"] is False)
 
     r = c.post("/w/%s/admin/assistant" % CLIENT, data={"op": "ask", "question": ""})
     _check("empty question refused", r.get_json()["ok"] is False)

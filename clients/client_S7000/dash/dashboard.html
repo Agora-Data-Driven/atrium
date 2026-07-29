@@ -1,0 +1,3435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>Campaign Uptime Monitor</title>
+<!-- Placeholder so the browser never requests /favicon.ico; swapped for the brand mark on load. -->
+<link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230A4EA3'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+</head>
+<body>
+<style>
+/* ============================================================================================
+   CAMPAIGN UPTIME MONITOR, one stylesheet, three brands.
+
+   This file serves THREE scoped routes (/internal, /into, /service7000) off the same
+   components; only the data scope and the brand differ. So every brand-dependent value is a
+   custom property that `applyTheme()` rewrites at runtime from DATA.brand.theme, nothing
+   brand-specific is hardcoded in a selector.
+
+   THE ONE RULE THAT OVERRIDES BRAND: the traffic lights are the product. `--ok/--warn/--crit/
+   --stale/--off` are FIXED across all three themes and never inherit a brand hue, because a
+   client learning "red means stopped" must not have red mean "Service 7000" on one route.
+   Service 7000's brand red (#E30613) is therefore used for NOTHING but the logo itself, and
+   INTO's teal never appears as a status colour.
+
+   Colour is never the only signal either: every status carries a distinct glyph and a word, so
+   the board survives greyscale printing and colour-blind readers.
+   ============================================================================================ */
+:root{
+  /* --- brand slots (overwritten by applyTheme), defaults are the Agora internal theme --- */
+  --brand:#4FA84A; --brand-deep:#3B7F38; --brand-ink:#12241A;
+  --brand-tint:#EDF6EC; --brand-line:#CBE3C9; --accent:#6A6AEA; --accent-deep:#5A54DD;
+  --display:'Archivo',system-ui,sans-serif;
+  --sans:'Lato',system-ui,-apple-system,sans-serif;
+  --mono:'Roboto Mono',ui-monospace,'SFMono-Regular',Menlo,monospace;
+
+  /* --- neutrals --- */
+  --canvas:#F6F8FA; --surface:#FFFFFF; --surface2:#FBFCFD;
+  --ink:#12171D; --ink2:#3D464F; --ink3:#5B6672; --muted:#7C8794;
+  --line:#E6EAEF; --line2:#D2D9E1; --track:#EDF1F5;
+
+  /* --- status: FIXED across every theme (see the note above) --- */
+  --ok:#0F8A43;      --ok-bg:#E9F6EE;   --ok-line:#B7E0C6;
+  --warn:#A96A00;    --warn-bg:#FDF2E0; --warn-line:#EFD5A6;
+  --crit:#C42B2B;    --crit-bg:#FDECEC; --crit-line:#F2C4C4;
+  --stale:#4A5580;   --stale-bg:#EDEFF7; --stale-line:#C9CFE4;
+  --off:#5F6B78;     --off-bg:#EFF2F5;  --off-line:#D5DCE4;
+
+  --shadow:0 1px 2px rgba(16,24,40,.04), 0 8px 24px -8px rgba(16,24,40,.10);
+  --shadow-lift:0 2px 4px rgba(16,24,40,.05), 0 18px 40px -14px rgba(16,24,40,.20);
+  --shadow-sm:0 1px 2px rgba(16,24,40,.05);
+  --r:14px; --r-sm:9px; --r-xs:6px;
+  --safe:env(safe-area-inset-bottom, 0px);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+/* An explicit `display:` on a class beats the UA stylesheet's [hidden] rule, so .scopetag and
+   .seg (both inline-flex) rendered as empty pills when hidden on a single-account route. One
+   global guard rather than a per-class `[hidden]` for each. */
+[hidden]{display:none !important}
+html{-webkit-text-size-adjust:100%}
+body{font-family:var(--sans);background:var(--canvas);color:var(--ink);line-height:1.5;
+     -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+h1,h2,h3,h4{font-family:var(--display);font-weight:800;letter-spacing:-.018em;color:var(--ink)}
+button,input,select{font-family:inherit}
+button{cursor:pointer}
+.wrap{max-width:1440px;margin:0 auto;padding:0 clamp(14px,3vw,28px)}
+.tnum{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ============================================================ header */
+header.top{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:70;
+           box-shadow:0 1px 0 rgba(16,24,40,.02)}
+header.top::after{content:"";display:block;height:2px;
+  background:linear-gradient(90deg,var(--brand) 0%,var(--accent) 70%,transparent 100%)}
+.top-inner{display:flex;align-items:center;gap:14px;padding:11px clamp(14px,3vw,28px);
+           max-width:1440px;margin:0 auto}
+.brand{display:flex;align-items:center;gap:11px;min-width:0}
+.brand img{height:38px;width:auto;max-width:170px;display:block;object-fit:contain}
+.brand img.lockup{height:30px;max-width:210px}
+.brand .btxt{min-width:0}
+.brand .wm{font-family:var(--display);font-weight:800;font-size:15.5px;letter-spacing:-.01em;
+           color:var(--ink);line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand .tg{font-size:11.5px;color:var(--muted);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top-spacer{flex:1;min-width:0}
+.scopetag{display:inline-flex;align-items:center;gap:6px;background:var(--brand-tint);
+          border:1px solid var(--brand-line);color:var(--brand-deep);border-radius:999px;
+          padding:4px 11px;font-size:10.5px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;
+          white-space:nowrap}
+
+/* the ambient freshness chip, present on every tab, so "is this data real" is never a tab away */
+.fchip{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:5px 12px 5px 9px;
+       font-size:11.5px;font-weight:700;border:1px solid transparent;white-space:nowrap;
+       background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok);cursor:pointer;transition:.15s}
+.fchip:hover{filter:brightness(.98)}
+.fchip.bad{background:var(--stale-bg);border-color:var(--stale-line);color:var(--stale)}
+.fchip .pulse{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none;position:relative}
+.fchip .pulse::after{content:"";position:absolute;inset:-4px;border-radius:50%;
+  border:1.5px solid currentColor;opacity:.5;animation:ping 2.4s cubic-bezier(0,0,.2,1) infinite}
+.fchip.bad .pulse::after{animation:none;opacity:.25}
+@keyframes ping{0%{transform:scale(.55);opacity:.7}80%,100%{transform:scale(1.5);opacity:0}}
+@media (prefers-reduced-motion:reduce){.fchip .pulse::after{animation:none}}
+
+.iconbtn,.sync{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;
+       border:1px solid var(--line2);background:var(--surface);color:var(--ink2);
+       padding:6px 12px;border-radius:var(--r-sm);transition:.15s;white-space:nowrap}
+.iconbtn:hover,.sync:hover{border-color:var(--brand);color:var(--brand-deep);background:var(--brand-tint)}
+.sync[disabled]{opacity:.6;cursor:default}
+.sync.ok{border-color:var(--ok-line);color:var(--ok);background:var(--ok-bg)}
+.sync.bad{border-color:var(--crit-line);color:var(--crit);background:var(--crit-bg)}
+.spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--brand);
+      display:none;animation:spin .7s linear infinite}
+.sync.busy .spin{display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.agency{display:flex;align-items:center;gap:8px;padding-left:14px;border-left:1px solid var(--line)}
+.agency .lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;text-align:right;line-height:1.3}
+.agency img{height:22px;opacity:.9;display:block}
+
+/* the demo-data honesty guard: not dismissible, by design */
+.demoribbon{background:repeating-linear-gradient(135deg,#FFF7E6,#FFF7E6 12px,#FEF2DA 12px,#FEF2DA 24px);
+  border-bottom:1px solid var(--warn-line);color:#7A4E00;font-size:11.5px;font-weight:700;
+  padding:6px clamp(14px,3vw,28px);text-align:center;letter-spacing:.2px}
+.demoribbon b{font-weight:900}
+
+/* ============================================================ tabs */
+.tabbar{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:56px;z-index:65}
+.tabs{display:flex;gap:2px;max-width:1440px;margin:0 auto;padding:0 clamp(14px,3vw,28px);
+      overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{position:relative;border:none;background:transparent;font-family:var(--display);font-size:13px;
+     font-weight:700;color:var(--muted);padding:13px 15px 12px;letter-spacing:-.005em;
+     transition:color .15s;white-space:nowrap;display:inline-flex;align-items:center;gap:8px}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected="true"]{color:var(--brand-deep)}
+.tab[aria-selected="true"]::after{content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:3px;
+  background:linear-gradient(90deg,var(--brand),var(--accent));border-radius:3px 3px 0 0}
+.tab .ix{font-family:var(--mono);font-size:10px;opacity:.55;font-weight:500}
+.tab .cnt{font-size:10px;font-weight:900;min-width:17px;height:17px;padding:0 5px;border-radius:999px;
+     display:inline-flex;align-items:center;justify-content:center;background:var(--crit);color:#fff}
+.tab .cnt.w{background:var(--warn)}
+.tab .cnt[hidden]{display:none}
+
+/* ============================================================ global control strip */
+.gbar{background:var(--surface2);border-bottom:1px solid var(--line);position:sticky;top:100px;z-index:60}
+.gbar-inner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+            padding:9px clamp(14px,3vw,28px);max-width:1440px;margin:0 auto}
+.clabel{font-size:9.5px;text-transform:uppercase;letter-spacing:1.05px;color:var(--muted);font-weight:900}
+.seg{display:inline-flex;background:var(--track);border:1px solid var(--line);border-radius:999px;padding:2px}
+.seg button{border:none;background:transparent;color:var(--ink3);font-size:11.5px;font-weight:700;
+            padding:5px 12px;border-radius:999px;transition:.14s;white-space:nowrap}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--surface);color:var(--brand-deep);box-shadow:var(--shadow-sm)}
+.seg.mini button{font-size:10.5px;padding:4px 10px}
+input[type=search],input[type=date],select{font-size:12px;color:var(--ink);border:1px solid var(--line2);
+  background:var(--surface);border-radius:var(--r-sm);padding:6px 10px;font-weight:600;max-width:100%}
+input[type=search]{min-width:180px}
+input[type=search]:focus,input[type=date]:focus,select:focus{outline:2px solid var(--brand);outline-offset:-1px;border-color:var(--brand)}
+.preset{font-size:11.5px;font-weight:700;border:1px solid var(--line2);background:var(--surface);
+        color:var(--ink3);padding:5px 11px;border-radius:var(--r-sm);transition:.14s}
+.preset:hover{border-color:var(--brand);color:var(--brand-deep)}
+.preset.active{background:var(--brand);border-color:var(--brand);color:#fff}
+.gsep{width:1px;height:20px;background:var(--line2)}
+.gnote{width:100%;font-size:11px;color:var(--muted)}
+.gnote b{color:var(--ink2)}
+
+/* ============================================================ layout */
+main{padding:20px 0 calc(60px + var(--safe))}
+.tab-pane[hidden]{display:none}
+section{margin-bottom:24px}
+.shead{display:flex;align-items:baseline;gap:11px;margin-bottom:12px;flex-wrap:wrap}
+.shead h2{font-size:16.5px}
+.shead .sub{font-size:12.5px;color:var(--muted)}
+.shead .spacer{flex:1;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+      box-shadow:var(--shadow);overflow:hidden}
+.card-p{padding:16px 18px}
+.card h3{font-size:13.5px;font-weight:800}
+.card .csub{font-size:11.5px;color:var(--muted);margin-top:2px}
+.grid{display:grid;gap:14px}
+.cols2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+/* Explicit two-column splits. These carry their ratio here rather than in an inline style so the
+   mobile query below can actually collapse them, an inline grid-template-columns cannot be
+   overridden by a stylesheet rule, which is how a 76px horizontal overflow got onto the phone
+   layout in the first place. */
+.split{grid-template-columns:minmax(0,1.05fr) minmax(0,1.6fr)}
+.split-c{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)}
+.cardhead{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.cardhead>div:first-child{flex:1;min-width:160px}
+
+/* ============================================================ THE VERDICT (§7.1) */
+/* Above the fold, no scrolling, no interaction. Colour + glyph + a sentence in plain English.
+   With no alerting in this build, this line is the entire detection mechanism. */
+.verdict{border-radius:var(--r);padding:clamp(16px,2.6vw,26px) clamp(16px,2.6vw,28px);
+  display:flex;align-items:center;gap:clamp(14px,2.4vw,24px);position:relative;overflow:hidden;
+  border:1px solid;box-shadow:var(--shadow)}
+.verdict::before{content:"";position:absolute;inset:0;opacity:.55;pointer-events:none;
+  background:radial-gradient(120% 160% at 0% 0%,rgba(255,255,255,.85),transparent 60%)}
+.verdict.ok{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)}
+.verdict.bad{background:var(--crit-bg);border-color:var(--crit-line);color:var(--crit)}
+.verdict.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+.verdict.stale{background:var(--stale-bg);border-color:var(--stale-line);color:var(--stale)}
+.vico{width:clamp(48px,7vw,64px);height:clamp(48px,7vw,64px);border-radius:50%;flex:none;
+  display:flex;align-items:center;justify-content:center;font-size:clamp(24px,3.6vw,32px);
+  font-weight:900;background:currentColor;position:relative;z-index:1;box-shadow:0 6px 18px -6px currentColor}
+.vico span{color:#fff;line-height:1}
+.vtxt{flex:1;min-width:0;position:relative;z-index:1}
+.vh1{font-family:var(--display);font-weight:800;font-size:clamp(19px,3.2vw,29px);letter-spacing:-.028em;
+     line-height:1.1;color:inherit}
+.vs{font-size:clamp(12.5px,1.5vw,14px);color:var(--ink2);margin-top:6px;max-width:70ch}
+.vs b{color:var(--ink)}
+.vcounts{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.vcount{background:rgba(255,255,255,.72);border:1px solid rgba(0,0,0,.06);border-radius:999px;
+  padding:4px 11px;font-size:11.5px;font-weight:800;color:var(--ink2);display:inline-flex;align-items:center;gap:6px}
+.vcount .n{font-variant-numeric:tabular-nums;font-size:13px;color:var(--ink)}
+
+/* ============================================================ freshness panel (§4 rule 10) */
+/* Deliberately a different visual language from the campaign lights: slate, mono, technical.
+   Confusing "the pipeline broke" with "every campaign died" once destroys trust in the tool. */
+.fresh{background:linear-gradient(180deg,#FBFCFE,#F6F8FC);border:1px solid var(--stale-line);
+       border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow-sm)}
+.fresh.bad{border-color:var(--crit-line);background:linear-gradient(180deg,#FFF8F8,#FDF0F0)}
+.fresh .fh{display:flex;align-items:center;gap:8px;font-family:var(--display);font-weight:800;
+  font-size:12px;text-transform:uppercase;letter-spacing:.9px;color:var(--stale);margin-bottom:11px}
+.fresh.bad .fh{color:var(--crit)}
+.fresh .fh .tag{margin-left:auto;font-family:var(--sans);font-size:10.5px;font-weight:800;
+  text-transform:none;letter-spacing:0;background:var(--stale);color:#fff;border-radius:999px;padding:2px 9px}
+.fresh.bad .fh .tag{background:var(--crit)}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:11px 16px}
+.fgrid .fi .l{font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--muted);font-weight:800}
+.fgrid .fi .v{font-family:var(--mono);font-size:13.5px;font-weight:500;color:var(--ink);margin-top:2px;
+  font-variant-numeric:tabular-nums;word-break:break-word}
+.fgrid .fi .v.bad{color:var(--crit);font-weight:700}
+.fstrip{display:flex;gap:2px;margin-top:13px;align-items:flex-end;height:22px}
+.fstrip i{flex:1;min-width:3px;height:100%;border-radius:2px;background:var(--ok);opacity:.8;
+  transition:opacity .12s;cursor:default}
+.fstrip i.bad{background:var(--crit);opacity:1}
+.fstrip i.miss{background:var(--line2);height:60%}
+.fstrip i:hover{opacity:1}
+.fnote{font-size:11px;color:var(--muted);margin-top:9px;line-height:1.45}
+
+/* ============================================================ account cards */
+.accts{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.acct{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+      box-shadow:var(--shadow);overflow:hidden;transition:.16s;text-align:left;display:block;width:100%;
+      border-left:3px solid var(--brand)}
+.acct:hover{box-shadow:var(--shadow-lift);transform:translateY(-1px)}
+.acct.sel{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-tint),var(--shadow)}
+.acct .ah{padding:13px 16px 10px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,var(--brand-tint),transparent)}
+.acct .an{font-family:var(--display);font-weight:800;font-size:14.5px;letter-spacing:-.015em}
+.acct .ap{font-size:11.5px;color:var(--ink3);margin-top:2px}
+.acct .ag{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line)}
+.acct .ag .s{background:var(--surface);padding:10px 12px}
+.acct .ag .s .l{font-size:9px;text-transform:uppercase;letter-spacing:.85px;color:var(--muted);font-weight:800;
+  line-height:1.25}
+.acct .ag .s .v{font-family:var(--display);font-weight:800;font-size:17px;margin-top:3px;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.acct .ag .s .v.crit{color:var(--crit)} .acct .ag .s .v.ok{color:var(--ok)}
+.acct .af{padding:9px 16px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:var(--surface2);
+  border-top:1px solid var(--line)}
+
+/* ============================================================ chips / pills */
+.chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2.5px 9px;
+  font-size:10.5px;font-weight:800;border:1px solid var(--line2);background:var(--surface);color:var(--ink3);
+  white-space:nowrap;letter-spacing:.1px}
+.chip.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+.chip.crit{background:var(--crit-bg);border-color:var(--crit-line);color:var(--crit)}
+.chip.ok{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)}
+.chip.mut{background:var(--off-bg);border-color:var(--off-line);color:var(--off)}
+.chip.br{background:var(--brand-tint);border-color:var(--brand-line);color:var(--brand-deep)}
+.chip .m{font-family:var(--mono);font-weight:500;font-size:10px}
+
+/* the traffic light: glyph + word, so colour is reinforcement and never the only signal */
+.lamp{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;font-size:11.5px;font-weight:800}
+.lamp .b{width:17px;height:17px;border-radius:50%;flex:none;display:flex;align-items:center;
+  justify-content:center;color:#fff;font-size:10.5px;font-weight:900;line-height:1}
+.lamp.running{color:var(--ok)}       .lamp.running .b{background:var(--ok)}
+.lamp.silent{color:var(--crit)}      .lamp.silent .b{background:var(--crit)}
+.lamp.off{color:var(--crit)}         .lamp.off .b{background:var(--crit)}
+.lamp.paused_spent{color:var(--warn)}.lamp.paused_spent .b{background:var(--warn)}
+.lamp.stale_ok{color:var(--stale)}   .lamp.stale_ok .b{background:var(--stale)}
+.lamp.unverified{color:var(--stale)} .lamp.unverified .b{background:var(--stale)}
+.lamp .b.hollow{background:transparent !important;border:2px solid currentColor;color:currentColor;font-size:9px}
+
+/* ============================================================ flag list */
+/* Findings collapse by default. The brief asks for a five-second read, and eleven findings each
+   carrying three sentences of reasoning is not one -- so the CLAIM is always visible and the
+   REASONING is one click away. Criticals open on load, warnings stay shut. */
+.flags{display:flex;flex-direction:column;gap:8px}
+.flag{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--off);
+  border-radius:var(--r-sm);box-shadow:var(--shadow-sm);transition:.15s;
+  display:grid;grid-template-columns:1fr auto;align-items:start;text-align:left;width:100%}
+.flag:hover{box-shadow:var(--shadow);border-color:var(--line2)}
+.fhead{grid-column:1;border:none;background:transparent;text-align:left;padding:10px 4px 10px 13px;
+  width:100%;display:block;font:inherit;color:inherit}
+.flag .fwhen{grid-column:2;padding:11px 13px 0 0}
+.fbody{grid-column:1/-1;padding:0 13px 11px;display:none}
+.flag.open .fbody{display:block}
+.fsub{font-size:11.5px;color:var(--ink3);margin-top:2px;line-height:1.35}
+.fchev{float:right;color:var(--muted);font-size:9px;transition:transform .16s;margin:4px 0 0 8px}
+.flag.open .fchev{transform:rotate(180deg)}
+.flag.crit{border-left-color:var(--crit)}
+.flag.warn{border-left-color:var(--warn)}
+.flag.pipe{border-left-color:var(--stale);background:linear-gradient(90deg,var(--stale-bg),var(--surface) 55%);
+  border-color:var(--stale-line)}
+.flag .fmeta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:5px}
+.flag .fsev{font-size:9.5px;font-weight:900;text-transform:uppercase;letter-spacing:.85px;
+  border-radius:4px;padding:2px 7px}
+.flag.crit .fsev{background:var(--crit);color:#fff}
+.flag.warn .fsev{background:var(--warn);color:#fff}
+.flag.pipe .fsev{background:var(--stale);color:#fff}
+.flag .frule{font-family:var(--mono);font-size:10px;color:var(--muted);font-weight:500}
+.flag .ft{font-family:var(--display);font-weight:800;font-size:13.5px;letter-spacing:-.015em;line-height:1.3}
+.flag .fd{font-size:12.5px;color:var(--ink2);line-height:1.5}
+.flag .fd b{color:var(--ink)}
+.flag .fd .why{display:block;margin-top:4px;color:var(--ink3)}
+.flag .fwhen{text-align:right;font-size:10.5px;color:var(--muted);white-space:nowrap;line-height:1.4}
+.flag .fwhen b{display:block;color:var(--ink2);font-size:12px;font-weight:800}
+.flag .fgo{margin-top:8px;font-size:11px;font-weight:800;color:var(--brand-deep);
+  border:1px solid var(--brand-line);background:var(--brand-tint);border-radius:var(--r-xs);
+  padding:4px 10px}
+.flag .fgo:hover{background:var(--brand);color:#fff;border-color:var(--brand)}
+.flag .fgo::after{content:" \2192"}
+
+/* ============================================================ tables */
+.tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+thead th{background:var(--surface2);color:var(--ink3);font-weight:800;text-align:left;padding:9px 12px;
+  white-space:nowrap;font-size:10px;text-transform:uppercase;letter-spacing:.75px;
+  border-bottom:1px solid var(--line2);position:sticky;top:0;z-index:3}
+thead th.srt{cursor:pointer;user-select:none}
+thead th.srt:hover{color:var(--brand-deep);background:var(--brand-tint)}
+thead th .ar{opacity:.35;font-size:8px;margin-left:3px}
+thead th.on{color:var(--brand-deep)} thead th.on .ar{opacity:1}
+tbody td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+tbody tr.z:hover{background:var(--brand-tint)}
+tbody tr.z{cursor:pointer}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.rank{color:var(--muted);width:30px;font-variant-numeric:tabular-nums;font-size:11px}
+.cname{font-weight:700;color:var(--ink);line-height:1.35}
+.csm{font-size:10.5px;color:var(--muted);margin-top:1px}
+.tfoot{padding:9px 14px;font-size:11px;color:var(--muted);background:var(--surface2);border-top:1px solid var(--line)}
+.dim{color:var(--muted)}
+.nt{color:var(--muted);font-style:italic;font-size:11.5px}
+.caret{display:inline-block;width:10px;color:var(--muted);font-size:9px;transition:transform .16s}
+tr.open .caret{transform:rotate(90deg);color:var(--brand)}
+tr.det td{background:var(--surface2);padding:0;border-bottom:2px solid var(--line2)}
+tr.det[hidden]{display:none}
+tr.hl td{animation:hl 2.2s ease-out}
+@keyframes hl{0%,22%{background:var(--brand-tint)}100%{background:transparent}}
+
+/* the ad-set / ad hierarchy revealed under a campaign row */
+.hier{padding:14px 16px;display:grid;gap:12px}
+.hier .hset{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);overflow:hidden}
+.hier .hsh{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 12px;
+  background:var(--surface2);border-bottom:1px solid var(--line)}
+.hier .hsh .n{font-weight:800;font-size:12.5px;flex:1;min-width:140px}
+.hier .had{display:flex;align-items:center;gap:9px;padding:7px 12px 7px 22px;font-size:12px;
+  border-bottom:1px solid var(--line)}
+.hier .had:last-child{border-bottom:none}
+.hier .had .n{flex:1;min-width:0;color:var(--ink2)}
+.hier .hcause{background:var(--crit-bg);border:1px solid var(--crit-line);border-radius:var(--r-sm);
+  padding:10px 13px;font-size:12.5px;color:#8E2020}
+/* the heading is its own element: a blanket `.hcause b` rule also caught the <b> inside each
+   cause sentence and exploded "its only ad set (X) is paused" onto five uppercase lines */
+.hier .hcause .ch{display:block;font-family:var(--display);font-size:12px;text-transform:uppercase;
+  letter-spacing:.8px;margin-bottom:6px;font-weight:800}
+.hier .hcause ul{margin:0;padding-left:17px} .hier .hcause li{margin:3px 0;line-height:1.5}
+.hier .hcause b{font-weight:800}
+
+/* ============================================================ heartbeat / uptime strips */
+.hbwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+.hbrows{min-width:max-content}
+.hbrow{display:flex;align-items:center;gap:0;border-bottom:1px solid var(--line)}
+.hbrow:last-child{border-bottom:none}
+.hbrow:hover{background:var(--surface2)}
+.hbname{position:sticky;left:0;z-index:2;background:var(--surface);width:230px;min-width:230px;
+  padding:7px 12px 7px 14px;border-right:1px solid var(--line)}
+.hbrow:hover .hbname{background:var(--surface2)}
+.hbname .n{font-size:12px;font-weight:700;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbname .a{font-size:10px;color:var(--muted)}
+.hbcells{display:flex;gap:2px;padding:7px 12px;flex:none}
+.hbc{width:9px;height:22px;border-radius:2px;background:var(--ok);flex:none;cursor:default;transition:transform .1s}
+.hbc:hover{transform:scaleY(1.14)}
+.hbc.down{background:var(--crit)}
+.hbc.pre{background:var(--track)}
+.hbc.low{background:var(--warn)}
+.hbc.today{background:var(--ok);opacity:.5;box-shadow:inset 0 0 0 1px var(--ok)}
+.hbc.today.down{background:var(--crit);opacity:.45}
+.hbc.unk{background:repeating-linear-gradient(45deg,var(--stale-line),var(--stale-line) 2px,var(--stale-bg) 2px,var(--stale-bg) 4px)}
+.hbstat{position:sticky;right:0;background:var(--surface);padding:7px 14px 7px 12px;
+  border-left:1px solid var(--line);min-width:104px;text-align:right}
+.hbrow:hover .hbstat{background:var(--surface2)}
+.hbstat .p{font-family:var(--display);font-weight:800;font-size:13px;font-variant-numeric:tabular-nums}
+.hbstat .d{font-size:9.5px;color:var(--muted)}
+.hbaxis{display:flex;align-items:center;border-bottom:1px solid var(--line2)}
+.hbaxis .hbname{background:var(--surface2);font-size:9.5px;text-transform:uppercase;letter-spacing:.85px;
+  color:var(--muted);font-weight:800;padding-top:8px;padding-bottom:8px}
+.hbaxis .hbcells{padding-top:8px;padding-bottom:8px;position:relative}
+.hbaxis .hbstat{background:var(--surface2);font-size:9.5px;text-transform:uppercase;letter-spacing:.85px;
+  color:var(--muted);font-weight:800;padding-top:8px;padding-bottom:8px}
+.hbtick{position:absolute;top:6px;font-size:9.5px;color:var(--muted);font-weight:700;white-space:nowrap;
+  transform:translateX(-1px)}
+.hblegend{display:flex;flex-wrap:wrap;gap:7px 14px;padding:11px 14px;border-top:1px solid var(--line);
+  background:var(--surface2);font-size:11px;color:var(--ink3)}
+.hblegend span{display:inline-flex;align-items:center;gap:6px}
+.hblegend i{width:11px;height:11px;border-radius:2px;display:block}
+
+/* ============================================================ runway (scheduled stops) */
+.runway{display:grid;gap:2px}
+.rwhead,.rwrow{display:grid;grid-template-columns:minmax(150px,1.5fr) minmax(0,3fr) 116px;
+  gap:14px;align-items:center;padding:7px 14px}
+.rwhead{font-size:9.5px;text-transform:uppercase;letter-spacing:.85px;color:var(--muted);font-weight:800;
+  border-bottom:1px solid var(--line2);background:var(--surface2)}
+.rwrow{border-bottom:1px solid var(--line)}
+.rwrow:last-child{border-bottom:none}
+.rwrow:hover{background:var(--surface2)}
+.rwlab .n{font-size:12px;font-weight:700;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rwlab .a{font-size:10px;color:var(--muted)}
+.rwtrack{position:relative;height:26px;background:var(--track);border-radius:var(--r-xs);overflow:hidden}
+.rwbar{position:absolute;left:0;top:0;bottom:0;border-radius:var(--r-xs);display:flex;align-items:center;
+  justify-content:flex-end;padding-right:8px;font-size:10.5px;font-weight:800;color:#fff;
+  min-width:8px;transition:width .3s}
+.rwbar.ok{background:linear-gradient(90deg,var(--ok),#2FA85F)}
+.rwbar.warn{background:linear-gradient(90deg,#C58515,var(--warn))}
+.rwbar.crit{background:linear-gradient(90deg,#D64A4A,var(--crit))}
+.rwbar.inf{background:linear-gradient(90deg,var(--ok),rgba(15,138,67,.14))}
+/* A projected stop (from a lifetime budget) is hatched to say "inferred from spend rate, not a
+   set date". It has to be an ::after overlay: an inline `background-image` would override the
+   `background` shorthand on .crit/.warn/.ok and leave the bar with no colour at all. */
+.rwbar.proj::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:repeating-linear-gradient(45deg,rgba(255,255,255,.34),rgba(255,255,255,.34) 4px,
+             transparent 4px,transparent 9px)}
+.rwbar{position:absolute}
+.rwtick{position:absolute;top:0;bottom:0;width:1px;background:rgba(0,0,0,.09)}
+.rwaxis{position:relative;height:15px}
+.rwaxis span{position:absolute;font-size:9.5px;color:var(--muted);font-weight:700;transform:translateX(-50%)}
+.rwval{text-align:right;font-size:11.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rwval .s{display:block;font-size:9.5px;color:var(--muted);font-weight:700}
+
+/* ============================================================ change feed */
+.feed{display:flex;flex-direction:column}
+.fitem{display:grid;grid-template-columns:118px 1fr auto;gap:14px;padding:11px 14px;
+  border-bottom:1px solid var(--line);align-items:start}
+.fitem:last-child{border-bottom:none}
+.fitem:hover{background:var(--surface2)}
+.fitem .fts{font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.4;font-variant-numeric:tabular-nums}
+.fitem .fts b{display:block;color:var(--ink2);font-weight:500;font-size:11.5px}
+.fitem .fmain .fn{font-size:12.5px;font-weight:700;line-height:1.35}
+.fitem .fmain .fe{font-size:11.5px;color:var(--ink3);margin-top:2px}
+.fitem .fmain .ftr{display:inline-flex;align-items:center;gap:6px;margin-top:5px;font-size:11px;font-weight:800}
+.fitem .fmain .ftr .a{color:var(--ok)} .fitem .fmain .ftr .b{color:var(--crit)}
+.fitem .fmain .ftr .ar{color:var(--muted);font-weight:400}
+.fitem .fright{text-align:right;font-size:11px;color:var(--muted);white-space:nowrap;line-height:1.5}
+.fitem .fright b{display:block;color:var(--ink);font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums}
+
+/* ============================================================ KPI tiles */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:13px 15px;
+  box-shadow:var(--shadow-sm);position:relative;overflow:hidden}
+.kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--brand)}
+.kpi .kl{font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--muted);font-weight:800}
+.kpi .kv{font-family:var(--display);font-weight:800;font-size:25px;line-height:1.12;margin-top:5px;
+  letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.kpi .kd{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.4}
+.kpi.na .kv{font-size:15px;color:var(--muted);font-weight:700;letter-spacing:0}
+
+/* ============================================================ charts */
+.ch{width:100%;height:auto;display:block;overflow:visible}
+.axis{fill:var(--muted);font-size:10px;font-family:var(--sans)}
+.gl{stroke:var(--line);stroke-width:1}
+.gl2{stroke:var(--line2);stroke-width:1;stroke-dasharray:3 3}
+.legend{display:flex;flex-wrap:wrap;gap:7px 14px;margin-bottom:9px}
+.lg{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink2);cursor:pointer;
+  user-select:none;font-weight:700}
+.lg .sw{width:11px;height:11px;border-radius:3px;flex:none}
+.lg.off{opacity:.32}
+.tip{position:fixed;pointer-events:none;background:#111820;color:#F2F5F8;border-radius:var(--r-sm);
+  padding:9px 11px;font-size:11.5px;opacity:0;transition:opacity .1s;z-index:300;
+  box-shadow:0 10px 30px rgba(8,12,18,.32);max-width:280px;line-height:1.45}
+.tip .td{font-weight:800;font-size:12px;margin-bottom:5px;color:#fff}
+.tip .tr{display:flex;justify-content:space-between;gap:16px;font-variant-numeric:tabular-nums}
+.tip .tr .m{opacity:.7}
+.tip .tn{opacity:.65;font-size:10.5px;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.14)}
+
+/* ============================================================ misc */
+.empty{border:1px dashed var(--line2);border-radius:var(--r);padding:26px 20px;text-align:center;
+  color:var(--muted);font-size:12.5px;background:var(--surface2)}
+.empty b{display:block;font-family:var(--display);font-weight:800;color:var(--ink2);font-size:14px;margin-bottom:5px}
+/* Method notes are real and worth keeping, but they are reference material, not the status
+   board. Behind a summary they cost one line until someone actually wants them. */
+details.meth{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+details.meth>summary{font-size:11px;font-weight:800;color:var(--ink3);cursor:pointer;
+  list-style:none;display:inline-flex;align-items:center;gap:6px;padding:2px 0}
+details.meth>summary::-webkit-details-marker{display:none}
+details.meth>summary::before{content:"\25B8";font-size:9px;color:var(--muted);transition:transform .15s}
+details.meth[open]>summary::before{transform:rotate(90deg)}
+details.meth>summary:hover{color:var(--brand-deep)}
+details.meth .mb{font-size:11.5px;color:var(--muted);line-height:1.55;padding:7px 0 2px;max-width:88ch}
+details.meth .mb b{color:var(--ink2)}
+details.meth .mb code{font-family:var(--mono);background:var(--track);border-radius:4px;
+  padding:1px 5px;font-size:10.5px}
+.note{font-size:11px;color:var(--muted);margin-top:9px;line-height:1.5}
+.note b{color:var(--ink2)}
+.note code{font-family:var(--mono);background:var(--track);border-radius:4px;padding:1px 5px;font-size:10.5px}
+.loading{padding:80px 20px;text-align:center;color:var(--muted);font-size:14px}
+.loading .spin2{width:26px;height:26px;margin:0 auto 14px;border-radius:50%;
+  border:3px solid var(--line);border-top-color:var(--brand);animation:spin .8s linear infinite}
+.err{background:var(--crit-bg);border:1px solid var(--crit-line);color:#8E2020;border-radius:var(--r);
+  padding:16px 18px;font-size:13px}
+.err b{display:block;font-family:var(--display);font-size:15px;margin-bottom:5px}
+.banner{border-radius:var(--r-sm);padding:11px 14px;font-size:12.5px;display:flex;gap:10px;align-items:flex-start;
+  border:1px solid var(--stale-line);background:var(--stale-bg);color:#333C5E;margin-bottom:14px}
+.banner b{font-weight:800}
+.banner .bi{font-size:15px;line-height:1.2}
+.insight{display:flex;gap:11px;background:var(--surface);border:1px solid var(--line);
+  border-left:3px solid var(--brand);border-radius:var(--r-sm);padding:12px 14px;box-shadow:var(--shadow-sm)}
+.insight.warn{border-left-color:var(--warn)} .insight.crit{border-left-color:var(--crit)}
+.insight .ico{font-size:15px;line-height:1.3}
+.insight .it{font-family:var(--display);font-weight:800;font-size:12.5px;margin-bottom:3px}
+.insight .ib{font-size:12px;color:var(--ink2);line-height:1.5}
+.toast{position:fixed;left:50%;bottom:calc(24px + var(--safe));transform:translate(-50%,14px);
+  background:#111820;color:#fff;border-radius:999px;padding:10px 20px;font-size:12.5px;font-weight:700;
+  box-shadow:0 12px 32px rgba(8,12,18,.34);opacity:0;pointer-events:none;transition:.2s;z-index:400}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* ============================================================ MOBILE
+   The brief's requirement is "readable on a phone in five seconds", and with no alerting the
+   phone IS the detection mechanism. So the small-screen layout is not a shrunk desktop: the
+   campaign table becomes cards, the hierarchy stays reachable, and the verdict + freshness are
+   the first two things on the page. */
+@media (max-width:900px){
+  .tabbar{top:53px}
+  .gbar{top:96px}
+  .acct .ag{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rwhead,.rwrow{grid-template-columns:minmax(110px,1.3fr) minmax(0,2fr) 92px;gap:10px}
+  .fitem{grid-template-columns:1fr;gap:5px}
+  .fitem .fright{text-align:left;display:flex;gap:12px}
+  .fitem .fright b{display:inline}
+  .hbname{width:150px;min-width:150px}
+}
+@media (max-width:680px){
+  .split,.split-c{grid-template-columns:minmax(0,1fr)}
+  header.top{position:static}
+  .tabbar{position:sticky;top:0}
+  .gbar{position:static}
+  .top-inner{gap:10px;padding:9px 14px;flex-wrap:wrap}
+  .brand img{height:32px} .brand img.lockup{height:26px}
+  .brand .tg{display:none}
+  .agency{display:none}
+  .scopetag{display:none}
+  .sync .sl{display:none}
+  .sync{padding:6px 10px}
+  .verdict{flex-direction:column;align-items:flex-start;gap:12px}
+  .vico{width:44px;height:44px;font-size:22px}
+  .tab{padding:12px 11px;font-size:12.5px} .tab .ix{display:none}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px}
+  .kpi .kv{font-size:21px}
+  .flag{grid-template-columns:1fr}
+  .flag .fwhen{text-align:left;border-top:1px solid var(--line);padding-top:7px;margin-top:4px}
+  .flag .fwhen b{display:inline}
+
+  /* campaign + performance tables become stacked cards. `data-l` on each cell carries its
+     header, so one markup path serves both layouts and nothing has to be rendered twice. */
+  table.resp thead{display:none}
+  table.resp,table.resp tbody,table.resp tr,table.resp td{display:block;width:100%}
+  table.resp tbody tr.z{border:1px solid var(--line);border-radius:var(--r-sm);margin-bottom:10px;
+    background:var(--surface);box-shadow:var(--shadow-sm);padding:4px 0;position:relative}
+  table.resp tbody tr.z.open{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-tint)}
+  table.resp tbody td{border:none;padding:5px 13px;display:flex;justify-content:space-between;
+    align-items:baseline;gap:12px;text-align:right}
+  table.resp tbody td::before{content:attr(data-l);font-size:9.5px;text-transform:uppercase;
+    letter-spacing:.85px;color:var(--muted);font-weight:800;text-align:left;flex:none}
+  table.resp tbody td[data-l=""]::before{display:none}
+  table.resp tbody td.hero{display:block;text-align:left;padding:9px 13px 7px;
+    border-bottom:1px solid var(--line);margin-bottom:3px}
+  table.resp tbody td.hero::before{display:none}
+  table.resp tbody td.rank{display:none}
+  table.resp tr.det td{padding:0;border:none}
+  table.resp tr.det{border:1px solid var(--line2);border-radius:var(--r-sm);margin:-6px 0 10px;
+    background:var(--surface2);overflow:hidden}
+  .hier{padding:11px}
+  /* the ad-set header is a status chip, a long German name and up to three budget chips, on a
+     390px screen they have to stack, or the name squeezes to two words between the chips */
+  .hier .hsh{display:grid;grid-template-columns:1fr;gap:6px}
+  .hier .hsh .n{min-width:0;order:-1;font-size:12px}
+  .hier .hsh>.chip{justify-self:start}
+  .hier .had{padding-left:14px;flex-wrap:wrap}
+  .note{font-size:11.5px}
+  .runway{gap:0}
+  .rwhead{display:none}
+  .rwrow{grid-template-columns:1fr;gap:6px;padding:11px 13px}
+  .rwval{text-align:left;display:flex;gap:10px;align-items:baseline}
+  .rwval .s{display:inline}
+  .fgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .hbc{width:7px}
+  .hbstat{min-width:86px}
+}
+@media print{
+  header.top,.tabbar,.gbar,.sync,.iconbtn,.tip,.toast{display:none !important}
+  .tab-pane[hidden]{display:block !important}
+  body{background:#fff} .card,.verdict,.fresh{box-shadow:none;break-inside:avoid}
+}
+</style>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <img id="logo" alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==">
+      <div class="btxt">
+        <div class="wm" id="wm">Campaign Uptime Monitor</div>
+        <div class="tg" id="tg">loading&hellip;</div>
+      </div>
+    </div>
+    <div class="top-spacer"></div>
+    <span class="scopetag" id="scopeTag" hidden></span>
+    <button type="button" class="fchip" id="freshChip" title="Jump to the data-pipeline panel">
+      <span class="pulse"></span><span id="freshChipTxt">-</span>
+    </button>
+    <button type="button" class="sync" id="syncBtn" title="Pull the latest data">
+      <span class="spin" id="syncSpin" aria-hidden="true"></span><span class="sl" id="syncLbl">Sync</span>
+    </button>
+    <div class="agency">
+      <div class="lbl">Prepared by</div>
+      <img id="agora" alt="Agora Data Driven" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==">
+    </div>
+  </div>
+</header>
+
+<div class="demoribbon" id="demoRibbon" hidden>
+  <b>Demo data</b>: synthetic campaigns in the exact shape of the live Windsor pull.
+  Nothing on this page is a real number yet.
+</div>
+
+<div class="tabbar">
+  <div class="tabs" id="tabs" role="tablist" aria-label="Sections">
+    <button type="button" class="tab" id="tabbtn-uptime" role="tab" data-tab="uptime" aria-selected="true"
+            aria-controls="tab-uptime"><span class="ix">01</span>Status board<span class="cnt" id="cntUptime" hidden>0</span></button>
+    <button type="button" class="tab" id="tabbtn-stops" role="tab" data-tab="stops" aria-selected="false"
+            aria-controls="tab-stops"><span class="ix">02</span>Scheduled stops<span class="cnt w" id="cntStops" hidden>0</span></button>
+    <button type="button" class="tab" id="tabbtn-history" role="tab" data-tab="history" aria-selected="false"
+            aria-controls="tab-history"><span class="ix">03</span>Status history</button>
+    <button type="button" class="tab" id="tabbtn-perf" role="tab" data-tab="perf" aria-selected="false"
+            aria-controls="tab-perf"><span class="ix">04</span>Performance</button>
+  </div>
+</div>
+
+<div id="boot" class="loading"><div class="spin2"></div>Loading the uptime monitor&hellip;</div>
+
+<div id="app" hidden>
+
+<div class="gbar" id="gbar">
+  <div class="gbar-inner">
+    <span class="clabel">Account</span>
+    <div class="seg" id="acctSeg"></div>
+    <div class="gsep" id="searchSep"></div>
+    <input type="search" id="q" placeholder="Find a campaign&hellip;" autocomplete="off"
+           aria-label="Filter campaigns by name">
+    <div class="top-spacer"></div>
+    <span class="chip mut" id="tzChip" hidden></span>
+    <span class="chip mut" id="showing"></span>
+  </div>
+</div>
+
+<!-- ==================================================================== TAB 1, status board -->
+<div id="tab-uptime" class="tab-pane" role="tabpanel" aria-labelledby="tabbtn-uptime">
+ <main><div class="wrap">
+  <section>
+    <div id="verdict"></div>
+  </section>
+
+  <section>
+    <div class="grid split" id="topRow">
+      <div id="freshHost"></div>
+      <div id="acctHost"></div>
+    </div>
+  </section>
+
+  <section id="flagSection">
+    <div class="shead">
+      <h2>What needs attention</h2>
+      <span class="sub" id="flagSub"></span>
+      <span class="spacer"></span>
+      <button type="button" class="iconbtn" id="copyBtn" title="Copy a plain-text summary for an email or Slack">
+        &#128203; Copy summary
+      </button>
+    </div>
+    <div class="flags" id="flags"></div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Recent changes</h2>
+      <span class="sub" id="recentSub">the last 7 days, on this page, because the dashboard is the only alert</span>
+      <span class="spacer"></span>
+      <button type="button" class="iconbtn" data-goto="history">Full history &rarr;</button>
+    </div>
+    <div class="card"><div class="feed" id="recent"></div></div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Every campaign</h2>
+      <span class="sub">tap a row for the ad&nbsp;set / ad hierarchy and its 30-day heartbeat</span>
+    </div>
+    <div class="card">
+      <div class="tblwrap">
+        <table class="resp" id="tblCamp"><thead><tr>
+          <th class="rank"></th>
+          <th class="srt" data-cs="name">Campaign<span class="ar">&#9662;</span></th>
+          <th class="srt" data-cs="verdict">Delivery<span class="ar">&#9662;</span></th>
+          <th class="srt" data-cs="status">Status<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-cs="today">Spend today<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-cs="yest">Yesterday<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-cs="d7">Spend 7d<span class="ar">&#9662;</span></th>
+          <th class="srt" data-cs="budget">Budget<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-cs="rem">Remaining<span class="ar">&#9662;</span></th>
+          <th class="srt" data-cs="end">End date<span class="ar">&#9662;</span></th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+      <div class="tfoot" id="campFoot"></div>
+    </div>
+    <div class="note" id="campNote"></div>
+  </section>
+ </div></main>
+</div>
+
+<!-- ==================================================================== TAB 2, scheduled stops -->
+<div id="tab-stops" class="tab-pane" role="tabpanel" aria-labelledby="tabbtn-stops" hidden>
+ <main><div class="wrap">
+  <section><div id="stopsVerdict"></div></section>
+
+  <section>
+    <div class="shead">
+      <h2>Runway</h2>
+      <span class="sub">how long each campaign can keep running before something stops it</span>
+      <span class="spacer"></span>
+      <div class="seg mini" id="rwSeg">
+        <button type="button" data-rw="90" class="on">90 days</button>
+        <button type="button" data-rw="180">180 days</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="runway" id="runway"></div>
+      <div class="hblegend">
+        <span><i style="background:linear-gradient(90deg,var(--ok),rgba(15,138,67,.14))"></i>No scheduled stop, the desired state</span>
+        <span><i style="background:var(--warn)"></i>Stops within the horizon</span>
+        <span><i style="background:var(--crit)"></i>Stops within 14 days</span>
+        <span><i style="background:repeating-linear-gradient(45deg,rgba(255,255,255,.6),rgba(255,255,255,.6) 2px,var(--warn) 2px,var(--warn) 5px);box-shadow:inset 0 0 0 1px var(--line2)"></i>Hatched = projected from spend rate, not a set date</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Every end date and lifetime budget</h2>
+      <span class="sub">campaign and ad-set level, soonest stop first</span></div>
+    <div class="card">
+      <div class="tblwrap">
+        <table class="resp" id="tblStops"><thead><tr>
+          <th class="rank"></th>
+          <th class="srt" data-ss="camp">Campaign<span class="ar">&#9662;</span></th>
+          <th class="srt" data-ss="set">Ad set<span class="ar">&#9662;</span></th>
+          <th class="srt" data-ss="end">End date<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-ss="days">Days left<span class="ar">&#9662;</span></th>
+          <th class="srt" data-ss="bt">Budget type<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-ss="rem">Lifetime remaining<span class="ar">&#9662;</span></th>
+          <th class="srt" data-ss="proj">Projected stop<span class="ar">&#9662;</span></th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+      <div class="tfoot" id="stopsFoot"></div>
+    </div>
+    <div class="note" id="stopsNote"></div>
+  </section>
+ </div></main>
+</div>
+
+<!-- ==================================================================== TAB 3, status history -->
+<div id="tab-history" class="tab-pane" role="tabpanel" aria-labelledby="tabbtn-history" hidden>
+ <main><div class="wrap">
+  <section>
+    <div class="shead">
+      <h2>Delivery record</h2>
+      <span class="sub">one cell per day, did this campaign spend anything?</span>
+      <span class="spacer"></span>
+      <div class="seg mini" id="upSeg">
+        <button type="button" data-up="30">30 days</button>
+        <button type="button" data-up="60" class="on">60 days</button>
+        <button type="button" data-up="90">90 days</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="hbwrap"><div class="hbrows" id="upGrid"></div></div>
+      <div class="hblegend">
+        <span><i style="background:var(--ok)"></i>Delivered</span>
+        <span><i style="background:var(--warn)"></i>Delivered under half its daily budget</span>
+        <span><i style="background:var(--crit)"></i>Spent nothing</span>
+        <span><i style="background:var(--track)"></i>Before the campaign started</span>
+        <span><i style="background:var(--ok);opacity:.5"></i>Today, still running</span>
+      </div>
+    </div>
+    <div class="note" id="upNote"></div>
+  </section>
+
+  <section>
+    <div class="shead">
+      <h2>Status history</h2>
+      <span class="sub">every detected transition, newest first</span>
+      <span class="spacer"></span>
+      <div class="seg mini" id="lvlSeg">
+        <button type="button" data-lvl="" class="on">All levels</button>
+        <button type="button" data-lvl="campaign">Campaign</button>
+        <button type="button" data-lvl="adset">Ad set</button>
+        <button type="button" data-lvl="ad">Ad</button>
+      </div>
+    </div>
+    <div class="grid cols2" id="histStats" style="margin-bottom:14px"></div>
+    <div class="card"><div class="feed" id="histFeed"></div><div class="tfoot" id="histFoot"></div></div>
+    <details class="meth"><summary>Where this record comes from</summary><div class="mb">
+      Windsor returns each entity's status at pull time and keeps no history, so this record is
+      built by diffing consecutive snapshots. It can only see transitions that happened between
+      two pulls: a campaign switched off and back on inside one hour is invisible to it.
+      <b>Lost delivery</b> is hours&nbsp;off &times; that campaign's trailing average hourly spend
+      before it stopped, so it is an estimate, not a billed figure.
+    </div></details>
+  </section>
+ </div></main>
+</div>
+
+<!-- ==================================================================== TAB 4, performance -->
+<div id="tab-perf" class="tab-pane" role="tabpanel" aria-labelledby="tabbtn-perf" hidden>
+ <div class="gbar" style="top:auto;position:static">
+   <div class="gbar-inner">
+     <span class="clabel">Period</span>
+     <button type="button" class="preset" data-pp="7">7d</button>
+     <button type="button" class="preset active" data-pp="30">30d</button>
+     <button type="button" class="preset" data-pp="60">60d</button>
+     <button type="button" class="preset" data-pp="90">90d</button>
+     <input type="date" id="pfrom" aria-label="Period from">
+     <span style="color:var(--muted);font-size:11px">to</span>
+     <input type="date" id="pto" aria-label="Period to">
+     <div class="gsep"></div>
+     <div class="seg mini" id="pgSeg">
+       <button type="button" data-pg="auto" class="on">Auto</button>
+       <button type="button" data-pg="day">Day</button>
+       <button type="button" data-pg="week">Week</button>
+     </div>
+     <div class="gnote" id="perfNote"></div>
+   </div>
+ </div>
+ <main><div class="wrap">
+  <section>
+    <div class="banner" id="lagBanner" title="Meta keeps attributing conversions to a day for up
+      to a week after it, so recent conversion counts and CPL will rise. The shaded band on each
+      chart marks that window; nothing inside it is used for a trend judgement.">
+      <span class="bi">&#9432;</span>
+      <div><b>The last 7 days are still settling</b> and are shaded on every chart below.</div>
+    </div>
+    <div class="kpis" id="perfKpis"></div>
+  </section>
+
+  <section>
+    <div class="grid split-c">
+      <div class="card card-p">
+        <div class="cardhead"><div>
+          <h3 id="ctrTitle">Click-through rate and conversions</h3>
+          <div class="csub" id="ctrSub"></div>
+        </div></div>
+        <div class="legend" id="ctrLegend"></div>
+        <svg class="ch" id="chartCtr" viewBox="0 0 700 290" role="img"
+             aria-label="Click-through rate and conversions over time"></svg>
+      </div>
+      <div class="card card-p">
+        <div class="cardhead"><div>
+          <h3>Audience fatigue</h3>
+          <div class="csub">frequency, how often the same person sees an ad</div>
+        </div></div>
+        <div class="legend" id="freqLegend"></div>
+        <svg class="ch" id="chartFreq" viewBox="0 0 520 290" role="img"
+             aria-label="Frequency over time"></svg>
+        <div class="note" id="freqNote"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Per campaign</h2><span class="sub" id="perfTblSub"></span></div>
+    <div class="card">
+      <div class="tblwrap">
+        <table class="resp" id="tblPerf"><thead><tr>
+          <th class="rank"></th>
+          <th class="srt" data-ps="name">Campaign<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-ps="spend">Spend<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-ps="imps">Impressions<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-ps="clicks">Clicks<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-ps="lclk">Link clicks<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-ps="ctr">CTR<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-ps="cpm">CPM<span class="ar">&#9662;</span></th>
+          <th class="srt r" data-ps="conv"><span id="convHead">Conversions</span><span class="ar">&#9662;</span></th>
+          <th class="srt r" data-ps="cpl"><span id="cplHead">Cost per</span><span class="ar">&#9662;</span></th>
+          <th class="srt r" data-ps="freq">Frequency<span class="ar">&#9662;</span></th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+      <div class="tfoot" id="perfFoot"></div>
+    </div>
+    <div class="note" id="perfMethod"></div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Reading of the period</h2><span class="sub">recomputed on every filter</span></div>
+    <div class="grid cols2" id="perfInsights"></div>
+  </section>
+ </div></main>
+</div>
+
+</div><!-- /app -->
+
+<div class="tip" id="tip" role="status" aria-live="off"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* Inline JS is parsed by the pre-deploy esprima-4.x gate (tools/_validate_dash_js.py), which
+   predates optional chaining and nullish coalescing. Classic && / || guards only, `var`, and no
+   object spread. */
+/* ===================================================================== constants */
+var NS = "http://www.w3.org/2000/svg";
+var MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+var DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+/* One theme per scoped route. The brand slots are the ONLY thing that changes between
+   /internal, /into and /service7000, the components, the copy and the traffic lights are
+   identical, which is what makes "same components, different data scope" true in practice.
+
+   `fonts` is loaded lazily for the ACTIVE theme only: shipping six families so that one route
+   can pick two of them would cost every phone user three seconds on a tool whose whole promise
+   is a five-second read. */
+var THEMES = {
+  service7000: {
+    /* Brand: #0A4EA3 blue, #E30613 red, #F2F4F7 light, #4A4A4A grey. The red is used for the
+       LOGO ONLY, it is one hue away from the critical traffic light, and a brand colour that
+       looks like an alarm is a bug in a monitoring tool. */
+    brand:"#0A4EA3", brandDeep:"#083E82", brandInk:"#0A1F3C",
+    brandTint:"#EAF1FA", brandLine:"#C3D8EE", accent:"#4A4A4A", accentDeep:"#333333",
+    canvas:"#F2F4F7",
+    display:"'Montserrat',system-ui,sans-serif", sans:"'Roboto',system-ui,sans-serif",
+    fonts:"Montserrat:wght@600;700;800&family=Roboto:wght@400;500;700"
+  },
+  into: {
+    /* Brand: #0A6B63 teal, #083A3A deep, #1C252B near-black, #E9E2D2 cream. The teal is a
+       blue-green and the "running" light is a yellow-green; they are close enough that the
+       glyph in every lamp is doing the real work. */
+    brand:"#0A6B63", brandDeep:"#083A3A", brandInk:"#1C252B",
+    brandTint:"#E7F1EF", brandLine:"#B6D6D1", accent:"#A98F5F", accentDeep:"#8A7346",
+    canvas:"#F8F7F3",
+    display:"'Sofia Pro','Figtree',system-ui,sans-serif", sans:"'Source Sans 3',system-ui,sans-serif",
+    fonts:"Figtree:wght@500;600;800&family=Source+Sans+3:wght@400;600;700"
+  },
+  internal: {
+    /* The agency's own view wears the Agora palette (Data Green + Accent Purple), so an
+       internal tab is never mistaken for a client's on a shared screen. */
+    brand:"#4FA84A", brandDeep:"#3B7F38", brandInk:"#12241A",
+    brandTint:"#EDF6EC", brandLine:"#C6E2C4", accent:"#6A6AEA", accentDeep:"#5A54DD",
+    canvas:"#F6F8FA",
+    display:"'Archivo',system-ui,sans-serif", sans:"'Lato',system-ui,sans-serif",
+    fonts:"Archivo:wght@600;700;800&family=Lato:wght@400;700;900"
+  }
+};
+
+/* Status vocabulary. Colour is reinforcement; the glyph and the word are the signal, so the
+   board still reads correctly in greyscale and for a colour-blind viewer. */
+var VERDICTS = {
+  running:      { g:"✓", w:"Running",       rank:0,
+                  say:"active and spending" },
+  paused_spent: { g:"‖", w:"Paused today",  rank:2,
+                  say:"paused now, but it spent earlier today" },
+  silent:       { g:"!",      w:"Not delivering",rank:4,
+                  say:"reports ACTIVE but has spent nothing" },
+  off:          { g:"✕", w:"Off",           rank:3,
+                  say:"switched off" },
+  stale_ok:     { g:"✓", w:"Was running",   rank:1,
+                  say:"was spending at the last successful pull" },
+  unverified:   { g:"?",      w:"Unverified",    rank:1,
+                  say:"cannot be checked until the pipeline recovers" }
+};
+
+/* Rule catalogue (§4). Kept as data so the flag list, the copy-summary text and the rule chips
+   all read from one place, and so the numbers in the wording come from `thresholds` rather
+   than being typed twice. */
+var RULES = {
+  1:{s:"critical", t:"Active but not delivering"},
+  2:{s:"critical", t:"Switched off"},
+  3:{s:"critical", t:"Whole account has stopped spending"},
+  4:{s:"varies",   t:"End date set"},
+  5:{s:"warning",  t:"Lifetime budget set"},
+  6:{s:"critical", t:"Lifetime budget almost exhausted"},
+  7:{s:"warning",  t:"Under-delivering against its daily budget"},
+  8:{s:"warning",  t:"Spend has dropped sharply"},
+  9:{s:"warning",  t:"Creative fatigue"},
+  10:{s:"critical",t:"No data received"}
+};
+
+var DEFAULT_TH = {
+  heartbeat_hours:24, heartbeat_grace_hours:6,
+  end_date_critical_days:14, end_date_horizon_days:30,
+  budget_remaining_critical_pct:10,
+  underdelivery_pct:50, underdelivery_days:2,
+  spend_drop_pct:40, frequency_warn:3.5, recent_changes_days:7
+};
+
+/* ===================================================================== state */
+var DATA = null, TH = DEFAULT_TH, CAMPS = [], ACCT = {}, FLAGS = [];
+var CUR = "CHF", LOCALE = "de-CH", TZ = "Europe/Zurich";
+/* PULL is the clock. Every "today", "last 24 hours" and "days remaining" in this file is
+   measured from the last successful pull, NEVER from the browser, the data cannot be fresher
+   than the pull that produced it, and a laptop with a wrong clock must not be able to invent an
+   outage or hide one. */
+var PULL = { at:null, day:null, hour:0, ok:true, ageMin:0, lateMin:0, expect:60 };
+var FILTER = { acct:"", q:"" };
+var TABS = ["uptime","stops","history","perf"];
+var UPWIN = 60, RWWIN = 90, HLVL = "";
+var PERF = { from:null, to:null, grain:"auto" };
+var campSort = { k:"verdict", d:1 }, stopSort = { k:"days", d:1 }, perfSort = { k:"spend", d:-1 };
+var openRows = {}, seriesOff = {};
+
+/* ===================================================================== small utils */
+function byId(id){ return document.getElementById(id); }
+function setText(id, v){ var e = byId(id); if(e){ e.textContent = v; } }
+function setHTML(id, v){ var e = byId(id); if(e){ e.innerHTML = v; } }
+function esc(s){
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+function el(t, a){
+  var e = document.createElementNS(NS, t);
+  if(a){ for(var k in a){ if(a[k] !== null && a[k] !== undefined){ e.setAttribute(k, a[k]); } } }
+  return e;
+}
+function clearSvg(svg){ while(svg.firstChild){ svg.removeChild(svg.firstChild); } }
+function plural(n, one, many){ return n === 1 ? one : (many || one + "s"); }
+
+/* ===================================================================== formatting */
+function nfmt(v, dec){
+  var d = dec === undefined ? 0 : dec;
+  try {
+    return Number(v).toLocaleString(LOCALE, { minimumFractionDigits:d, maximumFractionDigits:d });
+  } catch(e){ return Number(v).toFixed(d); }
+}
+function num(v){ return nfmt(Math.round(v), 0); }
+/* Swiss convention: CHF first, apostrophe thousands separator (de-CH gives 1'234.50). */
+function money(v, dec){
+  var d = dec === undefined ? (Math.abs(v) >= 100 ? 0 : 2) : dec;
+  return CUR + " " + nfmt(v, d);
+}
+function money2(v){ return money(v, 2); }
+function compactMoney(v){
+  var a = Math.abs(v);
+  if(a >= 1000000){ return CUR + " " + nfmt(v/1000000, 2) + "M"; }
+  if(a >= 10000){ return CUR + " " + nfmt(v/1000, 1) + "k"; }
+  return money(v, a >= 100 ? 0 : 2);
+}
+function compactN(v){
+  var a = Math.abs(v);
+  if(a >= 1000000){ return nfmt(v/1000000, 1) + "M"; }
+  if(a >= 10000){ return nfmt(v/1000, 0) + "k"; }
+  if(a >= 1000){ return nfmt(v/1000, 1) + "k"; }
+  return nfmt(Math.round(v), 0);
+}
+function pct(v, dec){ return nfmt(v, dec === undefined ? 2 : dec) + "%"; }
+function safe(a, b){ return b ? a / b : 0; }
+
+/* Duration in the shape an operator reads out loud: "6 days 2 hours", "21 hours", "40 minutes". */
+function durHours(h){
+  if(h === null || h === undefined){ return "-"; }
+  if(h < 1){ return Math.max(1, Math.round(h * 60)) + " min"; }
+  if(h < 10){ return nfmt(h, 1) + " hours"; }
+  /* Round to whole hours BEFORE splitting into days, or 71.99 hours renders as "2 days 24 hours"
+     (floor(71.99/24)=2, then round(71.99-48)=24) instead of "3 days". */
+  var t = Math.round(h);
+  if(t < 48){ return t + " " + plural(t, "hour"); }
+  var d = Math.floor(t / 24), r = t - d * 24;
+  return d + " " + plural(d, "day") + (r ? " " + r + " " + plural(r, "hour") : "");
+}
+function durMin(m){ return durHours(m / 60); }
+function ago(mins){
+  if(mins === null || mins === undefined){ return "-"; }
+  if(mins < 1){ return "just now"; }
+  if(mins < 60){ return Math.round(mins) + " min ago"; }
+  return durMin(mins) + " ago";
+}
+
+/* ===================================================================== time in Europe/Zurich
+   The account's reporting timezone is the only clock that matters: "last 24 hours" and "today"
+   are defined in it, not in the viewer's. Intl knows Europe/Zurich in every browser, which is
+   why the formatting lives here rather than in the export job. */
+function zParts(d){
+  var o = {};
+  try {
+    var f = new Intl.DateTimeFormat("en-GB", { timeZone:TZ, year:"numeric", month:"2-digit",
+      day:"2-digit", hour:"2-digit", minute:"2-digit", hour12:false });
+    f.formatToParts(d).forEach(function(p){ o[p.type] = p.value; });
+  } catch(e){
+    o = { year:String(d.getUTCFullYear()), month:("0"+(d.getUTCMonth()+1)).slice(-2),
+          day:("0"+d.getUTCDate()).slice(-2), hour:("0"+d.getUTCHours()).slice(-2),
+          minute:("0"+d.getUTCMinutes()).slice(-2) };
+  }
+  return o;
+}
+function zDay(d){ var p = zParts(d); return p.year + "-" + p.month + "-" + p.day; }
+function zHour(d){ var h = parseInt(zParts(d).hour, 10); return h === 24 ? 0 : h; }
+function zClock(d){ var p = zParts(d); return p.hour + ":" + p.minute; }
+function zStamp(d){
+  var p = zParts(d);
+  return parseInt(p.day,10) + " " + MON[parseInt(p.month,10)-1] + " " + p.hour + ":" + p.minute;
+}
+function zStampFull(d){
+  var p = zParts(d);
+  return DOW[dObj(p.year+"-"+p.month+"-"+p.day).getUTCDay()] + " " + parseInt(p.day,10) + " " +
+         MON[parseInt(p.month,10)-1] + " " + p.year + ", " + p.hour + ":" + p.minute;
+}
+function tzAbbr(){
+  try {
+    var s = new Intl.DateTimeFormat("en-GB", { timeZone:TZ, timeZoneName:"short" })
+      .formatToParts(new Date());
+    for(var i = 0; i < s.length; i++){ if(s[i].type === "timeZoneName"){ return s[i].value; } }
+  } catch(e){ /* fall through */ }
+  return "local";
+}
+
+/* plain ISO-date arithmetic, days are calendar days in the account timezone, never instants */
+function dObj(iso){ return new Date(iso + "T00:00:00Z"); }
+function isoOf(dt){ return dt.toISOString().slice(0, 10); }
+function addDays(iso, n){ var d = dObj(iso); d.setUTCDate(d.getUTCDate() + n); return isoOf(d); }
+function daysBetween(a, b){ return Math.round((dObj(b) - dObj(a)) / 86400000); }
+function fmtDay(iso){
+  if(!iso){ return "-"; }
+  var p = iso.split("-");
+  return parseInt(p[2],10) + " " + MON[parseInt(p[1],10)-1] + " " + p[0];
+}
+function fmtDayShort(iso){
+  var p = iso.split("-");
+  return parseInt(p[2],10) + " " + MON[parseInt(p[1],10)-1];
+}
+function fmtDayDow(iso){ return DOW[dObj(iso).getUTCDay()] + " " + fmtDayShort(iso); }
+function monthOf(iso){ return iso.slice(0, 7); }
+function weekStart(iso){
+  var d = dObj(iso), w = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - ((w + 6) % 7));
+  return isoOf(d);
+}
+
+/* ===================================================================== tooltip / toast */
+var tipEl = null;
+function showTip(html, x, y){
+  if(!tipEl){ tipEl = byId("tip"); }
+  tipEl.innerHTML = html;
+  tipEl.style.opacity = "1";
+  var w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+  var lx = x + 14, ly = y - h - 12;
+  if(lx + w > window.innerWidth - 10){ lx = Math.max(8, x - w - 14); }
+  if(ly < 8){ ly = y + 20; }
+  tipEl.style.left = lx + "px";
+  tipEl.style.top = ly + "px";
+}
+function hideTip(){ if(tipEl){ tipEl.style.opacity = "0"; } }
+function tipRow(m, v){ return '<div class="tr"><span class="m">' + m + '</span><span>' + v + "</span></div>"; }
+function bindTip(node, html){
+  node.addEventListener("mouseenter", function(e){ showTip(html, e.clientX, e.clientY); });
+  node.addEventListener("mousemove", function(e){ showTip(html, e.clientX, e.clientY); });
+  node.addEventListener("mouseleave", hideTip);
+}
+var toastT = null;
+function toast(msg){
+  var t = byId("toast");
+  t.textContent = msg;
+  t.classList.add("on");
+  clearTimeout(toastT);
+  toastT = setTimeout(function(){ t.classList.remove("on"); }, 2400);
+}
+/* =====================================================================================
+   THE CORE INSIGHT: status ≠ delivery  (§3 of the brief)
+
+   `campaign_status = ACTIVE` does not mean the campaign is running. It can report ACTIVE and
+   deliver nothing, because the ad set beneath it is paused, the ads were rejected, the lifetime
+   budget is exhausted, the end date has passed, the account has a payment failure, or the
+   audience is too small to win auctions. A dashboard reading only status fields shows all green
+   while nothing spends, which is exactly the failure the client is complaining about.
+
+   The reliable signal is the SPEND HEARTBEAT. Everything below is built on it.
+   ===================================================================================== */
+
+/* Windsor's status pull is date-granular, so "spent in the last 24 hours" is realised as "spent
+   today", with one deliberate exception. Just after local midnight a healthy campaign has not
+   spent yet today, so inside `heartbeat_grace_hours` of midnight yesterday's spend also counts.
+   Without that grace window every campaign flags critical at 00:05 every night, which is the
+   single fastest way to teach a client to ignore the tool. */
+function spendOn(c, day){ var r = c._idx[day]; return r ? r.spend : 0; }
+function rowOn(c, day){ return c._idx[day] || null; }
+function heartbeat(c){
+  if(spendOn(c, PULL.day) > 0){ return true; }
+  if(PULL.hour < TH.heartbeat_grace_hours && spendOn(c, addDays(PULL.day, -1)) > 0){ return true; }
+  return false;
+}
+function inGrace(){ return PULL.hour < TH.heartbeat_grace_hours; }
+
+/* The verdict light. Note the split that keeps a broken pipeline from looking like 14 dead
+   campaigns: a PAUSED status is a CONFIGURATION fact and is trustworthy from the last snapshot,
+   but "spent nothing" is a DELIVERY judgement that needs a live pull to mean anything. So when
+   the pipeline is down, statuses still report and delivery goes to "unverified". */
+function verdictOf(c){
+  var active = (c.status === "ACTIVE" && c.effective_status !== "PAUSED");
+  var hb = heartbeat(c);
+  if(!active){ return hb ? "paused_spent" : "off"; }
+  if(hb){ return PULL.ok ? "running" : "stale_ok"; }
+  return PULL.ok ? "silent" : "unverified";
+}
+function shouldRun(c){ return c.should_be_active !== false; }
+function isBad(v){ return v === "silent" || v === "off"; }
+
+/* WHY isn't it delivering. This is the highest-value thing the dashboard adds over Ads Manager:
+   the client already knows something is off, and the answer they need is which of the six causes
+   in §3 it is. Ordered most-specific first, so the top line is usually the actual fix. */
+function causesOf(c){
+  var out = [], a = ACCT[c.account];
+  if(a && a.disabled){ out.push("The <b>ad account is disabled</b>: nothing in it can deliver."); }
+  if(a && a.payment_issue){ out.push("The ad account has a <b>payment failure</b>."); }
+  if(c.end_time && c.end_time < PULL.day){
+    out.push("Its <b>end date passed</b> on " + fmtDay(c.end_time) + ".");
+  }
+  var paused = [], live = [];
+  (c.adsets || []).forEach(function(s){
+    if(s.status === "ACTIVE" && s.effective_status !== "PAUSED"){ live.push(s); } else { paused.push(s); }
+  });
+  var tot = (c.adsets || []).length;
+  if(tot && paused.length === tot){
+    out.push(tot === 1
+      ? "Its only ad set (<b>" + esc(paused[0].name) + "</b>) is <b>paused</b>, so the campaign "
+        + "reads ACTIVE while nothing underneath it can spend."
+      : "<b>All " + tot + " ad sets are paused.</b> The campaign reads ACTIVE regardless.");
+  } else if(paused.length){
+    out.push("<b>" + paused.length + " of " + tot + " ad sets " + plural(paused.length, "is", "are")
+      + " paused</b> (" + paused.map(function(s){ return esc(s.name); }).join(", ") + ").");
+  }
+  var noAds = 0, rejected = [];
+  live.forEach(function(s){
+    var ok = 0;
+    (s.ads || []).forEach(function(ad){
+      if(ad.effective_status === "ACTIVE"){ ok++; }
+      if(/DISAPPROV|REJECT/i.test(ad.effective_status || "")){ rejected.push(ad.name); }
+    });
+    if(!ok){ noAds++; }
+  });
+  if(noAds){
+    out.push("<b>" + noAds + " live " + plural(noAds, "ad set") + " " + plural(noAds, "has", "have")
+      + " no deliverable ad</b>: every ad inside is paused or was rejected in review.");
+  } else if(rejected.length){
+    out.push(rejected.length + " " + plural(rejected.length, "ad") + " <b>rejected in review</b> ("
+      + rejected.map(esc).join(", ") + ").");
+  }
+  var lt = lifetimeEntities(c);
+  for(var i = 0; i < lt.length; i++){
+    if(lt[i].budget_remaining !== null && lt[i].budget_remaining !== undefined
+       && lt[i].budget_remaining <= 0.01){
+      out.push("Its <b>lifetime budget is exhausted</b>: delivery stops silently when it runs out.");
+      break;
+    }
+  }
+  if(!out.length){
+    out.push("Nothing in the status fields explains it. Check the ad account for a payment or "
+      + "review hold, and the ad set for an audience too small or a bid too low to win auctions.");
+  }
+  return out;
+}
+
+/* ===================================================================== budgets
+   `campaign_budget_remaining` means "remaining LIFETIME budget" only on lifetime-budget
+   entities. On a daily budget it is the remaining amount for TODAY and it resets every
+   midnight, so projecting an exhaustion date off it would show every daily-budget campaign
+   running out of money every afternoon. Both readers below therefore check the type first. */
+function lifetimeEntities(c){
+  var out = [];
+  var camp = null;
+  if(c.budget_type === "lifetime" && c.lifetime_budget){
+    camp = { level:"campaign", id:c.id, name:c.name, lifetime_budget:c.lifetime_budget,
+             budget_remaining:c.budget_remaining };
+    out.push(camp);
+  }
+  (c.adsets || []).forEach(function(s){
+    if(s.budget_type !== "lifetime" || !s.lifetime_budget){ return; }
+    /* On a campaign-budget-optimisation campaign Windsor reports the SAME lifetime budget on the
+       campaign and on every ad set beneath it. It is one budget, so reporting it per level would
+       raise the same finding two or three times and make the flag list look padded. Only an ad set
+       carrying its own DIFFERENT budget is a separate entity. */
+    if(camp && s.lifetime_budget === camp.lifetime_budget &&
+       s.budget_remaining === camp.budget_remaining){ return; }
+    out.push({ level:"adset", id:s.id, name:s.name, lifetime_budget:s.lifetime_budget,
+               budget_remaining:s.budget_remaining });
+  });
+  return out;
+}
+/* The effective daily budget: the campaign's own, or the sum of its ad sets' when the budget
+   lives at ad-set level (Meta's "ad set budget" campaigns). Returns 0 for lifetime budgets, so
+   the under-delivery rule cannot be applied to something that has no daily ceiling. */
+function dailyBudgetOf(c){
+  if(c.budget_type === "daily" && c.daily_budget){ return c.daily_budget; }
+  var s = 0, any = false;
+  (c.adsets || []).forEach(function(a){
+    if(a.budget_type === "daily" && a.daily_budget){ s += a.daily_budget; any = true; }
+  });
+  return any ? s : 0;
+}
+function budgetLabel(c){
+  if(c.budget_type === "lifetime"){ return "Lifetime"; }
+  if(c.budget_type === "daily"){ return "Daily"; }
+  var lt = 0, dl = 0;
+  (c.adsets || []).forEach(function(a){
+    if(a.budget_type === "lifetime"){ lt++; } else if(a.budget_type === "daily"){ dl++; }
+  });
+  if(lt && dl){ return "Ad set (mixed)"; }
+  if(lt){ return "Ad set lifetime"; }
+  return "Ad set daily";
+}
+function isLifetime(c){ return lifetimeEntities(c).length > 0; }
+
+/* Earliest end date anywhere in the campaign's hierarchy, an ad-set end date stops delivery
+   just as dead as a campaign one, so the panel has to look at both levels. */
+function endDateOf(c){
+  var best = c.end_time || null;
+  (c.adsets || []).forEach(function(s){
+    if(s.end_time && (!best || s.end_time < best)){ best = s.end_time; }
+  });
+  return best;
+}
+
+/* ===================================================================== aggregation
+   §8's metric traps, enforced in one place so no caller can get them wrong:
+     · ratios are recomputed from summed components, never averaged across days
+     · frequency is NOT summed, it is impressions ÷ reach
+     · reach does not sum across dates either, so the reach we divide by is SUMMED DAILY reach
+       and every surface that shows a range frequency says so
+     · conversions are only counted where the action is actually tracked */
+function blank(){
+  return { spend:0, imps:0, clicks:0, lclk:0, reach:0, conv:0, days:0, convDays:0, tracked:false };
+}
+function addRow(a, r){
+  a.spend += r.spend || 0; a.imps += r.imps || 0; a.clicks += r.clicks || 0;
+  a.lclk += r.lclk || 0; a.reach += r.reach || 0; a.conv += r.conv || 0; a.days++;
+}
+function derive(a){
+  a.ctr = safe(a.lclk, a.imps) * 100;
+  a.cpm = safe(a.spend, a.imps) * 1000;
+  a.cpc = safe(a.spend, a.lclk);
+  a.freq = a.reach ? a.imps / a.reach : null;      /* against SUMMED daily reach, labelled */
+  a.cpl = (a.tracked && a.conv) ? a.spend / a.conv : null;
+  a.cvr = (a.tracked && a.lclk) ? a.conv / a.lclk * 100 : null;
+  return a;
+}
+function rowsIn(c, from, to){
+  var out = [];
+  for(var i = 0; i < c.daily.length; i++){
+    var r = c.daily[i];
+    if(r.d >= from && r.d <= to){ out.push(r); }
+  }
+  return out;
+}
+function aggRows(rows, tracked){
+  var a = blank();
+  a.tracked = !!tracked;
+  rows.forEach(function(r){ addRow(a, r); });
+  return derive(a);
+}
+function aggCampaigns(list, from, to){
+  var a = blank(), trackedN = 0;
+  list.forEach(function(c){
+    var rows = rowsIn(c, from, to);
+    rows.forEach(function(r){
+      a.spend += r.spend || 0; a.imps += r.imps || 0; a.clicks += r.clicks || 0;
+      a.lclk += r.lclk || 0; a.reach += r.reach || 0;
+      if(c.conversion_tracked){ a.conv += r.conv || 0; }
+    });
+    a.days = Math.max(a.days, rows.length);
+    if(c.conversion_tracked){ trackedN++; }
+  });
+  a.tracked = trackedN > 0;
+  a.trackedN = trackedN;
+  a.totalN = list.length;
+  return derive(a);
+}
+/* complete days only, today's row is a partial and must never be compared to a full day */
+function completeRows(c){
+  var out = [];
+  for(var i = 0; i < c.daily.length; i++){
+    if(!c.daily[i].partial && c.daily[i].d <= PULL.day){ out.push(c.daily[i]); }
+  }
+  return out;
+}
+function startedRows(c){
+  var out = [], st = c.start_time;
+  completeRows(c).forEach(function(r){ if(!st || r.d >= st){ out.push(r); } });
+  return out;
+}
+function spend7d(c){
+  var to = addDays(PULL.day, -1), from = addDays(to, -6);
+  var s = 0;
+  rowsIn(c, from, to).forEach(function(r){ s += r.spend || 0; });
+  return s;
+}
+function spendMTD(c){
+  var s = 0, m = monthOf(PULL.day);
+  c.daily.forEach(function(r){ if(monthOf(r.d) === m && r.d <= PULL.day){ s += r.spend || 0; } });
+  return s;
+}
+function avgDaily7(c){
+  var rows = startedRows(c).slice(-7);
+  if(!rows.length){ return 0; }
+  var s = 0;
+  rows.forEach(function(r){ s += r.spend || 0; });
+  return s / rows.length;
+}
+
+/* ===================================================================== the flag rules (§4)
+   Config-driven, evaluated in ONE place. The dashboard owns the evaluation (so the rendered
+   verdict and any future alert send read the same thresholds), and upstream owns only what a
+   single snapshot cannot know: how long each condition has already been true. That arrives as
+   `flag_state[<rule>:<entityId>]` and is the ONLY thing the payload contributes here. */
+function firstSeen(key){
+  var fs = DATA.flag_state || {};
+  return fs[key] || null;
+}
+function mkFlag(rule, sev, camp, title, detail, key, extra){
+  var iso = firstSeen(key);
+  var f = { rule:rule, sev:sev, title:title, detail:detail, key:key,
+            camp:camp || null, campId:camp ? camp.id : null,
+            /* shown on the collapsed card, so no detail text has to repeat the name */
+            subject:camp ? camp.name : "",
+            account:camp ? camp.account : (extra && extra.account) || null,
+            first:iso, order:0 };
+  if(extra){ for(var k in extra){ f[k] = extra[k]; } }
+  f.order = (sev === "critical" ? 0 : 1) * 1000 + rule;
+  return f;
+}
+
+function evalFlags(){
+  var out = [];
+
+  /* --- Rule 10 first, because it changes how every other rule is read ---------------------
+     If the Windsor pull failed, every campaign shows zero spend and a naive dashboard reports
+     that all campaigns died when in fact the pipeline broke. Confusing those two states once
+     destroys trust in the tool, and with the client watching this directly it also generates a
+     false panic email to the agency. So rule 10 fires alone, in its own visual language, and
+     the delivery rules below stand down. */
+  if(!PULL.ok){
+    out.push(mkFlag(10, "critical", null,
+      "No data received since the last expected pull",
+      "Last success " + zStampFull(PULL.at) + ", " + ago(PULL.ageMin) + ". Expected every "
+      + PULL.expect + " minutes."
+      + '<span class="why"><b>Pipeline failure, not campaign failure.</b> Every state below is a '
+      + "last-known value from that pull; nothing here can confirm what is delivering now."
+      + (DATA.pull && DATA.pull.last_error ? " Reported: " + esc(DATA.pull.last_error) : "")
+      + "</span>",
+      "r10:pipeline", { pipe:true, subject:"Windsor pull" }));
+  }
+
+  /* --- Rule 3 before rule 1: an account-wide stop is ONE finding, not fourteen -------------
+     Zero spend across every campaign in an account is a payment failure or a disabled account,
+     and reporting it per campaign buries the actual cause under a wall of red. */
+  var accountStopped = {};
+  if(PULL.ok){
+    Object.keys(ACCT).forEach(function(k){
+      var mine = CAMPS.filter(function(c){ return c.account === k && shouldRun(c); });
+      if(mine.length < 2){ return; }
+      var live = mine.filter(heartbeat);
+      var a = ACCT[k];
+      if(!live.length || a.payment_issue || a.disabled){
+        accountStopped[k] = true;
+        out.push(mkFlag(3, "critical", null,
+          "Whole account has stopped spending",
+          "None of its " + mine.length + " campaigns spent anything in the last "
+          + TH.heartbeat_hours + " hours."
+          + '<span class="why">When every campaign stops at once the cause is account-level: a '
+          + "payment failure, a disabled account, or a policy hold. Check billing before touching "
+          + "any campaign."
+          + (a.payment_issue ? " Windsor reports a payment problem here." : "")
+          + (a.disabled ? " Windsor reports this account as disabled." : "") + "</span>",
+          "r3:" + k, { account:k, accountLevel:true, subject:a.name }));
+      }
+    });
+  }
+
+  CAMPS.forEach(function(c){
+    var v = verdictOf(c);
+    var run = shouldRun(c);
+
+    /* R1, the silent failure. Suppressed while the pipeline is down (we cannot tell a dead
+       campaign from a dead pull) and while its account is stopped wholesale (rule 3 owns it). */
+    if(PULL.ok && run && !accountStopped[c.account] && v === "silent"){
+      out.push(mkFlag(1, "critical", c, "Active but not delivering",
+        "Reports ACTIVE but has spent nothing "
+        + (inGrace() ? "today or yesterday" : "today") + "."
+        + '<span class="why">' + causesOf(c)[0] + "</span>",
+        "r1:" + c.id));
+    }
+
+    /* R2, switched off. Nothing is meant to be paused (the client keeps no record of intended
+       state and everything live is meant to run indefinitely), so ANY transition away from
+       ACTIVE is unexpected by definition and always flagged. No acknowledge/suppress mechanism
+       in v1: there are no known-good pauses to filter out. */
+    if(run && (c.status !== "ACTIVE" || c.effective_status === "PAUSED")){
+      var ch = newestChangeFor(c.id);
+      out.push(mkFlag(2, "critical", c, "Switched off",
+        "Status is " + esc(c.status) + "."
+        + (ch ? " Off " + durHours(ch.hours) + ", roughly " + money(ch.lost_spend, 0)
+            + " of delivery not bought." : "")
+        + '<span class="why">Everything live at the first pull is meant to run indefinitely, so '
+        + "no pause here was planned."
+        + (ch ? " Detected " + zStampFull(new Date(ch.ts)) + "." : "") + "</span>",
+        "r2:" + c.id, { changeTs:ch ? ch.ts : null }));
+    }
+
+    /* R4, an end date is a misconfiguration in itself, not just an approaching one, because
+       everything here is meant to run indefinitely. Flag its EXISTENCE; escalate by proximity. */
+    var ends = [];
+    if(c.end_time){ ends.push({ level:"campaign", id:c.id, name:c.name, end:c.end_time }); }
+    (c.adsets || []).forEach(function(s){
+      /* an ad set whose end date merely mirrors the campaign's is the same finding, not a second one */
+      if(s.end_time && s.end_time !== c.end_time){
+        ends.push({ level:"adset", id:s.id, name:s.name, end:s.end_time });
+      }
+    });
+    ends.forEach(function(e){
+      var left = daysBetween(PULL.day, e.end);
+      var crit = left <= TH.end_date_critical_days;
+      out.push(mkFlag(4, crit ? "critical" : "warning", c,
+        left < 0 ? "End date has passed" : "End date set",
+        /* the campaign name now lives on the card's subject line, so this sentence starts with
+           the verb and has to capitalise itself when there is no ad-set prefix in front of it */
+        (e.level === "adset" ? "Ad set <b>" + esc(e.name) + "</b> stop" : "Stop")
+        + (left < 0
+            ? "ped on <b>" + fmtDay(e.end) + "</b>, " + Math.abs(left) + " days ago."
+            : "s on <b>" + fmtDay(e.end) + "</b>, " + left + " " + plural(left, "day") + " away.")
+        + '<span class="why">Nothing here is meant to carry an end date at all. It will stop '
+        + "itself whether or not anyone remembers.</span>",
+        "r4:" + e.id, { days:left, endDate:e.end }));
+    });
+
+    /* R5 / R6, lifetime budgets. A lifetime budget guarantees a future silent stop, so its
+       existence is a warning; below the remaining threshold it becomes imminent. */
+    lifetimeEntities(c).forEach(function(e){
+      out.push(mkFlag(5, "warning", c, "Lifetime budget set",
+        (e.level === "adset" ? "Ad set <b>" + esc(e.name) + "</b> carries" : "Carries")
+        + " a lifetime budget of " + money(e.lifetime_budget, 0) + "."
+        + '<span class="why">It will run out and stop delivery silently. Anything meant to run '
+        + "indefinitely should use a daily budget.</span>",
+        "r5:" + e.id));
+      if(e.budget_remaining !== null && e.budget_remaining !== undefined && e.lifetime_budget){
+        var p = e.budget_remaining / e.lifetime_budget * 100;
+        if(p < TH.budget_remaining_critical_pct){
+          var rate = avgDaily7(c), left = rate > 0 ? e.budget_remaining / rate : null;
+          out.push(mkFlag(6, "critical", c, "Lifetime budget almost exhausted",
+            money2(e.budget_remaining) + " left of " + money(e.lifetime_budget, 0) + ", <b>"
+            + pct(p, 1) + "</b>, under the " + TH.budget_remaining_critical_pct + "% threshold."
+            + (left === null ? "" : " About <b>" + nfmt(left, 1) + " days</b> left, around "
+                + fmtDay(addDays(PULL.day, Math.round(left))) + ".")
+            + '<span class="why">Projected at its trailing 7-day rate of ' + money2(rate)
+            + "/day. It stops itself with no end date and no warning.</span>",
+            "r6:" + e.id, { pctLeft:p }));
+        }
+      }
+    });
+
+    /* R7, under-delivery. A genuine zero belongs to rules 1/2, so the count stops at the first
+       zero rather than double-reporting an outage as a delivery problem. */
+    var b = dailyBudgetOf(c);
+    if(b > 0 && heartbeat(c)){
+      var rows = startedRows(c), n = 0;
+      for(var i = rows.length - 1; i >= 0; i--){
+        if(rows[i].spend <= 0){ break; }
+        if(rows[i].spend < b * TH.underdelivery_pct / 100){ n++; } else { break; }
+      }
+      if(n >= TH.underdelivery_days){
+        var last = rows[rows.length - 1];
+        out.push(mkFlag(7, "warning", c, "Under-delivering against its daily budget",
+          "Under " + TH.underdelivery_pct + "% of its " + money2(b) + " daily budget on the last <b>"
+          + n + " complete " + plural(n, "day") + "</b>. Latest " + money2(last.spend) + ", "
+          + pct(safe(last.spend, b) * 100, 0) + " of budget."
+          + '<span class="why">Meta is not finding enough auctions to win. Usually the audience '
+          + "is too narrow, the bid too low, or the creative has stopped earning impressions.</span>",
+          "r7:" + c.id, { days:n }));
+      }
+    }
+
+    /* R8, a sharp spend drop. Suppressed when the campaign has no heartbeat at all, since
+       rules 1/2 already report that and a 100% drop is the same event told twice. */
+    if(heartbeat(c)){
+      var cr = startedRows(c);
+      if(cr.length >= 8){
+        var lastR = cr[cr.length - 1], prior = cr.slice(cr.length - 8, cr.length - 1);
+        var sum = 0;
+        prior.forEach(function(r){ sum += r.spend || 0; });
+        var avg = sum / prior.length;
+        if(avg > 0){
+          var drop = (1 - lastR.spend / avg) * 100;
+          if(drop > TH.spend_drop_pct){
+            out.push(mkFlag(8, "warning", c, "Spend has dropped sharply",
+              money2(lastR.spend) + " on " + fmtDay(lastR.d) + ", <b>" + pct(drop, 0)
+              + " below</b> its trailing 7-day average of " + money2(avg) + "."
+              + '<span class="why">Still delivering, so not an outage. A drop this size is '
+              + "usually a budget edit, a rejected ad, or an auction it has stopped winning.</span>",
+              "r8:" + c.id, { drop:drop }));
+          }
+        }
+      }
+    }
+
+    /* R9, creative fatigue. Both halves must be true: frequency above threshold AND CTR
+       falling. Frequency alone on a tiny Swiss canton audience is normal, not a finding. */
+    var fat = fatigueOf(c);
+    if(fat){
+      out.push(mkFlag(9, "warning", c, "Creative fatigue",
+        "Frequency <b>" + nfmt(fat.freq, 1) + "</b> over 7 days (threshold "
+        + nfmt(TH.frequency_warn, 1) + ") with CTR down from " + pct(fat.from) + " to "
+        + pct(fat.to) + "."
+        + '<span class="why">A specific trade in one canton is a tiny pool, so the same people '
+        + "see the ad repeatedly. Live but worn out is close to switched off.</span>",
+        "r9:" + c.id, { freq:fat.freq }));
+    }
+  });
+
+  out.sort(function(a, b){
+    if(a.order !== b.order){ return a.order - b.order; }
+    var at = a.first || "9999", bt = b.first || "9999";
+    return at < bt ? -1 : at > bt ? 1 : 0;     /* longest-standing first within a rule */
+  });
+  return out;
+}
+
+function fatigueOf(c){
+  var rows = startedRows(c).slice(-14);
+  if(rows.length < 14){ return null; }
+  var a = aggRows(rows.slice(0, 7)), b = aggRows(rows.slice(7));
+  if(!b.freq || b.freq <= TH.frequency_warn){ return null; }
+  if(!(b.ctr < a.ctr)){ return null; }
+  return { freq:b.freq, from:a.ctr, to:b.ctr };
+}
+function minsSince(iso){
+  var t = Date.parse(iso);
+  if(isNaN(t)){ return null; }
+  return Math.max(0, (PULL.at.getTime() - t) / 60000);
+}
+function newestChangeFor(cid){
+  var ch = DATA.changes || [];
+  for(var i = 0; i < ch.length; i++){
+    if(ch[i].campaign_id === cid && ch[i].to !== "ACTIVE" && !ch[i].resolved_ts){ return ch[i]; }
+  }
+  return null;
+}
+/* ===================================================================== boot */
+function fetchData(){
+  /* cache-bust so Sync can never be handed a stale copy by an intermediary */
+  return fetch("data.json?t=" + Date.now(), { credentials:"same-origin", cache:"no-store" })
+    .then(function(r){
+      if(!r.ok){ throw new Error("data.json returned " + r.status); }
+      return r.json();
+    });
+}
+function boot(){
+  fetchData().then(function(j){ DATA = j; init(); }).catch(function(e){
+    byId("boot").innerHTML = '<div class="wrap"><div class="err"><b>Could not load the data.</b>' +
+      esc(e.message) + "<br><br>The dashboard reads its data from <code>/data.json</code> on this " +
+      "same service. If this persists, the export job has not written a payload yet.</div></div>";
+  });
+}
+
+function applyTheme(){
+  var name = (DATA.brand && DATA.brand.theme) || DATA.scope || "internal";
+  var t = THEMES[name] || THEMES.internal;
+  var r = document.documentElement.style;
+  r.setProperty("--brand", t.brand);
+  r.setProperty("--brand-deep", t.brandDeep);
+  r.setProperty("--brand-ink", t.brandInk);
+  r.setProperty("--brand-tint", t.brandTint);
+  r.setProperty("--brand-line", t.brandLine);
+  r.setProperty("--accent", t.accent);
+  r.setProperty("--accent-deep", t.accentDeep);
+  r.setProperty("--canvas", t.canvas);
+  r.setProperty("--display", t.display);
+  r.setProperty("--sans", t.sans);
+  /* One font request, for the active theme only. Sofia Pro and Montserrat are named first so a
+     machine that licenses the real brand face uses it; the Google family is the fallback. */
+  var link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "https://fonts.googleapis.com/css2?family=" + t.fonts +
+              "&family=Roboto+Mono:wght@400;500&display=swap";
+  document.head.appendChild(link);
+}
+
+function init(){
+  TH = {};
+  var k;
+  for(k in DEFAULT_TH){ TH[k] = DEFAULT_TH[k]; }
+  if(DATA.thresholds){ for(k in DATA.thresholds){ TH[k] = DATA.thresholds[k]; } }
+
+  CUR = DATA.currency || "CHF";
+  LOCALE = DATA.locale || "de-CH";
+  TZ = DATA.timezone || "Europe/Zurich";
+  CAMPS = DATA.campaigns || [];
+  ACCT = {};
+  (DATA.accounts || []).forEach(function(a){ ACCT[a.key] = a; });
+
+  /* one day->row index per campaign: every heartbeat, verdict and heatmap cell is a lookup */
+  CAMPS.forEach(function(c){
+    c._idx = {};
+    (c.daily || []).forEach(function(r){ c._idx[r.d] = r; });
+  });
+
+  /* the pull clock (see PULL above) */
+  var p = DATA.pull || {};
+  PULL.at = new Date(p.last_success || DATA.generated_at || Date.now());
+  PULL.day = zDay(PULL.at);
+  PULL.hour = zHour(PULL.at);
+  PULL.expect = p.expected_every_minutes || 60;
+  PULL.ageMin = Math.max(0, (Date.now() - PULL.at.getTime()) / 60000);
+  var grace = p.grace_multiple || 2.5;
+  PULL.lateMin = Math.max(0, PULL.ageMin - PULL.expect);
+  /* Rule 10 fires on either signal: the job said it failed, or nothing has arrived for longer
+     than the cadence times the grace multiple (one missed tick plus a slow run is tolerated). */
+  PULL.ok = (p.ok !== false) && (PULL.ageMin <= PULL.expect * grace);
+
+  applyTheme();
+  chrome();
+  FLAGS = evalFlags();
+
+  wireTabs();
+  wireGlobal();
+  wirePerf();
+  wireSort("tblCamp", "data-cs", campSort, renderCamps);
+  wireSort("tblStops", "data-ss", stopSort, renderStops);
+  wireSort("tblPerf", "data-ps", perfSort, renderPerfTable);
+
+  PERF.to = PULL.day;
+  PERF.from = addDays(PULL.day, -29);
+  syncPerfDates();
+
+  byId("boot").hidden = true;
+  byId("app").hidden = false;
+  renderAll();
+
+  setTab((window.location.hash || "").replace("#", "") || "uptime", true);
+  window.addEventListener("hashchange", function(){
+    setTab((window.location.hash || "").replace("#", "") || "uptime", true);
+  });
+  /* keep "6 min ago" honest without re-rendering the whole board */
+  setInterval(function(){
+    PULL.ageMin = Math.max(0, (Date.now() - PULL.at.getTime()) / 60000);
+    renderFreshChip();
+  }, 30000);
+}
+
+function chrome(){
+  var b = DATA.brand || {};
+  if(b.lockup){
+    byId("logo").src = b.lockup;
+    byId("logo").className = "lockup";
+  } else if(b.mark){
+    byId("logo").src = b.mark;
+  }
+  byId("logo").alt = DATA.client || "";
+  if(b.mark){ byId("favicon").href = b.mark; }
+  if(b.agora_logo){
+    byId("agora").src = b.agora_logo;
+  } else {
+    /* no logo in the payload -> hide the whole block, not just the image, or the "PREPARED BY"
+       label sits on its own next to a 1px transparent gif */
+    document.querySelector(".agency").hidden = true;
+  }
+  setText("wm", DATA.client || "Campaign Uptime Monitor");
+  setText("tg", DATA.tagline || "Campaign uptime");
+  document.title = (DATA.client ? DATA.client + ", " : "") + "Campaign Uptime Monitor";
+  byId("demoRibbon").hidden = !DATA.demo;
+  if(DATA.scope === "internal"){
+    var st = byId("scopeTag");
+    st.hidden = false;
+    st.textContent = "Internal · all accounts";
+    /* On the internal route the brand mark already IS the Agora logo, so a second "prepared by
+       Agora" block puts the same logo on screen twice. */
+    document.querySelector(".agency").style.display = "none";
+  }
+  var tz = byId("tzChip");
+  var unver = (DATA.accounts || []).filter(function(a){ return a.timezone_verified === false; });
+  tz.hidden = false;
+  if(unver.length){
+    tz.className = "chip warn";
+    tz.innerHTML = "&#9888; Account timezone unverified";
+    tz.title = "Meta sets the ad account's reporting timezone at account creation and it does not "
+      + "always match the business location, agency-created accounts are often UTC or "
+      + "America/Los_Angeles. Until this is confirmed as " + TZ + " in Ads Manager, the 24-hour "
+      + "heartbeat can raise false alarms around midnight. It is a five-minute check.";
+  } else {
+    tz.className = "chip mut";
+    tz.textContent = "All times " + TZ + " (" + tzAbbr() + ")";
+  }
+}
+
+function renderFreshChip(){
+  var c = byId("freshChip");
+  c.className = "fchip" + (PULL.ok ? "" : " bad");
+  setText("freshChipTxt", PULL.ok
+    ? "Live · updated " + ago(PULL.ageMin)
+    : "Stale · " + ago(PULL.ageMin));
+  c.title = PULL.ok
+    ? "Last successful pull " + zStampFull(PULL.at) + ". Expected every " + PULL.expect + " minutes."
+    : "No successful pull since " + zStampFull(PULL.at) + ". Campaign states below are last-known.";
+}
+
+function renderAll(){
+  renderFreshChip();
+  renderAcctSeg();
+  renderVerdict();
+  renderFresh();
+  renderAccounts();
+  renderFlags();
+  renderRecent();
+  renderCamps();
+  renderStopsAll();
+  renderHistoryAll();
+  renderPerfAll();
+  renderTabCounts();
+}
+
+/* the campaigns currently on screen, after the account filter and the search box */
+function shown(){
+  var q = FILTER.q;
+  return CAMPS.filter(function(c){
+    if(FILTER.acct && c.account !== FILTER.acct){ return false; }
+    if(q && c.name.toLowerCase().indexOf(q) < 0){ return false; }
+    return true;
+  });
+}
+function shownFlags(){
+  return FLAGS.filter(function(f){
+    if(f.pipe){ return true; }
+    if(FILTER.acct && f.account !== FILTER.acct){ return false; }
+    if(FILTER.q && f.camp && f.camp.name.toLowerCase().indexOf(FILTER.q) < 0){ return false; }
+    return true;
+  });
+}
+
+/* =====================================================================================
+   TAB 1, the status board.  §7.1: above the fold, no scrolling, no interaction needed.
+   ===================================================================================== */
+function renderVerdict(){
+  var list = shown();
+  var counts = { running:0, silent:0, off:0, paused_spent:0, stale_ok:0, unverified:0 };
+  list.forEach(function(c){ counts[verdictOf(c)]++; });
+  var bad = counts.silent + counts.off;
+  var fl = shownFlags();
+  var crit = fl.filter(function(f){ return f.sev === "critical" && !f.pipe; }).length;
+  var warn = fl.filter(function(f){ return f.sev === "warning"; }).length;
+
+  var cls, glyph, head, sub;
+  if(!PULL.ok){
+    /* The pipeline verdict REPLACES the campaign verdict. It must not claim everything is fine,
+       and it must not claim everything is dead, both are lies, and the second one is the one
+       that gets an angry email sent to the agency. */
+    cls = "stale"; glyph = "?";
+    head = "Can’t verify, the data is " + ago(PULL.ageMin).replace(" ago", " old");
+    sub = "Last successful pull <b>" + zStampFull(PULL.at) + "</b>. Everything below is the "
+        + "state as of then. <b>This is a pipeline problem, not a campaign problem</b>: zero-spend "
+        + "rows are unverified, not dead.";
+  } else if(bad === 0 && crit === 0){
+    cls = "ok"; glyph = "✓";
+    head = "All " + list.length + " " + plural(list.length, "campaign") + " running";
+    sub = "All delivering, not just reporting ACTIVE."
+        + (warn ? " <b>" + warn + " " + plural(warn, "warning") + "</b> worth a look: nothing has "
+            + "stopped, but something will." : "");
+  } else if(bad === 0){
+    cls = "warn"; glyph = "!";
+    head = crit + " " + plural(crit, "issue") + " to fix";
+    sub = "All still delivering, but <b>" + crit + " critical " + plural(crit, "finding")
+        + "</b> will stop one of them if left alone.";
+  } else {
+    cls = "bad"; glyph = "!";
+    head = bad + " " + plural(bad, "campaign") + " " + plural(bad, "needs", "need") + " attention";
+    var names = list.filter(function(c){ return isBad(verdictOf(c)); })
+                    .slice(0, 3).map(function(c){ return "<b>" + esc(c.name) + "</b>"; });
+    sub = (counts.silent ? counts.silent + " " + plural(counts.silent, "campaign") + " "
+            + plural(counts.silent, "reports", "report") + " ACTIVE but " + plural(counts.silent, "is", "are")
+            + " spending nothing" : "")
+        + (counts.silent && counts.off ? ", and " : "")
+        + (counts.off ? counts.off + " " + plural(counts.off, "is", "are") + " switched off" : "")
+        + ". " + names.join(", ") + (bad > 3 ? " and " + (bad - 3) + " more" : "") + ".";
+  }
+
+  var cc = [];
+  if(counts.running){ cc.push(pillCount("running", counts.running)); }
+  if(counts.stale_ok){ cc.push(pillCount("stale_ok", counts.stale_ok)); }
+  if(counts.unverified){ cc.push(pillCount("unverified", counts.unverified)); }
+  if(counts.silent){ cc.push(pillCount("silent", counts.silent)); }
+  if(counts.off){ cc.push(pillCount("off", counts.off)); }
+  if(counts.paused_spent){ cc.push(pillCount("paused_spent", counts.paused_spent)); }
+  if(warn){ cc.push('<span class="vcount"><span class="n">' + warn + "</span> " + plural(warn, "warning") + "</span>"); }
+
+  byId("verdict").innerHTML =
+    '<div class="verdict ' + cls + '" role="status">' +
+      '<div class="vico"><span>' + glyph + "</span></div>" +
+      '<div class="vtxt"><div class="vh1">' + head + "</div>" +
+        '<div class="vs">' + sub + "</div>" +
+        '<div class="vcounts">' + cc.join("") + "</div>" +
+      "</div>" +
+    "</div>";
+}
+function pillCount(v, n){
+  var d = VERDICTS[v];
+  return '<span class="vcount"><span class="n">' + n + "</span> " + esc(d.w.toLowerCase()) + "</span>";
+}
+
+/* §7.1, the freshness indicator, separate and visually distinct from everything else. */
+function renderFresh(){
+  var p = DATA.pull || {}, hist = p.history || [];
+  var next = new Date(PULL.at.getTime() + PULL.expect * 60000);
+  var strip = hist.slice(-40).map(function(h){
+    var cls = h.ok ? "" : " bad";
+    var d = new Date(h.ts);
+    return '<i class="' + cls + '" data-tip="' + esc(zStamp(d) + " · " +
+      (h.ok ? num(h.rows) + " rows" : "failed")) + '"></i>';
+  }).join("");
+
+  var inWindow = PULL.ok;
+  byId("freshHost").innerHTML =
+    '<div class="fresh' + (inWindow ? "" : " bad") + '" id="freshPanel" title="One tick per '
+      + 'expected pull, oldest left. This indicator is independent of the campaign lights: if it '
+      + 'goes red, treat every zero-spend row as unknown rather than dead.">' +
+      '<div class="fh"><span>&#9881;</span>Data pipeline' +
+        '<span class="tag">' + (inWindow ? "Healthy" : "Rule 10 · no data") + "</span></div>" +
+      '<div class="fgrid">' +
+        fi("Last successful pull", zStamp(PULL.at) + " " + tzAbbr(), false) +
+        fi("Age", ago(PULL.ageMin), !inWindow) +
+        fi("Expected every", PULL.expect + " min", false) +
+        fi("Rows received", p.rows ? num(p.rows) : "0", !p.rows) +
+        fi("Next expected", zClock(next) + " " + tzAbbr(), false) +
+      "</div>" +
+      '<div class="fstrip" id="fstrip">' + strip + "</div>" +
+      (inWindow ? "" : '<div class="fnote"><b>The pull is failing.</b> When Windsor stops, every '
+        + "campaign shows zero spend, which is why this panel is separate from the campaign lights. "
+        + (p.last_error ? "Reported: <b>" + esc(p.last_error) + "</b>" : "") + "</div>") +
+    "</div>";
+  byId("fstrip").querySelectorAll("i").forEach(function(n){
+    bindTip(n, '<div class="td">' + n.getAttribute("data-tip") + "</div>");
+  });
+}
+function fi(l, v, bad){
+  return '<div class="fi"><div class="l">' + l + '</div><div class="v' + (bad ? " bad" : "") + '">' +
+         esc(v) + "</div></div>";
+}
+
+function renderAccounts(){
+  var keys = Object.keys(ACCT);
+  byId("acctHost").innerHTML = '<div class="accts">' + keys.map(function(k){
+    var a = ACCT[k];
+    var mine = CAMPS.filter(function(c){ return c.account === k; });
+    var running = mine.filter(function(c){ var v = verdictOf(c); return v === "running" || v === "stale_ok"; }).length;
+    var badN = mine.filter(function(c){ return isBad(verdictOf(c)); }).length;
+    var today = 0, mtd = 0;
+    mine.forEach(function(c){ today += spendOn(c, PULL.day); mtd += spendMTD(c); });
+    var tracked = mine.filter(function(c){ return c.conversion_tracked; }).length;
+    return '<button type="button" class="acct' + (FILTER.acct === k ? " sel" : "") + '" data-acct="' + k + '">' +
+      '<div class="ah"><div class="an">' + esc(a.name) + "</div>" +
+        '<div class="ap">' + esc(a.purpose || "") + "</div></div>" +
+      '<div class="ag">' +
+        stat("Running", running + "/" + mine.length, running === mine.length ? "ok" : "") +
+        stat("Need attention", String(badN), badN ? "crit" : "") +
+        stat("Spend today", compactMoney(today), "") +
+        stat("Month to date", compactMoney(mtd), "") +
+      "</div>" +
+      '<div class="af">' +
+        '<span class="chip br">' + esc(a.conversion_label) + "</span>" +
+        (tracked < mine.length
+          ? '<span class="chip warn">' + (mine.length - tracked) + " not tracked in Meta</span>" : "") +
+        '<span class="chip mut"><span class="m">' + esc(a.id) + "</span></span>" +
+      "</div></button>";
+  }).join("") + "</div>";
+  byId("acctHost").querySelectorAll("[data-acct]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var k = b.getAttribute("data-acct");
+      FILTER.acct = (FILTER.acct === k) ? "" : k;
+      syncAcctSeg();
+      renderAll();
+    });
+  });
+}
+function stat(l, v, cls){
+  return '<div class="s"><div class="l">' + l + '</div><div class="v ' + cls + '">' + v + "</div></div>";
+}
+
+function renderFlags(){
+  var fl = shownFlags();
+  var crit = fl.filter(function(f){ return f.sev === "critical"; }).length;
+  var warn = fl.length - crit;
+  setText("flagSub", fl.length
+    ? crit + " critical · " + warn + " " + plural(warn, "warning") + ", most serious first"
+    : "nothing is flagged");
+  if(!fl.length){
+    byId("flags").innerHTML = '<div class="empty"><b>Nothing flagged</b>Every campaign is ' +
+      'delivering, no end dates are set, and no lifetime budgets are running down. This is the ' +
+      'state the client is paying for.</div>';
+    return;
+  }
+  byId("flags").innerHTML = fl.map(function(f, i){
+    var tag = f.pipe ? "pipe" : (f.sev === "critical" ? "crit" : "warn");
+    /* Criticals are the reason someone opened the page, so they arrive open. Warnings arrive
+       shut: eleven findings of three sentences each is a wall of text, not a status board. */
+    var open = (f.sev === "critical") ? " open" : "";
+    var when = f.first
+      ? "<b>" + ago(minsSince(f.first)) + "</b>" + zStamp(new Date(f.first))
+      : "<b>this pull</b>first seen now";
+    return '<div class="flag ' + tag + open + '" data-fi="' + i + '">' +
+      '<button type="button" class="fhead" aria-expanded="' + (open ? "true" : "false") + '">' +
+        '<span class="fchev">&#9660;</span>' +
+        '<div class="fmeta"><span class="fsev">' + (f.pipe ? "Pipeline" : f.sev) + "</span>" +
+          '<span class="frule">Rule ' + f.rule + "</span>" +
+          (f.account && !f.pipe && Object.keys(ACCT).length > 1
+            ? '<span class="chip mut">' + esc(ACCT[f.account].name) + "</span>" : "") +
+        "</div>" +
+        '<div class="ft">' + esc(f.title) + "</div>" +
+        '<div class="fsub">' + esc(f.subject || "") + "</div>" +
+      "</button>" +
+      '<div class="fwhen">' + when + "</div>" +
+      '<div class="fbody"><div class="fd">' + f.detail + "</div>" +
+        (f.campId ? '<button type="button" class="fgo" data-fgo="' + f.campId +
+          '">Show this campaign</button>' : "") +
+      "</div></div>";
+  }).join("");
+  byId("flags").querySelectorAll(".fhead").forEach(function(h){
+    h.addEventListener("click", function(){
+      var card = h.parentNode, on = !card.classList.contains("open");
+      card.classList.toggle("open", on);
+      h.setAttribute("aria-expanded", on ? "true" : "false");
+    });
+  });
+  byId("flags").querySelectorAll("[data-fgo]").forEach(function(b){
+    b.addEventListener("click", function(e){
+      e.stopPropagation();
+      jumpToCampaign(b.getAttribute("data-fgo"));
+    });
+  });
+}
+
+/* Clicking a finding takes you to the campaign it is about, opens its hierarchy and flashes the
+   row. Without this the flag list and the table are two lists you have to reconcile by eye. */
+function jumpToCampaign(cid){
+  setTab("uptime", true);
+  openRows[cid] = true;
+  renderCamps();
+  var row = document.querySelector('#tblCamp tr[data-cid="' + cid + '"]');
+  if(!row){ return; }
+  row.classList.add("hl");
+  var y = row.getBoundingClientRect().top + window.pageYOffset - 130;
+  window.scrollTo({ top:Math.max(0, y), behavior:"smooth" });
+  setTimeout(function(){ row.classList.remove("hl"); }, 2400);
+}
+
+function renderRecent(){
+  var cut = new Date(PULL.at.getTime() - TH.recent_changes_days * 86400000).toISOString();
+  var list = (DATA.changes || []).filter(function(ch){
+    if(FILTER.acct && ch.account !== FILTER.acct){ return false; }
+    return ch.ts >= cut;
+  });
+  setText("recentSub", "the last " + TH.recent_changes_days + " days, on this page, because the "
+    + "dashboard is the only alert");
+  byId("recent").innerHTML = list.length ? list.map(feedItem).join("")
+    : '<div class="empty" style="border:none;background:transparent"><b>No changes in the last ' +
+      TH.recent_changes_days + ' days</b>Nothing was paused, resumed or rejected.</div>';
+}
+
+/* §7.3, factual and neutral. The client reads this and it reflects on the agency, so the wording
+   is "Status history", never "SILENT FAILURE". The information is identical; the tone is not. */
+function feedItem(ch){
+  var d = new Date(ch.ts);
+  var toBad = ch.to !== "ACTIVE";
+  var lvl = ch.level === "adset" ? "Ad set" : ch.level === "ad" ? "Ad" : "Campaign";
+  var resolved = !!ch.resolved_ts;
+  return '<div class="fitem">' +
+    '<div class="fts"><b>' + esc(zStamp(d)) + "</b>" + esc(ago(minsSince(ch.ts))) + "</div>" +
+    '<div class="fmain">' +
+      '<div class="fn">' + esc(ch.campaign) + "</div>" +
+      (ch.entity && ch.entity !== ch.campaign
+        ? '<div class="fe">' + lvl + ": " + esc(ch.entity) + "</div>"
+        : '<div class="fe">' + lvl + " level</div>") +
+      '<div class="ftr"><span class="' + (ch.from === "ACTIVE" ? "a" : "b") + '">' + esc(ch.from) +
+        '</span><span class="ar">&rarr;</span><span class="' + (toBad ? "b" : "a") + '">' +
+        esc(ch.to) + "</span>" +
+        (resolved ? ' <span class="chip ok">resolved</span>' : "") +
+      "</div>" +
+    "</div>" +
+    '<div class="fright">' +
+      (toBad && !resolved ? "<b>" + esc(durHours(ch.hours)) + "</b>off so far"
+        : resolved ? "<b>" + esc(durHours(ch.hours)) + "</b>was off" : "<b>-</b>") +
+      (ch.lost_spend ? "<br>&asymp; " + esc(money(ch.lost_spend, 0)) + " not delivered" : "") +
+    "</div>" +
+  "</div>";
+}
+/* ===================================================================== the campaign table
+   §7.1's last line: the verdict light must reflect DELIVERY, status combined with the spend
+   heartbeat, not status alone. Every row therefore carries both columns, side by side, so the
+   difference between "says ACTIVE" and "is actually spending" is visible rather than inferred. */
+function lamp(v){
+  var d = VERDICTS[v];
+  var hollow = (v === "unverified" || v === "stale_ok") ? " hollow" : "";
+  return '<span class="lamp ' + v + '"><span class="b' + hollow + '">' + d.g + "</span>" +
+         esc(d.w) + "</span>";
+}
+function campSortVal(c, k){
+  var v = verdictOf(c);
+  if(k === "name"){ return c.name.toLowerCase(); }
+  if(k === "verdict"){ return VERDICTS[v].rank * -1; }        /* worst first by default */
+  if(k === "status"){ return c.status; }
+  if(k === "today"){ return spendOn(c, PULL.day); }
+  if(k === "yest"){ return spendOn(c, addDays(PULL.day, -1)); }
+  if(k === "d7"){ return spend7d(c); }
+  if(k === "budget"){ return budgetLabel(c); }
+  if(k === "rem"){
+    var lt = lifetimeEntities(c);
+    return lt.length ? (lt[0].budget_remaining || 0) : -1;
+  }
+  if(k === "end"){ return endDateOf(c) || "9999-99-99"; }
+  return 0;
+}
+function renderCamps(){
+  var list = shown().slice();
+  list.sort(function(a, b){
+    var x = campSortVal(a, campSort.k), y = campSortVal(b, campSort.k);
+    if(x < y){ return -campSort.d; }
+    if(x > y){ return campSort.d; }
+    return a.name < b.name ? -1 : 1;
+  });
+  var tb = byId("tblCamp").querySelector("tbody");
+  tb.innerHTML = "";
+  if(!list.length){
+    tb.innerHTML = '<tr><td colspan="10"><div class="empty"><b>No campaigns match</b>' +
+      'Clear the search box or the account filter.</div></td></tr>';
+    setText("campFoot", "");
+    return;
+  }
+  list.forEach(function(c, i){
+    var v = verdictOf(c), end = endDateOf(c), lt = lifetimeEntities(c);
+    var today = spendOn(c, PULL.day), yest = spendOn(c, addDays(PULL.day, -1));
+    var isOpen = !!openRows[c.id];
+    var endCell;
+    if(!end){
+      endCell = '<span class="chip ok">No end date</span>';
+    } else {
+      var left = daysBetween(PULL.day, end);
+      endCell = '<span class="chip ' + (left <= TH.end_date_critical_days ? "crit" : "warn") + '">' +
+        fmtDayShort(end) + " · " + (left < 0 ? "passed" : left + "d") + "</span>";
+    }
+    var remCell = "<span class=\"dim\">, </span>";
+    if(lt.length && lt[0].budget_remaining !== null && lt[0].budget_remaining !== undefined){
+      var p = lt[0].lifetime_budget ? lt[0].budget_remaining / lt[0].lifetime_budget * 100 : 100;
+      remCell = '<span class="' + (p < TH.budget_remaining_critical_pct ? "" : "dim") + '">' +
+        money(lt[0].budget_remaining, 0) + "</span> <span class=\"csm\">" + pct(p, 0) + "</span>";
+    } else if(c.budget_type === "daily" || budgetLabel(c) === "Ad set daily") {
+      /* Deliberately NOT a number: `budget_remaining` on a daily budget is what is left TODAY and
+         resets at midnight. Showing it here invites exactly the exhaustion-date mistake §4 warns
+         about, so the column says why it is empty instead. */
+      remCell = '<span class="nt" title="On a daily budget, budget_remaining is what is left for '
+        + 'today and resets every midnight, it is not a runway, so it is not shown here.">n/a · daily</span>';
+    }
+
+    var tr = document.createElement("tr");
+    tr.className = "z" + (isOpen ? " open" : "");
+    tr.setAttribute("data-cid", c.id);
+    tr.innerHTML =
+      '<td class="rank">' + (i + 1) + "</td>" +
+      '<td class="hero" data-l=""><span class="caret">&#9654;</span> <span class="cname">' + esc(c.name) +
+        '</span><div class="csm">' + esc(objLabel(c)) +
+        (Object.keys(ACCT).length > 1 ? " · " + esc(ACCT[c.account].name) : "") +
+        " · " + (c.adsets || []).length + " " + plural((c.adsets || []).length, "ad set") + "</div></td>" +
+      '<td data-l="Delivery">' + lamp(v) + "</td>" +
+      '<td data-l="Status"><span class="chip ' + (c.status === "ACTIVE" ? "" : "crit") + '">' +
+        esc(c.status) + "</span></td>" +
+      '<td class="r" data-l="Spend today">' + (today > 0 ? money2(today) : '<span class="dim">0.00</span>') + "</td>" +
+      '<td class="r" data-l="Yesterday">' + (yest > 0 ? money2(yest) : '<span class="dim">0.00</span>') + "</td>" +
+      '<td class="r" data-l="Spend 7d">' + money(spend7d(c), 0) + "</td>" +
+      '<td data-l="Budget"><span class="chip ' + (isLifetime(c) ? "warn" : "mut") + '">' +
+        budgetLabel(c) + "</span>" + (dailyBudgetOf(c) ? '<div class="csm">' + money2(dailyBudgetOf(c)) + "/day</div>" : "") + "</td>" +
+      '<td class="r" data-l="Remaining">' + remCell + "</td>" +
+      '<td data-l="End date">' + endCell + "</td>";
+    tb.appendChild(tr);
+
+    var det = document.createElement("tr");
+    det.className = "det";
+    det.hidden = !isOpen;
+    det.setAttribute("data-det", c.id);
+    var td = document.createElement("td");
+    td.setAttribute("colspan", "10");
+    det.appendChild(td);
+    tb.appendChild(det);
+    if(isOpen){ td.innerHTML = hierHTML(c); wireHb(td); }
+
+    tr.addEventListener("click", function(){
+      openRows[c.id] = !openRows[c.id];
+      tr.classList.toggle("open", openRows[c.id]);
+      det.hidden = !openRows[c.id];
+      if(openRows[c.id] && !td.innerHTML){ td.innerHTML = hierHTML(c); wireHb(td); }
+    });
+  });
+
+  var badN = list.filter(function(c){ return isBad(verdictOf(c)); }).length;
+  var tot = 0;
+  list.forEach(function(c){ tot += spendOn(c, PULL.day); });
+  setHTML("campFoot", list.length + " " + plural(list.length, "campaign") + " · " +
+    (badN ? "<b>" + badN + " needing attention</b> · " : "") +
+    money2(tot) + " spent today (partial, the day is still running) · " +
+    money(list.reduce(function(s, c){ return s + spend7d(c); }, 0), 0) + " over the last 7 complete days");
+  setHTML("campNote", meth("How the delivery column is decided",
+    "<b>Spend today</b> runs from 00:00 " + TZ + " to the last pull, so it is always a partial " +
+    "day. Windsor's status pull is date-granular, so the 24-hour heartbeat is realised as <i>spent " +
+    "today</i>, falling back to <i>yesterday</i> within " + TH.heartbeat_grace_hours +
+    " hours of local midnight. That fallback is what stops every campaign flagging just after " +
+    "midnight. <b>Remaining</b> is only meaningful on a lifetime budget."));
+}
+function objLabel(c){
+  var o = String(c.objective || "").replace("OUTCOME_", "");
+  o = o.charAt(0) + o.slice(1).toLowerCase();
+  return o + (c.conversion_tracked ? "" : " · conversion not tracked in Meta");
+}
+
+/* The hierarchy is the answer to "but it says ACTIVE": campaign → ad set → ad, each with its own
+   status, plus the diagnosis and the 30-day heartbeat underneath. */
+function hierHTML(c){
+  var v = verdictOf(c);
+  var out = '<div class="hier">';
+  if(isBad(v) && PULL.ok){
+    out += '<div class="hcause"><span class="ch">Why it is not delivering</span><ul>' +
+      causesOf(c).map(function(x){ return "<li>" + x + "</li>"; }).join("") + "</ul></div>";
+  }
+  out += (c.adsets || []).map(function(s){
+    var live = s.status === "ACTIVE" && s.effective_status !== "PAUSED";
+    return '<div class="hset"><div class="hsh">' +
+      '<span class="chip ' + (live ? "ok" : "crit") + '">' + esc(s.status) + "</span>" +
+      '<span class="n">' + esc(s.name) + "</span>" +
+      (s.budget_type === "lifetime"
+        ? '<span class="chip warn">Lifetime ' + money(s.lifetime_budget, 0) +
+          (s.budget_remaining !== null && s.budget_remaining !== undefined
+            ? " · " + money(s.budget_remaining, 0) + " left" : "") + "</span>"
+        : (s.daily_budget ? '<span class="chip mut">' + money2(s.daily_budget) + "/day</span>" : "")) +
+      (s.end_time ? '<span class="chip ' +
+        (daysBetween(PULL.day, s.end_time) <= TH.end_date_critical_days ? "crit" : "warn") +
+        '">Ends ' + fmtDayShort(s.end_time) + "</span>" : "") +
+      '<span class="chip mut"><span class="m">' + esc(s.id) + "</span></span>" +
+      "</div>" +
+      (s.ads || []).map(function(ad){
+        var ok = ad.effective_status === "ACTIVE";
+        var rej = /DISAPPROV|REJECT/i.test(ad.effective_status || "");
+        return '<div class="had"><span class="chip ' + (ok ? "ok" : rej ? "crit" : "mut") + '">' +
+          esc(ad.effective_status) + '</span><span class="n">' + esc(ad.name) + "</span></div>";
+      }).join("") +
+      "</div>";
+  }).join("");
+  out += hbStripHTML(c, 30, true);
+  out += '<div class="note">Campaign id <code>' + esc(c.id) + "</code> · started " +
+    fmtDay(c.start_time) + " · objective <code>" + esc(c.objective) + "</code>" +
+    (c.conversion_note ? " · " + esc(c.conversion_note) : "") + "</div>";
+  return out + "</div>";
+}
+
+/* =====================================================================================
+   The heartbeat strip, one cell per day, "did this campaign spend anything?"
+   This is the artefact that turns "the campaign was off again" from an argument into a record,
+   and it is the only view that shows WHEN something stopped and for how long at a glance.
+   ===================================================================================== */
+function hbCells(c, days){
+  var out = [], from = addDays(PULL.day, -(days - 1));
+  var b = dailyBudgetOf(c);
+  for(var i = 0; i < days; i++){
+    var day = addDays(from, i);
+    var r = rowOn(c, day);
+    var isToday = (day === PULL.day);
+    var cls = "hbc", tipTxt;
+    if(c.start_time && day < c.start_time){
+      cls += " pre";
+      tipTxt = "before this campaign started";
+    } else if(!r){
+      cls += " unk";
+      tipTxt = "no row in the payload";
+    } else if(r.spend > 0){
+      if(!isToday && b > 0 && r.spend < b * TH.underdelivery_pct / 100){ cls += " low"; }
+      if(isToday){ cls += " today"; }
+      tipTxt = money2(r.spend) + (isToday ? " so far today" : "") +
+        (b > 0 ? " · " + pct(safe(r.spend, b) * 100, 0) + " of its " + money2(b) + " budget" : "");
+    } else {
+      cls += " down";
+      if(isToday){ cls += " today"; }
+      tipTxt = "spent nothing";
+    }
+    out.push('<span class="' + cls + '" data-tip="' + esc(fmtDayDow(day) + "|" + tipTxt) + '"></span>');
+  }
+  return { html:out.join(""), from:from };
+}
+function hbStripHTML(c, days, standalone){
+  var cells = hbCells(c, days);
+  var started = startedRows(c).slice(-days);
+  var delivered = started.filter(function(r){ return r.spend > 0; }).length;
+  var up = started.length ? delivered / started.length * 100 : 0;
+  var body = '<div class="hbwrap"><div class="hbrows">' +
+    '<div class="hbrow"><div class="hbname"><div class="n">' + (standalone ? "Delivery, last " + days + " days" : esc(c.name)) +
+      '</div><div class="a">' + fmtDayShort(cells.from) + " → " + fmtDayShort(PULL.day) + "</div></div>" +
+    '<div class="hbcells">' + cells.html + "</div>" +
+    '<div class="hbstat"><div class="p">' + pct(up, up >= 99.95 ? 0 : 1) + '</div><div class="d">' +
+      delivered + "/" + started.length + " days</div></div></div></div></div>";
+  return body;
+}
+function wireHb(root){
+  root.querySelectorAll(".hbc[data-tip]").forEach(function(n){
+    var p = n.getAttribute("data-tip").split("|");
+    bindTip(n, '<div class="td">' + esc(p[0]) + "</div>" + esc(p[1]));
+  });
+  root.querySelectorAll(".fstrip i[data-tip]").forEach(function(n){
+    bindTip(n, '<div class="td">' + esc(n.getAttribute("data-tip")) + "</div>");
+  });
+}
+
+/* ===================================================================== copy summary
+   §9 notes that a weekly digest email is the low-effort mitigation if the client changes their
+   mind about alerting. This button is the manual version of it: the whole board as plain text,
+   ready to paste into an email or Slack, so the operator never retypes the numbers. */
+function summaryText(){
+  var list = shown(), fl = shownFlags();
+  var L = [];
+  L.push((DATA.client || "Campaign uptime") + ", campaign uptime, " + zStampFull(PULL.at) + " " + tzAbbr());
+  if(DATA.demo){ L.push("*** DEMO DATA, not the client's real numbers ***"); }
+  L.push("");
+  if(!PULL.ok){
+    L.push("PIPELINE: no successful pull for " + ago(PULL.ageMin) + ". States below are last-known.");
+    L.push("");
+  }
+  var bad = list.filter(function(c){ return isBad(verdictOf(c)); });
+  L.push(bad.length
+    ? bad.length + " of " + list.length + " campaigns need attention."
+    : "All " + list.length + " campaigns running.");
+  L.push("");
+  if(fl.length){
+    L.push("FINDINGS");
+    fl.forEach(function(f){
+      L.push("  [" + (f.pipe ? "PIPELINE" : f.sev.toUpperCase()) + " · rule " + f.rule + "] " + f.title
+        + (f.camp ? ", " + f.camp.name : "")
+        + (f.first ? "  (first detected " + ago(minsSince(f.first)) + ")" : ""));
+    });
+    L.push("");
+  }
+  L.push("DELIVERY");
+  list.forEach(function(c){
+    L.push("  " + VERDICTS[verdictOf(c)].w.toUpperCase() + " · " + c.name +
+      " · today " + money2(spendOn(c, PULL.day)) + " · 7d " + money(spend7d(c), 0));
+  });
+  var stops = stopRows().filter(function(s){ return s.days !== null && s.days <= TH.end_date_horizon_days; });
+  L.push("");
+  L.push(stops.length
+    ? "SCHEDULED STOPS within " + TH.end_date_horizon_days + " days: " + stops.length
+    : "No scheduled stops within " + TH.end_date_horizon_days + " days.");
+  stops.forEach(function(s){
+    L.push("  " + s.camp.name + (s.set ? " → " + s.set : "") + " · " +
+      (s.end ? "ends " + fmtDay(s.end) : "lifetime budget projected out " + fmtDay(s.proj)) +
+      " (" + s.days + "d)");
+  });
+  return L.join("\n");
+}
+function copySummary(){
+  var txt = summaryText();
+  function done(){ toast("Summary copied, paste it into an email or Slack"); }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(done, function(){ fallbackCopy(txt, done); });
+  } else {
+    fallbackCopy(txt, done);
+  }
+}
+function fallbackCopy(txt, done){
+  /* clipboard API needs a secure context; a hidden textarea works everywhere else */
+  var ta = document.createElement("textarea");
+  ta.value = txt;
+  ta.setAttribute("readonly", "");
+  ta.style.cssText = "position:fixed;left:-9999px;top:0";
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); done(); }
+  catch(e){ toast("Could not copy, select the text manually"); }
+  document.body.removeChild(ta);
+}
+/* =====================================================================================
+   TAB 2, scheduled stops (§7.2)
+   The client explicitly asked for end-date visibility, so this is a first-class panel rather
+   than a footnote. "No end date" is the DESIRED state and renders green. A lifetime budget is a
+   scheduled stop even with no end date set, so it gets a projected exhaustion date from the
+   trailing spend rate, and a daily budget never does, for the reason in §4.
+   ===================================================================================== */
+function stopRows(){
+  var out = [];
+  shown().forEach(function(c){
+    var rate = avgDaily7(c);
+
+    /* explicit end dates, campaign and ad-set level */
+    if(c.end_time){
+      out.push({ camp:c, set:"", level:"campaign", end:c.end_time,
+                 days:daysBetween(PULL.day, c.end_time), bt:budgetLabel(c),
+                 rem:null, proj:null, kind:"end" });
+    }
+    (c.adsets || []).forEach(function(s){
+      if(s.end_time && s.end_time !== c.end_time){
+        out.push({ camp:c, set:s.name, level:"adset", end:s.end_time,
+                   days:daysBetween(PULL.day, s.end_time), bt:budgetLabel(c),
+                   rem:null, proj:null, kind:"end" });
+      }
+    });
+
+    /* lifetime budgets, a guaranteed future stop with no date attached to it */
+    lifetimeEntities(c).forEach(function(e){
+      var rem = e.budget_remaining, proj = null, days = null;
+      if(rem !== null && rem !== undefined && rate > 0){
+        days = Math.floor(rem / rate);
+        proj = addDays(PULL.day, days);
+      }
+      out.push({ camp:c, set:e.level === "adset" ? e.name : "", level:e.level, end:null,
+                 days:days, bt:"Lifetime", rem:rem, lifetime:e.lifetime_budget,
+                 proj:proj, rate:rate, kind:"budget" });
+    });
+
+    /* nothing scheduled, the state everything is supposed to be in */
+    if(!c.end_time && !lifetimeEntities(c).length &&
+       !(c.adsets || []).some(function(s){ return s.end_time; })){
+      out.push({ camp:c, set:"", level:"campaign", end:null, days:null, bt:budgetLabel(c),
+                 rem:null, proj:null, kind:"none" });
+    }
+  });
+  return out;
+}
+function stopSortVal(s, k){
+  if(k === "camp"){ return s.camp.name.toLowerCase(); }
+  if(k === "set"){ return (s.set || "").toLowerCase(); }
+  if(k === "end"){ return s.end || (s.proj || "9999-99-99"); }
+  if(k === "days"){ return s.days === null ? 99999 : s.days; }
+  if(k === "bt"){ return s.bt; }
+  if(k === "rem"){ return s.rem === null || s.rem === undefined ? -1 : s.rem; }
+  if(k === "proj"){ return s.proj || "9999-99-99"; }
+  return 0;
+}
+function renderStopsAll(){ renderStopsVerdict(); renderRunway(); renderStops(); }
+
+function renderStopsVerdict(){
+  var rows = stopRows();
+  var soon = rows.filter(function(s){ return s.days !== null && s.days <= TH.end_date_horizon_days; });
+  var crit = soon.filter(function(s){ return s.days <= TH.end_date_critical_days; });
+  var any = rows.filter(function(s){ return s.kind !== "none"; });
+  var cls, glyph, head, sub;
+  if(!any.length){
+    cls = "ok"; glyph = "✓";
+    head = "No scheduled stops";
+    sub = "No campaign or ad set carries an end date, and none is on a lifetime budget. "
+        + "Everything here can run indefinitely, which is what the client asked for.";
+  } else if(!soon.length){
+    cls = "warn"; glyph = "!";
+    head = "No stops within " + TH.end_date_horizon_days + " days";
+    sub = "<b>" + any.length + "</b> " + plural(any.length, "misconfiguration")
+        + " will stop something eventually, end dates or lifetime budgets on campaigns that are "
+        + "meant to run indefinitely, but nothing lands inside the next "
+        + TH.end_date_horizon_days + " days.";
+  } else {
+    cls = crit.length ? "bad" : "warn";
+    glyph = "!";
+    head = soon.length + " " + plural(soon.length, "campaign") + " will stop within " +
+           TH.end_date_horizon_days + " days";
+    var next = soon.slice().sort(function(a, b){ return a.days - b.days; })[0];
+    sub = "Soonest: <b>" + esc(next.camp.name) + "</b>"
+        + (next.set ? " → " + esc(next.set) : "") + " in <b>" + next.days + " "
+        + plural(next.days, "day") + "</b>"
+        + (next.kind === "budget" ? " when its lifetime budget runs out" : " on its end date")
+        + ". " + (crit.length ? "<b>" + crit.length + "</b> " + plural(crit.length, "is", "are")
+            + " inside " + TH.end_date_critical_days + " days." : "")
+        + " Unlike an outage, these are predictable in advance, which is the one thing that "
+        + "partly covers the lack of alerting.";
+  }
+  byId("stopsVerdict").innerHTML =
+    '<div class="verdict ' + cls + '"><div class="vico"><span>' + glyph + "</span></div>" +
+    '<div class="vtxt"><div class="vh1">' + head + '</div><div class="vs">' + sub + "</div></div></div>";
+}
+
+/* The runway chart. A bar per campaign, from today to whatever stops it. Bars are laid out as
+   DOM rather than SVG so the labels reflow on a phone instead of colliding. */
+function renderRunway(){
+  var rows = stopRows().filter(function(s){ return s.kind !== "none" || true; });
+  /* one row per campaign: the SOONEST stop is the one that matters */
+  var byCamp = {};
+  rows.forEach(function(s){
+    var cur = byCamp[s.camp.id];
+    if(!cur){ byCamp[s.camp.id] = s; return; }
+    var a = s.days === null ? 99999 : s.days, b = cur.days === null ? 99999 : cur.days;
+    if(a < b){ byCamp[s.camp.id] = s; }
+  });
+  var list = Object.keys(byCamp).map(function(k){ return byCamp[k]; });
+  list.sort(function(a, b){
+    return (a.days === null ? 99999 : a.days) - (b.days === null ? 99999 : b.days);
+  });
+
+  var ticks = RWWIN === 90 ? [0, 14, 30, 60, 90] : [0, 30, 60, 90, 120, 180];
+  var axis = '<div class="rwaxis">' + ticks.map(function(t){
+    return '<span style="left:' + (t / RWWIN * 100) + '%">' + (t === 0 ? "today" : "+" + t + "d") + "</span>";
+  }).join("") + "</div>";
+
+  var html = '<div class="rwhead"><div>Campaign</div><div>Runway to ' + RWWIN + ' days' + axis +
+             "</div><div style=\"text-align:right\">Stops</div></div>";
+  html += list.map(function(s){
+    var tickHtml = ticks.map(function(t){
+      return t ? '<div class="rwtick" style="left:' + (t / RWWIN * 100) + '%"></div>' : "";
+    }).join("");
+    var w, cls, label, val, sub;
+    if(s.days === null){
+      w = 100; cls = "inf"; label = "runs indefinitely";
+      val = "&infin;"; sub = s.kind === "budget" ? "no recent spend to project from" : "no end date";
+    } else {
+      /* A 3-day runway on a 90-day axis is 3.3%, legible, but only just. The floor keeps a
+         1-day runway from rendering as nothing at all, which is the one case that matters most. */
+      w = Math.max(3, Math.min(100, s.days / RWWIN * 100));
+      cls = s.days <= TH.end_date_critical_days ? "crit"
+          : s.days <= TH.end_date_horizon_days ? "warn" : "ok";
+      label = s.days + "d";
+      val = s.days + "d";
+      sub = s.kind === "budget" ? "budget out " + fmtDayShort(s.proj) : fmtDayShort(s.end);
+    }
+    if(s.kind === "budget" && s.days !== null){ cls += " proj"; }
+    return '<div class="rwrow" data-rwgo="' + s.camp.id + '">' +
+      '<div class="rwlab"><div class="n">' + esc(s.camp.name) + "</div>" +
+        '<div class="a">' + (s.set ? "ad set: " + esc(s.set) : esc(s.bt) + " budget") + "</div></div>" +
+      '<div class="rwtrack">' + tickHtml +
+        '<div class="rwbar ' + cls + '" style="width:' + w + '%">' +
+          (w > 14 ? label : "") + "</div></div>" +
+      '<div class="rwval">' + val + '<span class="s">' + sub + "</span></div>" +
+    "</div>";
+  }).join("");
+  byId("runway").innerHTML = html;
+  byId("runway").querySelectorAll("[data-rwgo]").forEach(function(n){
+    n.addEventListener("click", function(){ jumpToCampaign(n.getAttribute("data-rwgo")); });
+  });
+}
+
+function renderStops(){
+  var rows = stopRows().filter(function(s){ return s.kind !== "none"; });
+  var none = stopRows().filter(function(s){ return s.kind === "none"; });
+  rows.sort(function(a, b){
+    var x = stopSortVal(a, stopSort.k), y = stopSortVal(b, stopSort.k);
+    if(x < y){ return -stopSort.d; }
+    if(x > y){ return stopSort.d; }
+    return 0;
+  });
+  var tb = byId("tblStops").querySelector("tbody");
+  tb.innerHTML = "";
+
+  rows.forEach(function(s, i){
+    var tr = document.createElement("tr");
+    tr.className = "z";
+    tr.setAttribute("data-cid", s.camp.id);
+    var daysCell = s.days === null
+      ? '<span class="dim">&infin;</span>'
+      : '<span class="chip ' + (s.days <= TH.end_date_critical_days ? "crit"
+          : s.days <= TH.end_date_horizon_days ? "warn" : "mut") + '">' + s.days + "d</span>";
+    tr.innerHTML =
+      '<td class="rank">' + (i + 1) + "</td>" +
+      '<td class="hero" data-l=""><span class="cname">' + esc(s.camp.name) + "</span>" +
+        '<div class="csm">' + esc(s.kind === "budget" ? "lifetime budget" : "end date") +
+        " · " + esc(s.level) + " level</div></td>" +
+      '<td data-l="Ad set">' + (s.set ? esc(s.set) : '<span class="dim">-</span>') + "</td>" +
+      '<td data-l="End date">' + (s.end
+        ? '<span class="chip ' + (s.days <= TH.end_date_critical_days ? "crit" : "warn") + '">' +
+          fmtDay(s.end) + "</span>"
+        : '<span class="chip ok">No end date</span>') + "</td>" +
+      '<td class="r" data-l="Days left">' + daysCell + "</td>" +
+      '<td data-l="Budget type"><span class="chip ' + (s.bt === "Lifetime" ? "warn" : "mut") + '">' +
+        esc(s.bt) + "</span></td>" +
+      '<td class="r" data-l="Lifetime remaining">' + (s.rem !== null && s.rem !== undefined
+        ? money2(s.rem) + '<div class="csm">of ' + money(s.lifetime, 0) + " · " +
+          pct(safe(s.rem, s.lifetime) * 100, 0) + "</div>"
+        : '<span class="nt">n/a</span>') + "</td>" +
+      '<td data-l="Projected stop">' + (s.proj
+        ? fmtDay(s.proj) + '<div class="csm">at ' + money2(s.rate) + "/day</div>"
+        : s.end ? '<span class="dim">-</span>' : '<span class="nt">no spend to project</span>') + "</td>";
+    tr.addEventListener("click", function(){ jumpToCampaign(s.camp.id); });
+    tb.appendChild(tr);
+  });
+
+  if(!rows.length){
+    tb.innerHTML = '<tr><td colspan="8"><div class="empty"><b>Nothing is scheduled to stop</b>' +
+      'No end dates, no lifetime budgets. Every campaign can run indefinitely.</div></td></tr>';
+  }
+  setHTML("stopsFoot", rows.length + " scheduled " + plural(rows.length, "stop") +
+    " · " + none.length + " " + plural(none.length, "campaign") + " with nothing scheduled" +
+    (none.length ? ' <span class="chip ok">the desired state</span>' : ""));
+  setHTML("stopsNote", meth("How a projected stop is calculated",
+    "<b>Projected stop</b> is the remaining lifetime budget divided by that campaign's trailing " +
+    "7-day average daily spend. It is only computed for <b>lifetime</b> budgets: on a daily " +
+    "budget <code>budget_remaining</code> is what is left for today and resets every midnight, so " +
+    "projecting from it would make every daily-budget campaign look like it ran out of money " +
+    "every afternoon. Anything meant to run indefinitely should carry a daily budget and no end date."));
+}
+
+/* =====================================================================================
+   TAB 3, the delivery record and the status history (§7.3)
+   ===================================================================================== */
+function renderHistoryAll(){ renderUpGrid(); renderHistStats(); renderHistFeed(); }
+
+function renderUpGrid(){
+  var list = shown().slice().sort(function(a, b){
+    var x = uptimePct(a, UPWIN), y = uptimePct(b, UPWIN);
+    return x - y;                          /* worst record first, that is the interesting end */
+  });
+  var from = addDays(PULL.day, -(UPWIN - 1));
+  var host = byId("upGrid");
+
+  /* month ticks on the axis row, positioned by index so they line up with the cells */
+  var cw = 9 + 2, ticks = "", seen = {};
+  for(var i = 0; i < UPWIN; i++){
+    var d = addDays(from, i), m = monthOf(d);
+    if(!seen[m]){
+      seen[m] = 1;
+      if(i > 1){ ticks += '<span class="hbtick" style="left:' + (i * cw) + 'px">' +
+        MON[parseInt(d.slice(5,7),10)-1] + "</span>"; }
+    }
+  }
+  var html = '<div class="hbaxis"><div class="hbname">Campaign</div>' +
+    '<div class="hbcells" style="width:' + (UPWIN * cw) + 'px">' + ticks + "</div>" +
+    '<div class="hbstat">Delivered</div></div>';
+
+  html += list.map(function(c){
+    var cells = hbCells(c, UPWIN);
+    var started = startedRows(c).slice(-UPWIN);
+    var deliv = started.filter(function(r){ return r.spend > 0; }).length;
+    var up = started.length ? deliv / started.length * 100 : 0;
+    return '<div class="hbrow" data-hbgo="' + c.id + '" style="cursor:pointer">' +
+      '<div class="hbname"><div class="n" title="' + esc(c.name) + '">' + esc(c.name) + "</div>" +
+        '<div class="a">' + esc(Object.keys(ACCT).length > 1 ? ACCT[c.account].name : c.status) + "</div></div>" +
+      '<div class="hbcells">' + cells.html + "</div>" +
+      '<div class="hbstat"><div class="p" style="color:' +
+        (up >= 99 ? "var(--ok)" : up >= 90 ? "var(--warn)" : "var(--crit)") + '">' +
+        pct(up, up >= 99.95 ? 0 : 1) + '</div><div class="d">' + deliv + "/" + started.length +
+        " days</div></div></div>";
+  }).join("");
+  host.innerHTML = html || '<div class="empty"><b>No campaigns match</b>Clear the filters.</div>';
+  wireHb(host);
+  host.querySelectorAll("[data-hbgo]").forEach(function(n){
+    n.addEventListener("click", function(){ jumpToCampaign(n.getAttribute("data-hbgo")); });
+  });
+
+  var worst = list[0];
+  setHTML("upNote", list.length
+    ? '<div class="note">' + (worst && uptimePct(worst, UPWIN) < 100
+        ? "<b>" + esc(worst.name) + "</b> has the weakest record at " +
+          pct(uptimePct(worst, UPWIN), 1) + " of days delivered."
+        : "Every campaign delivered on every day it was live.") + "</div>" +
+      meth("How to read this grid",
+        "Each cell is one calendar day in " + TZ + ", newest on the right. A red cell means the " +
+        "campaign spent <b>nothing</b> that day. Days before a campaign started are grey and " +
+        "excluded from its percentage.")
+    : "");
+}
+function uptimePct(c, days){
+  var started = startedRows(c).slice(-days);
+  if(!started.length){ return 100; }
+  var d = started.filter(function(r){ return r.spend > 0; }).length;
+  return d / started.length * 100;
+}
+
+function renderHistStats(){
+  var list = histChanges();
+  var offs = list.filter(function(ch){ return ch.to !== "ACTIVE"; });
+  var hours = 0, lost = 0;
+  offs.forEach(function(ch){ hours += ch.hours || 0; lost += ch.lost_spend || 0; });
+  var open = offs.filter(function(ch){ return !ch.resolved_ts; }).length;
+  byId("histStats").innerHTML =
+    insight("&#8635;", offs.length + " " + plural(offs.length, "stop") + " recorded",
+      "Across the whole history held in this payload. " + open + " " + plural(open, "is", "are") +
+      " still unresolved.", open ? "crit" : "") +
+    insight("&#9201;", durHours(hours) + " of downtime",
+      "Total time entities spent away from ACTIVE, summed across every recorded transition.", "") +
+    insight("&#8776;", money(lost, 0) + " of delivery not bought",
+      "Estimated: hours off × that campaign's trailing average hourly spend before it stopped. " +
+      "An estimate of what the budget did not buy, not a billed figure.", lost > 0 ? "warn" : "");
+}
+/* One shape for every method note: a summary line that costs nothing until it is opened. */
+function meth(title, body){
+  return '<details class="meth"><summary>' + esc(title) + '</summary><div class="mb">' +
+         body + "</div></details>";
+}
+function insight(ico, title, body, cls){
+  return '<div class="insight ' + (cls || "") + '"><div class="ico">' + ico + "</div><div>" +
+         '<div class="it">' + esc(title) + '</div><div class="ib">' + body + "</div></div></div>";
+}
+function histChanges(){
+  return (DATA.changes || []).filter(function(ch){
+    if(FILTER.acct && ch.account !== FILTER.acct){ return false; }
+    if(HLVL && ch.level !== HLVL){ return false; }
+    if(FILTER.q && ch.campaign.toLowerCase().indexOf(FILTER.q) < 0){ return false; }
+    return true;
+  });
+}
+function renderHistFeed(){
+  var list = histChanges();
+  byId("histFeed").innerHTML = list.length ? list.map(feedItem).join("")
+    : '<div class="empty" style="border:none;background:transparent"><b>No transitions recorded' +
+      '</b>Either nothing has changed, or the snapshot diff has not seen a change yet.</div>';
+  setHTML("histFoot", list.length + " " + plural(list.length, "transition") +
+    " · oldest " + (list.length ? zStamp(new Date(list[list.length - 1].ts)) : "-") +
+    " · newest " + (list.length ? zStamp(new Date(list[0].ts)) : "-"));
+}
+/* =====================================================================================
+   TAB 4, simple performance (§7.4)
+   Light, as requested: spend, impressions, clicks, CTR, leads/applications, CPL. No funnel
+   breakdown, no creative deep-dive, no demographics in phase 1, the point of this build is
+   uptime, and a full analytics suite buries the one signal the client wants.
+
+   Where the conversion action cannot be resolved, this shows "not tracked in Meta" rather than a
+   zero that looks like failure (§5, §7.4).
+   ===================================================================================== */
+function convLabel(){
+  var labels = {};
+  Object.keys(ACCT).forEach(function(k){
+    if(!FILTER.acct || FILTER.acct === k){ labels[ACCT[k].conversion_label] = 1; }
+  });
+  var ks = Object.keys(labels);
+  return ks.length === 1 ? ks[0] : "Conversions";
+}
+function convBasisNote(){
+  var b = {};
+  Object.keys(ACCT).forEach(function(k){
+    if(!FILTER.acct || FILTER.acct === k){ b[ACCT[k].conversion_basis || "actions"] = ACCT[k].conversion_label; }
+  });
+  var out = [];
+  Object.keys(b).forEach(function(k){
+    out.push("<b>" + esc(b[k]) + "</b> counts " +
+      (k === "unique_actions" ? "<code>unique_actions_lead</code>, PEOPLE, deduplicated"
+                              : "<code>actions_lead</code>, EVENTS, so one person filling two forms counts twice"));
+  });
+  return out.join(" · ");
+}
+function grainFor(from, to){
+  if(PERF.grain !== "auto"){
+    var d = daysBetween(from, to) + 1;
+    if(PERF.grain === "day" && d > 120){ return "week"; }
+    return PERF.grain;
+  }
+  return (daysBetween(from, to) + 1) <= 62 ? "day" : "week";
+}
+function bucketOf(iso, g){ return g === "week" ? weekStart(iso) : iso; }
+function bucketLabel(k, g){ return g === "week" ? fmtDayShort(k) : fmtDayShort(k); }
+function bucketTip(k, g){ return g === "week" ? "Week of " + fmtDay(k) : fmtDayDow(k) + " " + k.slice(0, 4); }
+
+/* the last 7 days are still settling (§8, attribution lag) and are never used for a judgement */
+function settleFrom(){ return addDays(PULL.day, -6); }
+
+function renderPerfAll(){
+  var list = shown();
+  var a = aggCampaigns(list, PERF.from, PERF.to);
+  var label = convLabel();
+  setText("convHead", label);
+  setText("cplHead", "Cost per " + label.toLowerCase().replace(/s$/, ""));
+
+  setHTML("perfNote", "<b>" + fmtDay(PERF.from) + "</b> to <b>" + fmtDay(PERF.to) + "</b> · " +
+    (daysBetween(PERF.from, PERF.to) + 1) + " days · " + list.length + " " +
+    plural(list.length, "campaign") + " · grain " + grainFor(PERF.from, PERF.to) +
+    " · all dates " + TZ);
+
+  var untracked = list.filter(function(c){ return !c.conversion_tracked; });
+  byId("lagBanner").hidden = false;
+
+  var tiles = [
+    { l:"Spend", v:compactMoney(a.spend), d:money2(safe(a.spend, a.days || 1)) + " per day" },
+    { l:"Impressions", v:compactN(a.imps), d:num(a.imps) + " total" },
+    { l:"Link clicks", v:compactN(a.lclk), d:num(a.clicks) + " clicks of all kinds" },
+    { l:"CTR", v:pct(a.ctr), d:"link clicks &divide; impressions" },
+    { l:"CPM", v:money2(a.cpm), d:"cost per 1,000 impressions" }
+  ];
+  if(a.trackedN){
+    tiles.push({ l:label, v:num(a.conv), d:a.trackedN < a.totalN
+      ? a.trackedN + " of " + a.totalN + " campaigns track it" : "across all campaigns" });
+    tiles.push({ l:"Cost per " + label.toLowerCase().replace(/s$/, ""),
+      v:a.cpl === null ? "-" : money2(a.cpl), d:"spend &divide; " + label.toLowerCase() });
+  } else {
+    tiles.push({ l:label, v:"Not tracked in Meta", na:true,
+      d:"no campaign in view has a resolvable conversion action" });
+  }
+  tiles.push({ l:"Frequency", v:a.freq === null ? "-" : nfmt(a.freq, 2),
+    d:"impressions &divide; summed daily reach" });
+
+  setHTML("perfKpis", tiles.map(function(t){
+    return '<div class="kpi' + (t.na ? " na" : "") + '"><div class="kl">' + t.l +
+      '</div><div class="kv">' + t.v + '</div><div class="kd">' + t.d + "</div></div>";
+  }).join(""));
+
+  setHTML("perfMethod", meth("How these numbers are calculated",
+    "<b>Every ratio is recomputed from summed components</b>, never averaged across days: " +
+    "averaging a daily CTR or CPL weights a quiet Sunday the same as a busy Tuesday. " +
+    "<b>Frequency is never summed</b>, it is impressions ÷ reach. Reach itself does not sum " +
+    "across dates either, so the denominator here is <i>summed daily reach</i>, which overstates " +
+    "unique people. Read frequency as directional and take a true unique reach from Ads Manager " +
+    "at the level you need it. " + convBasisNote() + "." +
+    (untracked.length ? " <b>" + untracked.length + " " + plural(untracked.length, "campaign") +
+      "</b> in view " + plural(untracked.length, "has", "have") + " no measurable conversion in " +
+      "Meta (Traffic or Messages objective) and show <i>not tracked</i> rather than a zero." : "")));
+  setText("perfTblSub", "paused campaigns keep their historical spend and are included, excluding " +
+    "them would shrink past totals and break every comparison");
+
+  renderCtrChart(list);
+  renderFreqChart(list);
+  renderPerfTable();
+  renderPerfInsights(list, a);
+}
+
+/* ---------------------------------------------------------------- chart primitives */
+function niceMax(v){
+  if(v <= 0){ return 1; }
+  var e = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+  var f = v / e;
+  var n = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+  return n * e;
+}
+function frame(svg, o){
+  clearSvg(svg);
+  var vb = svg.getAttribute("viewBox").split(" ");
+  var W = parseFloat(vb[2]), H = parseFloat(vb[3]);
+  var mL = o.mL === undefined ? 42 : o.mL, mR = o.mR === undefined ? (o.max2 ? 46 : 14) : o.mR;
+  var mT = o.mT === undefined ? 12 : o.mT, mB = o.mB === undefined ? 30 : o.mB;
+  var iw = W - mL - mR, ih = H - mT - mB;
+  var maxV = niceMax(o.max || 1), maxV2 = o.max2 ? niceMax(o.max2) : null;
+  var ticks = o.ticks === undefined ? 4 : o.ticks;
+  function Y(v){ return mT + ih - (v / maxV) * ih; }
+  function Y2(v){ return mT + ih - (v / maxV2) * ih; }
+  for(var i = 0; i <= ticks; i++){
+    var v = maxV * i / ticks, y = Y(v);
+    svg.appendChild(el("line", { x1:mL, y1:y, x2:mL + iw, y2:y, "class":"gl" }));
+    var t = el("text", { x:mL - 6, y:y + 3.5, "class":"axis", "text-anchor":"end" });
+    t.textContent = o.fmt ? o.fmt(v) : compactN(v);
+    svg.appendChild(t);
+    if(maxV2 !== null){
+      var t2 = el("text", { x:mL + iw + 6, y:y + 3.5, "class":"axis", "text-anchor":"start" });
+      t2.textContent = o.fmt2 ? o.fmt2(maxV2 * i / ticks) : compactN(maxV2 * i / ticks);
+      svg.appendChild(t2);
+    }
+  }
+  return { W:W, H:H, mL:mL, mR:mR, mT:mT, mB:mB, iw:iw, ih:ih, maxV:maxV, maxV2:maxV2, Y:Y, Y2:Y2 };
+}
+function xAt(g, i, n){ return g.mL + (n < 2 ? g.iw / 2 : g.iw * i / (n - 1)); }
+function xLabels(svg, g, labels){
+  var n = labels.length, every = Math.max(1, Math.ceil(n / 9));
+  /* Always printing the last label as well as every Nth one collides whenever n-1 is not a
+     multiple of `every`: "27 Jul28 Jul". Drop the final label when it would land on top of the
+     previous one. */
+  var lastPrinted = -99;
+  for(var i = 0; i < n; i++){
+    var isLast = (i === n - 1);
+    if(i % every !== 0 && !isLast){ continue; }
+    if(isLast && (i - lastPrinted) < Math.max(2, every * 0.6)){ continue; }
+    var t = el("text", { x:xAt(g, i, n), y:g.mT + g.ih + 17, "class":"axis", "text-anchor":"middle" });
+    t.textContent = labels[i];
+    svg.appendChild(t);
+    lastPrinted = i;
+  }
+}
+function linePath(g, vals, n, yfn){
+  var d = "", started = false;
+  for(var i = 0; i < n; i++){
+    if(vals[i] === null || vals[i] === undefined){ continue; }
+    var x = xAt(g, i, n), y = yfn(vals[i]);
+    d += (started ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+    started = true;
+  }
+  return d;
+}
+function hoverBands(svg, g, n, onIdx){
+  var bw = g.iw / Math.max(1, n);
+  for(var i = 0; i < n; i++){
+    var r = el("rect", { x:g.mL + bw * i, y:g.mT, width:bw, height:g.ih, fill:"transparent" });
+    (function(idx, rect){
+      rect.addEventListener("mousemove", function(e){ showTip(onIdx(idx), e.clientX, e.clientY); });
+      rect.addEventListener("mouseleave", hideTip);
+    })(i, r);
+    svg.appendChild(r);
+  }
+}
+/* The "still settling" band over the trailing 7 days (§8, attribution lag).
+   It has to be genuinely visible: the last bucket in a time series is nearly always short (a
+   part-week or a part-day) AND inside the attribution window, so it dips twice over. An unreadable
+   9%-opacity wash let that dip look like a collapse in performance. Hatched, bounded by a dashed
+   line, and labelled at the right edge where there is room. */
+function settleBand(svg, g, keys){
+  var sf = settleFrom(), first = -1;
+  for(var i = 0; i < keys.length; i++){ if(keys[i] >= sf){ first = i; break; } }
+  if(first < 0 || keys.length < 2){ return; }
+  var x = xAt(g, first, keys.length);
+  var w = g.mL + g.iw - x;
+  if(w <= 2){ return; }
+  var pid = "hatch-" + Math.round(x);
+  var defs = el("defs", null);
+  var pat = el("pattern", { id:pid, width:6, height:6, patternUnits:"userSpaceOnUse",
+                            patternTransform:"rotate(45)" });
+  pat.appendChild(el("rect", { width:6, height:6, fill:"rgba(120,132,150,.07)" }));
+  pat.appendChild(el("line", { x1:0, y1:0, x2:0, y2:6, stroke:"rgba(90,104,124,.22)",
+                               "stroke-width":1.4 }));
+  defs.appendChild(pat);
+  svg.appendChild(defs);
+  svg.appendChild(el("rect", { x:x, y:g.mT, width:w, height:g.ih, fill:"url(#" + pid + ")" }));
+  svg.appendChild(el("line", { x1:x, y1:g.mT, x2:x, y2:g.mT + g.ih,
+    stroke:"rgba(90,104,124,.45)", "stroke-width":1.2, "stroke-dasharray":"3 3" }));
+  var t = el("text", { x:g.mL + g.iw - 2, y:g.mT + 10, "class":"axis", "text-anchor":"end" });
+  t.textContent = "still settling";
+  svg.appendChild(t);
+}
+function legend(id, items, onToggle){
+  var box = byId(id);
+  if(!box){ return; }
+  box.innerHTML = "";
+  items.forEach(function(it){
+    var d = document.createElement("div");
+    d.className = "lg" + (seriesOff[it.k] ? " off" : "");
+    d.innerHTML = '<span class="sw" style="background:' + it.c + '"></span>' + esc(it.n);
+    d.addEventListener("click", function(){ seriesOff[it.k] = !seriesOff[it.k]; onToggle(); });
+    box.appendChild(d);
+  });
+}
+
+/* buckets over the selected range, including empty ones, a day with no spend must plot as a
+   zero, not vanish, or a quiet day silently disappears from the trend */
+function bucketSeries(list, from, to, g){
+  var keys = [], seen = {}, d = from, guard = 0;
+  while(d <= to && guard++ < 4000){
+    var k = bucketOf(d, g);
+    if(!seen[k]){ seen[k] = 1; keys.push(k); }
+    d = addDays(d, 1);
+  }
+  var map = {};
+  keys.forEach(function(k){ map[k] = blank(); });
+  list.forEach(function(c){
+    rowsIn(c, from, to).forEach(function(r){
+      var k = bucketOf(r.d, g), a = map[k];
+      if(!a){ return; }
+      a.spend += r.spend || 0; a.imps += r.imps || 0; a.clicks += r.clicks || 0;
+      a.lclk += r.lclk || 0; a.reach += r.reach || 0;
+      if(c.conversion_tracked){ a.conv += r.conv || 0; a.tracked = true; }
+      a.days++;
+    });
+  });
+  keys.forEach(function(k){ derive(map[k]); });
+  return { keys:keys, map:map };
+}
+
+function renderCtrChart(list){
+  var g = grainFor(PERF.from, PERF.to);
+  var S = bucketSeries(list, PERF.from, PERF.to, g);
+  var label = convLabel();
+  var anyConv = list.some(function(c){ return c.conversion_tracked; });
+  var series = [
+    { k:"ctr", n:"CTR (%)", c:"#0A4EA3", axis:1, get:function(a){ return a.ctr; } },
+    { k:"conv", n:label, c:"#4FA84A", axis:2, get:function(a){ return a.conv; } }
+  ];
+  if(!anyConv){ series = [series[0]]; }
+  setText("ctrSub", "grain: " + g + " · " + S.keys.length + " " + plural(S.keys.length, g) +
+    (anyConv ? "" : " · no conversion action resolved for these campaigns"));
+  legend("ctrLegend", series, function(){ renderCtrChart(list); });
+
+  var on = series.filter(function(s){ return !seriesOff[s.k]; });
+  var svg = byId("chartCtr");
+  var max1 = 0, max2 = 0;
+  S.keys.forEach(function(k){
+    var a = S.map[k];
+    on.forEach(function(s){
+      var v = s.get(a) || 0;
+      if(s.axis === 1){ max1 = Math.max(max1, v); } else { max2 = Math.max(max2, v); }
+    });
+  });
+  var fr = frame(svg, { max:max1 || 1, max2:(max2 || null), mB:32,
+    fmt:function(v){ return nfmt(v, v >= 10 ? 0 : 1) + "%"; },
+    fmt2:function(v){ return compactN(v); } });
+  settleBand(svg, fr, S.keys);
+  on.forEach(function(s){
+    var vals = S.keys.map(function(k){ return s.get(S.map[k]); });
+    var yfn = s.axis === 1 ? fr.Y : fr.Y2;
+    if(s.axis === 2 && fr.maxV2 === null){ return; }
+    svg.appendChild(el("path", { d:linePath(fr, vals, S.keys.length, yfn), fill:"none",
+      stroke:s.c, "stroke-width":2.2, "stroke-linejoin":"round", "stroke-linecap":"round" }));
+    if(S.keys.length <= 40){
+      S.keys.forEach(function(k, i){
+        var v = s.get(S.map[k]);
+        if(v === null || v === undefined){ return; }
+        svg.appendChild(el("circle", { cx:xAt(fr, i, S.keys.length), cy:yfn(v), r:2.6,
+          fill:"#fff", stroke:s.c, "stroke-width":1.6 }));
+      });
+    }
+  });
+  xLabels(svg, fr, S.keys.map(function(k){ return bucketLabel(k, g); }));
+  hoverBands(svg, fr, S.keys.length, function(i){
+    var k = S.keys[i], a = S.map[k];
+    return '<div class="td">' + esc(bucketTip(k, g)) + "</div>" +
+      tipRow("Spend", money2(a.spend)) +
+      tipRow("Impressions", num(a.imps)) +
+      tipRow("Link clicks", num(a.lclk)) +
+      tipRow("CTR", pct(a.ctr)) +
+      (anyConv ? tipRow(label, num(a.conv)) : "") +
+      (anyConv && a.cpl !== null ? tipRow("Cost per " + label.toLowerCase().replace(/s$/, ""), money2(a.cpl)) : "") +
+      (k >= settleFrom() && anyConv
+        ? '<div class="tn">Inside the 7-day attribution window, conversions here will still rise.</div>' : "");
+  });
+}
+
+function renderFreqChart(list){
+  var g = grainFor(PERF.from, PERF.to);
+  var S = bucketSeries(list, PERF.from, PERF.to, g);
+  var svg = byId("chartFreq");
+
+  /* TWO lines, not one. A portfolio-wide frequency is imps ÷ reach across every campaign, and
+     averaging fourteen campaigns at 1.2 with one at 5.2 produces a flat 1.2 line that never
+     approaches the threshold, the chart would show "no fatigue anywhere" while a campaign is
+     visibly burning out. Rule 9 fires per CAMPAIGN, so the chart has to carry the per-campaign
+     worst case beside the aggregate. */
+  var pf = S.keys.map(function(k){ var a = S.map[k]; return a.reach ? a.imps / a.reach : null; });
+  var worst = S.keys.map(function(){ return null; });
+  var worstWho = S.keys.map(function(){ return ""; });
+  list.forEach(function(c){
+    var one = bucketSeries([c], PERF.from, PERF.to, g);
+    one.keys.forEach(function(k, i){
+      var a = one.map[k];
+      if(!a.reach || !a.imps){ return; }
+      var f = a.imps / a.reach;
+      if(worst[i] === null || f > worst[i]){ worst[i] = f; worstWho[i] = c.name; }
+    });
+  });
+
+  var max = TH.frequency_warn * 1.2;
+  pf.concat(worst).forEach(function(v){ if(v !== null){ max = Math.max(max, v); } });
+  var single = list.length < 2;
+  var items = [{ k:"fq", n:single ? "Frequency" : "All campaigns", c:"#6A6AEA" }];
+  if(!single){ items.push({ k:"fqw", n:"Highest single campaign", c:"#C42B2B" }); }
+  items.push({ k:"fqt", n:"Fatigue threshold (" + nfmt(TH.frequency_warn, 1) + ")", c:"#A96A00" });
+  legend("freqLegend", items, function(){ renderFreqChart(list); });
+  var fr = frame(svg, { max:max, mB:32, fmt:function(v){ return nfmt(v, 1); } });
+
+  /* the threshold line, rule 9's first half, drawn so "above the line" is literal */
+  if(!seriesOff.fqt){
+    var ty = fr.Y(TH.frequency_warn);
+    svg.appendChild(el("line", { x1:fr.mL, y1:ty, x2:fr.mL + fr.iw, y2:ty,
+      stroke:"#A96A00", "stroke-width":1.4, "stroke-dasharray":"5 4" }));
+  }
+  function drawLine(vals, colour, key, dash){
+    if(seriesOff[key]){ return; }
+    var a = { d:linePath(fr, vals, S.keys.length, fr.Y), fill:"none", stroke:colour,
+              "stroke-width":2.2, "stroke-linejoin":"round" };
+    if(dash){ a["stroke-dasharray"] = dash; }
+    svg.appendChild(el("path", a));
+    if(S.keys.length <= 40){
+      S.keys.forEach(function(k, i){
+        if(vals[i] === null){ return; }
+        var over = vals[i] > TH.frequency_warn;
+        svg.appendChild(el("circle", { cx:xAt(fr, i, S.keys.length), cy:fr.Y(vals[i]),
+          r:over ? 3.4 : 2.5, fill:over ? colour : "#fff", stroke:colour, "stroke-width":1.6 }));
+      });
+    }
+  }
+  if(!single){ drawLine(worst, "#C42B2B", "fqw"); }
+  drawLine(pf, "#6A6AEA", "fq");
+  xLabels(svg, fr, S.keys.map(function(k){ return bucketLabel(k, g); }));
+  hoverBands(svg, fr, S.keys.length, function(i){
+    var k = S.keys[i], a = S.map[k];
+    return '<div class="td">' + esc(bucketTip(k, g)) + "</div>" +
+      tipRow(single ? "Frequency" : "All campaigns", pf[i] === null ? "-" : nfmt(pf[i], 2)) +
+      (single ? "" : tipRow("Highest single", worst[i] === null ? "-" : nfmt(worst[i], 2))) +
+      (single || !worstWho[i] ? "" : tipRow(", which is", worstWho[i].slice(0, 34))) +
+      tipRow("Impressions", num(a.imps)) +
+      tipRow("Reach (summed daily)", num(a.reach)) +
+      '<div class="tn">Recomputed as impressions ÷ reach, a frequency is never summed.</div>';
+  });
+
+  var fatigued = list.filter(fatigueOf);
+  setHTML("freqNote", fatigued.length
+    ? "<b>" + fatigued.length + " " + plural(fatigued.length, "campaign") + "</b> " +
+      plural(fatigued.length, "is", "are") + " above the threshold with a falling CTR: " +
+      fatigued.map(function(c){ return "<b>" + esc(c.name) + "</b>"; }).join(", ") +
+      ". Both halves have to be true, a high frequency on a tiny canton audience is normal, a " +
+      "high frequency with a CTR that is giving way is fatigue."
+    : "No campaign is both above the threshold and losing CTR. Frequency above " +
+      nfmt(TH.frequency_warn, 1) + " on its own is expected on audiences this small.");
+}
+
+function perfSortVal(c, k, a){
+  if(k === "name"){ return c.name.toLowerCase(); }
+  if(k === "conv"){ return c.conversion_tracked ? a.conv : -1; }
+  if(k === "cpl"){ return a.cpl === null ? 1e12 : a.cpl; }
+  if(k === "freq"){ return a.freq === null ? -1 : a.freq; }
+  return a[k] === undefined ? 0 : a[k];
+}
+function renderPerfTable(){
+  var list = shown().slice();
+  var aggs = {};
+  list.forEach(function(c){ aggs[c.id] = aggRows(rowsIn(c, PERF.from, PERF.to), c.conversion_tracked); });
+  list.sort(function(x, y){
+    var a = perfSortVal(x, perfSort.k, aggs[x.id]), b = perfSortVal(y, perfSort.k, aggs[y.id]);
+    if(a < b){ return -perfSort.d; }
+    if(a > b){ return perfSort.d; }
+    return 0;
+  });
+  var label = convLabel();
+  var tb = byId("tblPerf").querySelector("tbody");
+  tb.innerHTML = "";
+  if(!list.length){
+    tb.innerHTML = '<tr><td colspan="11"><div class="empty"><b>No campaigns in view</b>' +
+      "Clear the search box or the account filter, or widen the period.</div></td></tr>";
+  }
+  list.forEach(function(c, i){
+    var a = aggs[c.id];
+    var fat = fatigueOf(c);
+    var tr = document.createElement("tr");
+    tr.className = "z";
+    tr.innerHTML =
+      '<td class="rank">' + (i + 1) + "</td>" +
+      '<td class="hero" data-l=""><span class="cname">' + esc(c.name) + "</span>" +
+        '<div class="csm">' + lamp(verdictOf(c)) + "</div></td>" +
+      '<td class="r" data-l="Spend">' + money(a.spend, 0) + "</td>" +
+      '<td class="r" data-l="Impressions">' + num(a.imps) + "</td>" +
+      '<td class="r" data-l="Clicks">' + num(a.clicks) + "</td>" +
+      '<td class="r" data-l="Link clicks">' + num(a.lclk) + "</td>" +
+      '<td class="r" data-l="CTR">' + pct(a.ctr) + "</td>" +
+      '<td class="r" data-l="CPM">' + money2(a.cpm) + "</td>" +
+      '<td class="r" data-l="' + esc(label) + '">' + (c.conversion_tracked
+        ? num(a.conv)
+        : '<span class="nt" title="' + esc(c.conversion_note || "No resolvable conversion action for this objective.") +
+          '">not tracked</span>') + "</td>" +
+      '<td class="r" data-l="Cost per ' + esc(label.toLowerCase().replace(/s$/, "")) + '">' +
+        (!c.conversion_tracked ? '<span class="nt">-</span>'
+          : a.cpl === null ? '<span class="dim">-</span>' : money2(a.cpl)) + "</td>" +
+      '<td class="r" data-l="Frequency">' + (a.freq === null ? '<span class="dim">-</span>'
+        : nfmt(a.freq, 2) + (fat ? ' <span class="chip warn">fatigue</span>' : "")) + "</td>";
+    tb.appendChild(tr);
+  });
+  var tot = aggCampaigns(list, PERF.from, PERF.to);
+  setHTML("perfFoot", list.length + " " + plural(list.length, "campaign") + " · " +
+    money(tot.spend, 0) + " · " + num(tot.imps) + " impressions · CTR " + pct(tot.ctr) +
+    (tot.trackedN ? " · " + num(tot.conv) + " " + esc(label.toLowerCase()) +
+      " across " + tot.trackedN + " of " + tot.totalN + " campaigns" : ""));
+}
+
+function renderPerfInsights(list, a){
+  var out = [];
+  var g = grainFor(PERF.from, PERF.to);
+  var half = Math.floor((daysBetween(PERF.from, PERF.to) + 1) / 2);
+  var midTo = addDays(PERF.from, half - 1);
+  var first = aggCampaigns(list, PERF.from, midTo);
+  var second = aggCampaigns(list, addDays(midTo, 1), PERF.to);
+  if(first.imps && second.imps){
+    var dir = second.ctr >= first.ctr ? "held up" : "given way";
+    out.push(insight(second.ctr >= first.ctr ? "&#9650;" : "&#9660;",
+      "CTR has " + dir,
+      "First half of the period " + pct(first.ctr) + ", second half " + pct(second.ctr) +
+      ", " + pct(Math.abs(second.ctr - first.ctr) / Math.max(first.ctr, 0.0001) * 100, 0) +
+      " " + (second.ctr >= first.ctr ? "better" : "worse") + ". Recomputed from summed components " +
+      "in each half, not averaged.",
+      second.ctr >= first.ctr ? "" : "warn"));
+  }
+  var best = null, worst = null;
+  list.forEach(function(c){
+    if(!c.conversion_tracked){ return; }
+    var x = aggRows(rowsIn(c, PERF.from, PERF.to), true);
+    if(x.cpl === null){ return; }
+    if(!best || x.cpl < best.v){ best = { c:c, v:x.cpl }; }
+    if(!worst || x.cpl > worst.v){ worst = { c:c, v:x.cpl }; }
+  });
+  if(best && worst && best.c !== worst.c){
+    out.push(insight("&#9878;", "Cost per " + convLabel().toLowerCase().replace(/s$/, "") +
+      " spans " + nfmt(worst.v / best.v, 1) + "×",
+      "<b>" + esc(best.c.name) + "</b> at " + money2(best.v) + " against <b>" +
+      esc(worst.c.name) + "</b> at " + money2(worst.v) + ". Both figures are spend ÷ conversions " +
+      "over the whole period, so neither is distorted by a single quiet day."));
+  }
+  var fat = list.filter(fatigueOf);
+  if(fat.length){
+    out.push(insight("&#128293;", fat.length + " " + plural(fat.length, "campaign") + " fatiguing",
+      "Frequency above " + nfmt(TH.frequency_warn, 1) + " with CTR falling. On audiences this " +
+      "small, refreshing creative is usually cheaper than widening targeting, and a worn-out " +
+      "campaign is functionally close to a switched-off one.", "warn"));
+  }
+  var untracked = list.filter(function(c){ return !c.conversion_tracked; });
+  if(untracked.length){
+    out.push(insight("&#10067;", untracked.length + " " + plural(untracked.length, "campaign") +
+      " cannot report conversions",
+      untracked.map(function(c){ return "<b>" + esc(c.name) + "</b>"; }).join(", ") +
+      " " + plural(untracked.length, "runs", "run") + " on an objective Meta cannot attribute a " +
+      "lead to. Those cells read <i>not tracked</i> deliberately, a zero there would look like " +
+      "failure. Resolving this is an open question in the brief.", "warn"));
+  }
+  if(a.days){
+    out.push(insight("&#128181;", money2(safe(a.spend, a.days)) + " a day",
+      "Total " + money(a.spend, 0) + " over " + (daysBetween(PERF.from, PERF.to) + 1) +
+      " days at " + g + " grain. Paused campaigns keep their historical spend and are included, " +
+      "so this reconciles against Ads Manager for the same range and timezone."));
+  }
+  byId("perfInsights").innerHTML = out.join("");
+}
+
+/* ===================================================================== tabs + wiring */
+function wireTabs(){
+  byId("tabs").addEventListener("click", function(e){
+    var b = e.target.closest ? e.target.closest("button.tab") : null;
+    if(b && b.getAttribute("data-tab")){ setTab(b.getAttribute("data-tab")); }
+  });
+  document.querySelectorAll("[data-goto]").forEach(function(b){
+    b.addEventListener("click", function(){ setTab(b.getAttribute("data-goto")); });
+  });
+  /* 1-4 jump between tabs; a monitoring tool gets opened and scanned dozens of times a week */
+  document.addEventListener("keydown", function(e){
+    if(e.target && /input|select|textarea/i.test(e.target.tagName)){ return; }
+    if(e.metaKey || e.ctrlKey || e.altKey){ return; }
+    var i = "1234".indexOf(e.key);
+    if(i >= 0){ setTab(TABS[i]); }
+    if(e.key === "Escape"){
+      FILTER.acct = ""; FILTER.q = ""; byId("q").value = "";
+      syncAcctSeg(); renderAll(); toast("Filters cleared");
+    }
+  });
+}
+function setTab(name, keepScroll){
+  if(TABS.indexOf(name) < 0){ name = "uptime"; }
+  document.querySelectorAll("#tabs .tab").forEach(function(b){
+    b.setAttribute("aria-selected", b.getAttribute("data-tab") === name ? "true" : "false");
+  });
+  TABS.forEach(function(n){ byId("tab-" + n).hidden = (n !== name); });
+  /* the global filter strip has nothing to act on in the performance tab's own control bar,
+     but the account + search filters DO apply there, so it stays visible everywhere */
+  if(window.location.hash.replace("#", "") !== name){ window.location.hash = name; }
+  if(!keepScroll){ window.scrollTo(0, 0); }
+}
+function renderTabCounts(){
+  var fl = shownFlags();
+  var crit = fl.filter(function(f){ return f.sev === "critical"; }).length;
+  var c1 = byId("cntUptime");
+  c1.hidden = !crit;
+  c1.textContent = crit;
+  var soon = stopRows().filter(function(s){ return s.days !== null && s.days <= TH.end_date_horizon_days; }).length;
+  var c2 = byId("cntStops");
+  c2.hidden = !soon;
+  c2.textContent = soon;
+}
+
+function renderAcctSeg(){
+  var keys = Object.keys(ACCT);
+  var seg = byId("acctSeg");
+  if(keys.length < 2){
+    /* a client route has exactly one account, so the filter would be a control with one option */
+    seg.parentNode.querySelector(".clabel").hidden = true;
+    seg.hidden = true;
+    byId("searchSep").hidden = true;
+  } else {
+    seg.innerHTML = '<button type="button" data-af="" class="on">All</button>' +
+      keys.map(function(k){
+        return '<button type="button" data-af="' + k + '">' + esc(ACCT[k].name) + "</button>";
+      }).join("");
+    seg.querySelectorAll("[data-af]").forEach(function(b){
+      b.addEventListener("click", function(){
+        FILTER.acct = b.getAttribute("data-af");
+        syncAcctSeg();
+        renderAll();
+      });
+    });
+  }
+  syncShowing();
+}
+function syncAcctSeg(){
+  var seg = byId("acctSeg");
+  seg.querySelectorAll("[data-af]").forEach(function(b){
+    b.classList.toggle("on", b.getAttribute("data-af") === FILTER.acct);
+  });
+  syncShowing();
+}
+function syncShowing(){
+  var n = shown().length;
+  setText("showing", n + " of " + CAMPS.length + " " + plural(CAMPS.length, "campaign"));
+}
+function wireGlobal(){
+  var t = null;
+  byId("q").addEventListener("input", function(){
+    var v = this.value;
+    clearTimeout(t);
+    t = setTimeout(function(){ FILTER.q = v.trim().toLowerCase(); renderAll(); }, 200);
+  });
+  byId("copyBtn").addEventListener("click", copySummary);
+  byId("syncBtn").addEventListener("click", doSync);
+  byId("freshChip").addEventListener("click", function(){
+    setTab("uptime", true);
+    var p = byId("freshPanel");
+    if(p){
+      var y = p.getBoundingClientRect().top + window.pageYOffset - 120;
+      window.scrollTo({ top:Math.max(0, y), behavior:"smooth" });
+    }
+  });
+  byId("upSeg").addEventListener("click", function(e){
+    var b = e.target.closest ? e.target.closest("[data-up]") : null;
+    if(!b){ return; }
+    UPWIN = parseInt(b.getAttribute("data-up"), 10);
+    markSeg("upSeg", "data-up", String(UPWIN));
+    renderUpGrid();
+  });
+  byId("rwSeg").addEventListener("click", function(e){
+    var b = e.target.closest ? e.target.closest("[data-rw]") : null;
+    if(!b){ return; }
+    RWWIN = parseInt(b.getAttribute("data-rw"), 10);
+    markSeg("rwSeg", "data-rw", String(RWWIN));
+    renderRunway();
+  });
+  byId("lvlSeg").addEventListener("click", function(e){
+    var b = e.target.closest ? e.target.closest("[data-lvl]") : null;
+    if(!b){ return; }
+    HLVL = b.getAttribute("data-lvl");
+    markSeg("lvlSeg", "data-lvl", HLVL);
+    renderHistStats();
+    renderHistFeed();
+  });
+}
+function markSeg(id, attr, val){
+  byId(id).querySelectorAll("button").forEach(function(b){
+    b.classList.toggle("on", b.getAttribute(attr) === val);
+  });
+}
+function wirePerf(){
+  document.querySelectorAll("[data-pp]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var d = parseInt(b.getAttribute("data-pp"), 10);
+      PERF.to = PULL.day;
+      PERF.from = addDays(PULL.day, -(d - 1));
+      document.querySelectorAll("[data-pp]").forEach(function(x){ x.classList.remove("active"); });
+      b.classList.add("active");
+      syncPerfDates();
+      renderPerfAll();
+    });
+  });
+  byId("pfrom").addEventListener("change", function(){
+    PERF.from = this.value || PERF.from;
+    document.querySelectorAll("[data-pp]").forEach(function(x){ x.classList.remove("active"); });
+    renderPerfAll();
+  });
+  byId("pto").addEventListener("change", function(){
+    PERF.to = this.value || PERF.to;
+    document.querySelectorAll("[data-pp]").forEach(function(x){ x.classList.remove("active"); });
+    renderPerfAll();
+  });
+  byId("pgSeg").addEventListener("click", function(e){
+    var b = e.target.closest ? e.target.closest("[data-pg]") : null;
+    if(!b){ return; }
+    PERF.grain = b.getAttribute("data-pg");
+    markSeg("pgSeg", "data-pg", PERF.grain);
+    renderPerfAll();
+  });
+}
+function syncPerfDates(){
+  byId("pfrom").value = PERF.from;
+  byId("pto").value = PERF.to;
+}
+function wireSort(tblId, attr, st, redraw){
+  var tbl = byId(tblId);
+  if(!tbl){ return; }
+  tbl.querySelectorAll("thead th[" + attr + "]").forEach(function(th){
+    th.addEventListener("click", function(){
+      var k = th.getAttribute(attr);
+      if(st.k === k){ st.d = -st.d; } else { st.k = k; st.d = -1; }
+      tbl.querySelectorAll("thead th").forEach(function(x){ x.classList.remove("on"); });
+      th.classList.add("on");
+      th.querySelector(".ar").innerHTML = st.d < 0 ? "&#9662;" : "&#9652;";
+      redraw();
+    });
+  });
+}
+
+/* ===================================================================== sync */
+function setSync(state, label){
+  var b = byId("syncBtn");
+  b.className = "sync" + (state ? " " + state : "");
+  b.disabled = (state === "busy");
+  setText("syncLbl", label);
+}
+/* Asks the service to re-pull (POST /refresh) when that is wired, then reloads data.json either
+   way, so the button is useful on a deploy without the trigger and degrades to a plain reload. */
+function doSync(){
+  setSync("busy", "Syncing…");
+  var t0 = Date.now();
+  fetch("refresh", { method:"POST", credentials:"same-origin" })
+    .then(function(r){ return r.ok ? r.json() : { ok:false }; })
+    .catch(function(){ return { ok:false }; })
+    .then(function(res){
+      var fired = res && res.ok;
+      setSync("busy", fired ? "Rebuilding…" : "Reloading…");
+      return fetchData().then(function(j){
+        DATA = j;
+        init2();
+        var s = Math.max(1, Math.round((Date.now() - t0) / 1000));
+        setSync("ok", (fired ? "Rebuilt" : "Up to date") + " · " + s + "s");
+        setTimeout(function(){ setSync("", "Sync"); }, 4000);
+      });
+    })
+    .catch(function(){
+      setSync("bad", "Sync failed");
+      setTimeout(function(){ setSync("", "Sync"); }, 5000);
+    });
+}
+/* re-derive everything from a freshly fetched payload without rebuilding the DOM shell */
+function init2(){
+  CAMPS = DATA.campaigns || [];
+  ACCT = {};
+  (DATA.accounts || []).forEach(function(a){ ACCT[a.key] = a; });
+  CAMPS.forEach(function(c){
+    c._idx = {};
+    (c.daily || []).forEach(function(r){ c._idx[r.d] = r; });
+  });
+  var p = DATA.pull || {};
+  PULL.at = new Date(p.last_success || DATA.generated_at || Date.now());
+  PULL.day = zDay(PULL.at);
+  PULL.hour = zHour(PULL.at);
+  PULL.expect = p.expected_every_minutes || 60;
+  PULL.ageMin = Math.max(0, (Date.now() - PULL.at.getTime()) / 60000);
+  PULL.ok = (p.ok !== false) && (PULL.ageMin <= PULL.expect * (p.grace_multiple || 2.5));
+  FLAGS = evalFlags();
+  chrome();
+  renderAll();
+}
+
+/* ===================================================================== go */
+syncOnLoad();
+function syncOnLoad(){
+  /* dates need the payload before they can be seeded, so only the static wiring happens here */
+  boot();
+}
+</script>
+</body>
+</html>

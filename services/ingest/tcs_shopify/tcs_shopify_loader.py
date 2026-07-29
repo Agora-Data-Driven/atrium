@@ -10,17 +10,37 @@ ingest source"): TCS's Business-Quiz diagnostic needs order-level Shopify data j
 to per-recipient Klaviyo events, a grain Windsor does not serve for this account. This
 loader ports the proven pull from clients/TCS/archive_code/analytics.py.
 
-INCREMENTAL, NEWEST-FIRST, RESUMABLE (rewritten 2026-07-08):
-  The store has enough order history that paging it all in one shot hit Cloud Run's 3600s
-  task timeout and, because it wrote all-or-nothing at the end, landed ZERO rows. This
-  loader instead walks **calendar months of created_at newest-first** and APPENDS each
-  month atomically (one BigQuery load job per month), so recent orders land first and a
-  timeout only costs the current month. The **table itself is the checkpoint** (no
-  sidecar/DB): MIN/MAX(created_at) say how far back we have gone / how recent we are.
-  Each run does FORWARD (orders created since MAX) then BACKFILL (months down from MIN to
-  now-BACKFILL_MONTHS) until RUN_BUDGET_SEC is exhausted; the next tick resumes.
-  Requests retry on transient errors and pace against Shopify's cost-based throttle. Rows
-  carry the order id + updated_at so stg_orders can de-dupe / keep the latest version.
+WHAT IT PULLS (v2, 2026-07-28): the full order record the old notebook had, not just the
+money columns. Specifically the MARKETING ATTRIBUTION block -- customerJourneySummary
+(days-to-conversion, first/last visit source, landing page, referrer, UTM parameters) and the
+sales channel -- which v1 dropped on the floor. Without those columns there is no channel
+attribution, no UTM/campaign ROI and no landing-page analysis, so every marketing dashboard
+in the notebook was unbuildable. Also added: customer geo + lifetime counters, financial /
+fulfilment status, cancellation, order tags, and the refund / shipping / tax totals needed
+for real AOV and net-revenue maths.
+
+INCREMENTAL, HOLE-AWARE, RESUMABLE (rewritten 2026-07-28):
+  The loader walks CALENDAR MONTHS of created_at and APPENDS each month atomically (one
+  BigQuery load job per month), so recent orders land first and a timeout only ever costs the
+  current month.
+
+  >>> THE CHECKPOINT IS PER-MONTH COVERAGE, NOT MIN/MAX. <<<
+  The previous version checkpointed on MIN(created_at) and only walked DOWNWARD from it, which
+  cannot express "a month in the middle is missing": once MIN reached the floor the backfill
+  loop was skipped entirely and any month an earlier budget-capped run had skipped stayed empty
+  forever. (That failure mode cost the sibling Klaviyo loader 12 months of history.) Coverage is
+  now read from the table as a SET of months, the work list is the SET DIFFERENCE against the
+  target span, and repeated runs necessarily converge.
+
+  Each run does FORWARD (orders updated since the last run) then BACKFILL (missing months,
+  newest-first) until RUN_BUDGET_SEC is exhausted; the next tick resumes. Requests retry on
+  transient errors and pace against Shopify's cost-based throttle. Rows carry the order id +
+  updated_at so stg_orders can de-dupe / keep the latest version.
+
+PULL VERSION: rows record the loader version that wrote them. v1 rows lack every attribution
+column, and NULL there is indistinguishable from "no attribution recorded" -- so a month counts
+as covered only at the CURRENT version, and stale months are automatically re-queued. stg_orders
+keeps the highest-pull_version row per order id.
 
 Auth:
   * Shopify Admin API token from Secret Manager (secret ``tcs-shopify-token``) via ADC.
@@ -30,7 +50,7 @@ Auth:
 import os
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import requests
 from dateutil.relativedelta import relativedelta
@@ -48,8 +68,13 @@ SHOPIFY_STORE_DOMAIN = os.environ.get("SHOPIFY_STORE_DOMAIN", "contractshop.mysh
 SHOPIFY_API_VERSION = os.environ.get("SHOPIFY_API_VERSION", "2024-01")
 PAGE_SIZE = int(os.environ.get("SHOPIFY_PAGE_SIZE", "50"))
 
-# How far back to backfill (calendar months, newest-first). 24mo = this-year vs prior-year.
-BACKFILL_MONTHS = int(os.environ.get("BACKFILL_MONTHS", "24"))
+# Schema/semantics version of the rows this build writes. BUMP when a change makes older rows
+# incomplete (v2 added the attribution block); months are re-pulled until every row matches.
+PULL_VERSION = 2
+
+# Earliest month worth asking for. The store's first order (#1001) is 2017-10-15, so this is
+# the true beginning of history. Override to shorten a run (e.g. BACKFILL_START=2025-01).
+BACKFILL_START = os.environ.get("BACKFILL_START", "2017-10")
 # Soft wall-clock budget per run (< the 3600s Cloud Run task timeout); stop cleanly after
 # the current month when exceeded and resume from the checkpoint next tick.
 RUN_BUDGET_SEC = int(os.environ.get("RUN_BUDGET_SEC", "3000"))
@@ -76,11 +101,44 @@ SCHEMA = [
     ]),
     bigquery.SchemaField("line_items", "RECORD", mode="REPEATED", fields=[
         bigquery.SchemaField("title", "STRING"),
+        bigquery.SchemaField("variant_title", "STRING"),
         bigquery.SchemaField("sku", "STRING"),
         bigquery.SchemaField("quantity", "INT64"),
         bigquery.SchemaField("price", "NUMERIC"),
         bigquery.SchemaField("vendor", "STRING"),
     ]),
+    # --- v2: MARKETING ATTRIBUTION (Shopify's customerJourneySummary) ---------------------
+    # The block the whole "where do sales come from" question depends on.
+    bigquery.SchemaField("days_to_convert", "INT64"),
+    bigquery.SchemaField("moments_count", "INT64"),
+    bigquery.SchemaField("first_visit_source", "STRING"),
+    bigquery.SchemaField("first_visit_source_type", "STRING"),
+    bigquery.SchemaField("first_visit_landing_page", "STRING"),
+    bigquery.SchemaField("first_visit_referrer_url", "STRING"),
+    bigquery.SchemaField("utm_source", "STRING"),
+    bigquery.SchemaField("utm_medium", "STRING"),
+    bigquery.SchemaField("utm_campaign", "STRING"),
+    bigquery.SchemaField("utm_term", "STRING"),
+    bigquery.SchemaField("last_visit_source", "STRING"),
+    bigquery.SchemaField("last_visit_landing_page", "STRING"),
+    bigquery.SchemaField("sales_channel", "STRING"),
+    # --- v2: customer dimension ----------------------------------------------------------
+    bigquery.SchemaField("customer_id", "INT64"),
+    bigquery.SchemaField("customer_city", "STRING"),
+    bigquery.SchemaField("customer_province", "STRING"),
+    bigquery.SchemaField("customer_country", "STRING"),
+    bigquery.SchemaField("customer_orders_count", "INT64"),
+    bigquery.SchemaField("customer_total_spent", "NUMERIC"),
+    # --- v2: order state + net-revenue components ----------------------------------------
+    bigquery.SchemaField("financial_status", "STRING"),
+    bigquery.SchemaField("fulfillment_status", "STRING"),
+    bigquery.SchemaField("cancel_reason", "STRING"),
+    bigquery.SchemaField("cancelled_at", "TIMESTAMP"),
+    bigquery.SchemaField("tags", "STRING", mode="REPEATED"),
+    bigquery.SchemaField("total_refunded", "NUMERIC"),
+    bigquery.SchemaField("total_shipping", "NUMERIC"),
+    bigquery.SchemaField("total_tax", "NUMERIC"),
+    bigquery.SchemaField("pull_version", "INT64"),
 ]
 
 
@@ -99,6 +157,15 @@ def _num(val) -> Optional[float]:
         return None
 
 
+def _int(val) -> Optional[int]:
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
+
+
 def _parse_gid(gid: Optional[str]) -> Optional[int]:
     """gid://shopify/Order/12345 -> 12345."""
     if not gid:
@@ -109,8 +176,13 @@ def _parse_gid(gid: Optional[str]) -> Optional[int]:
         return None
 
 
+def _money(node: Dict[str, Any], key: str) -> Optional[float]:
+    """Shopify money fields are all `{ shopMoney { amount } }`; any level can be null."""
+    return _num(((node.get(key) or {}).get("shopMoney") or {}).get("amount"))
+
+
 # GraphQL: one page of orders (created_at window, oldest->newest within the window) with the
-# fields the TCS quiz model reads downstream.
+# fields the TCS models read downstream. customerJourneySummary is the attribution block.
 QUERY = """
 query($cursor: String, $q: String) {
   orders(first: %d, after: $cursor, query: $q, sortKey: CREATED_AT) {
@@ -118,13 +190,31 @@ query($cursor: String, $q: String) {
     edges {
       node {
         id name createdAt updatedAt currencyCode email
-        customer { id email firstName lastName }
+        cancelReason cancelledAt displayFinancialStatus displayFulfillmentStatus tags
+        customer {
+          id email firstName lastName numberOfOrders
+          amountSpent { amount }
+          defaultAddress { city province country }
+        }
         totalPriceSet { shopMoney { amount } }
         subtotalPriceSet { shopMoney { amount } }
         totalDiscountsSet { shopMoney { amount } }
+        totalRefundedSet { shopMoney { amount } }
+        totalShippingPriceSet { shopMoney { amount } }
+        totalTaxSet { shopMoney { amount } }
         discountCodes
+        channelInformation { channelDefinition { handle } }
+        customerJourneySummary {
+          daysToConversion
+          momentsCount { count }
+          firstVisit {
+            source sourceType landingPage referrerUrl
+            utmParameters { source medium campaign term }
+          }
+          lastVisit { source landingPage }
+        }
         lineItems(first: 25) {
-          edges { node { title sku quantity vendor originalUnitPriceSet { shopMoney { amount } } } }
+          edges { node { title variantTitle sku quantity vendor originalUnitPriceSet { shopMoney { amount } } } }
         }
       }
     }
@@ -134,27 +224,35 @@ query($cursor: String, $q: String) {
 
 
 def transform(node: Dict[str, Any]) -> Dict[str, Any]:
-    """Map a GraphQL order node -> a raw_windsor.tcs_shopify_orders row dict."""
+    """Map a GraphQL order node -> a raw_windsor.tcs_shopify_orders row dict.
+
+    Every nested read is `(x or {})`-guarded: Shopify returns null for whole blocks routinely
+    -- customerJourneySummary is absent on orders that predate the journey feature or came in
+    off-channel, and utmParameters is null on any visit without campaign tags."""
     cust = node.get("customer") or {}
-    total = node.get("totalPriceSet") or {}
-    subtotal = node.get("subtotalPriceSet") or {}
-    discounts_total = node.get("totalDiscountsSet") or {}
+    addr = cust.get("defaultAddress") or {}
 
     items: List[Dict[str, Any]] = []
     for edge in ((node.get("lineItems") or {}).get("edges") or []):
         i = edge.get("node") or {}
-        price_set = i.get("originalUnitPriceSet") or {}
         items.append({
             "title": i.get("title"),
+            "variant_title": i.get("variantTitle"),
             "sku": i.get("sku"),
             "quantity": i.get("quantity"),
-            "price": _num((price_set.get("shopMoney") or {}).get("amount")),
+            "price": _money(i, "originalUnitPriceSet"),
             "vendor": i.get("vendor"),
         })
 
     raw_codes = node.get("discountCodes") or []
     discount_codes = [{"code": c} for c in raw_codes]
     primary_discount_code = raw_codes[0] if raw_codes else None
+
+    journey = node.get("customerJourneySummary") or {}
+    first = journey.get("firstVisit") or {}
+    last = journey.get("lastVisit") or {}
+    utm = first.get("utmParameters") or {}
+    channel_def = (node.get("channelInformation") or {}).get("channelDefinition") or {}
 
     return {
         "id": _parse_gid(node.get("id")),
@@ -166,12 +264,47 @@ def transform(node: Dict[str, Any]) -> Dict[str, Any]:
         "created_at": node.get("createdAt"),
         "updated_at": node.get("updatedAt"),
         "currency": node.get("currencyCode"),
-        "subtotal_price": _num((subtotal.get("shopMoney") or {}).get("amount")),
-        "total_discounts": _num((discounts_total.get("shopMoney") or {}).get("amount")),
-        "total_price": _num((total.get("shopMoney") or {}).get("amount")),
+        "subtotal_price": _money(node, "subtotalPriceSet"),
+        "total_discounts": _money(node, "totalDiscountsSet"),
+        "total_price": _money(node, "totalPriceSet"),
         "primary_discount_code": primary_discount_code,
         "discount_codes": discount_codes,
         "line_items": items,
+
+        # Attribution.
+        "days_to_convert": _int(journey.get("daysToConversion")),
+        "moments_count": _int((journey.get("momentsCount") or {}).get("count")),
+        "first_visit_source": first.get("source"),
+        "first_visit_source_type": first.get("sourceType"),
+        "first_visit_landing_page": first.get("landingPage"),
+        "first_visit_referrer_url": first.get("referrerUrl"),
+        "utm_source": utm.get("source"),
+        "utm_medium": utm.get("medium"),
+        "utm_campaign": utm.get("campaign"),
+        "utm_term": utm.get("term"),
+        "last_visit_source": last.get("source"),
+        "last_visit_landing_page": last.get("landingPage"),
+        "sales_channel": channel_def.get("handle"),
+
+        # Customer dimension.
+        "customer_id": _parse_gid(cust.get("id")),
+        "customer_city": addr.get("city"),
+        "customer_province": addr.get("province"),
+        "customer_country": addr.get("country"),
+        "customer_orders_count": _int(cust.get("numberOfOrders")),
+        "customer_total_spent": _num((cust.get("amountSpent") or {}).get("amount")),
+
+        # Order state + net-revenue components.
+        "financial_status": node.get("displayFinancialStatus"),
+        "fulfillment_status": node.get("displayFulfillmentStatus"),
+        "cancel_reason": node.get("cancelReason"),
+        "cancelled_at": node.get("cancelledAt"),
+        "tags": node.get("tags") or [],
+        "total_refunded": _money(node, "totalRefundedSet"),
+        "total_shipping": _money(node, "totalShippingPriceSet"),
+        "total_tax": _money(node, "totalTaxSet"),
+
+        "pull_version": PULL_VERSION,
     }
 
 
@@ -253,14 +386,18 @@ def fetch_window(token: str, start: datetime, end: datetime) -> List[Dict[str, A
 
 
 def ensure_table(bq: bigquery.Client) -> None:
-    bq.create_table(bigquery.Table(FQTN, schema=SCHEMA), exists_ok=True)
+    """Create the table if absent, and ADD any schema columns it is missing.
 
-
-def table_bounds(bq: bigquery.Client):
-    """(min_created_at, max_created_at) already in the table, or (None, None) if empty."""
-    r = list(bq.query(f"SELECT MIN(created_at) AS lo, MAX(created_at) AS hi FROM `{FQTN}`",
-                      location=LOCATION).result())[0]
-    return r["lo"], r["hi"]
+    The additive ALTER is what lets v2 ship against the existing production table: a load job
+    with an explicit schema fails if the destination lacks a column. Widening is always safe --
+    existing rows read the new columns as NULL, which is precisely why they are re-pulled."""
+    table = bq.create_table(bigquery.Table(FQTN, schema=SCHEMA), exists_ok=True)
+    have = {f.name for f in table.schema}
+    missing = [f for f in SCHEMA if f.name not in have]
+    if missing:
+        table.schema = list(table.schema) + missing
+        bq.update_table(table, ["schema"])
+        print(f"[tcs_shopify] schema widened: +{', '.join(f.name for f in missing)}")
 
 
 def append_rows(bq: bigquery.Client, rows: List[Dict[str, Any]]) -> None:
@@ -278,6 +415,72 @@ def _month_start(dt: datetime) -> datetime:
     return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
+def covered_months(bq: bigquery.Client) -> Set[datetime]:
+    """The set of created_at months ALREADY loaded AT THE CURRENT PULL_VERSION.
+
+    This -- not MIN/MAX -- is the checkpoint, so an interior hole stays in the work list until
+    it is actually filled. A month with any below-version row is NOT covered, which is what
+    re-queues v1 months after the attribution columns were added.
+
+    NOTE the empty-month subtlety: a month in which the store genuinely took no orders can
+    never appear here, so it is re-requested on every run. That is intentional and cheap (one
+    empty page), and it is the only honest option -- "no rows" and "not loaded" are the same
+    observation from the table's point of view."""
+    sql = f"""
+        SELECT DATE_TRUNC(DATE(created_at), MONTH) AS m,
+               MIN(COALESCE(pull_version, 1))      AS min_ver
+        FROM `{FQTN}`
+        GROUP BY m
+    """
+    out: Set[datetime] = set()
+    for r in bq.query(sql, location=LOCATION).result():
+        if r["min_ver"] >= PULL_VERSION:
+            out.add(datetime(r["m"].year, r["m"].month, 1, tzinfo=timezone.utc))
+    return out
+
+
+def max_updated_at(bq: bigquery.Client) -> Optional[datetime]:
+    """Newest updated_at already loaded -- the start of the FORWARD phase.
+
+    updated_at (not created_at) so an OLD order edited today -- a refund, a fulfilment, a tag --
+    is re-pulled and its row refreshed; stg_orders keeps the latest version per id."""
+    r = list(bq.query(f"SELECT MAX(updated_at) AS hi FROM `{FQTN}`", location=LOCATION).result())[0]
+    return r["hi"]
+
+
+def _parse_floor() -> datetime:
+    """BACKFILL_START ('YYYY-MM') -> the first month we will ever ask Shopify for."""
+    year, month = (int(x) for x in BACKFILL_START.split("-")[:2])
+    return datetime(year, month, 1, tzinfo=timezone.utc)
+
+
+def target_months(now: datetime) -> List[datetime]:
+    """Every month from the floor up to and including the current one, NEWEST FIRST."""
+    floor = _parse_floor()
+    months: List[datetime] = []
+    cur = _month_start(now)
+    while cur >= floor:
+        months.append(cur)
+        cur = _month_start(cur - timedelta(microseconds=1))
+    return months
+
+
+def missing_months(bq: bigquery.Client, now: datetime) -> List[datetime]:
+    """The work list: target months not yet covered at the current version, newest-first.
+    The CURRENT month is excluded -- the FORWARD phase owns it while it is still filling."""
+    covered = covered_months(bq)
+    this_month = _month_start(now)
+    return [m for m in target_months(now) if m != this_month and m not in covered]
+
+
+def _pull_month(bq, token, month: datetime, label: str) -> int:
+    win_end = _month_start(month + relativedelta(months=1))
+    rows = fetch_window(token, month, win_end)
+    append_rows(bq, rows)
+    print(f"[tcs_shopify] {label} {month.date()}: +{len(rows)} orders")
+    return len(rows)
+
+
 def main() -> None:
     started = time.monotonic()
     token = read_secret(SHOPIFY_SECRET)
@@ -285,38 +488,32 @@ def main() -> None:
     ensure_table(bq)
 
     now = datetime.now(timezone.utc)
-    floor = now - relativedelta(months=BACKFILL_MONTHS)
-    lo, hi = table_bounds(bq)
     total = 0
 
-    # -- Phase 1: FORWARD -- orders created since the newest we have (skip on an empty table).
-    #    stg_orders de-dupes by id, so re-seeing the boundary order is harmless.
+    # -- Phase 1: FORWARD -- orders created/updated since the newest we have.
+    #    stg_orders de-dupes by id keeping the latest updated_at, so overlap is harmless.
+    hi = max_updated_at(bq)
     if hi is not None:
-        rows = fetch_window(token, hi, now)
+        rows = fetch_window(token, _month_start(hi), now)
         append_rows(bq, rows)
         total += len(rows)
-        print(f"[tcs_shopify] forward {hi.date()}..{now.date()}: +{len(rows)} orders")
+        print(f"[tcs_shopify] forward {_month_start(hi).date()}..{now.date()}: +{len(rows)} orders")
 
-    # -- Phase 2: BACKFILL -- walk months newest-first from the current oldest down to floor.
-    win_end = now if lo is None else _month_start(lo)
-    while win_end > floor:
+    # -- Phase 2: BACKFILL -- pull the months that are genuinely missing, newest-first.
+    todo = missing_months(bq, now)
+    print(f"[tcs_shopify] {len(todo)} month(s) missing at v{PULL_VERSION}"
+          f"{' (includes order-free months, which are always re-checked)' if todo else ''}")
+    done_now = 0
+    for month in todo:
         if time.monotonic() - started > RUN_BUDGET_SEC:
-            print(f"[tcs_shopify] run budget ({RUN_BUDGET_SEC}s) reached at {win_end.date()}; "
-                  f"backfill resumes next tick.")
+            print(f"[tcs_shopify] run budget ({RUN_BUDGET_SEC}s) reached at {month.date()}; "
+                  f"{len(todo) - done_now} month(s) resume next tick.")
             break
-        win_start = max(_month_start(win_end - timedelta(microseconds=1)), floor)
-        rows = fetch_window(token, win_start, win_end)
-        append_rows(bq, rows)
-        total += len(rows)
-        print(f"[tcs_shopify] backfill {win_start.date()}..{win_end.date()}: +{len(rows)} orders "
-              f"(run total {total})")
-        win_end = win_start
+        total += _pull_month(bq, token, month, "backfill")
+        done_now += 1
 
-    lo2, hi2 = table_bounds(bq)
-    done = lo2 is not None and lo2 <= floor + timedelta(days=1)
-    print(f"[tcs_shopify] done: +{total} orders this run; table now spans "
-          f"{lo2.date() if lo2 else '-'}..{hi2.date() if hi2 else '-'}; "
-          f"backfill_complete={done} (target floor {floor.date()}).")
+    print(f"[tcs_shopify] done: +{total} orders this run; {done_now} month(s) pulled, "
+          f"{len(todo) - done_now} deferred (target span from {BACKFILL_START}).")
 
 
 if __name__ == "__main__":

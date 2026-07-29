@@ -1,0 +1,5 @@
+# WEB (dash) pins -- this unit pins its OWN dependencies, independently of job/.
+Flask==3.0.3
+gunicorn==23.0.0
+google-cloud-storage==2.18.2
+requests==2.34.2
