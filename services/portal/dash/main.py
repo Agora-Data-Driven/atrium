@@ -1507,6 +1507,79 @@ def internal_task_add():
     return jsonify(ok=True, task_id=task["id"], stage=task["stage"])
 
 
+# --- Internal watcher bridge (Sentinel builds a personal "mentor library" from Watcher) -----------
+# Lets a worker import a full transcript already archived by Atrium's Watcher (paste-a-channel,
+# auto-fetch every video, no copy-pasting) into their Sentinel Growth hub instead of hand-pasting
+# text. Same HMAC scheme as the task bridge above. READ-ONLY: Sentinel copies a transcript in on
+# request; it never writes back to a workspace here.
+@app.route("/api/internal/watcher/channels", methods=["GET"])
+def internal_watcher_channels():
+    """Every watched channel in one client workspace, light fields only."""
+    gate = _internal_gate("watcher-channels")
+    if gate:
+        return gate
+    client = (request.args.get("client") or "").strip()
+    if not client:
+        return Response('{"error":"missing client"}', status=400, mimetype="application/json")
+    try:
+        ws = workspace.load_workspace(client) or {}
+    except Exception:
+        return jsonify(ok=True, channels=[])
+    out = [{
+        "id": ch.get("id", ""),
+        "title": ch.get("title", ""),
+        "kind": ch.get("kind", "creator"),
+        "industry": ch.get("industry", ""),
+        "video_count": ch.get("video_count", 0),
+        "transcript_count": ch.get("transcript_count", 0),
+    } for ch in workspace.watcher_channels(ws)]
+    return jsonify(ok=True, channels=out)
+
+
+@app.route("/api/internal/watcher/videos", methods=["GET"])
+def internal_watcher_videos():
+    """One channel's videos, light fields only (no transcript body -- see .../transcript)."""
+    gate = _internal_gate("watcher-videos")
+    if gate:
+        return gate
+    client = (request.args.get("client") or "").strip()
+    channel_id = (request.args.get("channel") or "").strip()
+    if not client or not channel_id:
+        return Response('{"error":"missing client/channel"}', status=400, mimetype="application/json")
+    out = []
+    for v in workspace.read_watcher_videos(client, channel_id):
+        text = v.get("transcript") or ""
+        out.append({
+            "id": v.get("id", ""),
+            "title": v.get("title", ""),
+            "url": v.get("url", ""),
+            "has_transcript": bool(text),
+            "words": len(text.split()) if text else 0,
+            "published": v.get("published", ""),
+        })
+    return jsonify(ok=True, videos=out)
+
+
+@app.route("/api/internal/watcher/transcript", methods=["GET"])
+def internal_watcher_transcript():
+    """One video's full transcript -- fetched on demand, the moment Sentinel imports it."""
+    gate = _internal_gate("watcher-transcript")
+    if gate:
+        return gate
+    client = (request.args.get("client") or "").strip()
+    channel_id = (request.args.get("channel") or "").strip()
+    video_id = (request.args.get("video") or "").strip()
+    if not client or not channel_id or not video_id:
+        return Response('{"error":"missing client/channel/video"}', status=400, mimetype="application/json")
+    for v in workspace.read_watcher_videos(client, channel_id):
+        if v.get("id") == video_id:
+            if not v.get("transcript"):
+                return Response('{"error":"no_transcript"}', status=404, mimetype="application/json")
+            return jsonify(ok=True, title=v.get("title", ""), url=v.get("url", ""),
+                           transcript=v.get("transcript", ""))
+    return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+
+
 @app.route("/w/<client>/task-comment", methods=["POST"])
 def atrium_task_comment(client):
     """Client comment / request-changes on a client-facing task -- the Progress tab's ONE write.
