@@ -74,6 +74,21 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   (`DEV_NOAUTH`) auto-signs in as `SUPER_ADMIN_EMAIL`.
 - **`templates/*.html`** — big self-contained pages. Inline JS must be **esprima-4.x-safe** (no `?.`
   / `??`; classic `&&`/`||`). No Jinja inside `<script>` — JS reads state from the DOM.
+  🔴 **One stylesheet, no scoping — a reused class name silently hijacks the older component.**
+  `atrium.html` is ~1,900 lines of CSS in ONE `<style>`, so two rules with the same bare `.foo`
+  selector have equal specificity and **later source order wins, property by property**. This bit
+  us hard (fixed 2026-07-29): the content card's inline decision ribbon and the branded
+  `window.confirm` replacement were BOTH `.ax-confirm`, so the dialog's
+  `position:fixed; inset:0; z-index:200` leaked onto every "Approved / Changes requested" ribbon
+  and turned it into a full-viewport click-eating veil — opening any approved content card left
+  the whole workspace dark and dead (only Escape got out). The ribbon is now **`.ax-decided`**;
+  `.ax-confirm` means the overlay dialog and nothing else. **Before adding a CSS rule, grep for a
+  bare `.<name> {` already in the file** — and never "fix" a hijacked inline element by adding
+  `hidden` to it (that just deletes it via the dialog's `[hidden]` rule). A known-latent twin of
+  the same trap still exists: **`.ax-ch-meta`** is declared twice (the card-head ref line and the
+  chat-message meta line — `ax-ch-` means two different namespaces); it is cosmetic only today
+  because neither rule sets `position`/`z-index`, but adding a layout property to either one
+  will break the other component.
 - **`atrium_docs.py` / `feedback_ai.py`** — the opt-in Google-Doc → AI strategy feature (gated, degrades).
 - **`atrium_health.py`** — the team-only Website Health tab: fetches the client's live site + detects
   installed marketing tags (GTM/GA4/pixels) by scanning the page HTML (no GTM API, infra-free, degrades).
