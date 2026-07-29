@@ -259,9 +259,11 @@ def add_watcher_channel(client, fields):
         "url": fields.get("url", ""),
         "title": fields.get("title", ""),
         "channel_id": fields.get("channel_id", ""),
-        # Classification: platform is fixed per source type (YouTube-only today, the field exists
-        # so Website/podcast/etc. can join later); industry is the auto/AI label (hand-editable);
-        # kind separates the creators we learn from ("creator") from rivals ("competitor").
+        # Classification: `platform` is the SOURCE TYPE and decides which fetcher runs for this
+        # entry -- "youtube" (watcher.py: channel_id -> videos -> transcripts) or "blog"
+        # (watcher_blog.py: site origin -> posts -> article text). Both store into the same archive
+        # shape, so only the fetch/refresh branch cares. `industry` is the auto/AI label
+        # (hand-editable); `kind` separates creators we learn from from rivals ("competitor").
         "platform": fields.get("platform", "youtube"),
         "industry": fields.get("industry", ""),
         "kind": fields.get("kind", "creator"),
@@ -278,24 +280,31 @@ def add_watcher_channel(client, fields):
     return _mutate(client, fn)
 
 
-# The single-video scraper has no parent channel, so its videos are archived under ONE per-client
-# pseudo-channel (marked `loose`). It renders as a normal creator card and the Assistant indexes it
-# like any other channel; only the channel-specific actions (Check new / Auto-label) are hidden for
-# it in the UI. `list_videos`/`refresh` never run against it (its channel_id is "").
+# The single-item scrapers have no parent channel/site, so their items are archived under ONE
+# per-client pseudo-channel PER PLATFORM (marked `loose`): "Saved videos" for one-off YouTube links
+# and "Saved articles" for one-off blog links. Each renders as a normal card and the Assistant
+# indexes it like any other channel; only the source-wide actions (Check new / Auto-label) are
+# hidden for it in the UI. `list_videos`/`list_posts` never run against it (its channel_id is "").
 LOOSE_CHANNEL_TITLE = "Saved videos"
+LOOSE_BLOG_TITLE = "Saved articles"
 
 
-def ensure_loose_channel(client):
-    """Find (or create, newest-first) the per-client 'Saved videos' pseudo-channel. Returns it."""
+def ensure_loose_channel(client, platform="youtube"):
+    """Find (or create, newest-first) the per-client loose pseudo-channel for `platform`.
+
+    Keyed on platform as well as the `loose` marker so a saved article never lands in the video
+    archive (their fetchers are different: one takes a video id, the other a page URL)."""
     def fn(ws):
         channels = ws.setdefault("watcher", {}).setdefault("channels", [])
         for ch in channels:
-            if ch.get("loose"):
+            if ch.get("loose") and (ch.get("platform") or "youtube") == platform:
                 return ch
         entry = {
             "id": _new_id("wch"),
-            "url": "", "title": LOOSE_CHANNEL_TITLE, "channel_id": "",
-            "platform": "youtube", "industry": "", "kind": "creator", "loose": True,
+            "url": "",
+            "title": LOOSE_BLOG_TITLE if platform == "blog" else LOOSE_CHANNEL_TITLE,
+            "channel_id": "",
+            "platform": platform, "industry": "", "kind": "creator", "loose": True,
             "video_count": 0, "transcript_count": 0, "failed_count": 0,
             "last_fetch": "", "added_at": now_iso(),
         }
@@ -1571,7 +1580,24 @@ def set_calendar_status(client, index, status):
 #   internal_notes, account_manager_id                  <- internal only
 # LEGACY: tasks written before the two-level model carry a flat subtasks[] -- normalize_task()
 # migrates that into one maintask in place (called by _find_task, so every mutation persists it).
-TASK_STAGES = ("in_process", "for_launch", "launched", "closed")
+# Stage KEYS are canonical (never rename) and now MIRROR SENTINEL'S BOARD (constants.TASK_STATUSES:
+# To Do / In Progress / For Review / Waiting for Client / Revision Needed / Completed / Blocked), so
+# the client Progress board and the internal Sentinel board speak the same language. Replaced the
+# original 4-stage set (in_process/for_launch/launched/closed) on 2026-07-27 at the user's request;
+# `_STAGE_ALIASES` keeps any task written under the old keys readable.
+TASK_STAGES = ("todo", "in_progress", "for_review", "waiting_client",
+               "revision", "completed", "blocked")
+# Old key -> new key, applied on read by normalize_task so legacy/imported rows never vanish off the
+# board (an unknown stage would otherwise fall into the first column silently).
+_STAGE_ALIASES = {"in_process": "in_progress", "for_launch": "for_review",
+                  "launched": "completed", "closed": "completed"}
+
+
+def canon_stage(stage):
+    """Return a valid stage key for `stage`, translating legacy keys; default 'todo'."""
+    s = (stage or "").strip()
+    s = _STAGE_ALIASES.get(s, s)
+    return s if s in TASK_STAGES else "todo"
 TASK_PRIORITIES = ("Low", "Medium", "High", "Urgent")
 # The fields update_task will patch (id/comments/maintasks/history have their own helpers).
 _TASK_FIELDS = ("title", "department", "lead_id", "support_ids", "priority", "labels", "campaign",
@@ -1595,6 +1621,9 @@ def normalize_task(task):
     through untouched."""
     if task is None:
         return None
+    # Stage keys moved to Sentinel's set (2026-07-27); translate legacy keys on read so an old task
+    # lands in the right column instead of silently falling into the first one.
+    task["stage"] = canon_stage(task.get("stage"))
     if not task.get("start_date") and task.get("created_at"):
         task["start_date"] = str(task["created_at"])[:10]
     if not isinstance(task.get("maintasks"), list):
@@ -1656,10 +1685,11 @@ def _task_history(task, actor, field, old, new):
 def add_task(client, fields, actor=""):
     """Create a task on the client's board. Returns the stored task dict.
 
-    `fields` is a dict of the task fields; the stage defaults to in_process and is validated,
+    `fields` is a dict of the task fields; the stage defaults to todo and is validated,
     support_ids never contains lead_id, and a "created" history entry is stamped."""
     f = dict(fields or {})
-    stage = f.get("stage") or "in_process"
+    stage = f.get("stage") or "todo"
+    stage = _STAGE_ALIASES.get(stage, stage)
     if stage not in TASK_STAGES:
         raise KeyError("no task stage '%s'" % stage)
     lead = (f.get("lead_id") or "").strip()
@@ -1726,10 +1756,11 @@ def update_task(client, task_id, fields, actor=""):
 
 
 def move_task_stage(client, task_id, stage, actor=""):
-    """Move a task to `stage`, guarded: a move to `closed` is BLOCKED while any sub-task is still
+    """Move a task to `stage`, guarded: a move to `completed` is BLOCKED while any sub-task is still
     open, any client change request is unresolved, OR the service has no sub-tasks at all (nothing
     was tracked as done). Raises ValueError listing what to resolve. Records the move in the task's
     history. Returns the task; no-op if already there."""
+    stage = _STAGE_ALIASES.get(stage, stage)
     if stage not in TASK_STAGES:
         raise KeyError("no task stage '%s'" % stage)
 
@@ -1739,7 +1770,7 @@ def move_task_stage(client, task_id, stage, actor=""):
             raise KeyError("no task '%s'" % task_id)
         if task.get("stage") == stage:
             return task
-        if stage == "closed":
+        if stage == "completed":
             # A service with no steps at all can't be "complete" -- nothing was tracked as done.
             if not task_subtasks(task):
                 raise ValueError("Can't complete a service with no sub-tasks yet -- "
