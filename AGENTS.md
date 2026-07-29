@@ -671,19 +671,29 @@ auto-refresh (see those bullets below). Product name is one constant:
   trip) + `_atrium_smoketest.py` (routes, the client no-leak render, indexing, the nav grouping).
 - **Nav labels vs tab keys:** the sidebar was regrouped 2026-07-13 and again **2026-07-29** — the
   `leadgen` tab is LABELED **"Paid Media"** and the `progress` tab is LABELED **"Tasks"** (the keys
-  `leadgen` / `progress` stay in every route/data shape, never rename them). The top level is now
-  **six** rows, organised by the question each answers: **Dashboard** (how are we doing) ·
-  **Company** (who are we working for) · **Campaigns** ▸ Paid Media / Organic Content /
-  **Content Calendar** (what is going out; head badge = combined awaiting count) · **Insights** ▸
-  Market Intelligence / **Reports** / the team-only Website Health + Watcher (what have we learned) ·
-  **Communications** · **Tasks**. The 2026-07-29 moves: the Content Calendar joined Campaigns (it IS
-  the campaign content plotted by date — a dated content piece literally mirrors into it) and
-  Reports joined Insights (a deck is the synthesis of what that group holds), taking the top level
-  from 7 rows to 6 while making both groups worth opening. Group heads are expand/collapse buttons
-  only (auto-open when a child tab is active); the collapsed icon rail and the phone strip flatten
-  the groups away. The **Assistant nav tab was removed** — the floating bubble (FAB) is the chat
-  surface; the `/w/<c>/assistant` route + pane still exist (reachable by URL, keeps the date-range +
-  reindex controls).
+  `leadgen` / `progress` stay in every route/data shape, never rename them). The top level is
+  **FOUR** rows, organised by the question each answers — one flat link plus three groups:
+
+  | Row | Answers | Holds |
+  |---|---|---|
+  | **Working Together** | how is it going? | Dashboard · Communications · Tasks |
+  | **Company** | who are we working for? | (flat) |
+  | **Campaigns** | what is going out? | Paid Media · Organic Content · Content Calendar |
+  | **Insights** | what have we learned? | Market Intelligence · Reports · team-only Website Health + Watcher |
+
+  Three moves got it from eleven flat surfaces to four rows: the Content Calendar joined Campaigns
+  (it IS the campaign content plotted by date — a dated content piece literally mirrors into it),
+  Reports joined Insights (a deck is the synthesis of what that group holds), and Dashboard +
+  Communications + Tasks became **Working Together** — the live state of the engagement (results,
+  work in flight, the conversation) as against the static who-you-are and the content pipeline.
+  🔴 **Working Together is FIRST because it holds `dashboard`, the LANDING tab** (a bare `/w/<c>/`
+  resolves to it): moving the group down the list would bury the landing tab inside a collapsed
+  group, and the rail would open with no active item on it. Campaigns' head badge is the combined
+  awaiting count. Group heads are expand/collapse buttons only (auto-open when a child tab is
+  active, in Jinja via each group's `*_open` guard and client-side in `showTab`); the collapsed icon
+  rail and the phone strip flatten the groups away. The **Assistant nav tab was removed** — the
+  floating bubble (FAB) is the chat surface; the `/w/<c>/assistant` route + pane still exist
+  (reachable by URL, keeps the date-range + reindex controls).
 - **Routes (all behind existing session auth):** client `GET /w/<c>/` + `/w/<c>/<tab>` (overview,
   dashboard, company, leadgen, organic, calendar, conversations, intel, reports, progress, settings)
   gated `authed()`+`can_open(<c>)`;

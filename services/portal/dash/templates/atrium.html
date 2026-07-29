@@ -2040,25 +2040,45 @@
       {#- ================= SIDEBAR NAV =================
          Regrouped 2026-07-29. Eleven surfaces would be an unreadable flat list, so the nav is
          organised by the QUESTION each answers rather than by which feature shipped when:
-           Dashboard      -- how are we doing?          (flat: the landing tab)
-           Company        -- who are we working for?    (flat: the client's own profile)
-           Campaigns      -- what is going out?         (Paid Media / Organic / Content Calendar)
-           Insights       -- what have we learned?      (Market Intelligence / Reports + team tools)
-           Communications -- what has been said?        (flat)
-           Tasks          -- what is being built?       (flat)
-         Two moves came with it: the Content Calendar joined Campaigns (it IS the campaign content,
-         plotted by date -- a dated content piece literally mirrors into it), and Reports joined
-         Insights (a meeting deck is the synthesis of everything the Insights group holds). That
-         takes the top level from 7 rows to 6 while making both groups worth opening.
+           Working Together -- how is it going?          (Dashboard / Communications / Tasks)
+           Company          -- who are we working for?   (flat: the client's own profile)
+           Campaigns        -- what is going out?        (Paid Media / Organic / Content Calendar)
+           Insights         -- what have we learned?     (Market Intelligence / Reports + team tools)
+         FOUR top-level rows, down from eleven flat surfaces. Three moves got it there: the Content
+         Calendar joined Campaigns (it IS the campaign content plotted by date -- a dated content
+         piece literally mirrors into it), Reports joined Insights (a deck is the synthesis of
+         everything that group holds), and Dashboard + Communications + Tasks became **Working
+         Together** -- the live state of the engagement (the results we are getting, the work in
+         flight, and the conversation) as opposed to the static who-you-are and the content pipeline.
+         🔴 Working Together is FIRST and holds `dashboard`, which is the LANDING tab (a bare
+         /w/<c>/ resolves to it) -- so the landing stays at the top of the rail where it has always
+         been, and its group auto-opens on arrival. Moving this group down the list would bury the
+         landing tab inside a collapsed group.
          The group heads are expand/collapse buttons ONLY -- they never navigate -- and auto-open
          when one of their children is the active tab. The collapsed icon rail and the phone strip
          flatten the groups away entirely (see the .nav-collapsed / mobile CSS). -#}
       <nav class="ax-nav" id="ax-nav">
-        {% for key, label in [('dashboard','Dashboard'),('company','Company')] %}
-        <a href="{{ '/w/' ~ view.client ~ '/' ~ key }}" data-tab="{{ key }}" title="{{ label }}" class="{{ 'is-active' if view.active_tab == key else '' }}">
-          {{ ic(key) }}<span>{{ label }}</span>
+        {#- Working Together: the live state of the engagement. Holds the LANDING tab, so it is
+           first and it opens on arrival. -#}
+        {% set work_open = view.active_tab in ('dashboard','conversations','progress') %}
+        <div class="ax-nav-group {{ 'is-open' if work_open else '' }}">
+          <button class="ax-nav-ghead" type="button" title="Working Together" aria-expanded="{{ 'true' if work_open else 'false' }}">
+            {{ ic('users') }}<span>Working Together</span>
+            <svg class="ax-nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <div class="ax-nav-sub">
+            {#- Tasks keeps the canonical tab key `progress` -- label only, never rename the key. -#}
+            {% for key, label in [('dashboard','Dashboard'),('conversations','Communications'),('progress','Tasks')] %}
+            <a href="{{ '/w/' ~ view.client ~ '/' ~ key }}" data-tab="{{ key }}" title="{{ label }}" class="{{ 'is-active' if view.active_tab == key else '' }}">
+              {{ ic(key) }}<span>{{ label }}</span>
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+
+        <a href="{{ '/w/' ~ view.client ~ '/company' }}" data-tab="company" title="Company" class="{{ 'is-active' if view.active_tab == 'company' else '' }}">
+          {{ ic('company') }}<span>Company</span>
         </a>
-        {% endfor %}
 
         {#- Campaigns: the work going out the door -- the two campaign streams plus the calendar
            that plots them. The head badge is the COMBINED awaiting count (so nothing is missed
@@ -2113,15 +2133,6 @@
           </div>
         </div>
 
-        <a href="{{ '/w/' ~ view.client ~ '/conversations' }}" data-tab="conversations" title="Communications" class="{{ 'is-active' if view.active_tab == 'conversations' else '' }}">
-          {{ ic('conversations') }}<span>Communications</span>
-        </a>
-
-        {#- Tasks (tab key `progress` -- canonical, never rename): the client-facing delivery
-           board, every client-facing task and where it stands. -#}
-        <a href="{{ '/w/' ~ view.client ~ '/progress' }}" data-tab="progress" title="Tasks" class="{{ 'is-active' if view.active_tab == 'progress' else '' }}">
-          {{ ic('progress') }}<span>Tasks</span>
-        </a>
       </nav>
 
       <div class="ax-side-card">
@@ -4453,7 +4464,7 @@
     qsa("#ax-nav a").forEach(function (a) {
       a.classList.toggle("is-active", a.getAttribute("data-tab") === tab);
     });
-    // A tab inside a collapsed nav group (Campaigns / Insights) pops its group open.
+    // A tab inside a collapsed nav group (Working Together / Campaigns / Insights) pops it open.
     var activeLink = document.querySelector('#ax-nav a[data-tab="' + aq(tab) + '"]');
     if (activeLink && activeLink.parentNode && activeLink.parentNode.classList.contains("ax-nav-sub")) {
       var grp = activeLink.parentNode.parentNode;
@@ -4487,7 +4498,7 @@
       showTab(a.getAttribute("data-tab"), true);
     });
   });
-  // Nav group heads (Campaigns / Insights) expand or collapse their sub-tabs; they never navigate.
+  // Nav group heads expand or collapse their sub-tabs; they never navigate.
   qsa(".ax-nav-ghead").forEach(function (btn) {
     btn.addEventListener("click", function () {
       var open = btn.parentNode.classList.toggle("is-open");
