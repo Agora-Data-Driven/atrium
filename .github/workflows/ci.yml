@@ -89,9 +89,13 @@ jobs:
         working-directory: services/portal/dash
         run: python _watcher_localtest.py
 
-      - name: Assistant RAG test (chunking, hybrid BM25+vector, RRF, rerank, route; LLM stubbed)
+      - name: Assistant RAG test (chunking, hybrid BM25+vector, RRF, rerank, actions, route; LLM stubbed)
         working-directory: services/portal/dash
         run: python _assistant_localtest.py
+
+      - name: Reports + distilled-layer test (digest sections, deck generate/render, routes; LLM stubbed)
+        working-directory: services/portal/dash
+        run: python _report_localtest.py
 
       - name: Audit feed + Trash restore test (stubs GCS)
         working-directory: services/portal/dash

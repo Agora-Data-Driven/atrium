@@ -389,6 +389,103 @@ def read_safe_pull_status():
         return {}
 
 
+# --- Reports (client-visible tab: every meeting deck, date-first) --------------------------------
+# The small per-report index rides in workspace/<c>.json (ws["reports"], newest first: id, title,
+# date, origin, payload -- the structured slide content the generator/editor works on); each deck's
+# rendered self-contained HTML is its OWN object (a deck runs to hundreds of KB -- same posture as
+# creatives/watcher/mail archives), served ONLY through the authed /w/<c>/report/<id> route.
+def reports_of(ws):
+    """The workspace's report index entries (never None)."""
+    return list((ws or {}).get("reports") or [])
+
+
+def find_report(ws, report_id):
+    """The report index entry with id `report_id`, or None."""
+    for r in (ws or {}).get("reports") or []:
+        if r.get("id") == report_id:
+            return r
+    return None
+
+
+def report_object_name(client, report_id):
+    """One report's rendered-deck object, e.g. 'workspace/reports/riverdance/rp_1a2b3c4d.html'."""
+    return "%sreports/%s/%s.html" % (_prefix(), client, report_id)
+
+
+def read_report_html(client, report_id):
+    """The stored deck HTML (str), or None when it doesn't exist / can't decode."""
+    raw = _read_object(report_object_name(client, report_id))
+    if raw is None:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except (UnicodeDecodeError, AttributeError):
+        return None
+
+
+def write_report_html(client, report_id, html):
+    """Persist a report's rendered deck (its own object, NOT the workspace JSON)."""
+    _write_object(report_object_name(client, report_id), (html or "").encode("utf-8"),
+                  content_type="text/html; charset=utf-8")
+
+
+def add_report(client, title, date, payload=None, origin="ai", report_id=None):
+    """Create a report index entry (newest first). Returns it. The caller renders + writes the
+    deck HTML separately (write_report_html) -- index and object are two writes on purpose, so a
+    failed render never strands a phantom index row ahead of it."""
+    entry = {
+        "id": report_id or _new_id("rp"),
+        "title": title or "Performance review",
+        "date": (date or now_iso())[:10],
+        "origin": origin or "ai",
+        "payload": payload or {},
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+
+    def fn(ws):
+        ws.setdefault("reports", []).insert(0, entry)
+        return entry
+    return _mutate(client, fn)
+
+
+def update_report(client, report_id, fields):
+    """Patch a report entry's title/date/payload in place. Returns it (KeyError if missing)."""
+    def fn(ws):
+        entry = find_report(ws, report_id)
+        if entry is None:
+            raise KeyError("no report '%s'" % report_id)
+        for k in ("title", "date", "payload"):
+            if k in (fields or {}):
+                entry[k] = fields[k]
+        entry["updated_at"] = now_iso()
+        return entry
+    return _mutate(client, fn)
+
+
+def delete_report(client, report_id):
+    """Remove a report entry AND its deck object. Returns the removed entry (for the Trash)."""
+    def fn(ws):
+        reports = ws.get("reports", [])
+        entry = next((r for r in reports if r.get("id") == report_id), None)
+        if entry is not None:
+            reports.remove(entry)
+        return entry
+    entry = _mutate(client, fn)
+    if entry is not None:
+        _delete_object(report_object_name(client, report_id))
+    return entry
+
+
+def insert_report(client, entry):
+    """Re-insert a previously removed report entry (Trash restore; the caller re-renders the
+    deck HTML from the entry's stored payload). Returns the entry."""
+    def fn(ws):
+        ws.setdefault("reports", []).insert(0, entry)
+        return entry
+    return _mutate(client, fn)
+
+
 # --- Assistant (team-only tab: the workspace knowledge index) ------------------------------------
 # The Assistant's retrieval index (chunks + BM25 stats over every workspace source) is ONE private
 # object per client, rebuilt lazily when its fingerprint stops matching the live data. Like the
