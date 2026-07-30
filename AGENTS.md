@@ -115,6 +115,36 @@ py -3 clients\_standard\vendor_lib.py --check            # shared blocks in sync
 - **Waivers are attributes, not exceptions in a script.** Three dashboards legitimately skip a rule
   (an uptime monitor should not grow a KPI-benchmark average); each states its reason in a
   `data-no-benchmark` / `data-single-view` attribute on `<body>`, and the gate prints it every run.
+
+### 🔴 A dashboard change does NOT deploy itself for 5 of 8 clients
+
+`tools/merge-branches.ps1` maps `clients/<c>/dash/**` → `clients/<c>/dash/deploy_dash_*.ps1`. Only
+**TCS and agora** have one. `honeytribe`, `MeloYelo`, `RHE`, `S7000` and `riverdance` keep a **full
+standup** at the client root instead — and `merge-branches` deliberately will **not** call it,
+because those scripts re-read secrets they will not be given and **mint a fresh `SESSION_SECRET`**
+(logging every client out). Before 2026-07-30 that was a quiet yellow `[skip]`, so a dashboard could
+land on `main` while production kept serving the old build and the ship still reported success.
+
+It now ends the run with a red **NEEDS YOU** block, exits non-zero, and prints the right recipe per
+client (`-DashOnly` where the standup has it, otherwise the image-only path). To ship one by hand
+**without touching secrets or env**:
+
+```powershell
+gcloud builds submit --tag asia-southeast1-docker.pkg.dev/agora-data-driven/agora/<svc>:<sha> `
+    --project agora-data-driven clients/client_<c>/dash
+gcloud run services update <svc> --project agora-data-driven --region asia-southeast1 `
+    --image asia-southeast1-docker.pkg.dev/agora-data-driven/agora/<svc>:<sha>
+```
+
+`services update --image` changes the image and **nothing else** — every env var, secret binding and
+service account survives. Confirm the service name first (`gcloud run services list …`): one client
+can back several (**S7000 runs three** from one `dash/`). The durable fix for a client on that list
+is to give it its own `clients/<c>/dash/deploy_dash_<c>.ps1`.
+
+**`clients/_standard/` and `client_template` are not deployable clients** and are excluded from the
+map. `template-dash` has never existed in Cloud Run, so its dash script tries to *create* a service,
+which needs standup permissions — that hard-failed a whole ship once and starved the real clients
+queued behind it.
 - Two traps that cost real time when the standard went in, both now guarded: a **`*/` inside a JS
   block comment** (e.g. a `clients/*/dash` glob) closes the comment early and fails the esprima
   gate a thousand lines later; and a **literal script-src tag inside an HTML comment** makes the
