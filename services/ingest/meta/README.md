@@ -11,18 +11,42 @@ Meta ──► Windsor API ──► windsor-meta-ingest (THIS dir) ──► ra
                                                                         └──► client export job ──► <c>.json
 ```
 
-> ## 🔴 STATUS: `meta_loader.py` IS A STUB. It has never run.
+> ## ✅ STATUS: BUILT AND RUN (2026-07-30). `raw_windsor.perf_meta` exists and holds data.
 >
-> Line ~71 is literally `TODO: implement the Windsor Meta request + field mapping`, and the table has
-> never been written. **This is the root cause of a real estate-wide problem:** because the shared
-> loader was never finished, `client_RHE`, `client_riverdance`, `client_honeytribe` and
-> `client_MeloYelo` each grew their **own private Windsor pull** inside their export job. Four
-> implementations of one thing, four different row vocabularies, every trap rediscovered separately
-> — and one of those copies overwrote rows on key collision and silently lost **$321** of spend
-> until an audit caught it.
+> The stub is gone. The loader is the bidbrain port described below, and **TCS is the first client
+> on the canonical path** — `raw_windsor.perf_meta` → `client_tcs.paid_media_*` views → the
+> `tcs-export` job → the dashboard's **Lead Gen** tab, with **no client-side Windsor call at all**.
 >
-> Finishing this loader is what lets those four migrate onto views, and what lets a new client (TCS)
-> get paid media with **no client-side API code at all**.
+> **Loaded so far: TCS only** (2,276 rows, 31 ads, 6 campaigns, 2025-07-30 → 2026-07-29,
+> $13,528.52 — reconciles to the dollar against the inventory below). The other 11 Meta accounts
+> have **not** been backfilled yet; run the loader with no `--only` to sweep the estate.
+>
+> Why it mattered: because this loader was left a stub, `client_RHE`, `client_riverdance`,
+> `client_honeytribe` and `client_MeloYelo` each grew their **own private Windsor pull** inside
+> their export job — four implementations, four row vocabularies, every trap rediscovered
+> separately, and one copy that overwrote rows on key collision and silently lost **$321** of spend
+> until an audit caught it. Those four can now migrate onto views. **Do not add a fifth.**
+
+### What the live probe changed about the plan (2026-07-30)
+
+Everything here was measured against the real agora Windsor account, not assumed:
+
+| Question | Answer |
+|---|---|
+| Does `/all` accept `date_from`/`date_to`? | **YES.** `windsor_api.py`'s docstring claim that it is `date_preset`-only is **wrong for this account** — so bidbrain's chunked-date-range model ports directly, and history does not have to "accumulate". ⚠️ Send one or the other, never both: with both present **`date_preset` silently wins**. |
+| Is `/all` blended across connectors? | **YES.** `ASL Logistics` (`106-434-7699`) is **`google_ads`**, not Meta, and its rows carry **no `ad_id`** — they would have put NULL in the REQUIRED merge-key column. The loader filters on `datasource == "facebook"`. So the "13 accounts" are **12 Meta + 1 Google Ads**. |
+| Is the 13-month unique-count wall real? | **YES.** With `unique_actions_*`, `last_730d` → HTTP 400 *"breakdowns for unique-count fields are only available for the last 13 months"*. Without them, `last_1095d` returns 5,248 rows. `UniqueCountHorizonError` handles it as the natural backfill horizon. |
+| Are the five per-client keys one credential? | **YES** — `rhe-`, `honeytribe-`, `meloyelo-` and `riverdance-windsor-key` are **byte-identical** (same SHA-256). |
+| Which purchase label? | **`actions_omni_purchase`** — the widest. Sabbath Spa reports 28 purchases on omni and **zero** on `actions_purchase`; every other account agrees across both. `actions_complete_registration` is served but **identically 0 everywhere** — treat as "not measured", never "none happened". |
+
+### 🔴 Blockers that are still open
+
+- **The `windsor-api-key` secret does not exist.** The four per-client secrets do. Create the
+  consolidated one (and **rotate** it — a key was pasted into a chat on 2026-07-30), then delete the
+  four. Until then, run locally with `WINDSOR_SECRET=rhe-windsor-key` or pass `WINDSOR_API_KEY`.
+  ⚠️ `tools/deploy_ingest_jobs.ps1` mounts `windsor-api-key` and will **fail at the IAM step**
+  until it exists — which is why `windsor-meta-ingest` is **not deployed yet**.
+- The loader has only been run **from a laptop**. The Cloud Run job is still unbuilt.
 
 ---
 
@@ -99,9 +123,15 @@ Windsor `account_name` on the left, the client key that owns it on the right. Fi
 | `INTO Schüleraustausch` | 20 | $470 | **`into`** | ⚠️ same warning — and its own docs list this account as unverified; it is live |
 | `Riverdance Ad Account` | 94 | $2,871 | `riverdance` | |
 | `Agora Data Driven` | 6 | $1,750 | `agora` | internal, not a customer |
-| `4786451891457735, PHP` | 549 | **$147,546** | **UNMAPPED** | **biggest spender in the estate — no client folder, no dashboard** |
-| `Sabbath Spa` | 161 | **$32,041** | **UNMAPPED** | no client folder, no dashboard |
-| `ASL Logistics` | 109 | $4,892 | **UNMAPPED** | no client folder, no dashboard |
+| `4786451891457735, PHP` | 549 | **$147,546** | **`None` (explicit)** | **biggest spender in the estate — no client folder, no dashboard** |
+| `Sabbath Spa` | 161 | **$32,041** | **`None` (explicit)** | no client folder, no dashboard |
+| `ASL Logistics` | 109 | $4,892 | **n/a — NOT META** | `datasource=google_ads`; excluded by the connector filter, not by the slug map |
+
+The map is keyed on **`account_id`** (in `meta_loader.py`), with an `account_name` fallback for the
+re-granted-connector case. An entry mapping to **`None`** means *known, deliberately unmapped* —
+its rows load with `client_slug` NULL, which matches no view. An account **absent** from the map
+gets the same NULL slug **plus a loud warning**, so "new account" and "decided against" never look
+alike.
 
 > ### 🔴 S7000 needs TWO slugs, never one
 >
@@ -132,14 +162,32 @@ Windsor `account_name` on the left, the client key that owns it on the right. Fi
 # 1. shared dataset (idempotent, once per project)
 .\.venv\Scripts\python.exe services\ingest\create_dataset.py
 
-# 2. the raw table (idempotent)
+# 2. the shared staging bucket (idempotent) -- NEW 2026-07-30; every loader stages NDJSON here
+.\.venv\Scripts\python.exe services\ingest\create_staging_bucket.py
+
+# 3. the raw table (idempotent)
 .\.venv\Scripts\python.exe services\ingest\meta\create_meta_table.py
 
-# 3. the loader -- no args = incremental per account
+# 4. the loader -- no args = incremental per account, whole estate
 .\.venv\Scripts\python.exe services\ingest\meta\meta_loader.py
-#    fixed range:  ... meta_loader.py 2026-05-25 2026-05-30
-#    ignore cache: ... meta_loader.py --force
+#    fixed range:   ... meta_loader.py 2026-05-25 2026-05-30
+#    one client:    ... meta_loader.py --only tcs          (slug, account id, or name substring)
+#    bigger chunks: ... meta_loader.py 2025-07-30 2026-07-29 --only tcs --chunk-days 60
+#    no writes:     ... meta_loader.py --only tcs --dry-run
+#    ignore cache:  ... meta_loader.py --force
 ```
+
+**On `--chunk-days`.** The default stays bidbrain's `CHUNK_DAYS = 3`. A Windsor call costs ~25-30s
+almost regardless of range, so on a low-volume account a 3-day chunk makes a year-long backfill
+~120 calls / ~1 hour; TCS's whole year is 2,276 rows and backfilled in **3.5 minutes** at
+`--chunk-days 60`. The MERGE is idempotent either way, so the only risk of a bigger chunk is a
+slower single request. Leave the daily scheduled run on the default.
+
+**Accounts are DISCOVERED, not hardcoded** (a deliberate difference from bidbrain's
+`SELECT_ACCOUNTS`). One key sees the whole estate, and the estate has already been surprised by a
+live account nobody knew about — PHP, at $147k/yr. Every run asks Windsor what exists and prints a
+loud `🔴 NEW ACCOUNT` warning for anything missing from `ACCOUNT_TO_CLIENT`, loading it with a NULL
+slug so it cannot land in another client's view.
 
 Auth is **Application Default Credentials** for BigQuery + Storage, and the Windsor key comes from
 Secret Manager (`windsor-api-key`) — so the same code runs locally after

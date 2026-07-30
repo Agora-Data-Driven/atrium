@@ -165,6 +165,16 @@
 
   /* ---- the tuckable filter bar. Filters should not own the screen; collapsed, the summary line
        stays, because it already states the period. ---- */
+  /* The view switcher. Sits ABOVE the control bar on purpose: the controls tuck away, and
+     primary navigation must never be collapsible. Sized up from .seg's control-bar scale so it
+     reads as navigation rather than as another filter. */
+  .viewtabs{margin:0 0 14px}
+  .viewtabs .seg{padding:4px;border-radius:12px}
+  .viewtabs .seg button{font-size:13px;font-weight:600;padding:8px 16px;border-radius:9px}
+  .viewtabs .seg button.on{color:var(--navy)}
+  .viewtabs .ix{display:inline-block;min-width:17px;height:17px;line-height:17px;margin-right:7px;
+    border-radius:5px;background:#dbe5e3;color:var(--muted);font-size:10.5px;font-weight:700;text-align:center}
+  .viewtabs .seg button.on .ix{background:var(--teal);color:#fff}
   .controls{background:#fff;border:1px solid var(--border);border-radius:14px;
             box-shadow:var(--shadow);margin-bottom:20px}
   .controls-inner{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;
@@ -326,8 +336,7 @@
 /* <<< AGORA STANDARD CONFORM v1 */
 </style>
 </head>
-<body data-single-view="one diagnostic question (why quiz-lead conversion changed). A tab bar with a single tab is chrome, not navigation, so this dashboard is deliberately one view."
-      data-no-benchmark="the comparison here is COHORT-based, not window-based: a lead is judged against the year they took the quiz (a recent cohort has simply had less time to buy), plus this-year-against-prior click rate. A second free-floating date range would let a reader compare cohorts of different ages and read a decline that is only age.">
+<body data-no-benchmark="the comparison on the Quiz tab is COHORT-based, not window-based: a lead is judged against the year they took the quiz (a recent cohort has simply had less time to buy), plus this-year-against-prior click rate. A second free-floating date range would let a reader compare cohorts of different ages and read a decline that is only age. The Lead Gen tab carries its own like-for-like comparison (last 30 days against the prior 30), computed in SQL and anchored to the last day WITH DATA rather than to today.">
   <div class="topbar"></div>
   <div class="wrap">
     <header>
@@ -359,6 +368,20 @@
     <div id="boot" class="loading"><div class="spin2"></div>Loading dashboard&hellip;</div>
 
     <div id="app" hidden>
+      <!-- ============ THE VIEW TABS ============
+           Two genuinely different questions, so this is navigation rather than chrome (which is
+           why the old data-single-view waiver came off the <body> when Lead Gen landed):
+             Quiz diagnostic -- why did quiz-lead conversion change?
+             Lead Gen        -- what is the paid media buying us?
+           Reuses the .seg control the grain switcher already uses, so it inherits tested styling
+           and segWire() rather than growing a second, near-identical widget. -->
+      <div class="viewtabs">
+        <div class="seg" id="seg-view">
+          <button type="button" data-v="quiz" class="on"><span class="ix">1</span>Quiz diagnostic</button>
+          <button type="button" data-v="paid"><span class="ix">2</span>Lead Gen</button>
+        </div>
+      </div>
+
       <!-- ============ THE CONTROL BAR ============
            The period drives the trend chart, the cohort table and the lead list. Presets
            anchor to the newest date IN THE DATA, never to today: the Klaviyo and quiz feeds
@@ -389,6 +412,7 @@
         </div>
       </div>
 
+      <div id="view-quiz">
       <div class="hero" id="hero"></div>
       <div class="kpis" id="kpis"></div>
 
@@ -468,6 +492,85 @@
         <div class="shead"><h2>Reading of the diagnostics</h2><span class="sub">recomputed with the period</span></div>
         <div class="insights" id="insights"></div>
       </div>
+      </div><!-- /#view-quiz -->
+
+      <!-- ============ LEAD GEN (paid media) ============
+           Fed by raw_windsor.perf_meta -> client_tcs.paid_media_* views. There is NO Windsor API
+           call anywhere in this client's stack: one shared loader writes the raw layer for the
+           whole estate and this client reads its own slice through a view. -->
+      <div id="view-paid" hidden>
+        <div class="hero" id="paidHero"></div>
+        <div class="kpis" id="paidKpis"></div>
+
+        <div class="panel">
+          <h2>Spend, leads &amp; cost per lead</h2>
+          <p class="desc">Meta spend against the leads Meta reports for it, by <b>week or month</b> (the grain control above applies). Cost per lead is drawn from the totals of each bucket, never averaged across days &mdash; a day with $2 of spend and one lead would otherwise drag the line as hard as a $200 day. Each line is indexed to its own peak so the three compare on one axis; hover for real values.</p>
+          <div class="legend">
+            <span class="item"><span class="swatch" style="background:#153a5b"></span>Spend</span>
+            <span class="item"><span class="swatch" style="background:#17a398"></span>Leads</span>
+            <span class="item"><span class="swatch" style="background:#d8952f"></span>Cost per lead</span>
+          </div>
+          <svg class="chart" id="paidChart" preserveAspectRatio="none" viewBox="0 0 760 250" role="img" aria-label="Meta spend, leads and cost per lead over time"></svg>
+          <p class="note" id="paidNote"></p>
+          <div class="tip" id="paidTip"></div>
+        </div>
+
+        <div class="panel">
+          <h2>What the ads buy, month by month</h2>
+          <p class="desc"><b>Blended, not attributed.</b> There is no click-id or UTM join between a Meta ad and a quiz submission in this warehouse, so these divide <i>all</i> Meta spend by <i>all</i> quiz activity that month &mdash; including leads that came from email, organic or direct. It is a fair read of what we paid against what the business got, and it is <b>not</b> Meta's own cost per lead (that is the "Meta reports" column, shown beside it so the two can be compared rather than confused). Months where ads ran less than half the month are greyed: a partial flight divided by a whole month of leads is not a rate.</p>
+          <div class="tablewrap">
+            <table id="paidFunnel">
+              <thead><tr>
+                <th>Month</th><th>Spend</th><th>Meta reports</th><th>Quiz leads</th>
+                <th>Blended cost / lead</th><th>Customers</th><th>Blended cost / sale</th>
+                <th>Revenue</th><th>Return on spend</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Campaigns</h2>
+          <p class="desc">Every Meta campaign over its whole flight, biggest spend first. <b>Objective is shown because it decides which column matters</b> &mdash; a traffic campaign judged on cost per lead will always look broken.</p>
+          <div class="tablewrap">
+            <table id="paidCampaigns">
+              <thead><tr>
+                <th>Campaign</th><th>Objective</th><th>Ads</th><th>Spend</th><th>Impressions</th>
+                <th>Link clicks</th><th>CTR</th><th>CPC</th><th>Leads</th><th>Cost / lead</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Creative</h2>
+          <p class="desc">Every ad over its whole flight, biggest spend first. Click a heading to sort. <b>An ad with too little volume to judge on a rate is marked &ldquo;thin&rdquo;</b> &mdash; four clicks can post a $0.18 CPC and win the table on noise, which is how a targeting decision gets made on nothing.</p>
+          <div class="tablewrap scrolly">
+            <table id="paidAds">
+              <thead><tr>
+                <th class="sortable" data-key="ad_name" data-type="str">Ad</th>
+                <th class="sortable" data-key="campaign_name" data-type="str">Campaign</th>
+                <th class="sortable" data-key="status" data-type="str">Status</th>
+                <th class="sortable" data-key="spend" data-type="num">Spend</th>
+                <th class="sortable" data-key="impressions" data-type="num">Impr.</th>
+                <th class="sortable" data-key="link_clicks" data-type="num">Link clicks</th>
+                <th class="sortable" data-key="ctr" data-type="num">CTR</th>
+                <th class="sortable" data-key="cpc" data-type="num">CPC</th>
+                <th class="sortable" data-key="leads" data-type="num">Leads</th>
+                <th class="sortable" data-key="cpl" data-type="num">Cost / lead</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="shead"><h2>Reading of the paid media</h2><span class="sub">last 30 days against the prior 30</span></div>
+          <div class="insights" id="paidInsights"></div>
+        </div>
+      </div><!-- /#view-paid -->
     </div>
   </div>
 
@@ -605,11 +708,15 @@
     if(SYNCING){ return; }
     SYNCING = true;
     setSync("busy", "Syncing");
-    fetch("/refresh", { method: "POST", credentials: "same-origin" })
+    /* 🔴 RELATIVE, never "/refresh" or "/data.json". The portal serves this dashboard under
+       portal.agoradatadriven.com/d/<client>/, so a root-anchored path escapes the frame and hits the
+       PORTAL instead of this dash. Relative is correct under BOTH the proxy path and this service's
+       own host -- see the twin note at loadData below. */
+    fetch("refresh", { method: "POST", credentials: "same-origin" })
       .then(function(r){ return r.ok ? r.json() : { ok: false }; })
       .catch(function(){ return { ok: false }; })
       .then(function(res){
-        return fetch("/data.json?t=" + Date.now(), { credentials: "same-origin", cache: "no-store" })
+        return fetch("data.json?t=" + Date.now(), { credentials: "same-origin", cache: "no-store" })
           .then(function(r){ return r.json(); })
           .then(function(j){
             render(j);
@@ -1096,6 +1203,351 @@
       }
     });
   }
+  /* ==========================================================================================
+     LEAD GEN (paid media). Source: raw_windsor.perf_meta -> client_tcs.paid_media_* views.
+     Nothing here calls Windsor -- the shared ingest job writes the raw layer for the whole
+     estate and this client reads its own slice through a view.
+     ========================================================================================== */
+  var PAID = { kpis: null, daily: [], ads: [], campaigns: [], funnel: [], sortKey: "spend", sortDir: -1 };
+
+  function weekStart(iso) {
+    var d = dObj(iso);
+    /* getUTCDay(): 0=Sun..6=Sat. Weeks start MONDAY here, matching activity_weekly, so Sunday
+       (0) has to walk back six days rather than zero. */
+    var dow = d.getUTCDay(), back = (dow === 0) ? 6 : (dow - 1);
+    d.setUTCDate(d.getUTCDate() - back);
+    return isoOf(d);
+  }
+
+  /* Roll the DAILY series up to the selected grain, inside the selected period.
+     🔴 Rates are recomputed from the bucket TOTALS, never averaged from the daily rates: a day
+     with $2 of spend and one lead would otherwise pull the cost-per-lead line as hard as a
+     $200 day, which is how a chart ends up disagreeing with its own KPI tiles. */
+  function paidBuckets() {
+    var weekly = grainOf("paid", ST.from, ST.to) === "week";
+    var byKey = {}, order = [], i;
+    for (i = 0; i < PAID.daily.length; i++) {
+      var r = PAID.daily[i], day = String(r.day || "").slice(0, 10);
+      if (!day || !inPeriod(day)) { continue; }
+      var key = weekly ? weekStart(day) : (day.slice(0, 7) + "-01");
+      var b = byKey[key];
+      if (!b) {
+        b = { k: key, spend: 0, leads: 0, impressions: 0, link_clicks: 0, purchases: 0, revenue: 0, days: 0 };
+        byKey[key] = b; order.push(key);
+      }
+      b.spend += Number(r.spend) || 0;
+      b.leads += Number(r.leads) || 0;
+      b.impressions += Number(r.impressions) || 0;
+      b.link_clicks += Number(r.link_clicks) || 0;
+      b.purchases += Number(r.purchases) || 0;
+      b.revenue += Number(r.revenue) || 0;
+      b.days += 1;
+    }
+    order.sort();
+    var out = [];
+    for (i = 0; i < order.length; i++) {
+      var x = byKey[order[i]];
+      x.cpl = x.leads > 0 ? (x.spend / x.leads) : null;
+      x.ctr = x.impressions > 0 ? (x.link_clicks / x.impressions) : null;
+      x.cpc = x.link_clicks > 0 ? (x.spend / x.link_clicks) : null;
+      out.push(x);
+    }
+    return { rows: out, weekly: weekly };
+  }
+
+  function renderPaidChart() {
+    var bk = paidBuckets(), rows = bk.rows;
+    var maxSp = seriesMax(rows, "spend"), maxLd = seriesMax(rows, "leads"), maxCpl = seriesMax(rows, "cpl");
+    function norm(v, mx) { if (!isNum(v)) { return null; } return mx > 0 ? Number(v) / mx : null; }
+    var plot = [], i;
+    for (i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var row = {
+        k: r.k, spend: r.spend, leads: r.leads, cpl: r.cpl, ctr: r.ctr,
+        spend_v: norm(r.spend, maxSp), leads_v: norm(r.leads, maxLd), cpl_v: norm(r.cpl, maxCpl)
+      };
+      plot.push(row);
+    }
+    renderLineChart({
+      svgId: "paidChart", tipId: "paidTip", rows: plot, xkey: "k", isRate: true,
+      xLabel: bk.weekly ? weekLabel : monthLabel,
+      series: [
+        { key: "spend_v", label: "Spend", color: "#153a5b", area: true },
+        { key: "leads_v", label: "Leads", color: "#17a398" },
+        { key: "cpl_v", label: "Cost per lead", color: "#d8952f" }
+      ],
+      extra: function (r) {
+        return '<div class="row" style="color:#6b7c8c">spend: ' + fmtMoney(r.spend) +
+               " · leads: " + fmtInt(r.leads) +
+               " · cost/lead: " + (isNum(r.cpl) ? "$" + Number(r.cpl).toFixed(2) : "–") +
+               " · CTR: " + (isNum(r.ctr) ? fmtPct(r.ctr) : "–") + "</div>";
+      }
+    });
+    el("paidNote").textContent = rows.length
+      ? ""
+      : "No Meta spend in this period. Widen the period above.";
+  }
+
+  function deltaSub(cur, prev, lowerIsBetter) {
+    /* A tile's direction chip. Returns "" rather than a fake 0% when either side is missing --
+       a first month with no prior window has no trend, and printing "0%" would assert one. */
+    if (!isNum(cur) || !isNum(prev) || Number(prev) === 0) { return ""; }
+    var d = (Number(cur) - Number(prev)) / Math.abs(Number(prev));
+    var better = lowerIsBetter ? (d < 0) : (d > 0);
+    return '<span class="' + (better ? "up" : "down") + '">' + (d < 0 ? "▼ " : "▲ ") +
+           fmtPct(Math.abs(d)) + "</span> vs prior 30d";
+  }
+
+  function renderPaidKpis() {
+    var k = PAID.kpis;
+    if (!k) { el("paidKpis").innerHTML = ""; return; }
+    var html = "";
+    html += kpiCard("Spend (all time)", fmtMoney(k.spend), "", fmtInt(k.active_days) + " days live");
+    html += kpiCard("Leads", fmtInt(k.leads), "teal", fmtInt(k.ads) + " ads · " + fmtInt(k.campaigns) + " campaigns");
+    html += kpiCard("Cost per lead", isNum(k.cpl) ? "$" + Number(k.cpl).toFixed(2) : "-", "teal", null);
+    html += kpiCard("Spend last 30d", fmtMoney(k.spend_30d), "", deltaSub(k.spend_30d, k.spend_prev30, false));
+    html += kpiCard("Leads last 30d", fmtInt(k.leads_30d), "amber", deltaSub(k.leads_30d, k.leads_prev30, false));
+    /* Cost per lead is the one tile where DOWN is good, so it passes lowerIsBetter. */
+    html += kpiCard("Cost / lead last 30d", isNum(k.cpl_30d) ? "$" + Number(k.cpl_30d).toFixed(2) : "-",
+                    "teal", deltaSub(k.cpl_30d, k.cpl_prev30, true));
+    html += kpiCard("Link CTR", fmtPct(k.ctr), "", isNum(k.cpc) ? "$" + Number(k.cpc).toFixed(2) + " per click" : null);
+    html += kpiCard("Meta-tracked revenue", fmtMoney(k.revenue), isNum(k.roas) && k.roas >= 1 ? "teal" : "coral",
+                    isNum(k.roas) ? Number(k.roas).toFixed(2) + "x on spend" : null);
+    el("paidKpis").innerHTML = html;
+  }
+
+  function renderPaidHero() {
+    var k = PAID.kpis;
+    if (!k) { el("paidHero").style.display = "none"; return; }
+    el("paidHero").style.display = "";
+    var h = "<h1>" + fmtMoney(k.spend) + " of Meta spend has bought <span class=\"big\">" +
+            fmtInt(k.leads) + " leads</span> at " +
+            (isNum(k.cpl) ? "$" + Number(k.cpl).toFixed(2) : "-") + " each.</h1>";
+    var sub = "";
+    if (isNum(k.cpl_30d) && isNum(k.cpl_prev30)) {
+      var d = k.cpl_30d - k.cpl_prev30;
+      sub = "Over the last 30 days cost per lead is $" + Number(k.cpl_30d).toFixed(2) +
+            " against $" + Number(k.cpl_prev30).toFixed(2) + " in the 30 before &mdash; " +
+            (d < 0 ? "improving." : d > 0 ? "getting more expensive." : "flat.");
+    }
+    sub += " Figures run " + prettyDate(k.first_day) + " to " + prettyDate(k.last_day) + ".";
+    el("paidHero").innerHTML = h + "<p>" + sub + "</p>";
+  }
+
+  function renderPaidFunnel() {
+    var rows = PAID.funnel || [], out = [], i;
+    for (i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      /* A partial flight month is SHOWN but greyed and flagged, never silently dropped: the
+         spend is real and belongs in the total, it is only the per-lead RATIO that is not
+         comparable. Hiding the row would make the spend column stop adding up. */
+      var dim = r.is_complete_month ? "" : ' style="opacity:.5"';
+      var flag = r.is_complete_month ? "" :
+        ' <span title="Ads ran only ' + fmtInt(r.spend_days) + ' days of this month, so the per-lead ratios are not comparable" style="color:#b45309">partial</span>';
+      out.push("<tr" + dim + "><td>" + esc(monthLabel(r.month)) + flag + "</td>" +
+        "<td>" + fmtMoney(r.spend) + "</td>" +
+        "<td>" + fmtInt(r.meta_reported_leads) + "</td>" +
+        "<td>" + fmtInt(r.quiz_leads) + "</td>" +
+        "<td>" + (isNum(r.blended_cost_per_quiz_lead) ? "$" + Number(r.blended_cost_per_quiz_lead).toFixed(2) : "–") + "</td>" +
+        "<td>" + fmtInt(r.customers) + "</td>" +
+        "<td>" + (isNum(r.blended_cost_per_sale) ? fmtMoney(r.blended_cost_per_sale) : "–") + "</td>" +
+        "<td>" + fmtMoney(r.quiz_revenue) + "</td>" +
+        "<td>" + (isNum(r.blended_return_on_spend) ? Number(r.blended_return_on_spend).toFixed(2) + "x" : "–") + "</td></tr>");
+    }
+    el("paidFunnel").getElementsByTagName("tbody")[0].innerHTML =
+      out.length ? out.join("") : '<tr><td colspan="9">No months with Meta spend yet.</td></tr>';
+  }
+
+  function renderPaidCampaigns() {
+    var rows = PAID.campaigns || [], out = [], i;
+    for (i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      out.push("<tr><td>" + esc(String(r.campaign_name || "–")) + "</td>" +
+        "<td>" + esc(String(r.objective || "–")) + "</td>" +
+        "<td>" + fmtInt(r.ads) + "</td>" +
+        "<td>" + fmtMoney(r.spend) + "</td>" +
+        "<td>" + fmtInt(r.impressions) + "</td>" +
+        "<td>" + fmtInt(r.link_clicks) + "</td>" +
+        "<td>" + fmtPct(r.ctr) + "</td>" +
+        "<td>" + (isNum(r.cpc) ? "$" + Number(r.cpc).toFixed(2) : "–") + "</td>" +
+        "<td>" + fmtInt(r.leads) + "</td>" +
+        "<td>" + (isNum(r.cpl) ? "$" + Number(r.cpl).toFixed(2) : "–") + "</td></tr>");
+    }
+    el("paidCampaigns").getElementsByTagName("tbody")[0].innerHTML =
+      out.length ? out.join("") : '<tr><td colspan="10">No campaigns yet.</td></tr>';
+  }
+
+  function renderPaidAds() {
+    var rows = (PAID.ads || []).slice(0), i;
+    var key = PAID.sortKey, dir = PAID.sortDir;
+    rows.sort(function (a, b) {
+      var av = a[key], bv = b[key];
+      if (typeof av === "string" || typeof bv === "string") {
+        av = String(av || "").toLowerCase(); bv = String(bv || "").toLowerCase();
+        return av < bv ? -dir : av > bv ? dir : 0;
+      }
+      av = isNum(av) ? Number(av) : -Infinity;
+      bv = isNum(bv) ? Number(bv) : -Infinity;
+      return (av - bv) * dir;
+    });
+    var out = [];
+    for (i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      /* 🔴 A rate on tiny volume is noise, and noise wins tables. An ad below the floor keeps
+         its counts but is marked, so nobody reallocates budget onto four clicks. */
+      var thin = r.is_significant ? "" :
+        ' <span title="Too little volume to judge on a rate" style="color:#b45309;font-size:11px">thin</span>';
+      out.push("<tr><td>" + esc(String(r.ad_name || r.ad_id || "–")) + thin + "</td>" +
+        "<td>" + esc(String(r.campaign_name || "–")) + "</td>" +
+        "<td>" + esc(String(r.status || "–")) + "</td>" +
+        "<td>" + fmtMoney(r.spend) + "</td>" +
+        "<td>" + fmtInt(r.impressions) + "</td>" +
+        "<td>" + fmtInt(r.link_clicks) + "</td>" +
+        "<td>" + (r.is_significant ? fmtPct(r.ctr) : '<span style="color:#9aa8b4">' + fmtPct(r.ctr) + "</span>") + "</td>" +
+        "<td>" + (isNum(r.cpc) ? "$" + Number(r.cpc).toFixed(2) : "–") + "</td>" +
+        "<td>" + fmtInt(r.leads) + "</td>" +
+        "<td>" + (isNum(r.cpl) ? "$" + Number(r.cpl).toFixed(2) : "–") + "</td></tr>");
+    }
+    el("paidAds").getElementsByTagName("tbody")[0].innerHTML =
+      out.length ? out.join("") : '<tr><td colspan="10">No ads yet.</td></tr>';
+
+    var ths = el("paidAds").getElementsByTagName("th"), t;
+    for (t = 0; t < ths.length; t++) {
+      var tk = ths[t].getAttribute("data-key");
+      var arrow = (tk === PAID.sortKey) ? ' <span class="arrow">' + (PAID.sortDir < 0 ? "▼" : "▲") + "</span>" : "";
+      ths[t].innerHTML = ths[t].textContent.replace(/[▼▲]\s*$/, "").trim() + arrow;
+    }
+  }
+
+  var PAID_ADS_WIRED = false;
+  function wirePaidAds() {
+    if (PAID_ADS_WIRED) { return; }
+    PAID_ADS_WIRED = true;
+    var ths = el("paidAds").getElementsByTagName("th"), t;
+    for (t = 0; t < ths.length; t++) {
+      (function (th) {
+        var k = th.getAttribute("data-key");
+        if (!k) { return; }
+        th.addEventListener("click", function () {
+          if (PAID.sortKey === k) { PAID.sortDir = -PAID.sortDir; }
+          else { PAID.sortKey = k; PAID.sortDir = (th.getAttribute("data-type") === "num") ? -1 : 1; }
+          renderPaidAds();
+        });
+      })(ths[t]);
+    }
+  }
+
+  function renderPaidInsights() {
+    var k = PAID.kpis, out = [];
+    if (!k) {
+      el("paidInsights").innerHTML = emptyState("No paid media data yet",
+        "Once the shared Meta ingest job has run for this account, this tab fills in by itself.");
+      return;
+    }
+    if (isNum(k.cpl_30d) && isNum(k.cpl_prev30)) {
+      var d = k.cpl_30d - k.cpl_prev30;
+      out.push(insightCard(d <= 0 ? "📉" : "📈",
+        d <= 0 ? "Leads are getting cheaper" : "Leads are getting more expensive",
+        "Cost per lead is <b>$" + Number(k.cpl_30d).toFixed(2) + "</b> over the last 30 days against <b>$" +
+        Number(k.cpl_prev30).toFixed(2) + "</b> in the 30 before, on " + fmtMoney(k.spend_30d) +
+        " of spend for " + fmtInt(k.leads_30d) + " leads.",
+        d <= 0 ? "win" : "warn"));
+    }
+    /* The blended read is the one the client actually asks about: what did a customer cost? It
+       is stated as blended every time it appears, because it is not attributed. */
+    var f = PAID.funnel || [], fi, spend = 0, custs = 0, qleads = 0, rev = 0;
+    for (fi = 0; fi < f.length; fi++) {
+      spend += Number(f[fi].spend) || 0;
+      custs += Number(f[fi].customers) || 0;
+      qleads += Number(f[fi].quiz_leads) || 0;
+      rev += Number(f[fi].quiz_revenue) || 0;
+    }
+    if (spend > 0 && custs > 0) {
+      out.push(insightCard("💰", "A customer costs about " + fmtMoney(spend / custs) + ", blended",
+        "Across every month we ran ads, " + fmtMoney(spend) + " of Meta spend sits alongside <b>" +
+        fmtInt(custs) + "</b> quiz-lead customers and " + fmtMoney(rev) + " of post-quiz revenue &mdash; a " +
+        "blended return of <b>" + (spend > 0 ? (rev / spend).toFixed(2) : "0") + "x</b>. Blended, not " +
+        "attributed: some of those buyers found the quiz another way.",
+        (rev / spend) >= 1 ? "win" : "crit"));
+    } else if (spend > 0) {
+      out.push(insightCard("⚠️", "No quiz lead from a paid month has bought yet",
+        fmtMoney(spend) + " of Meta spend sits against " + fmtInt(qleads) + " quiz leads and no " +
+        "recorded purchase. That is the finding to take into the meeting.", "crit"));
+    }
+    /* Meta's own lead count against the quiz's. A large gap is a measurement problem worth
+       naming rather than quietly averaging away. */
+    var mrl = 0;
+    for (fi = 0; fi < f.length; fi++) { mrl += Number(f[fi].meta_reported_leads) || 0; }
+    if (mrl > 0 && qleads > 0) {
+      var ratio = mrl / qleads;
+      if (ratio > 1.3 || ratio < 0.7) {
+        out.push(insightCard("🔍", "Meta and the quiz disagree on lead volume",
+          "Meta reports <b>" + fmtInt(mrl) + "</b> leads over the paid months while the quiz recorded <b>" +
+          fmtInt(qleads) + "</b>. " + (ratio > 1 ? "Meta is counting events the quiz never saw" :
+          "the quiz saw more leads than Meta claims") + " &mdash; worth checking the pixel and the " +
+          "quiz's own capture before either number is used to judge the channel.", "warn"));
+      }
+    }
+    var top = null, ti;
+    for (ti = 0; ti < (PAID.ads || []).length; ti++) {
+      var a = PAID.ads[ti];
+      if (!a.is_significant || !isNum(a.cpl)) { continue; }
+      if (!top || a.cpl < top.cpl) { top = a; }
+    }
+    if (top) {
+      out.push(insightCard("🎯", "Cheapest lead comes from " + esc(String(top.ad_name || top.ad_id)),
+        "<b>$" + Number(top.cpl).toFixed(2) + "</b> per lead on " + fmtMoney(top.spend) + " of spend (" +
+        fmtInt(top.leads) + " leads). Ads with too little volume to judge are excluded from this pick."));
+    }
+    el("paidInsights").innerHTML = out.join("");
+  }
+
+  function renderPaid() {
+    renderPaidHero();
+    renderPaidKpis();
+    renderPaidChart();
+    renderPaidFunnel();
+    renderPaidCampaigns();
+    wirePaidAds();
+    renderPaidAds();
+    renderPaidInsights();
+  }
+
+  /* ---- the view switcher. Tab state lives in the URL HASH: linkable (so "here is the lead gen
+     tab" is a URL you can paste into the meeting), and it survives a refresh. ---- */
+  var VIEW = "quiz";
+  var VIEWS = { quiz: 1, paid: 1 };
+  function showView(v, fromHash) {
+    if (!VIEWS[v]) { v = "quiz"; }
+    VIEW = v;
+    el("view-quiz").hidden = (v !== "quiz");
+    el("view-paid").hidden = (v !== "paid");
+    /* NOT setActive(): that toggles class "active", while a .seg button's selected state is
+       class "on" (see segWire). Using setActive here left the pill highlighting the wrong tab
+       whenever the view was set from the hash rather than from a click. */
+    var vb = document.querySelectorAll("#seg-view button[data-v]"), bi;
+    for (bi = 0; bi < vb.length; bi++) {
+      var isOn = (vb[bi].getAttribute("data-v") === v);
+      vb[bi].className = isOn ? "on" : "";
+      vb[bi].setAttribute("aria-pressed", isOn ? "true" : "false");
+    }
+    /* replaceState, not location.hash =, so switching tabs does not stack history entries the
+       reader then has to click Back through. */
+    if (!fromHash && window.history && window.history.replaceState) {
+      window.history.replaceState(null, "", "#" + v);
+    }
+    /* The chart only has a usable width once its pane is visible, so the paid tab renders on
+       SHOW rather than once at load -- an SVG laid out inside a hidden container measures zero
+       and draws as a flat line at the origin. */
+    if (v === "paid") { renderPaid(); }
+  }
+  function wireViewHash() {
+    window.addEventListener("hashchange", function () {
+      var h = location.hash.replace("#", "");
+      if (h && h !== VIEW) { showView(h, true); }
+    });
+  }
+
   /* ---- the control bar. Wired once; every control ends in renderPeriod(). ---- */
   var CONTROLS_WIRED = false;
   function wireControls() {
@@ -1126,6 +1578,7 @@
       })(ids[i]);
     }
     segWire("seg-grain", function (v) { ST.grain = v; syncDateInputs(); renderPeriod(); });
+    segWire("seg-view", function (v) { showView(v); });
     wireTuck();
     el("syncBtn").addEventListener("click", doSync);
   }
@@ -1135,6 +1588,10 @@
     renderActivity();
     renderLeadRows();
     renderInsights();
+    /* The period drives BOTH tabs, so the paid chart re-buckets too -- but only while its pane
+       is on screen (a chart drawn into a hidden container measures zero width). Switching back
+       to Lead Gen re-renders it anyway, so nothing is missed. */
+    if (VIEW === "paid") { renderPaidChart(); }
   }
 
   /* The reading. Every card recomputes with the period, and every one of them states a finding
@@ -1245,8 +1702,24 @@
     renderCampaigns(data.campaigns, data.lead_emails);
     renderInsights();
 
+    /* Lead Gen. `paid.kpis` is null when the shared Meta loader has not written rows for this
+       client yet -- the tab then shows its wired empty state rather than a page of zeros, which
+       would read as "the ads bought nothing" instead of "we have no data". */
+    var paid = data.paid || {};
+    PAID.kpis = paid.kpis || null;
+    PAID.daily = paid.daily || [];
+    PAID.ads = paid.ads || [];
+    PAID.campaigns = paid.campaigns || [];
+    PAID.funnel = paid.funnel || [];
+
     el("boot").hidden = true;
     el("app").hidden = false;
+
+    /* Land on the tab in the URL (so a shared #paid link opens Lead Gen), else the default.
+       Done AFTER #app is shown, because the paid chart needs a laid-out container to measure. */
+    wireViewHash();
+    var h0 = location.hash.replace("#", "");
+    showView(VIEWS[h0] ? h0 : "quiz", true);
   }
 
   function fail(msg) {
@@ -1255,7 +1728,11 @@
   }
 
   function load() {
-    fetch("/data.json", { credentials: "same-origin" })
+    /* 🔴 RELATIVE, never "/data.json" -- the ONE line that decides whether this dashboard works
+       embedded in Atrium. Under the portal's /d/<client>/ proxy a root-anchored path resolves to
+       portal.agoradatadriven.com/data.json (the portal, not this dash) and the page strands on its
+       loading state forever. "data.json" is correct under the proxy AND on this service's own host. */
+    fetch("data.json", { credentials: "same-origin" })
       .then(function (resp) { if (!resp.ok) { throw new Error("HTTP " + resp.status); } return resp.json(); })
       .then(function (data) { render(data); })
       .catch(function (err) { fail(err && err.message ? err.message : "unknown error"); });

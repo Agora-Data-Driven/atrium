@@ -26,12 +26,29 @@ migrated off**, not a pattern to copy:
 Meta ──► Windsor ──► windsor-meta-ingest ──► raw_windsor.perf_meta ──► client view ──► <c>-export
 ```
 
-**`meta/meta_loader.py` is still a STUB** (`TODO: implement the Windsor Meta request`), and that
-gap is why `client_RHE`, `client_riverdance`, `client_honeytribe` and `client_MeloYelo` each grew
-their **own** Windsor pull inside their export job — four implementations, four different row
-vocabularies, every trap rediscovered separately, and one of them silently lost **$321** of spend by
-overwriting rows on key collision instead of summing them. Do not add a fifth. Finish the loader
-instead: [`meta/README.md`](meta/README.md) holds the full port spec.
+**`meta/meta_loader.py` is BUILT and has run (2026-07-30)** — `raw_windsor.perf_meta` exists and
+holds data, and **TCS is the first client on the canonical path** (perf_meta → `client_tcs.paid_media_*`
+views → `tcs-export` → the dashboard's Lead Gen tab, with no client-side Windsor call). Only TCS is
+backfilled so far; run the loader with no `--only` to sweep the estate.
+
+That stub is why `client_RHE`, `client_riverdance`, `client_honeytribe` and `client_MeloYelo` each
+grew their **own** Windsor pull inside their export job — four implementations, four row
+vocabularies, every trap rediscovered separately, and one that silently lost **$321** of spend by
+overwriting rows on key collision instead of summing. Those four can now migrate onto views.
+**Do not add a fifth.** [`meta/README.md`](meta/README.md) holds the full spec + the live probe results.
+
+- **The staging bucket is new**: `create_staging_bucket.py` makes `agora-data-driven-staging`
+  (private, uniform access, 30-day lifecycle). Every loader stages NDJSON there before the MERGE.
+- 🔴 **`windsor-api-key` does not exist yet** — only the four per-client secrets do, and they are
+  **byte-identical** (verified). `deploy_ingest_jobs.ps1` mounts `windsor-api-key` and will fail at
+  the IAM step until it is created, which is why `windsor-meta-ingest` is **not deployed**. Create +
+  rotate it, then delete the four. Locally: `WINDSOR_SECRET=rhe-windsor-key` or pass `WINDSOR_API_KEY`.
+- ⚠️ **`/all` is BLENDED across connectors.** `ASL Logistics` is a `google_ads` account and carries
+  no `ad_id`; the loader filters `datasource == "facebook"` so those rows can never poison the
+  `(ad_id, metric_date)` merge key. 12 Meta accounts + 1 Google Ads, not 13 Meta.
+- ⚠️ **`date_from`/`date_to` DO work** on this account (probed live), so the chunked port is valid —
+  `meta/windsor_api.py`'s docstring says otherwise and is wrong on that one point. Never send a
+  preset and a range together: **the preset silently wins**.
 
 - The request/transform helpers are written and tested in **`meta/windsor_api.py`** — reuse them.
   ⚠️ **Never vendor that module into a client job.** It briefly lived at

@@ -32,13 +32,18 @@ BUCKET = f"agora-data-driven-{CLIENT}-dash"
 DATA_OBJECT = f"{CLIENT}.json"
 
 # The BASE raw_windsor mirror tables the Stage 1 views read. We watermark THESE -- never a view.
+# perf_meta is written by the SHARED windsor-meta-ingest job (services/ingest/meta) for the
+# whole estate; the paid_media_* views read this client's slice out of it. It gates like any
+# other upstream: when the nightly Meta pull advances, this export rebuilds.
 GATING_TABLES = [
     "raw_windsor.tcs_quiz",
     "raw_windsor.tcs_shopify_orders",
     "raw_windsor.tcs_klaviyo_events",
+    "raw_windsor.perf_meta",
 ]
 WATERMARK_OBJECT = "_freshness.json"
 LEADS_LIMIT = 800
+ADS_LIMIT = 100
 
 
 def _iso_now():
@@ -277,6 +282,145 @@ def _read_lead_emails(bq):
     return out
 
 
+# ---------------------------------------------------------------------------------------
+# Paid media (Meta). Reads the paid_media_* views, which read this client's slice of the
+# SHARED raw_windsor.perf_meta -- there is NO Windsor API call in this job, and there must
+# never be one. That is the whole point of the canonical ingest layer.
+# ---------------------------------------------------------------------------------------
+def _read_paid_kpis(bq):
+    sql = f"""
+        SELECT first_day, last_day, spend, impressions, clicks, link_clicks, leads, purchases,
+               revenue, ads, campaigns, active_days, ctr, cpc, cpm, cpl, roas,
+               spend_30d, leads_30d, cpl_30d, ctr_30d, roas_30d,
+               spend_prev30, leads_prev30, cpl_prev30, ctr_prev30, roas_prev30
+        FROM `{PROJECT}.{DATASET}.paid_media_kpis`
+    """
+    rows = list(bq.query(sql, location=LOC).result())
+    if not rows:
+        # No Meta rows for this client yet -- the dashboard renders its wired empty state
+        # rather than a page of zeros, which would read as "the ads got nothing".
+        return None
+    r = rows[0]
+    return {
+        "first_day": _date(r["first_day"]), "last_day": _date(r["last_day"]),
+        "spend": _f(r["spend"]), "impressions": _i(r["impressions"]), "clicks": _i(r["clicks"]),
+        "link_clicks": _i(r["link_clicks"]), "leads": _i(r["leads"]),
+        "purchases": _i(r["purchases"]), "revenue": _f(r["revenue"]),
+        "ads": _i(r["ads"]), "campaigns": _i(r["campaigns"]), "active_days": _i(r["active_days"]),
+        "ctr": _f(r["ctr"]), "cpc": _f(r["cpc"]), "cpm": _f(r["cpm"]),
+        "cpl": _f(r["cpl"]), "roas": _f(r["roas"]),
+        "spend_30d": _f(r["spend_30d"]), "leads_30d": _i(r["leads_30d"]),
+        "cpl_30d": _f(r["cpl_30d"]), "ctr_30d": _f(r["ctr_30d"]), "roas_30d": _f(r["roas_30d"]),
+        "spend_prev30": _f(r["spend_prev30"]), "leads_prev30": _i(r["leads_prev30"]),
+        "cpl_prev30": _f(r["cpl_prev30"]), "ctr_prev30": _f(r["ctr_prev30"]),
+        "roas_prev30": _f(r["roas_prev30"]),
+    }
+
+
+def _read_paid_daily(bq):
+    sql = f"""
+        SELECT day, spend, impressions, clicks, link_clicks, leads, landing_page_views,
+               add_to_cart, purchases, revenue, ctr, cpc, cpm, cpl, roas, frequency
+        FROM `{PROJECT}.{DATASET}.paid_media_daily`
+        ORDER BY day
+    """
+    out = []
+    for r in bq.query(sql, location=LOC).result():
+        out.append({
+            "day": _date(r["day"]), "spend": _f(r["spend"]),
+            "impressions": _i(r["impressions"]), "clicks": _i(r["clicks"]),
+            "link_clicks": _i(r["link_clicks"]), "leads": _i(r["leads"]),
+            "landing_page_views": _i(r["landing_page_views"]),
+            "add_to_cart": _i(r["add_to_cart"]), "purchases": _i(r["purchases"]),
+            "revenue": _f(r["revenue"]), "ctr": _f(r["ctr"]), "cpc": _f(r["cpc"]),
+            "cpm": _f(r["cpm"]), "cpl": _f(r["cpl"]), "roas": _f(r["roas"]),
+            "frequency": _f(r["frequency"]),
+        })
+    return out
+
+
+def _read_paid_ads(bq):
+    sql = f"""
+        SELECT ad_id, ad_name, campaign_name, adset_name, thumbnail_url, creative_title,
+               destination_url, status, first_day, last_day, spend, impressions, clicks,
+               link_clicks, leads, purchases, revenue, ctr, cpc, cpm, cpl, roas, is_significant
+        FROM `{PROJECT}.{DATASET}.paid_media_ads`
+        ORDER BY spend DESC
+        LIMIT {ADS_LIMIT}
+    """
+    out = []
+    for r in bq.query(sql, location=LOC).result():
+        out.append({
+            "ad_id": r["ad_id"], "ad_name": r["ad_name"], "campaign_name": r["campaign_name"],
+            "adset_name": r["adset_name"], "thumbnail_url": r["thumbnail_url"],
+            "creative_title": r["creative_title"], "destination_url": r["destination_url"],
+            "status": r["status"], "first_day": _date(r["first_day"]),
+            "last_day": _date(r["last_day"]), "spend": _f(r["spend"]),
+            "impressions": _i(r["impressions"]), "clicks": _i(r["clicks"]),
+            "link_clicks": _i(r["link_clicks"]), "leads": _i(r["leads"]),
+            "purchases": _i(r["purchases"]), "revenue": _f(r["revenue"]),
+            "ctr": _f(r["ctr"]), "cpc": _f(r["cpc"]), "cpm": _f(r["cpm"]),
+            "cpl": _f(r["cpl"]), "roas": _f(r["roas"]),
+            "is_significant": bool(r["is_significant"]),
+        })
+    return out
+
+
+def _read_paid_campaigns(bq):
+    sql = f"""
+        SELECT campaign_id, campaign_name, objective, ads, first_day, last_day, active_days,
+               spend, impressions, clicks, link_clicks, leads, landing_page_views, purchases,
+               revenue, ctr, cpc, cpm, cpl, roas
+        FROM `{PROJECT}.{DATASET}.paid_media_campaigns`
+        ORDER BY spend DESC
+    """
+    out = []
+    for r in bq.query(sql, location=LOC).result():
+        out.append({
+            "campaign_id": r["campaign_id"], "campaign_name": r["campaign_name"],
+            "objective": r["objective"], "ads": _i(r["ads"]),
+            "first_day": _date(r["first_day"]), "last_day": _date(r["last_day"]),
+            "active_days": _i(r["active_days"]), "spend": _f(r["spend"]),
+            "impressions": _i(r["impressions"]), "clicks": _i(r["clicks"]),
+            "link_clicks": _i(r["link_clicks"]), "leads": _i(r["leads"]),
+            "landing_page_views": _i(r["landing_page_views"]), "purchases": _i(r["purchases"]),
+            "revenue": _f(r["revenue"]), "ctr": _f(r["ctr"]), "cpc": _f(r["cpc"]),
+            "cpm": _f(r["cpm"]), "cpl": _f(r["cpl"]), "roas": _f(r["roas"]),
+        })
+    return out
+
+
+def _read_paid_funnel(bq):
+    """Spend beside the quiz funnel it buys. Every ratio here is BLENDED, not attributed --
+    there is no click-id join between a Meta ad and a quiz submission. The key names say so
+    and the dashboard labels them, so nobody reads them as Meta's own cost per lead."""
+    sql = f"""
+        SELECT month, spend, impressions, link_clicks, meta_reported_leads, spend_days,
+               is_complete_month, quiz_leads, customers, quiz_revenue, avg_days_to_convert,
+               quiz_conversion_rate, blended_cost_per_quiz_lead, blended_cost_per_sale,
+               blended_return_on_spend
+        FROM `{PROJECT}.{DATASET}.paid_media_funnel`
+        ORDER BY month
+    """
+    out = []
+    for r in bq.query(sql, location=LOC).result():
+        out.append({
+            "month": _date(r["month"]), "spend": _f(r["spend"]),
+            "impressions": _i(r["impressions"]), "link_clicks": _i(r["link_clicks"]),
+            "meta_reported_leads": _i(r["meta_reported_leads"]),
+            "spend_days": _i(r["spend_days"]),
+            "is_complete_month": bool(r["is_complete_month"]),
+            "quiz_leads": _i(r["quiz_leads"]), "customers": _i(r["customers"]),
+            "quiz_revenue": _f(r["quiz_revenue"]),
+            "avg_days_to_convert": _f(r["avg_days_to_convert"]),
+            "quiz_conversion_rate": _f(r["quiz_conversion_rate"]),
+            "blended_cost_per_quiz_lead": _f(r["blended_cost_per_quiz_lead"]),
+            "blended_cost_per_sale": _f(r["blended_cost_per_sale"]),
+            "blended_return_on_spend": _f(r["blended_return_on_spend"]),
+        })
+    return out
+
+
 def _data_through(observed, monthly):
     stamps = [ts for ts in (observed or {}).values() if ts]
     if stamps:
@@ -314,14 +458,30 @@ def main():
         "lead_emails": _read_lead_emails(bq),
         "cohorts": _read_cohorts(bq),
         "leads": _read_leads(bq),
+        # Paid media (Meta), via the shared raw_windsor.perf_meta -> paid_media_* views.
+        # `paid.kpis` is None when this client has no Meta rows yet; the dashboard reads that
+        # as "not wired" and renders its empty state instead of a page of honest-looking zeros.
+        "paid": {
+            "kpis": _read_paid_kpis(bq),
+            "daily": _read_paid_daily(bq),
+            "ads": _read_paid_ads(bq),
+            "campaigns": _read_paid_campaigns(bq),
+            "funnel": _read_paid_funnel(bq),
+        },
     }
 
     blob = bucket.blob(DATA_OBJECT)
     blob.cache_control = "no-store"
     blob.upload_from_string(json.dumps(data, separators=(",", ":")), content_type="application/json")
+    paid = data["paid"]
+    paid_note = "no Meta rows"
+    if paid["kpis"]:
+        paid_note = "${:,.0f} spend / {} leads".format(
+            paid["kpis"]["spend"] or 0, paid["kpis"]["leads"] or 0)
     print(f"[{CLIENT}] uploaded gs://{BUCKET}/{DATA_OBJECT} "
           f"({len(data['conversion_trend'])} cohort-months, {len(monthly)} months, "
-          f"{len(data['leads'])} leads).")
+          f"{len(data['leads'])} leads; paid: {paid_note}, {len(paid['daily'])} days, "
+          f"{len(paid['ads'])} ads, {len(paid['campaigns'])} campaigns).")
 
     freshness.write_watermark(bucket, WATERMARK_OBJECT, observed)
     print(f"[{CLIENT}] watermark advanced -> {WATERMARK_OBJECT}.")

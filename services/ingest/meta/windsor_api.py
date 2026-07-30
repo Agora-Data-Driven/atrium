@@ -39,8 +39,13 @@ THE CANONICAL ROW
     Anything else Windsor returns is kept under row["extra"], never dropped silently.
 
 WINDSOR BEHAVIOURS THAT ARE THE API'S, NOT OURS -- do not "fix" these
-    * The `all` endpoint takes a **date_preset ONLY**. `date_from`, `date_to` and `maximum` all
-      return 400. History therefore has to ACCUMULATE (see merge_history).
+    * ⚠️ CORRECTED 2026-07-30: this module used to claim the `all` endpoint takes a
+      **date_preset ONLY** and that `date_from`/`date_to` return 400. **They do not** -- probed
+      live against the agora account, a `date_from`/`date_to` request returns exactly the days
+      asked for, which is what lets meta_loader.py chunk history properly instead of
+      ACCUMULATING it (see merge_history, now needed only by the LEGACY client jobs).
+      The real trap is subtler: send a preset AND a range together and the **preset silently
+      wins** -- a 3-day range came back with last_7d's rows and no error at all.
     * The window cap is caused by SPECIFIC FIELDS, not the field count. On RHE the 400 at
       `last_730d` came entirely from the two `unique_actions_*` fields; dropping them let the same
       18-field pull reach `last_1095d`. Hence split_pull().
