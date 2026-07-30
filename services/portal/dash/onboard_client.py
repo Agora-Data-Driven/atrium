@@ -89,6 +89,23 @@ def onboard(key, display_name=None, password=None, seed=True):
     elif display_name and workspace.workspace_exists(key):
         workspace.set_display_name(key, name)
 
+    # 4. Watcher: seed the default watched sources so the tab is never empty on day one. Registry
+    #    only -- no fetching here (the tab's own Fetch-missing / Safe-pull loops fill the archives),
+    #    so onboarding stays instant. A brand-new workspace has no Company profile yet, so only the
+    #    UNIVERSAL segment applies; main._watcher_reconcile adds the industry sources on the first
+    #    render after somebody fills the Company tab in. Best-effort: a template problem must never
+    #    block onboarding a client.
+    if seed:
+        try:
+            import watcher_template
+            workspace.apply_watcher_template(
+                key,
+                watcher_template.sources_for(watcher_template.segments_for("")),
+                watcher_template.TEMPLATE_VERSION,
+            )
+        except Exception as exc:                       # noqa: BLE001 -- never fail an onboard
+            print("watcher template seed skipped for %s: %s" % (key, exc))
+
     return pw
 
 

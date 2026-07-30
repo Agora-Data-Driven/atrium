@@ -193,6 +193,43 @@ auto-refresh (see those bullets below). Product name is one constant:
   namespaced `"<client_key>:<channel_id>"` so the follow-up calls can find the archive object.
   Off-cloud test: `dash/_watcher_localtest.py` (in CI; stubs GCS + the YouTube
   fetchers).
+  - **The source TEMPLATE — default sources EVERY client gets, automatically (2026-07-30):**
+    Watcher used to start empty, so what we monitored per client was folklore. `watcher_template.py`
+    is the catalog that fixes it (the twin of `service_templates.py`): a code-defined,
+    git-versioned source list applied at **onboarding** (`onboard_client.onboard`, the ONE funnel
+    both `/admin/atrium/new` and `/admin/accounts/approve` use) and **back-filled to every existing
+    client** by `main._watcher_reconcile` on any team render. Segmented — `UNIVERSAL` (ad-platform
+    news) for everyone, plus industry segments matched loosely against the Company tab's free-text
+    `industry` (`segments_for`); a day-one workspace has no Company profile, so onboarding seeds
+    only UNIVERSAL and the reconcile adds the industry sources on the first render after the
+    Company tab is filled in. Adding a source = one dict + a `TEMPLATE_VERSION` bump.
+    🔴 **SHARED archives — one copy for the whole estate.** An archive is stored PER CLIENT, so 15
+    clients watching Search Engine Land would mean 15 copies of a multi-MB object, 15× the
+    publisher traffic and 15× the embedding bill. A template source marked `shared` is fetched and
+    stored ONCE in the **house workspace** (`workspace.HOUSE_CLIENT`, default `agora` — the same one
+    Sentinel's Mentor Library already reads). The sharing is encoded in the **ENTRY ID**
+    (`workspace.SHARED_PREFIX` = `wsh_`, id derived by `shared_channel_id`), so the single redirect
+    inside `workspace.watcher_object_name` makes every existing caller — tab render, fetch loop,
+    Sentinel bridge, Assistant index — resolve correctly with no signature change.
+    ⚠️ **`safe_scrape_local.py` builds that path BY HAND** and never calls `watcher_object_name`:
+    teach it the `wsh_` rule before shipping a shared YOUTUBE source, or Safe pull writes transcripts
+    where nothing reads them.
+    🔴 **Reconcile invariants** (all four have regression tests): registry-only (it creates entries
+    and never fetches — the existing Fetch-missing / Safe-pull loops fill archives, which is what
+    makes it cheap enough to run on every render with no job and no infra); additive (a hand-added
+    source is never touched, and a site the team added by hand is matched on `channel_id` so the
+    template never plants a duplicate); idempotent; and **a deleted template source stays deleted** —
+    `delete_watcher_channel` records the opt-out in `ws["watcher"]["template"]["removed"]`, because
+    without it the team deletes an irrelevant source and the next render puts it back forever. That
+    same delete NEVER removes a shared archive (it still serves every other client).
+    Template sources are **blog-only on purpose**: sites serve Cloud Run fine, while YouTube blocks
+    datacenter IPs and would route the whole template through the one-residential-IP Safe-pull queue.
+    `kind` stays within the existing `creator|competitor` pair — the UI treats it as a two-state
+    toggle with a hardcoded dropdown and one CSS class per value, so a third kind (`authority` for a
+    county alerts page) is a template change, not a data change.
+    Entries appear everywhere automatically; the first **listing** of each shared source is still one
+    "Check for new posts" click (it lists from an empty archive) — once per source for the whole
+    estate, not once per client. Tests: `_run_template_checks` in `dash/_watcher_localtest.py`.
   - **Internal read bridge (Sentinel's Mentor Library, 2026-07-28):** three HMAC-gated,
     server-to-server, READ-ONLY routes let Sentinel's Growth hub import a transcript Watcher
     already archived instead of hand-pasting one: `GET /api/internal/watcher/channels?client=<c>`
@@ -547,6 +584,26 @@ auto-refresh (see those bullets below). Product name is one constant:
     like-for-like window and a `momentum` table (every metric's last complete week against its own
     average). Before that it had only tiles plus four charts, and a normal client's deck came out
     FOUR slides long.
+  - 🔴 **The workspace key is NOT the dashboard key — this is why a live deck came out 3 slides.**
+    The console derives a workspace key from the display name (`Riverdance RV` → `riverdance-rv`)
+    while the dashboard stack was stood up under a short key (`riverdance`). So
+    `agora-data-driven-<client>-dash` existed for **no client**, `read_client_dash_data` swallowed
+    the 404 (it degrades silently by design), and the KPI export vanished from BOTH the report fact
+    pack and the Assistant's index for every client. `assistant_ai.dash_data_key(client,
+    dashboard_url)` now resolves it from `ws["dashboard_url"]` — the embed the Dashboard tab already
+    renders, and already correct — parsing both Cloud Run host forms and a `<c>.agoradatadriven.com`
+    custom domain, falling back to the client key. Both call sites in `main.py` pass the URL. Fixing
+    this took the riverdance deck from 3 slides to 14 off the real export.
+  - 🔴 **Ranked tables need a volume floor** (`_MIN_SHARE` 1% of spend / `_MIN_CLICKS` 30). On the
+    real breakdown, `18-24, unknown` — 0.0% of spend, 4 clicks — won "best audience cell" at $0.18
+    a click, which is a targeting recommendation built on noise. Cells under the floor are dropped
+    from `segments` (the subtitle says so) and can never be crowned best/worst anywhere. The floor
+    is opt-in per table: a row declaring no volume signal stays eligible, so spend-ranked tables
+    keep their marks.
+  - 🔴 **Brand marks are declared ONCE as CSS custom properties** (`--crest` / `--agoramark` via
+    `mark_css_url`), never markup repeated in each slide's chrome. Inlining them per slide made a
+    3-slide deck **1.9 MB** — a 14-slide one would have been ~8 MB, on a `no-store` route. After the
+    fix, 14 slides weigh 705 KB.
   - 🔴 **Two arithmetic traps, both fixed with regression tests — do not reintroduce them.**
     (1) A flight almost always ends mid-week, so the final weekly bucket is PARTIAL. Charting it is
     right; comparing it to a full-week average printed "-80%" on every metric. Everything that

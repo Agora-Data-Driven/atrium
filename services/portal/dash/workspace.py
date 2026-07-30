@@ -230,9 +230,48 @@ def find_watcher_channel(ws, channel_id):
     return None
 
 
+# --- Shared (estate-wide) archives ---------------------------------------------------------------
+# A TEMPLATE source that is byte-identical for every client (ad-platform news, our own mentor
+# library) is fetched and stored ONCE, not once per client: fifteen clients watching Search Engine
+# Land would otherwise mean fifteen copies of a multi-megabyte archive, fifteen hits on a publisher
+# who currently tolerates us, and fifteen embedding bills for the same text.
+# The sharing is encoded in the ENTRY ID rather than in a flag, which is what keeps it cheap: a
+# shared entry's id is deterministic and carries SHARED_PREFIX, so every archive caller in the app --
+# the tab render, the fetch loop, the Sentinel bridge, the Assistant index -- resolves the right
+# object through watcher_object_name below with NO signature change and no extra read.
+SHARED_PREFIX = "wsh_"
+# The workspace that OWNS every shared archive. Defaults to `agora` -- the same house workspace
+# Sentinel's Mentor Library already reads over the internal bridge (ATRIUM_WATCHER_CLIENT_KEY), so
+# reading one client's Watcher archive from another workspace is a pattern already in production.
+HOUSE_CLIENT = os.environ.get("WATCHER_HOUSE_CLIENT", "agora").strip() or "agora"
+
+
+def is_shared_channel_id(channel_id):
+    """True iff this registry-entry id names a SHARED archive (owned by the house workspace)."""
+    return (channel_id or "").startswith(SHARED_PREFIX)
+
+
+def shared_channel_id(template_id):
+    """The deterministic entry id for a shared template source -- the SAME id in every client.
+
+    Deterministic on purpose, twice over: it makes apply_watcher_template naturally idempotent (a
+    re-apply finds the entry already present), and it is what lets ONE stored archive serve every
+    client without a lookup table anywhere."""
+    slug = re.sub(r"[^a-z0-9]+", "-", (template_id or "").lower()).strip("-")
+    return SHARED_PREFIX + slug
+
+
 def watcher_object_name(client, channel_id):
-    """Object name for one channel's archive, e.g. 'workspace/watcher/riverdance/wch_1a2b3c4d.json'."""
-    return "%swatcher/%s/%s.json" % (_prefix(), client, channel_id)
+    """Object name for one channel's archive, e.g. 'workspace/watcher/riverdance/wch_1a2b3c4d.json'.
+
+    🔴 A SHARED entry (see SHARED_PREFIX) resolves to the HOUSE workspace, never the caller's -- that
+    one redirect is the whole mechanism that makes a single archive serve every client. Every archive
+    read/write in the app funnels through here, so shared sources work everywhere for free.
+    ⚠️ EXCEPT `safe_scrape_local.py`, which builds this path BY HAND and never calls this function:
+    teach it the same rule before shipping a shared YOUTUBE source, or Safe pull writes the
+    transcripts under the requesting client and the app reads the house copy forever."""
+    owner = HOUSE_CLIENT if is_shared_channel_id(channel_id) else client
+    return "%swatcher/%s/%s.json" % (_prefix(), owner, channel_id)
 
 
 def read_watcher_videos(client, channel_id):
@@ -252,10 +291,16 @@ def write_watcher_videos(client, channel_id, videos):
     _write_object(watcher_object_name(client, channel_id), body)
 
 
-def add_watcher_channel(client, fields):
-    """Append a watched channel to the registry (newest first). Returns the stored entry."""
-    entry = {
-        "id": _new_id("wch"),
+def _watcher_entry(fields):
+    """One watched-source registry entry (pure) -- the ONE place the entry shape is defined.
+
+    Two fields exist for the source TEMPLATE. `entry_id` lets a caller FORCE the id, which the
+    template does so a shared source carries the same deterministic id in every client (there is no
+    separate `shared` flag to keep in sync -- is_shared_channel_id(entry["id"]) is the answer).
+    `template_id` marks the entry as template-sourced: it is how the reconcile pass tells its own
+    entries from hand-added ones, and what an opt-out gets recorded against on delete."""
+    return {
+        "id": (fields.get("entry_id") or "").strip() or _new_id("wch"),
         "url": fields.get("url", ""),
         "title": fields.get("title", ""),
         "channel_id": fields.get("channel_id", ""),
@@ -267,12 +312,18 @@ def add_watcher_channel(client, fields):
         "platform": fields.get("platform", "youtube"),
         "industry": fields.get("industry", ""),
         "kind": fields.get("kind", "creator"),
+        "template_id": fields.get("template_id", ""),
         "video_count": int(fields.get("video_count", 0) or 0),
         "transcript_count": 0,
         "failed_count": 0,
         "last_fetch": "",
         "added_at": now_iso(),
     }
+
+
+def add_watcher_channel(client, fields):
+    """Append a watched channel to the registry (newest first). Returns the stored entry."""
+    entry = _watcher_entry(fields)
 
     def fn(ws):
         ws.setdefault("watcher", {}).setdefault("channels", []).insert(0, entry)
@@ -327,16 +378,100 @@ def update_watcher_channel(client, channel_id, fields):
 
 def delete_watcher_channel(client, channel_id):
     """Remove a channel from the registry AND delete its archive object. Returns the removed entry
-    (or None if it wasn't there)."""
+    (or None if it wasn't there).
+
+    Two TEMPLATE rules ride along:
+    🔴 Removing a template source RECORDS THE OPT-OUT (ws["watcher"]["template"]["removed"]) so the
+       reconcile pass never re-adds it. Without this the team deletes an irrelevant source, the next
+       render puts it back, and they spend the week fighting us.
+    🔴 A SHARED archive is NEVER deleted: it lives in the house workspace and still serves every
+       other client, so this only drops THIS client's registry entry."""
     def fn(ws):
         channels = (ws.get("watcher") or {}).get("channels") or []
         for i, ch in enumerate(channels):
             if ch.get("id") == channel_id:
-                return channels.pop(i)
+                removed = channels.pop(i)
+                tid = (removed.get("template_id") or "").strip()
+                if tid:
+                    out = ws.setdefault("watcher", {}).setdefault("template", {}).setdefault("removed", [])
+                    if tid not in out:
+                        out.append(tid)
+                return removed
         return None
     removed = _mutate(client, fn)
-    _delete_object(watcher_object_name(client, channel_id))
+    if not is_shared_channel_id(channel_id):
+        _delete_object(watcher_object_name(client, channel_id))
     return removed
+
+
+# --- The Watcher source TEMPLATE (the default sources every client gets) -------------------------
+# The catalog itself lives in watcher_template.py (pure, git-versioned, no workspace import); these
+# three functions are the workspace side of it: what a client is MISSING (pure), the additive write
+# that fixes it, and the bookkeeping read.
+#
+# 🔴 The reconcile is REGISTRY ONLY -- it adds entries and never fetches. That split is what makes
+# "applies to every client automatically" safe: creating an entry is a few bytes, while filling its
+# archive is a multi-megabyte network crawl, and the tab's existing "Fetch missing" / Safe-pull loops
+# already know how to do that on a schedule that respects publishers. So this can run on every team
+# render (it is a pure set-difference, and writes nothing once applied) instead of needing a job.
+def watcher_template_state(ws):
+    """The client's template bookkeeping: {"version": n, "applied_at": iso, "removed": [ids]}."""
+    tpl = ((ws or {}).get("watcher") or {}).get("template") or {}
+    return {"version": int(tpl.get("version") or 0),
+            "applied_at": tpl.get("applied_at") or "",
+            "removed": list(tpl.get("removed") or [])}
+
+
+def pending_watcher_template(ws, sources):
+    """The template `sources` this client is missing (pure -- no I/O). Feed straight to apply_…().
+
+    Skipped: a source already in the registry by `template_id`, a source whose site the team already
+    added BY HAND (matched on channel_id, so the template never plants a duplicate of a source they
+    beat us to), and anything on the opt-out list."""
+    removed = set(watcher_template_state(ws)["removed"])
+    have_tpl, have_cid = set(), set()
+    for ch in watcher_channels(ws):
+        if ch.get("template_id"):
+            have_tpl.add(ch["template_id"])
+        if ch.get("channel_id"):
+            have_cid.add((ch["channel_id"] or "").strip().lower().rstrip("/"))
+    out = []
+    for src in sources or []:
+        tid = (src.get("template_id") or "").strip()
+        if not tid or tid in removed or tid in have_tpl:
+            continue
+        cid = (src.get("channel_id") or "").strip().lower().rstrip("/")
+        if cid and cid in have_cid:
+            continue
+        out.append(src)
+    return out
+
+
+def apply_watcher_template(client, sources, version=0):
+    """Add every missing template source to `client`'s registry in ONE write. Returns what was added.
+
+    Additive and idempotent: a hand-added source is never touched, an opted-out source never returns,
+    and re-running against the same catalog adds nothing. The missing set is recomputed INSIDE the
+    mutation because storage is last-write-wins -- the caller's pre-check can be stale by now. A
+    shared source's id is derived here (not in the catalog) so watcher_template.py stays pure."""
+    def fn(ws):
+        todo = pending_watcher_template(ws, sources)
+        w = ws.setdefault("watcher", {})
+        channels = w.setdefault("channels", [])
+        added = []
+        for src in todo:
+            fields = dict(src)
+            if src.get("shared"):
+                fields["entry_id"] = shared_channel_id(src["template_id"])
+            entry = _watcher_entry(fields)
+            channels.insert(0, entry)
+            added.append(entry)
+        tpl = w.setdefault("template", {})
+        tpl["version"] = int(version or 0)
+        tpl["applied_at"] = now_iso()
+        tpl.setdefault("removed", [])
+        return added
+    return _mutate(client, fn)
 
 
 def watcher_safe_pull_queue(ws):
@@ -1774,6 +1909,22 @@ def _clean_support(lead_id, support_ids):
     return out
 
 
+def task_completed_at(task):
+    """When this task last moved to `completed`, from its own history ("" when it never did).
+
+    Read off the history rather than a new column: `_task_history` already records every stage move
+    as {field:"stage", new:<stage>, at:<iso>}, so the completion date is derivable for tasks that
+    finished long before anyone needed the date. The report's Delivery slide uses it to show only
+    work that shipped SINCE the previous report."""
+    at = ""
+    for h in (task or {}).get("history") or []:
+        if h.get("field") == "stage" and _STAGE_ALIASES.get(h.get("new"), h.get("new")) == "completed":
+            when = str(h.get("at") or "")
+            if when > at:
+                at = when
+    return at
+
+
 def _task_history(task, actor, field, old, new):
     """Append one activity entry to a task's history (stage moves, edits)."""
     task.setdefault("history", []).append({
@@ -2366,6 +2517,81 @@ COMPANY_LISTS = {
 _COMPANY_ID_PREFIX = {"sections": "cs", "products": "cp"}
 
 
+# --- The engagement: what we are DOING for this client, and what counts as success --------------
+# Declared ONCE here and read by everything: the report spine (which slides), build_facts (which
+# numbers), the intel research prompts, the Assistant's grounding, and later the dashboard template.
+#
+# Why its own key rather than the Company tab or the campaign list:
+#   * `company` is who the client IS -- stable, client-owned. An objective changes each quarter and
+#     carries our internal targets. Different lifecycle.
+#   * `campaigns` is the content-approval structure; a client can run four campaigns under one
+#     objective and you would be declaring it four times, then watching them drift.
+#   * the task board's `department` is who does the work, not what success means (Acquisition covers
+#     lead gen AND sales).
+#   * the dashboard export would need a per-client job deploy to change, and portal-only clients
+#     have none.
+#
+# 🔴 The objective alone is not enough. A deck cannot report lead generation if it does not know
+# WHICH COLUMN IS THE CONVERSION, and it cannot say "on track" without a target. That is what
+# `conversion` carries, per objective.
+ENGAGEMENT_OBJECTIVES = ("leadgen", "sales", "awareness")
+ENGAGEMENT_CONVERSION_FIELDS = ("event", "source", "label", "target_cpl", "target_volume",
+                                "target_roas", "target_aov", "truth_revenue", "truth_note")
+
+
+def _ensure_engagement(ws):
+    """The workspace's engagement block, normalized IN PLACE and returned (never None)."""
+    eng = ws.get("engagement")
+    if not isinstance(eng, dict):
+        eng = {}
+    objs = [o for o in (eng.get("objectives") or []) if o in ENGAGEMENT_OBJECTIVES]
+    eng["objectives"] = objs
+    eng["primary"] = eng.get("primary") if eng.get("primary") in objs else (objs[0] if objs else "")
+    conv = eng.get("conversion") if isinstance(eng.get("conversion"), dict) else {}
+    clean = {}
+    for obj in ENGAGEMENT_OBJECTIVES:
+        block = conv.get(obj) if isinstance(conv.get(obj), dict) else {}
+        clean[obj] = {f: str(block.get(f) or "") for f in ENGAGEMENT_CONVERSION_FIELDS}
+    eng["conversion"] = clean
+    eng["notes"] = str(eng.get("notes") or "")
+    ws["engagement"] = eng
+    return eng
+
+
+def engagement_of(ws):
+    """The fully-shaped engagement from an already-loaded workspace (a copy, never None)."""
+    eng = _ensure_engagement(dict(ws or {}))
+    return {"objectives": list(eng["objectives"]), "primary": eng["primary"],
+            "conversion": {k: dict(v) for k, v in eng["conversion"].items()},
+            "notes": eng["notes"]}
+
+
+def set_engagement(client, fields):
+    """Patch the engagement block: objectives/primary/notes and per-objective conversion fields.
+
+    Patches ONLY what the caller passes, exactly like set_company_profile -- a partial form post
+    must never blank the targets someone else filled in."""
+    def fn(ws):
+        eng = _ensure_engagement(ws)
+        if isinstance((fields or {}).get("objectives"), list):
+            eng["objectives"] = [o for o in fields["objectives"] if o in ENGAGEMENT_OBJECTIVES]
+            if eng["primary"] not in eng["objectives"]:
+                eng["primary"] = eng["objectives"][0] if eng["objectives"] else ""
+        if (fields or {}).get("primary") in eng["objectives"]:
+            eng["primary"] = fields["primary"]
+        if "notes" in (fields or {}):
+            eng["notes"] = str(fields.get("notes") or "")
+        conv = (fields or {}).get("conversion")
+        if isinstance(conv, dict):
+            for obj, block in conv.items():
+                if obj in ENGAGEMENT_OBJECTIVES and isinstance(block, dict):
+                    for f in ENGAGEMENT_CONVERSION_FIELDS:
+                        if f in block:
+                            eng["conversion"][obj][f] = str(block.get(f) or "")
+        return engagement_of(ws)
+    return _mutate(client, fn)
+
+
 def _ensure_company(ws):
     """The workspace's company profile, normalized IN PLACE and returned (never None).
 
@@ -2538,7 +2764,11 @@ def move_company_item(client, kind, item_id, delta):
 # An entry is {id, heading, title, body, source, link, date} -- mirroring the "Weekly Intelligence
 # Report" shape (a sub-heading + headline + paragraph + a source tag/link). Same load-modify-save
 # posture as the Client Communications summaries above; no new infra.
-INTEL_SECTIONS = ("business_research", "media_buying")
+# 🔴 `conditions` (added 2026-07-30) is the section that had no home: the wildfire that closed the
+# highway, the heat wave, the local event, the regulation change. It is usually the single biggest
+# explanation for a bad week, it is NOT what Watcher does (that is creators/competitors), and the
+# report's Landscape slide leads with it. Client-visible + team-curated like the other two.
+INTEL_SECTIONS = ("business_research", "media_buying", "conditions")
 _INTEL_FIELDS = ("heading", "title", "body", "relevance", "source", "link", "date")
 
 

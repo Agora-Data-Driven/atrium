@@ -64,6 +64,7 @@ import json
 import math
 import re
 import struct
+import urllib.parse
 
 import digest
 
@@ -1223,14 +1224,64 @@ def ask_stream(client_name, index, question, history=None, date_from="", date_to
 
 
 # --- Optional source: the client's dashboard data export ------------------------------------------
-def read_client_dash_data(client):
-    """The per-client dashboard JSON (`<c>.json` in agora-data-driven-<c>-dash), or None.
+# A Cloud Run host is either the classic `<service>-<projecthash>-<regioncode>.a.run.app` or the
+# newer `<service>-<projectnumber>.<region>.run.app`. Both carry the service name in the first label.
+_RUN_HOST_OLD = re.compile(r"^(?P<svc>.+?)-[a-z0-9]{8,}-[a-z]{2,3}$")
+_RUN_HOST_NEW = re.compile(r"^(?P<svc>.+?)-\d{6,}$")
 
-    Opt-in: the portal SA needs objectViewer on that bucket (enable_assistant_dash_data.ps1).
-    Any failure — no bucket (portal-only client), no permission, bad JSON — returns None."""
+
+def dash_data_key(client, dashboard_url=""):
+    """Which dashboard stack's KPI export belongs to this workspace.
+
+    🔴 The portal's client key and the dashboard stack's key DIVERGED in production. The console
+    derives a workspace key from the display name ("Riverdance RV" -> `riverdance-rv`), while the
+    dashboard stack was stood up years earlier under a short key (`riverdance`). So
+    `agora-data-driven-<client>-dash` did not exist for a SINGLE client, `read_client_dash_data`
+    swallowed the 404, and the KPI export silently vanished from both the Assistant's index and the
+    report deck's fact pack -- which is why a generated deck came out three slides long.
+
+    The workspace already knows the answer: `dashboard_url` is the embed the Dashboard tab renders,
+    and it points at the real stack. Read the key from there; fall back to the client key (which is
+    correct whenever the two were never allowed to diverge)."""
+    raw = (dashboard_url or "").strip()
+    if not raw:
+        return client
+    if "//" not in raw:
+        raw = "https://" + raw
+    try:
+        host = urllib.parse.urlsplit(raw).hostname or ""
+    except ValueError:
+        return client
+    # A hostname, or nothing: free text ("TBC", a note someone typed in the field) must fall back
+    # to the client key, never become a bucket name.
+    if "." not in host or not re.match(r"^[a-z0-9][a-z0-9.-]*$", host):
+        return client
+    label = host.split(".")[0]
+    if host.endswith(".run.app"):
+        for rx in (_RUN_HOST_OLD, _RUN_HOST_NEW):
+            m = rx.match(label)
+            if m:
+                label = m.group("svc")
+                break
+        if label.endswith("-dash"):
+            label = label[:-len("-dash")]
+        return label or client
+    if label and label not in ("www", "portal"):     # a custom domain: <c>.agoradatadriven.com
+        return label
+    return client
+
+
+def read_client_dash_data(client, dashboard_url=""):
+    """The per-client dashboard JSON (`<k>.json` in agora-data-driven-<k>-dash), or None.
+
+    `k` is `dash_data_key(client, dashboard_url)` -- the workspace key is NOT reliably the dashboard
+    key (see above). Opt-in: the portal SA needs objectViewer on that bucket
+    (enable_assistant_dash_data.ps1). Any failure -- no bucket (portal-only client), no permission,
+    bad JSON -- returns None."""
+    key = dash_data_key(client, dashboard_url)
     try:
         from google.cloud import storage  # lazy
-        blob = storage.Client().bucket("agora-data-driven-%s-dash" % client).blob("%s.json" % client)
+        blob = storage.Client().bucket("agora-data-driven-%s-dash" % key).blob("%s.json" % key)
         return json.loads(blob.download_as_bytes().decode("utf-8"))
     except Exception:
         return None

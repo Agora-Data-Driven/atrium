@@ -194,6 +194,20 @@ def run():
     _check("segments crosses age with gender and ranks the cells",
            len(rich["segments"]["rows"]) >= 3
            and {r.get("_tone") for r in rich["segments"]["rows"]} >= {"good", "bad"})
+
+    # 🔴 A rounding error of the budget must never be crowned the best audience. Ranked on cost per
+    # click alone, a 4-click cell won the REAL Riverdance breakdown at $0.18.
+    noisy = _dash_rich()
+    noisy["demographics"]["age_gender"].append(
+        {"date": "2026-07-01", "age": "18-24", "gender": "unknown", "spend": 0.60,
+         "imps": 40, "clicks": 4, "lclk": 4})
+    nf = report_ai.build_facts(noisy)
+    seg_cells = [r["seg"] for r in nf["segments"]["rows"]]
+    _check("a cell with negligible spend is excluded from the ranked table",
+           "18-24, unknown" not in seg_cells and "1% of spend" in nf["segments"]["subtitle"])
+    crowned = [r for r in nf["age"]["rows"] if r.get("_tone")]
+    _check("and it is never crowned best/worst where it IS shown",
+           all(report_ai._has_volume(r) for r in crowned))
     _check("the bench fact counts the creatives carrying the account",
            any(i["key"] == "count" and i["value"] == "2" for i in rich["bench"]["items"]))
     _check("cost pressure reads the last week against the flight average",
@@ -233,15 +247,20 @@ def run():
     tdraft, _terr = report_ai.generate("Acme Co", "2026-07-29",
                                        report_ai.gather({}, [], {"kpis": {"revenue": 98000},
                                                                  "daily": tdaily}), None)
-    shown = set()
-    for slide in tdraft["slides"]:
-        for b in slide["blocks"]:
-            for inner in (b["left"] + b["right"]) if b["type"] == "split" else [b]:
-                if inner.get("fact"):
-                    shown.add(inner["fact"])
-    drafted_facts = set(report_ai.build_facts({"kpis": {"revenue": 98000}, "daily": tdaily}))
-    _check("EVERY computed fact reaches the no-AI deck, not just the ones on a hardcoded list",
-           drafted_facts <= shown)
+    # The contract changed with the spine: a slot shows at most two slides, so "every fact appears"
+    # is no longer the invariant. What MUST hold is that no computed fact is homeless -- a fact the
+    # spine never names could never reach any deck, for any client.
+    import report_spec
+    homeless = {k for k in tf if not report_spec.claims(k)}
+    _check("every computed fact is claimed by a spine slot (none can be orphaned)",
+           not homeless)
+    eyebrows = [sl["eyebrow"] for sl in tdraft["slides"] if sl["eyebrow"]]
+    order = [sl["eyebrow"] for sl in report_spec.slots(("sales",))]
+    seen = [e for e in eyebrows if e in order]
+    _check("the no-AI deck follows the spine ORDER",
+           seen == sorted(seen, key=lambda e: order.index(e)))
+    _check("blockers moved to Delivery, so there is no closing asks slide",
+           not any((sl["title"] or "").lower().startswith("what we need") for sl in tdraft["slides"]))
     _check("a template-shape client gets a real deck, not four slides",
            len(tdraft["slides"]) >= 8)
 
@@ -255,11 +274,14 @@ def run():
            "FACT PACK" in report_ai._material_text("Riverdance", "2026-07-29", inputs))
 
     draft = report_ai.draft_payload(inputs, client_name="Riverdance", when="2026-07-29")
-    draft_blocks = [b for s in draft["slides"] for b in s["blocks"]]
-    _check("the no-AI deck is a REAL deck: cover, fact-backed visuals, honest asks",
+    draft_blocks = []
+    for _sl in draft["slides"]:
+        for _b in _sl["blocks"]:
+            draft_blocks.extend((_b["left"] + _b["right"]) if _b["type"] == "split" else [_b])
+    _check("the no-AI deck is a REAL deck: cover + fact-backed visuals, walking the spine",
            draft["slides"][0]["kind"] == "cover"
-           and any(b["type"] in ("chart", "table", "kpis") and b.get("fact") for b in draft_blocks)
-           and draft["slides"][-1]["title"] == "What We Need From You")
+           and any(b["type"] in ("chart", "table", "kpis", "bullets") and b.get("fact")
+                   for b in draft_blocks))
     _check("the no-AI deck invents no analysis (no actions, no recommendations)",
            not any(b["type"] == "action" for b in draft_blocks))
 
@@ -337,6 +359,56 @@ def run():
     _check("a failing revise returns the ORIGINAL payload + the reason",
            rerr2 == "model down" and same == payload)
 
+    # --- The spine: Delivery, funnel, decomposition, targets -------------------------------------
+    import report_spec
+    _check("the spine is nine slots and Delivery opens it",
+           [sl["key"] for sl in report_spec.slots(("sales",))][:2] == ["delivery", "landscape"]
+           and len(report_spec.SPINE) == 9)
+    _check("only the quality slot is worded per objective",
+           [sl["eyebrow"] for sl in report_spec.slots(("sales",))]
+           != [sl["eyebrow"] for sl in report_spec.slots(("leadgen",))]
+           and sum(1 for a, b in zip(report_spec.slots(("sales",)),
+                                     report_spec.slots(("leadgen",)))
+                   if a["eyebrow"] != b["eyebrow"]) == 1)
+    _check("the objective is inferred from the data when nothing is declared",
+           report_ai.infer_objective(_dash_rd(), None) == "sales"
+           and report_ai.infer_objective({"kpis": {"leads": 4}}, None) == "leadgen"
+           and report_ai.infer_objective(_dash_rd(), {"primary": "leadgen"}) == "leadgen")
+
+    tv = [{"key": "in_progress", "tasks": [{"title": "Ad set build", "due_date": "2026-08-08",
+                                           "pct": 40, "subs_total": 5}]},
+          {"key": "todo", "tasks": [{"title": "Email sequence"}]},
+          {"key": "completed", "tasks": [{"title": "LP switch", "completed_at": "2026-07-24"},
+                                         {"title": "Old thing", "completed_at": "2026-06-02"}]},
+          {"key": "blocked", "tasks": [{"title": "Geo expansion", "on_hold": True,
+                                        "hold_reason": "INTERNAL waiting on Ian"}]}]
+    dfacts = {f["key"]: f for f in report_ai.delivery_facts(tv, awaiting=["Approve 3 pieces"],
+                                                            since="2026-07-20") if f}
+    _check("Delivery splits live / next / shipped / waiting",
+           {"delivery_live", "delivery_next", "delivery_shipped", "delivery_waiting"} <= set(dfacts))
+    _check("shipped work is windowed on the previous report date (nothing reported twice)",
+           "LP switch" in dfacts["delivery_shipped"]["summary"]
+           and "Old thing" not in dfacts["delivery_shipped"]["summary"])
+    # 🔴 The deck is CLIENT-VISIBLE. hold_reason is internal by design and must never cross.
+    _check("a paused task reaches the client as 'paused', never with the internal reason",
+           "paused" in dfacts["delivery_waiting"]["summary"]
+           and "INTERNAL" not in json.dumps(dfacts))
+    _check("the client's own asks lead the waiting list",
+           dfacts["delivery_waiting"]["items"][0] == "Approve 3 pieces")
+
+    _check("no target on file -> no vs_target fact (never an unagreed judgement)",
+           "vs_target" not in report_ai.build_facts(_dash_rich(), None))
+    with_target = report_ai.build_facts(_dash_rich(), {"primary": "sales", "conversion": {
+        "sales": {"target_roas": "2.0", "target_aov": "300"}}})
+    _check("a declared target produces the scorecard comparison, toned on/behind",
+           "vs_target" in with_target
+           and any(i.get("tone") in ("good", "bad") for i in with_target["vs_target"]["items"]))
+    _check("the decomposition names WHICH factor moved",
+           "moved on" in with_target["decomposition"]["title"])
+    funnel = with_target.get("funnel")
+    _check("the funnel is ordered steps with a rate from the step above",
+           funnel and funnel["rows"][0]["rate"] == "-" and len(funnel["rows"]) >= 3)
+
     # --- Brand kit: the client's crest + a palette parsed from their own brand guide -------------
     kit = report_ai.brand_kit(ws)
     _check("brand_kit takes the client crest and the brand guide's colours",
@@ -361,7 +433,20 @@ def run():
            "We doubled daily revenue in two weeks." in html_doc and "7.71x" in html_doc
            and "Where the next gains are." in html_doc and "We'll action" in html_doc)
     _check("the deck wears the client's crest and palette",
-           "#21582B" in html_doc and kit["client_logo"][:40] in html_doc)
+           "#21582B" in html_doc and "--crest:url(" in html_doc)
+    # 🔴 The marks are declared ONCE as CSS custom properties. Inlining the markup into every
+    # slide's chrome made a 3-slide deck 1.9 MB (and a 14-slide one would have been ~8 MB) on a
+    # route that is deliberately no-store.
+    _check("each brand mark appears exactly once, however many slides there are",
+           html_doc.count("--crest:url(") == 1 and html_doc.count("--agoramark:url(") == 1
+           and html_doc.count("<svg") == 0)
+    _check("mark_css_url handles both stored logo forms and refuses anything else",
+           report_ai.mark_css_url("<svg xmlns='x'><rect/></svg>").startswith(
+               "url(\"data:image/svg+xml;base64,")
+           and report_ai.mark_css_url('<img src="data:image/png;base64,AAA">')
+           == 'url("data:image/png;base64,AAA")'
+           and report_ai.mark_css_url("<p>hello</p>") == ""
+           and report_ai.mark_css_url("") == "")
     _check("deck HTML is escaped", "<script>alert(1)</script>" not in html_doc)
     _check("the deck is self-contained (no remote assets)",
            not re.search(r"(?:src|href)=\"https?://|url\(\s*['\"]?https?://", html_doc))
@@ -428,7 +513,8 @@ def run():
     r = c.get("/w/%s/report/%s" % (CLIENT, rid))
     _check("the deck serves through the authed route",
            r.status_code == 200 and "text/html" in r.mimetype
-           and "What We Need From You" in r.get_data(as_text=True))
+           and "Riverdance" in r.get_data(as_text=True)
+           and "01 /" in r.get_data(as_text=True))
 
     r = c.post("/w/%s/admin/report" % CLIENT,
                data={"op": "rename", "id": rid, "title": "Renamed deck"})
@@ -446,7 +532,8 @@ def run():
     workspace._delete_object(workspace.report_object_name(CLIENT, rid))
     r = c.get("/w/%s/report/%s" % (CLIENT, rid))
     _check("a missing deck object re-renders lazily from the stored payload",
-           r.status_code == 200 and "What We Need From You" in r.get_data(as_text=True))
+           r.status_code == 200 and "Riverdance" in r.get_data(as_text=True)
+           and "01 /" in r.get_data(as_text=True))
 
     with c.session_transaction() as s:
         s.clear(); s.update(CLIENT_LOGIN)
