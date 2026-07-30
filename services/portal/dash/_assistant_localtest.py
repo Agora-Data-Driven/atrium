@@ -90,6 +90,21 @@ def run():
     fp2 = assistant_ai.fingerprint(ws, archives)
     _check("fingerprint moves when watcher data moves", fp1 != fp2)
 
+    # --- The dashboard-export key: the workspace key is NOT the dashboard key ---------------------
+    # 🔴 In production the two diverged for EVERY client: the console derives "riverdance-rv" from
+    # the display name while the dashboard stack is "riverdance", so agora-data-driven-<c>-dash did
+    # not exist, read_client_dash_data swallowed the 404, and the KPI export silently vanished from
+    # the Assistant index AND the report deck (which came out 3 slides long).
+    for url, expect in (
+            ("https://riverdance-dash-c732u7m57a-as.a.run.app/", "riverdance"),
+            ("https://tcs-dash-123456789012.asia-southeast1.run.app", "tcs"),
+            ("https://riverdance.agoradatadriven.com", "riverdance"),
+            ("", "riverdance-rv"),
+            ("TBC", "riverdance-rv"),
+            ("not a url at all", "riverdance-rv")):
+        got = assistant_ai.dash_data_key("riverdance-rv", url)
+        _check("dash_data_key(%r) -> %s" % (url or "(empty)", expect), got == expect)
+
     # --- The distilled layer (v4): dashboard digests, comms/tasks/reports chunks, summary chunks --
     ws2 = workspace.load_workspace(CLIENT)
     ws2["communications"] = [

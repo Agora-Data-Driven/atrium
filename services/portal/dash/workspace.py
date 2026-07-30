@@ -1909,6 +1909,22 @@ def _clean_support(lead_id, support_ids):
     return out
 
 
+def task_completed_at(task):
+    """When this task last moved to `completed`, from its own history ("" when it never did).
+
+    Read off the history rather than a new column: `_task_history` already records every stage move
+    as {field:"stage", new:<stage>, at:<iso>}, so the completion date is derivable for tasks that
+    finished long before anyone needed the date. The report's Delivery slide uses it to show only
+    work that shipped SINCE the previous report."""
+    at = ""
+    for h in (task or {}).get("history") or []:
+        if h.get("field") == "stage" and _STAGE_ALIASES.get(h.get("new"), h.get("new")) == "completed":
+            when = str(h.get("at") or "")
+            if when > at:
+                at = when
+    return at
+
+
 def _task_history(task, actor, field, old, new):
     """Append one activity entry to a task's history (stage moves, edits)."""
     task.setdefault("history", []).append({
@@ -2501,6 +2517,81 @@ COMPANY_LISTS = {
 _COMPANY_ID_PREFIX = {"sections": "cs", "products": "cp"}
 
 
+# --- The engagement: what we are DOING for this client, and what counts as success --------------
+# Declared ONCE here and read by everything: the report spine (which slides), build_facts (which
+# numbers), the intel research prompts, the Assistant's grounding, and later the dashboard template.
+#
+# Why its own key rather than the Company tab or the campaign list:
+#   * `company` is who the client IS -- stable, client-owned. An objective changes each quarter and
+#     carries our internal targets. Different lifecycle.
+#   * `campaigns` is the content-approval structure; a client can run four campaigns under one
+#     objective and you would be declaring it four times, then watching them drift.
+#   * the task board's `department` is who does the work, not what success means (Acquisition covers
+#     lead gen AND sales).
+#   * the dashboard export would need a per-client job deploy to change, and portal-only clients
+#     have none.
+#
+# 🔴 The objective alone is not enough. A deck cannot report lead generation if it does not know
+# WHICH COLUMN IS THE CONVERSION, and it cannot say "on track" without a target. That is what
+# `conversion` carries, per objective.
+ENGAGEMENT_OBJECTIVES = ("leadgen", "sales", "awareness")
+ENGAGEMENT_CONVERSION_FIELDS = ("event", "source", "label", "target_cpl", "target_volume",
+                                "target_roas", "target_aov", "truth_revenue", "truth_note")
+
+
+def _ensure_engagement(ws):
+    """The workspace's engagement block, normalized IN PLACE and returned (never None)."""
+    eng = ws.get("engagement")
+    if not isinstance(eng, dict):
+        eng = {}
+    objs = [o for o in (eng.get("objectives") or []) if o in ENGAGEMENT_OBJECTIVES]
+    eng["objectives"] = objs
+    eng["primary"] = eng.get("primary") if eng.get("primary") in objs else (objs[0] if objs else "")
+    conv = eng.get("conversion") if isinstance(eng.get("conversion"), dict) else {}
+    clean = {}
+    for obj in ENGAGEMENT_OBJECTIVES:
+        block = conv.get(obj) if isinstance(conv.get(obj), dict) else {}
+        clean[obj] = {f: str(block.get(f) or "") for f in ENGAGEMENT_CONVERSION_FIELDS}
+    eng["conversion"] = clean
+    eng["notes"] = str(eng.get("notes") or "")
+    ws["engagement"] = eng
+    return eng
+
+
+def engagement_of(ws):
+    """The fully-shaped engagement from an already-loaded workspace (a copy, never None)."""
+    eng = _ensure_engagement(dict(ws or {}))
+    return {"objectives": list(eng["objectives"]), "primary": eng["primary"],
+            "conversion": {k: dict(v) for k, v in eng["conversion"].items()},
+            "notes": eng["notes"]}
+
+
+def set_engagement(client, fields):
+    """Patch the engagement block: objectives/primary/notes and per-objective conversion fields.
+
+    Patches ONLY what the caller passes, exactly like set_company_profile -- a partial form post
+    must never blank the targets someone else filled in."""
+    def fn(ws):
+        eng = _ensure_engagement(ws)
+        if isinstance((fields or {}).get("objectives"), list):
+            eng["objectives"] = [o for o in fields["objectives"] if o in ENGAGEMENT_OBJECTIVES]
+            if eng["primary"] not in eng["objectives"]:
+                eng["primary"] = eng["objectives"][0] if eng["objectives"] else ""
+        if (fields or {}).get("primary") in eng["objectives"]:
+            eng["primary"] = fields["primary"]
+        if "notes" in (fields or {}):
+            eng["notes"] = str(fields.get("notes") or "")
+        conv = (fields or {}).get("conversion")
+        if isinstance(conv, dict):
+            for obj, block in conv.items():
+                if obj in ENGAGEMENT_OBJECTIVES and isinstance(block, dict):
+                    for f in ENGAGEMENT_CONVERSION_FIELDS:
+                        if f in block:
+                            eng["conversion"][obj][f] = str(block.get(f) or "")
+        return engagement_of(ws)
+    return _mutate(client, fn)
+
+
 def _ensure_company(ws):
     """The workspace's company profile, normalized IN PLACE and returned (never None).
 
@@ -2673,7 +2764,11 @@ def move_company_item(client, kind, item_id, delta):
 # An entry is {id, heading, title, body, source, link, date} -- mirroring the "Weekly Intelligence
 # Report" shape (a sub-heading + headline + paragraph + a source tag/link). Same load-modify-save
 # posture as the Client Communications summaries above; no new infra.
-INTEL_SECTIONS = ("business_research", "media_buying")
+# 🔴 `conditions` (added 2026-07-30) is the section that had no home: the wildfire that closed the
+# highway, the heat wave, the local event, the regulation change. It is usually the single biggest
+# explanation for a bad week, it is NOT what Watcher does (that is creators/competitors), and the
+# report's Landscape slide leads with it. Client-visible + team-curated like the other two.
+INTEL_SECTIONS = ("business_research", "media_buying", "conditions")
 _INTEL_FIELDS = ("heading", "title", "body", "relevance", "source", "link", "date")
 
 

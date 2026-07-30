@@ -1354,6 +1354,9 @@ def _progress_tasks(ws):
             "reporter": t.get("reporter", "agora"),
             "reporter_name": t.get("reporter_name", ""),
             "start_date": t.get("start_date", ""),
+            # When it shipped (client-safe: the client may see when their own work finished). The
+            # report's Delivery slide windows "Shipped" on this so nothing is reported twice.
+            "completed_at": workspace.task_completed_at(t)[:10],
             "due_date": due,
             "due_soon": bool(due and today <= due <= soon and stage != "completed"),
             "client_note": t.get("client_note", ""),
@@ -3830,9 +3833,14 @@ def _report_inputs(ws, client):
     """The report generator's source pack (loads archives + the dashboard export)."""
     import assistant_ai
     import report_ai
+    # The Delivery slide is built from the CLIENT-SAFE task projection (never raw ws["tasks"]), and
+    # `since` is the PREVIOUS report's date so shipped work is never reported twice.
+    reports = workspace.reports_of(ws)
+    since = (reports[0].get("date") or "")[:10] if reports else ""
     return report_ai.gather(ws, _assistant_archives(ws, client),
                             assistant_ai.read_client_dash_data(
-                                client, (ws or {}).get("dashboard_url", "")))
+                                client, (ws or {}).get("dashboard_url", "")),
+                            tasks_view=_progress_tasks(ws), since=since)
 
 
 def _assistant_action_ctx(ws, client):
