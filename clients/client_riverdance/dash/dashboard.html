@@ -1052,7 +1052,10 @@ function autoGrain(from, to){
   return "month";
 }
 function grainOf(key, from, to){
-  var g = grainOf("hero", state.start, state.end);
+  /* 🔴 Read state.gran DIRECTLY. This line briefly read grainOf("hero", ...) -- an unconditional
+     self-call, so the first render blew the stack and the page reported it as "could not load
+     data.json". Never let this function call itself. */
+  var g = state.gran;
   if(!g || g === "auto"){ return autoGrain(from, to); }
   /* An explicit choice is sticky, so guard it against a span it cannot carry -- step to the next
      coarser grain rather than silently resetting what the user picked. */
@@ -1654,7 +1657,8 @@ function renderBenchmarks(a){
   /* Two comparisons, deliberately: the published INDUSTRY benchmark (a fixed constant, useful for
      "are we normal") and the client's OWN KPI-benchmark window (useful for "are we improving").
      Reporting only the first tells a client nothing about their own trajectory. */
-  var own = derive(aggregate(benchRows()));
+  /* aggregate() already returns derive(a) -- do not derive twice. */
+  var own = aggregate(benchRows());
   function ownLine(cur, was, fmt, goodUp){
     if(!(was > 0)){ return ""; }
     var ch = (cur - was) / was * 100;
@@ -2668,14 +2672,45 @@ function boot(){
    the next tick rather than reading a stale period. */
 function syncBenchInputsSoon(){ setTimeout(syncBenchInputs, 0); }
 
-if(DATA){ boot(); }
-else {
-  fetch("data.json").then(function(r){ return r.json(); }).then(function(j){ DATA = j; boot(); })
-    .catch(function(e){
-      byId("boot").innerHTML = '<div class="empty-note" style="display:block">Could not load ' +
-        "data.json &mdash; the page itself is fine, this is the data fetch failing. " +
-        "Try Sync, or check the export job.</div>";
-    });
+/* 🔴 The FETCH and the RENDER are reported separately, and this is not a nicety.
+   A single `.catch` around `fetch(...).then(boot)` catches every exception boot() throws and
+   labels it "could not load data.json" -- which sent a real 2026-07-30 render bug on a
+   fully-healthy 200 response chasing a data problem that did not exist. Never collapse the two
+   again: the reader has to be able to tell "the data is missing" from "the data arrived and the
+   page failed to draw it", because the two have completely different fixes. */
+function bootFail(kind, e){
+  var msg = (e && e.message) ? e.message : String(e || "unknown error");
+  var box = byId("boot");
+  if(!box){ return; }
+  if(kind === "fetch"){
+    box.innerHTML = '<div class="empty-note" style="display:block"><b>Could not load data.json.</b> ' +
+      "The page itself is fine &mdash; this is the data fetch failing (" + esc(msg) + "). " +
+      "Try Sync, or check that the export job has published to the bucket.</div>";
+  } else {
+    box.innerHTML = '<div class="empty-note" style="display:block"><b>The data loaded, but the ' +
+      "dashboard failed to render it.</b> This is a bug in the page, not a data problem &mdash; " +
+      "the payload arrived fine. Error: <code>" + esc(msg) + "</code>" +
+      (e && e.stack ? "<br><br><small style=\"white-space:pre-wrap;opacity:.75\">" + esc(String(e.stack).split("\n").slice(0, 4).join("\n")) + "</small>" : "") +
+      "</div>";
+  }
+  /* Also put it where a developer will actually look. */
+  if(window.console && console.error){ console.error("[riverdance] " + kind + " failure:", e); }
+}
+if(DATA){
+  try { boot(); } catch(e){ bootFail("render", e); }
+} else {
+  fetch("data.json", { credentials: "same-origin" })
+    .then(function(r){
+      if(!r.ok){ throw new Error("HTTP " + r.status); }
+      return r.json();
+    })
+    .then(function(j){
+      DATA = j;
+      /* boot() runs OUTSIDE the fetch's error path, so a render bug can never be reported as a
+         fetch failure. */
+      try { boot(); } catch(e){ bootFail("render", e); }
+    })
+    .catch(function(e){ bootFail("fetch", e); });
 }
 </script>
 
