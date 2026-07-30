@@ -141,14 +141,47 @@ function Resolve-DeployPlan {
     # function runs inside the larger script, so it is deliberately avoided here).
     param([string[]]$Changed, [string]$RepoRoot)
 
+    # Directories under clients/ that are NOT deployable clients. Matching the generic
+    # clients/<c>/... patterns against these is how a shipping run got derailed (2026-07-30):
+    #   _standard    -- the dashboard STANDARD (reference implementations + shared shell).
+    #                   It has a dash/ directory but is not a client and has no service.
+    #   client_template -- the worked EXAMPLE every client copies. `template-dash` has never
+    #                   existed in Cloud Run, so its dash script tries to CREATE a new service,
+    #                   which needs standup permissions and hard-failed the whole ship before it
+    #                   reached the real clients queued behind it.
+    # Standing either of these up is never what a dashboard edit meant to do.
+    $NOT_A_CLIENT = @('_standard', 'client_template')
+
+    # Clients whose dashboard changed but that have NO dash-level deploy script get collected
+    # here, so the run can end with a LOUD, actionable list instead of a yellow line that
+    # scrolls past. A dashboard that lands on main and silently never deploys is the worst
+    # outcome this script can produce -- the tree is clean, the summary says shipped, and
+    # production is serving the old build.
+    $script:UndeployableDash = @()
+
     # For a client path clients/<c>/<sub>/..., find the deploy_*.ps1 in that dir by glob
     # (works for any client key without re-typing it). Returns a row, or $null if none.
     function ClientRow([string]$c, [string]$sub, [string]$pattern, [int]$prio) {
+        if ($NOT_A_CLIENT -contains $c) {
+            Write-Host "    [skip] '$c' is not a deployable client (no service) -- nothing to deploy" -ForegroundColor DarkGray
+            return $null
+        }
         $dir = Join-Path $RepoRoot "clients/$c/$sub"
         if (-not (Test-Path $dir)) { return $null }
         $f = Get-ChildItem -Path $dir -Filter $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($f) { return [pscustomobject]@{ Service = "client '$c' ($sub)"; Script = $f.FullName; Prio = $prio } }
-        Write-Host "    [skip] client '$c' $sub changed but no $pattern in $dir" -ForegroundColor Yellow
+        # No dash-level script. Most clients keep a FULL STANDUP at the client root instead
+        # (deploy_<c>.ps1) -- and that must NOT be called from here: it re-reads secrets it will
+        # not be given and mints a fresh SESSION_SECRET, logging every client out. So the honest
+        # outcome is "this needs a human", recorded loudly rather than skipped quietly.
+        if ($sub -eq 'dash') {
+            $script:UndeployableDash += $c
+            Write-Host "    [!! NOT DEPLOYED] client '$c' dash CHANGED but there is no $pattern in $dir" -ForegroundColor Red
+            Write-Host "                      Its only deploy path is the client-root full standup, which rotates" -ForegroundColor Yellow
+            Write-Host "                      secrets -- so this script will NOT run it. See the summary below." -ForegroundColor Yellow
+        } else {
+            Write-Host "    [skip] client '$c' $sub changed but no $pattern in $dir" -ForegroundColor Yellow
+        }
         return $null
     }
 
@@ -530,3 +563,56 @@ Sync-LocalMain
 
 Write-Host ""
 Write-Host "[OK] DONE -- integrated, landed on main$(if ($NoDeploy) { ' (deploys skipped: -NoDeploy)' } else { ', deployed' }), pruned, and local main pulled." -ForegroundColor Green
+
+# =============================================================================
+# 9. THE HONESTY LINE. A dashboard that landed on main but never deployed leaves the tree
+#    clean, the summary green, and production serving the OLD build -- the single most
+#    misleading state this script can end in. If that happened, say so LAST and say so in red,
+#    with the exact command to finish the job. Added 2026-07-30, after a run landed dashboard
+#    changes for five clients and deployed none of them.
+# =============================================================================
+if ($script:UndeployableDash -and $script:UndeployableDash.Count -gt 0) {
+    $uniq = @($script:UndeployableDash | Sort-Object -Unique)
+    Write-Host ""
+    Write-Host "=============================== NEEDS YOU ===============================" -ForegroundColor Red
+    Write-Host " $($uniq.Count) client dashboard(s) CHANGED and are now on main but were NOT DEPLOYED:" -ForegroundColor Red
+    foreach ($c in $uniq) { Write-Host "     - $c" -ForegroundColor Red }
+    Write-Host ""
+    Write-Host " These clients have no clients/<c>/dash/deploy_dash_*.ps1. Their only deploy path" -ForegroundColor Yellow
+    Write-Host " is the client-root full standup, which re-reads secrets and mints a fresh" -ForegroundColor Yellow
+    Write-Host " SESSION_SECRET -- so this script deliberately will not run it for you." -ForegroundColor Yellow
+    Write-Host ""
+    $sha = (git rev-parse --short HEAD)
+    foreach ($c in $uniq) {
+        Write-Host " $c" -ForegroundColor White
+        # If the client's own standup exposes a dash-only switch, that is the RIGHT tool -- it
+        # knows this client's service names (S7000 alone deploys THREE services from one dash/).
+        $root = Get-ChildItem -Path (Join-Path $RepoRoot "clients/$c") -Filter 'deploy_*.ps1' -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -notmatch '^deploy_(dash|job|views)_' } | Select-Object -First 1
+        $hasDashOnly = $false
+        if ($root) {
+            $hasDashOnly = (Select-String -Path $root.FullName -Pattern '\[switch\]\s*\$DashOnly' -Quiet -ErrorAction SilentlyContinue) -eq $true
+        }
+        if ($hasDashOnly) {
+            Write-Host "     .\clients\$c\$($root.Name) -DashOnly" -ForegroundColor Gray
+        } else {
+            # Image-only update: changes the image and NOTHING else, so every env var, secret
+            # binding and service account survives untouched. Deliberately does not guess the
+            # service name -- one client can back several services.
+            Write-Host "     # image-only update (keeps every env var, secret and SA intact)." -ForegroundColor DarkGray
+            Write-Host "     # Confirm this client's service name(s) first:" -ForegroundColor DarkGray
+            Write-Host "     gcloud run services list --project agora-data-driven --region asia-southeast1" -ForegroundColor Gray
+            Write-Host "     # then, per service <svc>:" -ForegroundColor DarkGray
+            Write-Host "     gcloud builds submit --tag asia-southeast1-docker.pkg.dev/agora-data-driven/agora/<svc>:$sha ``" -ForegroundColor Gray
+            Write-Host "         --project agora-data-driven clients/$c/dash" -ForegroundColor Gray
+            Write-Host "     gcloud run services update <svc> --project agora-data-driven --region asia-southeast1 ``" -ForegroundColor Gray
+            Write-Host "         --image asia-southeast1-docker.pkg.dev/agora-data-driven/agora/<svc>:$sha" -ForegroundColor Gray
+        }
+    }
+    Write-Host ""
+    Write-Host " Then confirm what is SERVING (read the WHOLE traffic array, not traffic[0])." -ForegroundColor Yellow
+    Write-Host " The durable fix for a client in this list is to give it its own" -ForegroundColor Yellow
+    Write-Host " clients/<c>/dash/deploy_dash_<c>.ps1, so a dashboard edit deploys itself." -ForegroundColor Yellow
+    Write-Host "=========================================================================" -ForegroundColor Red
+    exit 1
+}
