@@ -191,6 +191,44 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   pull is hidden on blog cards** (`can_safe_pull`; `op=safe_pull` refuses them). Verified live on
   thelegalpaige.com: 330 posts listed in ~2s, 24 full articles per fetch batch in ~2.6s, 0 errors.
   Tests: `_run_blog_checks` in `_watcher_localtest.py` (fetchers injected — no network in CI).
+- **`watcher_template.py`** — the **default watched sources EVERY client gets, automatically**
+  (2026-07-30). Pure catalog (no I/O, no workspace import), the twin of `service_templates.py`:
+  a git-versioned source list keyed by segment — `UNIVERSAL` for everyone plus industry segments
+  matched loosely against the Company tab's free-text `industry` (`segments_for`, substring hints,
+  because a human types that field). `sources_for(segs)` returns copies; `TEMPLATE_VERSION` bumps
+  when the catalog changes. Applied in TWO places: `onboard_client.onboard()` (the ONE funnel both
+  client-creation routes use — universal only, since a day-one workspace has no Company profile) and
+  `main._watcher_reconcile()` on every team render, which back-fills existing clients and picks up a
+  client's industry segment the moment somebody fills the Company tab in.
+  Workspace side: `workspace.pending_watcher_template(ws, sources)` (pure set-difference — the
+  render's cheap pre-check, so the common path writes NOTHING), `apply_watcher_template()` (one
+  atomic additive write; recomputes the missing set INSIDE the mutation because storage is
+  last-write-wins) and `watcher_template_state()`.
+  🔴 **SHARED archives — the reason this scales.** An archive is per client, so 15 clients watching
+  Search Engine Land = 15 copies of a multi-MB object, 15× the publisher traffic, 15× the embedding
+  bill. A `shared` source is stored ONCE under `workspace.HOUSE_CLIENT` (default `agora`), and the
+  sharing is encoded in the **ENTRY ID** (`SHARED_PREFIX` = `wsh_`, minted by `shared_channel_id`)
+  rather than a flag — so ONE redirect inside `watcher_object_name` fixes all 20+ archive call sites
+  (tab render, fetch loop, Sentinel bridge, Assistant index) with no signature change and no extra
+  read. It also makes the reconcile naturally idempotent (the id is deterministic).
+  ⚠️ **`safe_scrape_local.py` hardcodes `workspace/watcher/<client>/<id>.json`** and never calls
+  `watcher_object_name` — teach it the `wsh_` rule before adding a shared YOUTUBE source.
+  🔴 **`delete_watcher_channel` gained two template rules:** removing a template source RECORDS the
+  opt-out (`ws["watcher"]["template"]["removed"]`) so the reconcile never resurrects it — without
+  that the team deletes an irrelevant source and fights us every render — and it NEVER deletes a
+  shared archive (it still serves every other client). A per-client archive is still removed.
+  🔴 `_watcher_entry()` is now the ONE definition of a registry entry (shared by the hand-add path
+  and the template); it accepts `entry_id` to force a shared id and `template_id` to mark provenance.
+  Constraints that are deliberate, not oversights: template sources are **blog-only** (YouTube blocks
+  datacenter IPs and would swamp the one-residential-IP Safe-pull queue), and `kind` stays inside the
+  existing `creator|competitor` pair (`atrium.html` treats it as a two-state toggle plus a hardcoded
+  filter dropdown and one CSS chip class per value). Entries appear automatically; the first
+  **listing** of a shared source is still one "Check for new posts" click — once per source for the
+  whole estate. `main._client_industry()` reads the industry — note `workspace.company_profile()`
+  returns the WHOLE company block, so the facts are one level down under `"profile"`.
+  Tests: `_run_template_checks` in `_watcher_localtest.py` (catalog, the shared redirect, and all
+  four reconcile invariants). ⚠️ Every client is pre-seeded now, so a test asserting "the registry is
+  empty" must filter template entries — see the `_hand_channels` helper.
 - **`assistant_ai.py`** — the team-only Assistant tab: RAG chat over EVERY workspace source
   (watcher transcripts, intel, campaigns/content, metrics, calendar, conversations, health, plus
   the opt-in client dashboard export — grant via `enable_assistant_dash_data.ps1`). Index stored as
@@ -428,7 +466,19 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   which marked all thirteen weeks "BEST" until `_series` started requiring a real spread and a
   single winner. `draft_payload` also sweeps up any fact its running order does not name, so adding
   a fact to `build_facts` puts it on the deck automatically.
-  Test: `python _report_localtest.py`.
+  🔴 **The dashboard export is keyed by `assistant_ai.dash_data_key(client, ws["dashboard_url"])`,
+  not by the client key** — in production the portal key (`riverdance-rv`, derived from the display
+  name) and the dashboard stack key (`riverdance`) diverged for EVERY client, so
+  `agora-data-driven-<c>-dash` never existed, `read_client_dash_data` swallowed the 404 and both the
+  Assistant index and the deck's fact pack silently lost the KPI export (a live deck rendered 3
+  slides). The resolver reads the Dashboard tab's own embed URL (both Cloud Run host forms + a
+  custom domain) and falls back to the client key.
+  🔴 **Ranked tables carry a volume floor** (`_MIN_SHARE`/`_MIN_CLICKS`, `_has_volume`): a 0.0%-of-
+  spend cell won "best audience" on the real breakdown. The floor is opt-in per table — a row with
+  no `_share`/`_clicks` stays eligible, so spend-ranked tables keep their best/worst marks.
+  🔴 **The brand marks are CSS custom properties declared once** (`mark_css_url` -> `--crest` /
+  `--agoramark`). Repeating the markup per slide made a 3-slide deck 1.9 MB.
+  Test: `python _report_localtest.py` (+ `_assistant_localtest.py` covers the key resolver).
 - **`intel_feed.py` / `intel_refresh.py`** — the DAILY Market Intelligence auto-refresh (opt-in,
   `INTEL_AUTO_ENABLED=1`). `intel_feed` parses Google News RSS + publisher feeds (keyless, stdlib
   `xml.etree` + lazy `requests`, degrades to `[]`); `intel_refresh.main()` is the Cloud Run **job**

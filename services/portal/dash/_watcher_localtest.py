@@ -55,6 +55,16 @@ _CHANNEL_HTML = ('<html><head><meta property="og:title" content="Data With Dana 
                  '</head><body>"channelId":"%s"</body></html>' % _CHANNEL_ID)
 
 
+def _hand_channels(client=CLIENT):
+    """A client's HAND-ADDED watcher sources, with template-seeded ones filtered out.
+
+    Every client is now pre-seeded from watcher_template.py (and the reconcile tops it up on any team
+    render), so "the registry is empty" is no longer true of a real workspace. A check about what a
+    TEST added has to ignore the template's entries to stay honest."""
+    return [ch for ch in workspace.watcher_channels(workspace.load_workspace(client))
+            if not ch.get("template_id")]
+
+
 def _check(label, cond):
     if not cond:
         raise AssertionError(label)
@@ -357,6 +367,154 @@ def _run_blog_checks(c):
     watcher_blog.fetch_post = real_fetch_post
 
 
+def _run_template_checks():
+    """The Watcher source TEMPLATE: the shared-archive redirect, and the reconcile's four invariants
+    (additive, idempotent, opt-out is permanent, hand-added wins). Pure data layer -- no network."""
+    import watcher_template
+
+    # --- The catalog (pure) ----------------------------------------------------------------------
+    universal = watcher_template.sources_for(watcher_template.UNIVERSAL)
+    _check("catalog: the universal segment is non-empty", len(universal) > 0)
+    _check("catalog: every source is a blog (YouTube would swamp Safe pull -- see the module doc)",
+           all(s["platform"] == "blog" for s in watcher_template.catalog()))
+    _check("catalog: every kind stays in the UI's two-state creator|competitor toggle",
+           all(s["kind"] in ("creator", "competitor") for s in watcher_template.catalog()))
+    _check("catalog: template_ids are unique (they are the reconcile key)",
+           len({s["template_id"] for s in watcher_template.catalog()})
+           == len(watcher_template.catalog()))
+    _check("catalog: sources_for returns COPIES (the catalog can't be mutated through it)",
+           universal[0] is not watcher_template.sources_for(watcher_template.UNIVERSAL)[0])
+
+    travel = watcher_template.segments_for("RV resort & campground")
+    _check("segments: a free-text industry matches its segment AND still gets universal",
+           "travel-hospitality" in travel and watcher_template.UNIVERSAL in travel)
+    _check("segments: an unrecognised industry still gets the universal set",
+           watcher_template.segments_for("Wholesale plumbing") == (watcher_template.UNIVERSAL,))
+    _check("segments: a blank industry (a day-one workspace) still gets the universal set",
+           watcher_template.segments_for("") == (watcher_template.UNIVERSAL,))
+    _check("segments: an industry segment adds sources on top of universal",
+           len(watcher_template.sources_for(travel)) > len(universal))
+
+    # --- The shared-archive redirect: ONE object serves every client ------------------------------
+    shared_id = workspace.shared_channel_id("search-engine-land")
+    _check("shared id: deterministic and prefixed",
+           shared_id == workspace.shared_channel_id("search-engine-land")
+           and workspace.is_shared_channel_id(shared_id))
+    _check("shared id: a normal per-client entry id is NOT shared",
+           not workspace.is_shared_channel_id("wch_1a2b3c4d"))
+    _check("shared archive resolves to the HOUSE workspace from ANY client",
+           workspace.watcher_object_name("riverdance", shared_id)
+           == workspace.watcher_object_name("someotherclient", shared_id)
+           == "%swatcher/%s/%s.json" % (workspace._prefix(), workspace.HOUSE_CLIENT, shared_id))
+    _check("a per-client archive still resolves under its own client",
+           workspace.watcher_object_name("riverdance", "wch_9f9f9f9f")
+           == "%swatcher/riverdance/wch_9f9f9f9f.json" % workspace._prefix())
+
+    # --- The reconcile, on a throwaway client ----------------------------------------------------
+    tpl_client = "tplclient"
+    workspace.save_workspace(tpl_client, {"version": 1, "client": tpl_client,
+                                          "display_name": "Template Client"})
+    src = watcher_template.sources_for(watcher_template.UNIVERSAL)
+
+    pending = workspace.pending_watcher_template(workspace.load_workspace(tpl_client), src)
+    _check("reconcile: a fresh client is missing every universal source", len(pending) == len(src))
+
+    added = workspace.apply_watcher_template(tpl_client, src, watcher_template.TEMPLATE_VERSION)
+    ws = workspace.load_workspace(tpl_client)
+    _check("reconcile: applying adds every source once", len(added) == len(src)
+           and len(workspace.watcher_channels(ws)) == len(src))
+    _check("reconcile: shared sources got their deterministic house ids",
+           all(workspace.is_shared_channel_id(e["id"]) for e in added if e["template_id"]))
+    _check("reconcile: the version + applied_at stamp is written",
+           workspace.watcher_template_state(ws)["version"] == watcher_template.TEMPLATE_VERSION
+           and workspace.watcher_template_state(ws)["applied_at"])
+
+    # Idempotent: re-running the same catalog is a no-op.
+    _check("reconcile: nothing is pending after applying (pure pre-check is honest)",
+           workspace.pending_watcher_template(ws, src) == [])
+    _check("reconcile: re-applying adds NOTHING (idempotent)",
+           workspace.apply_watcher_template(tpl_client, src, watcher_template.TEMPLATE_VERSION) == []
+           and len(workspace.watcher_channels(workspace.load_workspace(tpl_client))) == len(src))
+
+    # Additive: a hand-added source survives a reconcile untouched.
+    hand = workspace.add_watcher_channel(tpl_client, {
+        "url": "https://example.com/blog", "title": "Hand added", "channel_id": "https://example.com",
+        "platform": "blog", "kind": "competitor"})
+    workspace.apply_watcher_template(tpl_client, src, watcher_template.TEMPLATE_VERSION)
+    ws = workspace.load_workspace(tpl_client)
+    _check("reconcile: a hand-added source is never touched",
+           workspace.find_watcher_channel(ws, hand["id"]) is not None
+           and workspace.find_watcher_channel(ws, hand["id"])["template_id"] == "")
+
+    # Hand-added wins: the template never plants a duplicate of a site the team beat us to.
+    beat_us = dict(src[0])
+    dup_ws = {"version": 1, "client": "dupclient", "watcher": {"channels": [
+        {"id": "wch_manual01", "channel_id": beat_us["channel_id"], "title": "Added by hand first",
+         "platform": "blog", "template_id": ""}]}}
+    _check("reconcile: a source already added BY HAND is not duplicated by the template",
+           all(p["template_id"] != beat_us["template_id"]
+               for p in workspace.pending_watcher_template(dup_ws, src)))
+
+    # Opt-out is permanent: deleting a template source must not resurrect it.
+    victim = next(e for e in workspace.watcher_channels(ws) if e.get("template_id"))
+    workspace.delete_watcher_channel(tpl_client, victim["id"])
+    ws = workspace.load_workspace(tpl_client)
+    _check("delete: removing a template source records the opt-out",
+           victim["template_id"] in workspace.watcher_template_state(ws)["removed"])
+    workspace.apply_watcher_template(tpl_client, src, watcher_template.TEMPLATE_VERSION)
+    ws = workspace.load_workspace(tpl_client)
+    _check("delete: the reconcile NEVER re-adds an opted-out source",
+           workspace.find_watcher_channel(ws, victim["id"]) is None
+           and all(ch.get("template_id") != victim["template_id"]
+                   for ch in workspace.watcher_channels(ws)))
+
+    # Deleting a shared source from one client must not destroy the house archive.
+    keeper = next(e for e in workspace.watcher_channels(ws) if e.get("template_id"))
+    workspace.write_watcher_videos(tpl_client, keeper["id"],
+                                   [{"id": "p1", "transcript": "house copy"}])
+    house_path = os.path.join(_TMP, workspace.watcher_object_name(tpl_client, keeper["id"]))
+    _check("shared archive was written to the house path", os.path.exists(house_path))
+    workspace.delete_watcher_channel(tpl_client, keeper["id"])
+    _check("delete: a SHARED archive survives (it still serves every other client)",
+           os.path.exists(house_path)
+           and workspace.read_watcher_videos("someotherclient", keeper["id"])[0]["transcript"]
+           == "house copy")
+
+    # A per-client archive, by contrast, IS deleted with its entry (unchanged behaviour).
+    solo = workspace.add_watcher_channel(tpl_client, {
+        "url": "https://solo.example/blog", "title": "Solo", "channel_id": "https://solo.example",
+        "platform": "blog"})
+    workspace.write_watcher_videos(tpl_client, solo["id"], [{"id": "s1", "transcript": "mine"}])
+    solo_path = os.path.join(_TMP, workspace.watcher_object_name(tpl_client, solo["id"]))
+    workspace.delete_watcher_channel(tpl_client, solo["id"])
+    _check("delete: a PER-CLIENT archive is still removed with its entry",
+           not os.path.exists(solo_path))
+
+    # --- Onboarding applies the template automatically --------------------------------------------
+    import onboard_client
+    new_key = "brandnewclient"
+    onboard_client.onboard(new_key, "Brand New Client")
+    new_ws = workspace.load_workspace(new_key)
+    _check("onboarding: a brand-new client's Watcher is pre-seeded with the universal sources",
+           len(workspace.watcher_channels(new_ws)) == len(src))
+    _check("onboarding: those entries are marked template-sourced",
+           all(ch.get("template_id") for ch in workspace.watcher_channels(new_ws)))
+
+    # --- The industry segment unlocks on the first render after the Company tab is filled ---------
+    workspace.set_company_profile(new_key, {"industry": "RV resort & campground"})
+    ind_ws = workspace.load_workspace(new_key)
+    _check("reconcile: filling the Company industry makes the industry sources pending",
+           len(workspace.pending_watcher_template(
+               ind_ws, watcher_template.sources_for(
+                   watcher_template.segments_for(main._client_industry(ind_ws))))) > 0)
+    fresh = main._watcher_reconcile(new_key, ind_ws)
+    _check("reconcile: _watcher_reconcile adds them and returns the RE-READ workspace",
+           len(workspace.watcher_channels(fresh))
+           == len(watcher_template.sources_for(watcher_template.segments_for("rv resort"))))
+    _check("reconcile: a second call is a no-op and returns the same workspace object",
+           main._watcher_reconcile(new_key, fresh) is fresh)
+
+
 def run():
     seed_workspace.seed(register_client=False)
     main.app.config.update(TESTING=True, SESSION_COOKIE_SECURE=False, SESSION_COOKIE_SAMESITE="Lax")
@@ -546,8 +704,7 @@ def run():
            and marker not in open(os.path.join(_TMP, "workspace", CLIENT + ".json")).read())
     workspace.delete_watcher_channel(CLIENT, entry["id"])
     _check("delete removes registry entry + object",
-           workspace.watcher_channels(workspace.load_workspace(CLIENT)) == []
-           and not os.path.isfile(obj_path))
+           _hand_channels() == [] and not os.path.isfile(obj_path))
 
     # --- Routes: add -> fetch -> expand -> refresh -> delete (fetchers stubbed) ------------------
     with c.session_transaction() as s:
@@ -802,7 +959,7 @@ def run():
         s.update(SUPER)
     r = c.post("/w/%s/admin/watcher" % CLIENT, data={"op": "delete", "channel_id": chan})
     _check("op=delete removes the channel AND its safe-pull entry", r.get_json()["ok"] is True
-           and workspace.watcher_channels(workspace.load_workspace(CLIENT)) == []
+           and _hand_channels() == []
            and workspace.watcher_safe_pull_queue(workspace.load_workspace(CLIENT)) == [])
 
     watcher.resolve_channel, watcher.list_videos, watcher.fetch_transcript = (
@@ -811,8 +968,12 @@ def run():
     # --- The website-blog half of the tab (same archive, different fetcher) ----------------------
     print("  -- website blogs --")
     _run_blog_checks(c)
-    _check("every source was cleaned up (the tab is empty again)",
-           workspace.watcher_channels(workspace.load_workspace(CLIENT)) == [])
+    _check("every hand-added source was cleaned up (only template sources remain)",
+           _hand_channels() == [])
+
+    # --- The source TEMPLATE (default sources every client gets) --------------------------------
+    print("  -- source template --")
+    _run_template_checks()
 
 
 if __name__ == "__main__":

@@ -1106,13 +1106,18 @@ def atrium(client, tab):
         # workspace URL never opens on the hidden tab. (Revert with the nav list to restore it.)
         tab = "dashboard"
     user = current_user()
-    view = atrium_view.build(ws, client, user, tab)
     # Admin-only "Preview as client": a real admin can append ?preview=client to SEE the exact
     # client-facing view (admin edit affordances hidden) WITHOUT changing their session/role. This is
     # not the old in-header session toggle (which could flip roles) -- it's a per-request preview the
     # client themselves never see, so the login-derived role boundary stays intact.
     admin_preview = is_superadmin() and request.args.get("preview") == "client"
     is_admin_view = is_superadmin() and not admin_preview
+    # Watcher source template: bring this client's watched-source registry up to the current catalog.
+    # Resolved BEFORE the view is built so every pane renders the same workspace. Team-only and
+    # normally a no-op (see _watcher_reconcile) -- a client page load never touches it.
+    if is_admin_view:
+        ws = _watcher_reconcile(client, ws)
+    view = atrium_view.build(ws, client, user, tab)
     # Mail (folded into Communications): the client's email archive index + digest. Team-only, so it
     # is only built for admins; it feeds BOTH the Communications team panel and the timeline's
     # non-client email cards. Bodies stay in per-thread objects, fetched on click (atrium_mail_thread).
@@ -3248,6 +3253,49 @@ def _watcher_labels(platform):
     return _WATCHER_LABELS.get(platform or "youtube", _WATCHER_LABELS["youtube"])
 
 
+def _client_industry(ws):
+    """The client's industry as free text (the Company tab's profile), '' when unset.
+
+    NB company_profile() returns the WHOLE company block ({profile, brand, sections, products}),
+    so the facts are one level down under "profile" -- not on the returned dict itself."""
+    profile = (workspace.company_profile(ws) or {}).get("profile") or {}
+    return (profile.get("industry") or "").strip()
+
+
+def _watcher_reconcile(client, ws):
+    """Bring `client`'s Watcher registry up to the source TEMPLATE. Returns the workspace to render.
+
+    Registry-only by design: it adds the entries and leaves the archives to the tab's existing
+    "Fetch missing" / Safe-pull loops, so there is no job, no new infra, and nothing expensive on a
+    page render. The common path is a pure set-difference that writes NOTHING and re-reads nothing --
+    only the first render after a catalog change (or after a client's Company industry is filled in,
+    which unlocks their industry segment) actually costs a write.
+
+    Best-effort: a broken catalog must never take the workspace down, so every failure just renders
+    the workspace we already have."""
+    try:
+        import watcher_template  # lazy: only a team render needs the catalog
+        sources = watcher_template.sources_for(watcher_template.segments_for(_client_industry(ws)))
+        if not workspace.pending_watcher_template(ws, sources):
+            return ws
+        added = workspace.apply_watcher_template(client, sources, watcher_template.TEMPLATE_VERSION)
+        if not added:
+            return ws
+        fresh = workspace.load_workspace(client) or ws
+    except Exception as exc:                           # noqa: BLE001 -- never break the render
+        app.logger.warning("watcher template reconcile skipped for %s: %s", client, exc)
+        return ws
+    # Audited only AFTER the write is banked, in its own guard: _audit reads the SESSION for the
+    # actor, so it needs a request context a CLI/test caller may not have -- and a logging failure
+    # must never make us throw away a reconcile that actually succeeded.
+    try:
+        _audit(client, "applied watcher template",
+               ", ".join((e.get("title") or e.get("template_id") or "?") for e in added))
+    except Exception as exc:                           # noqa: BLE001
+        app.logger.warning("watcher template audit skipped for %s: %s", client, exc)
+    return fresh
+
+
 def _watcher_view(ws, client):
     """The Watcher pane's render model: each registry entry + its item cards, bodies trimmed to a
     short preview (the full text is served on demand by atrium_watcher_video).
@@ -3783,7 +3831,8 @@ def _report_inputs(ws, client):
     import assistant_ai
     import report_ai
     return report_ai.gather(ws, _assistant_archives(ws, client),
-                            assistant_ai.read_client_dash_data(client))
+                            assistant_ai.read_client_dash_data(
+                                client, (ws or {}).get("dashboard_url", "")))
 
 
 def _assistant_action_ctx(ws, client):
@@ -3820,7 +3869,8 @@ def _assistant_index(ws, client, force=False):
         workspace.write_assistant_index(client, prev)
         return prev
     chunks = assistant_ai.build_chunks(ws, archives,
-                                       dash_data=assistant_ai.read_client_dash_data(client),
+                                       dash_data=assistant_ai.read_client_dash_data(
+                                           client, (ws or {}).get("dashboard_url", "")),
                                        mail_threads=_assistant_mail(ws, client))
     index = assistant_ai.build_index(chunks, fp=fp)
     if want_emb:
