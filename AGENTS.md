@@ -29,6 +29,38 @@ on Google Cloud Platform, fronted by a client portal that is growing into a full
 - **Windsor.ai is the only data source.** Connector loaders in `services/ingest/` land
   source data into the shared `raw_windsor` BigQuery dataset; per-client SQL views read from there.
 
+### 🔴 The ingest layer is CANONICAL — a client job must never call Windsor itself
+
+```
+Meta ──► Windsor API ──► ONE shared loader (services/ingest/<x>/) ──► raw_windsor.perf_<x>
+                                                    └──► per-client SQL view ──► <c>-export ──► <c>.json
+```
+
+**API-LIVE is legacy, not a pattern to copy.** `client_RHE`, `client_riverdance`,
+`client_honeytribe` and `client_MeloYelo` each call the Windsor API directly from their export job.
+That exists for one reason: **`services/ingest/meta/meta_loader.py` was left a stub**
+(`TODO: implement the Windsor Meta request`), so each client worked around the gap. The cost of that
+duplication is measured, not theoretical — four different row vocabularies for identical Meta data
+(which is why a shared dashboard cannot read them), every Windsor trap rediscovered separately, and
+one copy that silently lost **$321** of spend by overwriting rows on key collision instead of
+summing them.
+
+Do not add a fifth. Finish the loader — the full port spec, the 13-account inventory and the
+`ACCOUNT_TO_CLIENT` slug map are in [`services/ingest/meta/README.md`](services/ingest/meta/README.md).
+
+- **ONE Windsor key sees EVERY account.** Verified live 2026-07-30: one key returned **13 accounts /
+  4,751 rows** with `select_accounts` omitted. So one job serves the whole estate, and the per-client
+  secrets (`rhe-windsor-key`, `honeytribe-windsor-key`, `meloyelo-windsor-key`,
+  `riverdance-windsor-key`, + a TCS key) are almost certainly **one credential stored five times**.
+  Consolidate onto `windsor-api-key`, which `services/ingest/` already expects.
+- **Port, don't reinvent.** `bidbrain-analytics/ingest/windsor_data_pull/` is the production-proven
+  sibling of this whole layer (chunked fetch, disk cache, staging table + `MERGE` on a natural key,
+  `raw_row` fidelity, `client_slug` tagging, `_run/` artifacts). Keep table names identical
+  (`perf_meta`, …) so the two estates don't diverge.
+- **Three live ad accounts have no client folder** — `PHP` (**$147.5k/yr**, the estate's biggest
+  spender), `Sabbath Spa` ($32k), `ASL Logistics` ($4.9k). Map or exclude them **explicitly**, so
+  their rows can never default into another client's view.
+
 ## Fixed facts (use literally — never invent alternatives)
 
 | Fact | Value |
@@ -1075,6 +1107,71 @@ These are the recurring ones. Each cost real hours; check here before reading co
 - **Watcher fetches return nothing / `blocked` from Cloud Run.** **YouTube blocks datacenter IPs.**
   That is the whole reason `WATCHER_PROXY_URL` (Secret `watcher-proxy-url`) and the operator-machine
   **Safe pull** path exist. A bare Cloud Run fetch is expected to fail — it is not a code bug.
+- **🔴 An embedded client dashboard shows its own PASSWORD form instead of the dashboard — and the
+  Sign in button does nothing.** Three stacked causes, diagnosed 2026-07-30 on `the-contract-shop`:
+  1. **The Dashboard tab is embedding a raw `*.run.app` host.** `platform_sso.py` scopes `ag_sso` to
+     `.agoradatadriven.com`, so on a `run.app` src the cookie is **never sent** — SSO is inert *by
+     design* and the dash's own password gate is the only way in. The module's own docstring says so;
+     believe it before hunting for an auth bug. Fix how it is SERVED, not the auth.
+  2. **The iframe `sandbox` must include `allow-forms`.** Without it the browser blocks that fallback
+     form's submit outright: **no request is made at all**, Cloud Run logs stay silent, and it reads
+     as a caching or cookie bug. Both embeds (`atrium.html`, `dashboard_view.html`) now carry it.
+  3. **The embed is then cross-SITE** (`run.app` vs `agoradatadriven.com`), so the dash's own session
+     cookie is a third-party cookie — dead in Safari/Firefox even once the form submits.
+  **The fix is the `/d/<key>/` proxy, NOT a branded host** — see the next entry. A branded
+  `<c>.agoradatadriven.com` would also work, but it costs a **CNAME → `ghs.googlehosted.com` at the
+  registrar plus a certificate wait, per client, forever** (Cloud Run domain mappings do not support
+  wildcard Google-managed certs, and DNS for this domain is at Hostinger — `ns1/ns2.dns-parking.com`,
+  NOT Cloud DNS). Every mapping sits at `CertificatePending` until that record exists; `tcs`'s sat
+  there from 2026-07-07. Don't send anyone to the registrar for this.
+- **🔴 A self-hosted dashboard is embedded through `/d/<key>/`, never by its own hostname.** The
+  reverse proxy in `main.py` serves it under `portal.agoradatadriven.com`, so the iframe is
+  **same-origin**: no third-party cookie, no SSO needed, no password form, and **no per-client domain,
+  CNAME or certificate — ever**. `_ensure_upstream_login` logs into the upstream server-side with the
+  dash's own password and holds the cookie in a `requests.Session`; that hop is server-to-server, so a
+  plain `*.run.app` origin is entirely fine for it. **Wiring a new dash is three registry/workspace
+  fields and nothing else:**
+
+  | field | where | value |
+  |---|---|---|
+  | `dash_origin` | registry client entry | the dash's reachable base URL (normally its `*.run.app`) |
+  | `dash_service` | registry client entry | the Cloud Run service that actually exists (`tcs-dash`) |
+  | `dashboard_url` | `workspace/<key>.json` | `/d/<key>/` |
+
+  🔴 **`store.add_client` DERIVES `subdomain` and `dash_service` from the portal key, and both are
+  placeholders that are wrong in production** — the portal key never equals the stack key
+  (`the-contract-shop`/`tcs`, `honey-tribe`/`honeytribe`, `melo-yelo`/`meloyelo`,
+  `ian-fernandez`/`agora`), so the derived host has no mapping/DNS/cert and the derived service does
+  not exist. That is why the proxy 502'd for every client and the team pasted `run.app` URLs into the
+  Dashboard tab instead — the workaround that killed SSO (previous entry). `_upstream_base_url` now
+  prefers `dash_origin`; `get_client_dash_password` derives the secret from `dash_service`
+  (`tcs-dash-password`), never from the portal key.
+  🔴 **A dashboard's own fetches must be RELATIVE** — `fetch("data.json")`, `fetch("refresh")`. Under
+  `/d/<key>/` a root-anchored `/data.json` resolves to the PORTAL and the page strands on `#boot`
+  forever. Relative is correct under the proxy **and** on the dash's own host, so it is not a
+  proxy-only hack. `_lib.js` carries it for every standard dashboard; TCS and RHE hand-rolled their
+  own boot code and had to be fixed individually — **grep any new dashboard for `"/data.json`**.
+  The `dashboard-url` route accepts an external `https://` embed (Looker) or a `/d/…` path, nothing
+  else. In the response pipeline `_inject_head` deliberately skips `/d/` (a proxied dashboard is not
+  our page); `_no_store_html` does NOT skip it, but never overrides an existing header, so a dash that
+  already sends its own `Cache-Control` keeps it. `_HOP_BY_HOP` drops `content-encoding` +
+  `content-length` — load-bearing, since `requests` has already decompressed `upstream.content` and
+  relaying the original headers would hand the browser a length/encoding that no longer match.
+- **🔴 `CLIENT_KEY` on a `<c>-dash` must be the PORTAL key, not the stack key.** Only matters when a
+  dash is reached by its own branded hostname — through `/d/<key>/` no cookie is involved at all.
+  `sso_allows()` tests
+  `CLIENT_KEY in payload["clients"]`, and the portal mints that payload from **registry** keys — which
+  diverge from the stack keys for every client (`the-contract-shop`/`tcs`, `honey-tribe`/`honeytribe`,
+  `melo-yelo`/`meloyelo`, `ian-fernandez`/`agora`). `enable_platform_sso.ps1` used to derive the key
+  from the service name, which wired a key in **no** cookie: a super-admin still got in on the `"*"`
+  grant, so it tested fine, while every real client account silently fell through to the password
+  form. It now reads `dash_service` → `key` out of the registry. The same divergence is why
+  `store.get_client_dash_password` derives the secret name from `dash_service`
+  (`tcs-dash-password`), never from the portal key.
+  ⚠️ The three client-root full standups (`deploy_honeytribe.ps1`, `deploy_meloyelo.ps1`,
+  `deploy_RHE.ps1`) hardcode `CLIENT_KEY=$CLIENT` — the **stack** key — so running one silently
+  reverts that client's SSO to the broken state (on top of rotating its `SESSION_SECRET`). Re-run
+  `tools/enable_platform_sso.ps1 -Keys <stack>` after any such standup.
 - **Mail (dwd) returns nothing.** Domain-wide delegation needs a **Workspace-admin grant** that is
   separate from any IAM you can set from here. Unset/ungranted degrades to empty, by design.
 - **`/go` reported success but a repo didn't ship.** `/go` **exits 0 on partial failure** — read the

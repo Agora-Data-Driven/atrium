@@ -2431,8 +2431,13 @@
           {% if dash_url %}
           <div class="ax-dash-frame">
             <div class="ax-dash-scale" data-dashscale data-native-w="{{ dash_width }}" data-native-h="{{ dash_height }}">
+              {#- allow-forms is LOAD-BEARING: a self-hosted <c>-dash embed falls back to its OWN
+                  password form whenever the ag_sso cookie does not reach it (always, on a raw
+                  *.run.app src -- see clients/*/dash/platform_sso.py). Without allow-forms the
+                  browser BLOCKS that submit outright: the Sign in button does nothing and NO request
+                  is ever made, so Cloud Run logs look idle and it reads as a caching/auth bug. -#}
               <iframe src="{{ dash_url }}" frameborder="0" style="border:0" allowfullscreen
-                      sandbox="allow-storage-access-by-user-activation allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
+                      sandbox="allow-forms allow-storage-access-by-user-activation allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
             </div>
           </div>
           {% endif %}

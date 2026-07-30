@@ -133,6 +133,15 @@ def add_client(key, name=None, registry=None):
     Derives the standard resource names from the client key `<c>` so callers never re-type them:
       subdomain    -> <c>.agoradatadriven.com
       dash_service -> <c>-dash
+
+    ⚠️ Both derivations assume the portal key IS the stack key, and in production it never is (portal
+    `the-contract-shop` vs stack `tcs`), so treat them as PLACEHOLDERS to correct once the dashboard
+    exists -- the derived `subdomain` has no domain mapping, DNS or certificate, and `dash_service`
+    names a Cloud Run service that was never created. What actually wires a self-hosted dashboard
+    into Atrium is `dash_origin` (its reachable base URL, normally the `*.run.app` one) plus a
+    `dashboard_url` of `/d/<key>/`; see `main._upstream_base_url`. `dash_origin` is deliberately NOT
+    derived here -- at client-creation time no dashboard has been deployed yet, so any value would be
+    a guess. A client with no self-hosted dash (a Looker embed) never needs it.
     """
     reg = registry if registry is not None else load_registry()
     reg.setdefault("clients", [])
@@ -538,7 +547,18 @@ def get_client_dash_password(key):
     from google.cloud import secretmanager  # lazy import; see docstring
 
     client = secretmanager.SecretManagerServiceClient()
-    secret_name = "%s-dash-password" % key
+    # 🔴 The secret is named off the STACK key, which is NOT always the portal key: the dash password
+    # for portal client `the-contract-shop` lives in `tcs-dash-password`, because its Cloud Run service
+    # is `tcs-dash`. Derive from the registry's `dash_service` (canonically `<stack>-dash`) and fall
+    # back to the portal key only when the entry carries no service name. Deriving from `key` alone
+    # asked Secret Manager for `the-contract-shop-dash-password`, which does not exist -- so the
+    # server-side upstream login in the /d/<c>/ proxy silently failed for EVERY client.
+    entry = get_client(key) or {}
+    dash_service = (entry.get("dash_service") or "").strip()
+    if dash_service:
+        secret_name = "%s-password" % dash_service
+    else:
+        secret_name = "%s-dash-password" % key
     resource = "projects/%s/secrets/%s/versions/latest" % (PROJECT, secret_name)
     response = client.access_secret_version(request={"name": resource})
     # Secret Manager stores bytes verbatim; the upstream secret was written WITHOUT a BOM or trailing

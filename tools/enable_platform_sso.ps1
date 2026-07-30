@@ -73,10 +73,43 @@ if ($dashServices.Count -eq 0) {
 
 Write-Host ("[..] dashboards to wire: " + ($dashServices -join ", "))
 
+# --- resolve each service's PORTAL client key from the registry -------------------------------------
+# 🔴 CLIENT_KEY must be the PORTAL key, not the stack key derived from the service name.
+# platform_sso.sso_allows() tests `CLIENT_KEY in payload["clients"]`, and the portal mints that
+# payload from the account's REGISTRY keys. Those two diverged for every client (portal
+# `the-contract-shop` vs stack `tcs`, `honey-tribe` vs `honeytribe`, `melo-yelo` vs `meloyelo`,
+# `ian-fernandez` vs `agora`), so the old `$svc -replace '-dash$'` derivation wired a key that is in
+# NO cookie: a super-admin still got in on the "*" grant, but a real client account granted
+# ["honey-tribe"] was rejected and fell through to the password form. Read the registry instead and
+# map dash_service -> key; fall back to the derived key when the registry has no entry.
+$registry = $null
+$regJson = (gcloud storage cat "gs://agora-data-driven-platform-dash/platform.json" --project=$PROJECT 2>$null)
+if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($regJson)) {
+    try { $registry = ($regJson | ConvertFrom-Json) } catch { $registry = $null }
+}
+if ($null -eq $registry) {
+    Write-Host "[WARN] could not read the registry -- falling back to the service-name key for every dashboard." -ForegroundColor Yellow
+    Write-Host "       SSO will then work for a super-admin ('*') but NOT for a client account whose portal key differs." -ForegroundColor Yellow
+}
+$portalKeyOf = @{}
+if ($null -ne $registry) {
+    foreach ($entry in @($registry.clients)) {
+        $svcName = $entry.dash_service
+        if ([string]::IsNullOrWhiteSpace($svcName)) { $svcName = "$($entry.key)-dash" }
+        # Last entry wins; a service backing several portal clients cannot be disambiguated here.
+        $portalKeyOf[$svcName] = $entry.key
+    }
+}
+
 # --- wire each dashboard ---------------------------------------------------------------------------
 foreach ($svc in $dashServices) {
     $c = $svc.Substring(0, $svc.Length - "-dash".Length)
-    Write-Host "[..] $svc (client '$c')"
+    if ($portalKeyOf.ContainsKey($svc)) {
+        $c = $portalKeyOf[$svc]
+        Write-Host "[..] $svc (portal client '$c', from the registry)"
+    } else {
+        Write-Host "[..] $svc (client '$c' -- derived; NO registry entry maps to this service)" -ForegroundColor Yellow
+    }
 
     # Look up the service's ACTUAL runtime service account -- names differ per client and the SA may
     # be the per-client <c>-dash-web@ or something the operator set, so never assume; read it back.

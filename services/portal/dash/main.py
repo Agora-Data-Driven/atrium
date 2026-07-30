@@ -803,13 +803,29 @@ def shared_recap():
 
 # --- Reverse proxy: /d/<client>/<path> ---------------------------------------------------
 def _upstream_base_url(client_key):
-    """Resolve the upstream dashboard's base URL.
+    """Resolve the upstream dashboard's base URL for the /d/<c>/ proxy.
 
-    Prefer the client's subdomain (so the .agoradatadriven.com SSO cookie reaches it); fall back to
-    the dash service name's default custom domain. The registry holds the canonical subdomain.
+    Resolution order: the registry's explicit `dash_origin`, then its `subdomain`, then the key's
+    derived custom domain.
+
+    🔴 `dash_origin` exists because `subdomain` was a DEAD END for every client. store.add_client
+    derives it as `<portal key>.agoradatadriven.com`, but the portal key diverges from the stack key
+    for all of them (`the-contract-shop` vs `tcs`), so the derived host has no Cloud Run domain
+    mapping, no DNS and no certificate -- the proxy 502'd on every client and the team worked around
+    it by pasting raw `*.run.app` URLs into the Dashboard tab, which is what silently killed SSO
+    (the `.agoradatadriven.com` cookie is never sent to a run.app host) and produced a dead password
+    form inside the iframe.
+
+    This hop is server-to-server, so a `run.app` origin is entirely fine here: NO browser cookie is
+    involved -- `_ensure_upstream_login` authenticates with the dashboard's own password and the
+    portal serves the result same-origin. That is the whole point of the proxy, and it is why the
+    branded per-client domain (a CNAME + a certificate per client, forever) is not needed at all.
     """
-    client = store.get_client(client_key)
-    subdomain = (client or {}).get("subdomain") or ("%s.agoradatadriven.com" % client_key)
+    client = store.get_client(client_key) or {}
+    origin = (client.get("dash_origin") or "").strip()
+    if origin:
+        return origin.rstrip("/")
+    subdomain = client.get("subdomain") or ("%s.agoradatadriven.com" % client_key)
     return "https://%s" % subdomain
 
 
@@ -826,22 +842,29 @@ def _ensure_upstream_login(client_key):
 
     sess = requests.Session()
     base = _upstream_base_url(client_key)
+    logged_in = False
     try:
         dash_password = store.get_client_dash_password(client_key)
         # The dashboard's /login is a tiny form POST; a 302 (redirect to /) means success.
-        sess.post(
+        resp = sess.post(
             "%s/login" % base,
             data={"password": dash_password},
             allow_redirects=False,
             timeout=15,
         )
+        logged_in = resp.status_code in (301, 302, 303, 307, 308)
     except Exception:
         # Login failure is non-fatal here: we still return the session so the proxied request can
         # surface the upstream's own 401/login page rather than a 500. The user can then use the
         # dashboard's own password if needed.
         pass
 
-    _upstream_sessions[client_key] = sess
+    # 🔴 Only CACHE a session that actually logged in. Caching a failed one pinned every later
+    # request for this client to a session that can never authenticate -- one transient Secret
+    # Manager blip or upstream restart left the proxy serving the dashboard's login page until the
+    # instance recycled, with no way to recover and nothing in the logs to explain it.
+    if logged_in:
+        _upstream_sessions[client_key] = sess
     return sess
 
 
@@ -3172,8 +3195,15 @@ def atrium_admin_dashboard_url(client):
     if workspace.load_workspace(client) is None:
         return Response('{"error":"no_workspace"}', status=404, mimetype="application/json")
     url = (request.form.get("url", "") or "").strip()
-    if url and not url.lower().startswith("https://"):
-        return Response('{"error":"must_be_https"}', status=400, mimetype="application/json")
+    # Two accepted forms: an external https embed (Looker Studio), or this portal's OWN same-origin
+    # reverse-proxy path `/d/<client>/` for a self-hosted <c>-dash. The proxy form is preferred for a
+    # self-hosted dash -- it needs no branded domain, no certificate and no third-party cookie, and
+    # never shows the dashboard's own password form. A bare "/" or "//host" is NOT same-origin-safe
+    # (protocol-relative), so require the /d/ prefix explicitly.
+    is_proxy_path = url.startswith("/d/") and not url.startswith("/d//")
+    if url and not is_proxy_path and not url.lower().startswith("https://"):
+        return Response('{"error":"must_be_https_or_proxy_path"}', status=400,
+                        mimetype="application/json")
     try:
         height = int(request.form.get("height", "") or 800)
     except (TypeError, ValueError):
