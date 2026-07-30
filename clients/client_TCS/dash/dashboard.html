@@ -589,16 +589,22 @@
 
         <div class="panel">
           <div class="shead"><h2>Where the funnel leaks</h2><span class="sub">reach → leads, per ad</span></div>
-          <p class="desc">Each row is one ad; each column is one <b>step-through rate</b>, so a weak step shows up as a pale cell instead of having to be inferred from five separate totals. <b>Shading compares each column against itself</b> &mdash; a 1.8% click rate and a 15% lead rate cannot share a scale, so darker simply means "better than the other ads at <i>this</i> step". <span style="color:#b45309">Reach is a <b>daily sum</b>, not unique people: Meta only de-duplicates within a window it is asked for, and these rows are per-ad-per-day, so someone reached on three days counts three times. Rates compare fairly between ads; don't read the reach number as a headcount.</span> Ads too thin to judge on a rate are dimmed.</p>
+          <p class="desc">Read each row left to right as a <b>chain</b>: of the people who got this far, what share went one step further? <b>Reached → saw it → clicked → page loaded → became a lead.</b> A weak step shows up as a pale cell, instead of having to be inferred from five separate totals.<br>
+          <b>&ldquo;… page loaded&rdquo; is the step nobody measures.</b> Someone clicks the ad &mdash; you have already paid for that click &mdash; but the page never finishes loading, so they never arrive. A slow page, a bad redirect, a broken link. Meta still bills the click, and it is invisible in any report that stops at CTR.<br>
+          <b>Shading compares each column against itself</b>: a 1.8% click rate and a 15% lead rate cannot share a scale, so darker only ever means "better than the other ads at <i>this</i> step". <span style="color:#b45309">Reach is a <b>daily sum</b>, not unique people &mdash; Meta de-duplicates only inside a window it is asked for, and these rows are per-ad-per-day, so someone reached on three days counts three times. Rates compare fairly between ads; don't read the reach column as a headcount.</span> Ads too thin to judge on a rate are dimmed.</p>
           <div class="tablewrap">
             <table id="paidHeat">
+              <!-- Plain English FIRST, formula underneath. The columns are a chain -- each one is
+                   "of the people who got this far, what share went one step further?" -- and
+                   leading with the ratio made that read as a jumble of unrelated metrics. -->
               <thead><tr>
-                <th>Ad</th><th>Spend</th><th>Reach<br><span class="hsub">daily sum</span></th>
-                <th>Impr / reach<br><span class="hsub">frequency</span></th>
-                <th>Clicks / impr<br><span class="hsub">CTR</span></th>
-                <th>Page views / clicks<br><span class="hsub">did the page load</span></th>
-                <th>Leads / page views<br><span class="hsub">conversion</span></th>
-                <th>Leads / reach<br><span class="hsub">end to end</span></th>
+                <th>Ad</th><th>Spend</th>
+                <th>Reached<br><span class="hsub">daily sum</span></th>
+                <th>… saw it<br><span class="hsub">impressions ÷ reach</span></th>
+                <th>… clicked<br><span class="hsub">clicks ÷ impressions (CTR)</span></th>
+                <th>… page loaded<br><span class="hsub">page views ÷ clicks</span></th>
+                <th>… became a lead<br><span class="hsub">leads ÷ page views</span></th>
+                <th>End to end<br><span class="hsub">leads ÷ reach</span></th>
                 <th>Cost / lead</th>
               </tr></thead>
               <tbody></tbody>
