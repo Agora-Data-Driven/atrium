@@ -289,19 +289,161 @@
     .gallery{grid-template-columns:1fr} .fmeta{min-width:110px}
   }
   @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* ============================================================ Agora standard chrome
+   Added 2026-07-30 bringing this dashboard onto clients/_standard/STANDARD.md. Everything here
+   is ADDITIVE: the existing .preset/.gran/.ctrl-group styling is untouched, these rules only
+   name and style the parts the standard requires and this file did not have. */
+.tabbar{margin-bottom:0}
+.tab .ix{font-family:var(--sans);font-size:11px;font-weight:700;color:var(--green3);opacity:.9;margin-right:2px}
+.syncbox{display:flex;align-items:center;gap:12px}
+.top-meta{text-align:right;font-size:11px;color:var(--gray);line-height:1.5;white-space:nowrap}
+.top-meta b{color:var(--pine);font-weight:700}
+/* Data-through turns red past the stale threshold. This is the honesty guard. */
+.stale{color:var(--red) !important;font-weight:700}
+.sync{display:inline-flex;align-items:center;gap:7px;font-family:var(--sans);font-size:12.5px;
+      font-weight:600;border:1px solid var(--sage);background:var(--white);color:var(--pine);
+      padding:7px 14px;border-radius:8px;cursor:pointer;transition:.15s;white-space:nowrap}
+.sync:hover{border-color:var(--green2);color:var(--green)}
+.sync[disabled]{opacity:.6;cursor:default}
+.sync.ok{border-color:var(--green2);color:var(--green2);background:#e7f1e9}
+.sync.bad{border-color:var(--red);color:var(--red);background:#fdecea}
+.spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--mist);border-top-color:var(--green);
+      display:none;animation:spin .7s linear infinite}
+.sync.busy .spin{display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* The filter bar tucks away, because filters should not own the screen. Collapsed, the summary
+   line stays -- it already states both ranges, so nothing is lost. */
+.controls-inner{position:relative;padding-right:60px}
+.ctuck{position:absolute;top:8px;right:16px;display:inline-flex;align-items:center;gap:5px;
+       border:1px solid var(--sage);background:var(--white);color:var(--gray);font-family:var(--sans);
+       font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:4px 9px;
+       border-radius:7px;cursor:pointer;transition:.15s;z-index:2}
+.ctuck:hover{border-color:var(--green2);color:var(--green)}
+.ctuck .cv{font-size:9px;transition:transform .18s}
+.controls.tucked .ctrl-group{display:none}
+.controls.tucked .controls-inner{padding-top:7px;padding-bottom:7px;gap:0}
+.controls.tucked .ctuck{top:5px}
+.controls.tucked .ctuck .cv{transform:rotate(180deg)}
+/* The KPI benchmark is tinted end to end -- label, buttons and date inputs -- so it can never be
+   mistaken for the reporting period. */
+.bench-group{background:rgba(200,146,42,.12);border:1px solid rgba(200,146,42,.42);
+             border-radius:9px;padding:4px 9px}
+.bench-group .ctrl-label{color:#8a6415}
+.preset.bench.active{background:var(--gold);border-color:var(--gold);color:#fff}
+input[type=date].bench-date{border-color:rgba(200,146,42,.5);color:#8a6415}
+.rangenote .bench{color:#8a6415}
+.tfoot{font-size:11.5px;color:var(--gray);padding:8px 2px 0}
+.csub{font-size:12px;color:var(--gray);margin-bottom:12px}
+.shead{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:11px;border-bottom:1px solid var(--sage)}
+.kl{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--gray);font-weight:700}
+.kv{font-family:var(--serif);font-weight:700;color:var(--green);font-variant-numeric:tabular-nums}
+.kd{font-size:12px;color:var(--gray);margin-top:6px}
+th.srt{cursor:pointer;user-select:none}
+th.srt:hover{color:var(--green)}
+
+/* >>> AGORA STANDARD CONFORM v1 -- vendored from clients/_standard/dash/_conform.css -- DO NOT EDIT HERE
+/* ===========================================================================================
+   AGORA DASHBOARD STANDARD -- conformance block v1
+   ===========================================================================================
+   SOURCE OF TRUTH: clients/_standard/dash/_conform.css
+   VENDORED byte-identically into every client dashboard, at the END of its stylesheet, between
+   the sentinel pair vendor_lib.py looks for (grep AGORA STANDARD CONFORM in any dashboard).
+
+   To change it: edit THIS file and run  py -3 clients/_standard/vendor_lib.py
+
+   WHY THIS BLOCK IS SEPARATE FROM _shell.css
+       _shell.css is the REFERENCE stylesheet: a new client copies it and re-brands it. It is
+       not vendored, because identity is supposed to differ per client.
+
+       This block is different. It holds only rules that are (a) required by the standard,
+       (b) identical for every brand, and (c) incapable of fighting a client's existing CSS --
+       so it is safe to append verbatim to eight already-shipped, individually-branded
+       stylesheets. That constraint is why it contains print and motion rules and nothing else:
+       every other standard rule either resolves from a brand token or would override work a
+       client dashboard has already done deliberately.
+
+       If you are tempted to add a layout or colour rule here: don't. Add it to _shell.css and
+       hand-apply it, or it will silently restyle eight live dashboards.
+   =========================================================================================== */
+
+/* ---------------------------------------------------------------------------------------------
+   PRINT. Clients print these for meetings and paste them into decks. Without this rule a print
+   is the sticky chrome plus whichever tab happened to be open, with every other tab's content
+   missing entirely -- so the printed artefact is not the dashboard the client was looking at.
+   Every pane opens, the interactive furniture goes, and cards stop breaking across pages.
+   Class names are the standard vocabulary; a selector that matches nothing is free.
+--------------------------------------------------------------------------------------------- */
+@media print{
+  header.top, .tabbar, .tabs, .controls, .gbar, .filters, .filterbar,
+  .sync, .iconbtn, .ctuck, .tip, #tip, .toast, .cmod, .modal, .fsbtn, .exportbtn, .pager{
+    display:none !important;
+  }
+  /* Every tab prints, not just the open one. */
+  .tab-pane[hidden]{ display:block !important; }
+  [hidden].tab-pane{ display:block !important; }
+  body{ background:#fff !important; }
+  main{ padding-top:8px !important; }
+  /* Flat on paper: a drop shadow prints as grey mush. */
+  .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .hero, .bm, .ccard, .fresh, .acct{
+    box-shadow:none !important;
+  }
+  /* Do not split a figure across a page break. */
+  section, .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .bm, .ccard, .acct{
+    break-inside:avoid; page-break-inside:avoid;
+  }
+  /* Sticky headers inside scroll panes become a repeated band on paper. */
+  thead th{ position:static !important; }
+  /* A scroll pane prints only its first screenful unless it is released. */
+  .tblwrap, .tablewrap, .scroll-x, .scrolly, .hbwrap, .macc{
+    overflow:visible !important; max-height:none !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   REDUCED MOTION. A spinner, a pulse and a dozen hover transitions are a real accessibility
+   problem for anyone who has asked their OS to stop moving things, and every one of these
+   dashboards animates something. Honouring the preference is one rule.
+--------------------------------------------------------------------------------------------- */
+@media (prefers-reduced-motion:reduce){
+  *, *::before, *::after{
+    transition:none !important;
+    animation:none !important;
+    scroll-behavior:auto !important;
+  }
+  html{ scroll-behavior:auto !important; }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Screen-reader-only text, so a control whose meaning is carried by a glyph can still name
+   itself. Required by the standard's "colour is never the only signal" rule.
+--------------------------------------------------------------------------------------------- */
+.vh{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+/* <<< AGORA STANDARD CONFORM v1 */
 </style>
 
 <!-- ============ HEADER ============ -->
 <header class="top">
   <div class="top-inner">
-    <img class="brand-logo" id="brand-logo" alt="Riverdance RV Resort">
+    <img class="brand-logo" id="logo" alt="Riverdance RV Resort">
     <div class="top-title">
       <div class="t">Paid Social Performance Dashboard</div>
       <div class="s" id="top-sub">Meta Ads</div>
     </div>
+    <!-- Agora standard: when the data was generated, and what it covers. "Data through" goes red
+         past the stale threshold -- it used to appear only in the footer, where nobody looked. -->
+    <div class="syncbox">
+      <div class="top-meta">
+        <div>Updated <b id="updated">&mdash;</b></div>
+        <div>Data through <b id="thru">&mdash;</b></div>
+      </div>
+      <button type="button" class="sync" id="syncBtn" title="Pull the latest data">
+        <span class="spin" id="syncSpin" aria-hidden="true"></span><span id="syncLbl">Sync</span>
+      </button>
+    </div>
     <div class="agency">
       <div><div class="lbl">Managed by</div></div>
-      <img id="agora-logo" alt="Agora Data Driven">
+      <img id="agora" alt="Agora Data Driven">
     </div>
   </div>
 </header>
@@ -309,17 +451,32 @@
 <!-- ============ CONTROLS ============ -->
 <div class="controls">
   <div class="controls-inner">
-    <div class="ctrl-group">
-      <span class="ctrl-label">Range</span>
+    <button type="button" class="ctuck" aria-label="Collapse or expand the filters"><span class="cv">&#9650;</span><span class="cl">Filters</span></button>
+    <div class="ctrl-group cgroup">
+      <span class="ctrl-label clabel">Range</span>
       <button type="button" class="preset" data-days="0">All time</button>
       <button type="button" class="preset" data-days="30">Last 30d</button>
       <button type="button" class="preset" data-days="14">Last 14d</button>
       <button type="button" class="preset" data-days="7">Last 7d</button>
     </div>
-    <div class="ctrl-group">
+    <div class="ctrl-group cgroup">
       <input type="date" id="startDate">
       <span style="color:var(--gray)">&rarr;</span>
       <input type="date" id="endDate">
+    </div>
+    <!-- The KPI BENCHMARK is a second, independently-set range. It drives ONLY the comparison
+         column on the benchmark cards below -- the period drives everything else. Tinted end to
+         end so the two are never confused at a glance. -->
+    <div class="ctrl-group cgroup bench-group">
+      <span class="ctrl-label clabel">KPI benchmark</span>
+      <button type="button" class="preset bench active" data-bench="prev">Previous window</button>
+      <button type="button" class="preset bench" data-bench="90">90d</button>
+      <button type="button" class="preset bench" data-bench="365">Rolling 12m</button>
+      <button type="button" class="preset bench" data-bench="lastyear">Last year</button>
+      <button type="button" class="preset bench" data-bench="all">All time</button>
+      <input type="date" id="benchStart" class="bench-date">
+      <span style="color:var(--gray)">&rarr;</span>
+      <input type="date" id="benchEnd" class="bench-date">
     </div>
     <div class="ctrl-group" id="campGroup" style="display:none">
       <span class="ctrl-label">Campaign</span>
@@ -327,22 +484,26 @@
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">View</span>
+      <button type="button" class="gran" data-gran="auto">Auto</button>
       <button type="button" class="gran" data-gran="day">Day</button>
       <button type="button" class="gran" data-gran="week">Week</button>
       <button type="button" class="gran" data-gran="month">Month</button>
     </div>
-    <div class="range-label" id="rangeLabel"></div>
+    <div class="range-label rangenote" id="rangeLabel"></div>
   </div>
 </div>
 
-<div class="loading" id="loading">Loading dashboard&hellip;</div>
+<div class="loading" id="boot">Loading dashboard&hellip;</div>
 
+<div id="app" hidden>
 <main class="wrap" id="main" style="display:none">
 
   <!-- ============ TABS ============ -->
+  <div class="tabbar">
   <div class="tabs" id="tabs" role="tablist" aria-label="Dashboard sections">
-    <button type="button" class="tab" id="tabbtn-ads" role="tab" data-tab="ads" aria-selected="true" aria-controls="tab-ads"><span class="ic">&#9679;</span>Paid Social</button>
-    <button type="button" class="tab" id="tabbtn-email" role="tab" data-tab="email" aria-selected="false" aria-controls="tab-email"><span class="ic">&#9993;</span>Email &middot; ActiveCampaign<span class="cnt" id="em-tabcnt"></span></button>
+    <button type="button" class="tab" id="tabbtn-ads" role="tab" data-tab="ads" aria-selected="true" aria-controls="tab-ads"><span class="ix">01</span><span class="ic">&#9679;</span>Paid Social</button>
+    <button type="button" class="tab" id="tabbtn-email" role="tab" data-tab="email" aria-selected="false" aria-controls="tab-email"><span class="ix">02</span><span class="ic">&#9993;</span>Email &middot; ActiveCampaign<span class="cnt" id="em-tabcnt"></span></button>
+  </div>
   </div>
 
 <div id="tab-ads" class="tab-pane" role="tabpanel" aria-labelledby="tabbtn-ads">
@@ -696,6 +857,7 @@
 </div><!-- /#tab-email -->
 
 </main>
+</div><!-- /#app -->
 
 <!-- ============ FOOTER ============ -->
 <footer>
@@ -827,7 +989,11 @@ function labelOf(m){
 function tagOf(m){ var t = m.type || ""; return (t.length > 14) ? "Ad" : t; }
 
 /* ---------- State & filtering ---------- */
-var state = { start: "", end: "", camp: "all", gran: "week", heroSel: ["rev"], heroMode: "abs" };
+/* bStart/bEnd are the KPI BENCHMARK range -- independent of start/end, and used ONLY by the
+   comparison line on the benchmark cards. bCode "prev" is the equal-length window
+   immediately before the period, so it follows the period wherever the period moves. */
+var state = { start: "", end: "", bStart: "", bEnd: "", bCode: "prev",
+              camp: "all", gran: "auto", heroSel: ["rev"], heroMode: "abs" };
 var tableSort = { key: "rev", dir: -1 };
 var HAS_CAMPS = false;
 
@@ -849,6 +1015,177 @@ var EM_METRICS = {
 var EM_RATE = ["openrate", "clickrate", "ctor", "unsubrate"];
 var EM_VOL = ["sent", "opens", "clicks"];
 var emMetric = "openrate", emView = "rate", emSort = { key: "date", dir: -1 }, emCamps = [], emFilter = "";
+
+/* =============================================================================================
+   AGORA STANDARD HELPERS (clients/_standard/STANDARD.md 2.3)
+   The standard fixes these NAMES so a control or chart written against one dashboard resolves on
+   every other one. Added 2026-07-30; the behaviour matches what setPreset/timeSeries already did.
+============================================================================================= */
+/* Presets anchor to the newest date IN THE DATA (the shared ad-days union email-send-dates
+   domain), never to today. Feeds lag, and "last 30 days" measured from today on a lagging feed
+   renders an empty dashboard that looks broken rather than merely late. */
+function presetRange(code, maxIso, minIso){
+  var lo = minIso || DOMAIN[0], hi = maxIso || DOMAIN[DOMAIN.length - 1];
+  if(code === "all" || code === "0"){ return [lo, hi]; }
+  if(code === "lastyear"){
+    /* The whole PREVIOUS calendar year. A rolling 12 months over-weights whichever season it
+       starts in, which on a seasonal RV resort is most of the signal. */
+    var y = parseInt(hi.slice(0, 4), 10) - 1;
+    var f = y + "-01-01", t = y + "-12-31";
+    if(f < lo){ f = lo; }
+    if(t > hi){ t = hi; }
+    if(f > t){ return presetRange("365", hi, lo); }
+    return [f, t];
+  }
+  var n = parseInt(code, 10);
+  if(!isFinite(n) || n <= 0){ return [lo, hi]; }
+  var d = dObj(hi); d.setUTCDate(d.getUTCDate() - n + 1);
+  var s = isoOf(d);
+  return [s < lo ? lo : s, hi];
+}
+/* Auto grain scales with the span: a 7-day range must never render a single weekly dot, and
+   three years must never draw 1,100 unreadable daily points. */
+function autoGrain(from, to){
+  var days = Math.round((dObj(to) - dObj(from)) / 86400000) + 1;
+  if(days <= 62){ return "day"; }
+  if(days <= 400){ return "week"; }
+  return "month";
+}
+function grainOf(key, from, to){
+  var g = grainOf("hero", state.start, state.end);
+  if(!g || g === "auto"){ return autoGrain(from, to); }
+  /* An explicit choice is sticky, so guard it against a span it cannot carry -- step to the next
+     coarser grain rather than silently resetting what the user picked. */
+  var days = Math.round((dObj(to) - dObj(from)) / 86400000) + 1;
+  if(g === "day" && days > 400){ g = "week"; }
+  if(g === "week" && days > 2800){ g = "month"; }
+  return g;
+}
+/* One helper wires every segmented control. */
+function segWire(id, apply){
+  var box = byId(id);
+  if(!box){ return; }
+  var btns = box.querySelectorAll("button");
+  for(var i = 0; i < btns.length; i++){
+    (function(b){
+      b.addEventListener("click", function(){
+        for(var j = 0; j < btns.length; j++){ btns[j].classList.remove("on"); }
+        b.classList.add("on");
+        apply(b.getAttribute("data-v"));
+      });
+    })(btns[i]);
+  }
+}
+/* The filter bar tucks away and the choice persists, so it does not own the screen every visit.
+   Collapsed, the summary line stays: it already states both ranges, so nothing is lost. */
+var TUCK_KEY = "riverdance_tuck";
+function isTucked(){
+  try { return window.localStorage.getItem(TUCK_KEY) === "1"; } catch(e){ return false; }
+}
+function setTuck(on){
+  var cs = document.querySelectorAll(".controls"), i;
+  for(i = 0; i < cs.length; i++){ cs[i].classList.toggle("tucked", !!on); }
+  var ls = document.querySelectorAll(".ctuck .cl");
+  for(i = 0; i < ls.length; i++){ ls[i].textContent = on ? "Filters" : "Hide"; }
+  try { window.localStorage.setItem(TUCK_KEY, on ? "1" : "0"); } catch(e){ /* private mode */ }
+}
+function wireTuck(){
+  var bs = document.querySelectorAll(".ctuck"), i;
+  for(i = 0; i < bs.length; i++){
+    bs[i].addEventListener("click", function(){
+      setTuck(!document.querySelector(".controls").classList.contains("tucked"));
+    });
+  }
+  setTuck(isTucked());
+}
+/* The benchmark range, resolved from its CODE so "Previous window" tracks the period rather than
+   being pinned to dates that go stale the moment the period moves. */
+function benchRange(){
+  if(!state.bCode){ return [state.bStart, state.bEnd]; }
+  if(state.bCode === "prev"){
+    var span = Math.round((dObj(state.end) - dObj(state.start)) / 86400000) + 1;
+    var e = dObj(state.start); e.setUTCDate(e.getUTCDate() - 1);
+    var s = dObj(state.start); s.setUTCDate(s.getUTCDate() - span);
+    return [isoOf(s), isoOf(e)];
+  }
+  return presetRange(state.bCode, DOMAIN[DOMAIN.length - 1], DOMAIN[0]);
+}
+/* Rows inside the BENCHMARK window, under the same campaign filter as the period. */
+function benchRows(){
+  var b = benchRange();
+  return DATA.rows.filter(function(r){
+    if(r.date < b[0] || r.date > b[1]){ return false; }
+    if(state.camp !== "all" && campOf(r) !== state.camp){ return false; }
+    return true;
+  });
+}
+/* ---------------------------------------------------------------- freshness (playbook 4)
+   Show WHEN the data was generated and WHAT IT COVERS, and turn the latter red past a threshold.
+   This dashboard had neither until 2026-07-30 -- "data through" lived only in the footer, where
+   nobody looked, and there was no generated-at stamp at all. */
+function agoOf(iso){
+  if(!iso){ return "\u2014"; }
+  var t = Date.parse(iso);
+  if(!isFinite(t)){ return String(iso).slice(0, 16).replace("T", " "); }
+  var mins = Math.round((Date.now() - t) / 60000);
+  if(mins < 1){ return "just now"; }
+  if(mins < 60){ return mins + " min ago"; }
+  var hrs = Math.round(mins / 60);
+  if(hrs < 24){ return hrs + (hrs === 1 ? " hour ago" : " hours ago"); }
+  var days = Math.round(hrs / 24);
+  return days + (days === 1 ? " day ago" : " days ago");
+}
+function stampMeta(){
+  setText("updated", agoOf(DATA.generated_at || DATA.last_updated));
+  var thru = (DATA.dates && DATA.dates.length) ? DATA.dates[DATA.dates.length - 1] : null;
+  var e = byId("thru");
+  if(e){
+    e.textContent = thru ? prettyDate(thru) : "\u2014";
+    var lag = thru ? Math.floor((Date.now() - dObj(thru).getTime()) / 86400000) : 999;
+    e.className = lag > 3 ? "stale" : "";
+    e.title = lag > 3 ? (lag + " days behind") : "";
+  }
+}
+/* ---------------------------------------------------------------- sync (playbook 4)
+   Ask the service to re-pull when that is wired, then reload the payload EITHER WAY -- so the
+   button is always useful and degrades to a plain reload on a deploy with no /refresh route.
+   (This service has no /refresh route today, which is exactly why the fallback is the point.) */
+var SYNCING = false;
+function setSync(cls, label){
+  var b = byId("syncBtn");
+  if(!b){ return; }
+  b.className = "sync" + (cls ? " " + cls : "");
+  b.disabled = cls === "busy";
+  setText("syncLbl", label);
+}
+function doSync(){
+  if(SYNCING){ return; }
+  SYNCING = true;
+  setSync("busy", "Syncing");
+  fetch("refresh", { method: "POST", credentials: "same-origin" })
+    .then(function(r){ return r.ok ? r.json() : { ok: false }; })
+    .catch(function(){ return { ok: false }; })
+    .then(function(res){
+      return fetch("data.json?t=" + Date.now(), { credentials: "same-origin", cache: "no-store" })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          DATA = j;
+          excludeForeignAds();
+          AC = (DATA && DATA.activecampaign) ? DATA.activecampaign : { enabled: false };
+          stampMeta();
+          renderAudience();
+          renderAll();
+          setSync("ok", (res && res.ok) ? "Rebuilding" : "Reloaded");
+          setTimeout(function(){ setSync("", "Sync"); }, 4000);
+          SYNCING = false;
+        });
+    })
+    .catch(function(){
+      setSync("bad", "Failed");
+      setTimeout(function(){ setSync("", "Sync"); }, 5000);
+      SYNCING = false;
+    });
+}
 
 function filtered(){
   return DATA.rows.filter(function(r){
@@ -1314,40 +1651,58 @@ function renderKPIs(a){
 function badge(text, kind){ return '<span class="badge ' + kind + '">' + text + '</span>'; }
 
 function renderBenchmarks(a){
+  /* Two comparisons, deliberately: the published INDUSTRY benchmark (a fixed constant, useful for
+     "are we normal") and the client's OWN KPI-benchmark window (useful for "are we improving").
+     Reporting only the first tells a client nothing about their own trajectory. */
+  var own = derive(aggregate(benchRows()));
+  function ownLine(cur, was, fmt, goodUp){
+    if(!(was > 0)){ return ""; }
+    var ch = (cur - was) / was * 100;
+    var better = goodUp ? ch >= 0 : ch <= 0;
+    var cls = Math.abs(ch) < 0.5 ? "neutral" : (better ? "win" : "warn");
+    var arrow = Math.abs(ch) < 0.5 ? "→" : (ch > 0 ? "▲" : "▼");
+    return '<div class="bm-src" style="border-top:none;padding-top:4px">Your benchmark: <strong>' +
+           fmt(was) + "</strong> " + '<span class="badge ' + cls + '" style="padding:1px 7px">' +
+           arrow + " " + Math.abs(ch).toFixed(0) + "%</span></div>";
+  }
   setText("bm-ctr-val", pct(a.ctr));
   if(a.ctr > 0){
     var x = a.ctr / BENCH.ctr;
-    setHTML("bm-ctr-badge", badge(x.toFixed(1) + "× the " + BENCH.ctr + "% travel avg", x >= 1 ? "win" : "warn"));
+    setHTML("bm-ctr-badge", badge(x.toFixed(1) + "× the " + BENCH.ctr + "% travel avg", x >= 1 ? "win" : "warn") +
+      ownLine(a.ctr, own.ctr, pct, true));
   } else { setHTML("bm-ctr-badge", ""); }
 
   setText("bm-cpc-val", money(a.cpc, 2));
   if(a.cpc > 0){
     var saved = (1 - a.cpc / BENCH.cpc) * 100;
-    setHTML("bm-cpc-badge", saved >= 0
+    setHTML("bm-cpc-badge", (saved >= 0
       ? badge(saved.toFixed(0) + "% cheaper than " + money(BENCH.cpc, 2) + " avg", "win")
-      : badge(Math.abs(saved).toFixed(0) + "% above " + money(BENCH.cpc, 2) + " avg", "warn"));
+      : badge(Math.abs(saved).toFixed(0) + "% above " + money(BENCH.cpc, 2) + " avg", "warn")) +
+      ownLine(a.cpc, own.cpc, function(v){ return money(v, 2); }, false));
   } else { setHTML("bm-cpc-badge", ""); }
 
   setText("bm-cpm-val", money(a.cpm, 2));
   if(a.cpm > 0){
     var saved2 = (1 - a.cpm / BENCH.cpm) * 100;
-    setHTML("bm-cpm-badge", saved2 >= 0
+    setHTML("bm-cpm-badge", (saved2 >= 0
       ? badge(saved2.toFixed(0) + "% below $" + BENCH.cpm.toFixed(0) + " global avg", "win")
-      : badge(Math.abs(saved2).toFixed(0) + "% above global avg", "warn"));
+      : badge(Math.abs(saved2).toFixed(0) + "% above global avg", "warn")) +
+      ownLine(a.cpm, own.cpm, function(v){ return money(v, 2); }, false));
   } else { setHTML("bm-cpm-badge", ""); }
 
   setText("bm-roas-val", a.roas ? a.roas.toFixed(2) + "x" : "–");
   if(a.roas > 0){
-    setHTML("bm-roas-badge", a.roas >= BENCH.roas
+    setHTML("bm-roas-badge", (a.roas >= BENCH.roas
       ? badge("Above the " + BENCH.roas + "× \"good\" bar", "win")
-      : badge("Building toward " + BENCH.roas + "×", "warn"));
+      : badge("Building toward " + BENCH.roas + "×", "warn")) +
+      ownLine(a.roas, own.roas, function(v){ return v.toFixed(2) + "x"; }, true));
   } else {
     setHTML("bm-roas-badge", badge("No purchase tracking in this window", "neutral"));
   }
 }
 
 function renderCharts(rows){
-  var ts = timeSeries(rows, state.gran);
+  var ts = timeSeries(rows, grainOf("hero", state.start, state.end));
   var labels = ts.map(function(o){ return o.label; });
 
   lastTs = ts;
@@ -1679,9 +2034,17 @@ function closeCreative(){ var mod = byId("modal"); mod.classList.remove("open");
 /* ---------- Range label ---------- */
 function renderRangeLabel(){
   var camp = state.camp === "all" ? "All campaigns" : state.camp;
-  var g = state.gran.charAt(0).toUpperCase() + state.gran.slice(1);
-  setHTML("rangeLabel", prettyDate(state.start) + " → " + prettyDate(state.end) +
-    (HAS_CAMPS ? " · <strong>" + esc(camp) + "</strong>" : "") + " · " + g + " view");
+  /* Say the RESOLVED grain, not the setting: "Auto" tells the reader nothing about what they
+     are looking at. */
+  var gr = grainOf("hero", state.start, state.end);
+  var g = gr.charAt(0).toUpperCase() + gr.slice(1) + (state.gran === "auto" ? " (auto)" : "");
+  var b = benchRange();
+  setHTML("rangeLabel",
+    "<strong>Period</strong> " + prettyDate(state.start) + " → " + prettyDate(state.end) +
+    (HAS_CAMPS ? " · <strong>" + esc(camp) + "</strong>" : "") + " · " + g + " view" +
+    " drives every tile, chart and table. " +
+    '<span class="bench"><strong>KPI benchmark</strong> ' + prettyDate(b[0]) + " → " + prettyDate(b[1]) +
+    " drives the comparison line on the benchmark cards only.</span>");
 }
 
 /* ============================================================
@@ -1978,8 +2341,13 @@ function setEmView(v){
 function setEmFilter(id){ emFilter = id || ""; renderEmail(); }
 
 /* ---------- Tabs ---------- */
-function setTab(name){
+function setTab(name, keepScroll){
   activeTab = name;
+  /* Tab state lives in the URL HASH: linkable, and it survives a refresh. Riverdance's Email tab
+     was unreachable by link until 2026-07-30. */
+  if(location.hash !== "#" + name){
+    try { history.replaceState(null, "", "#" + name); } catch(e){ location.hash = name; }
+  }
   byId("tab-ads").hidden = (name !== "ads");
   byId("tab-email").hidden = (name !== "email");
   var btns = document.querySelectorAll("#tabs .tab");
@@ -2017,16 +2385,22 @@ function clearPresets(){
   for(var i = 0; i < b.length; i++){ b[i].classList.remove("active"); }
 }
 function setPreset(days, btn){
-  var lo = DOMAIN[0], hi = DOMAIN[DOMAIN.length - 1];
-  if(days === 0){ state.start = lo; }
-  else {
-    var dt = dObj(hi); dt.setUTCDate(dt.getUTCDate() - days + 1);
-    var s = isoOf(dt); state.start = s < lo ? lo : s;
-  }
-  state.end = hi;
+  /* One anchored resolver for every relative window on the page (Agora standard 2.3). */
+  var r = presetRange(String(days), DOMAIN[DOMAIN.length - 1], DOMAIN[0]);
+  state.start = r[0]; state.end = r[1];
   byId("startDate").value = state.start; byId("endDate").value = state.end;
   clearPresets(); if(btn){ btn.classList.add("active"); }
+  syncBenchInputs();
   renderAll();
+}
+/* The benchmark inputs mirror whatever benchRange() currently resolves to, so a "Previous window"
+   benchmark visibly follows the period as the period moves. */
+function syncBenchInputs(){
+  var b = benchRange();
+  state.bStart = b[0]; state.bEnd = b[1];
+  var bs = byId("benchStart"), be = byId("benchEnd");
+  if(bs){ bs.value = state.bStart; }
+  if(be){ be.value = state.bEnd; }
 }
 
 function initControls(){
@@ -2038,6 +2412,7 @@ function initControls(){
   si.min = lo; si.max = hi; ei.min = lo; ei.max = hi; si.value = lo; ei.value = hi;
 
   si.addEventListener("change", function(){
+    syncBenchInputsSoon();
     var v = si.value || lo; if(v < lo){ v = lo; } if(v > state.end){ v = state.end; }
     state.start = v; si.value = v; clearPresets(); renderAll();
   });
@@ -2097,13 +2472,44 @@ function initControls(){
     }
   });
 
-  var presets = document.querySelectorAll(".preset");
+  /* [data-days] only -- the benchmark presets share the .preset class and must not be caught by
+     the period handler, or picking a benchmark would silently move the reporting period. */
+  var presets = document.querySelectorAll(".preset[data-days]");
   for(var i = 0; i < presets.length; i++){
     (function(btn){
       btn.addEventListener("click", function(){ setPreset(parseInt(btn.getAttribute("data-days"), 10), btn); });
     })(presets[i]);
   }
   document.querySelector('.preset[data-days="0"]').classList.add("active");
+
+  /* ---- KPI benchmark: a second, independently-set range driving only the comparison column ---- */
+  var benches = document.querySelectorAll(".preset[data-bench]");
+  for(var bi = 0; bi < benches.length; bi++){
+    (function(btn){
+      btn.addEventListener("click", function(){
+        state.bCode = btn.getAttribute("data-bench");
+        for(var k = 0; k < benches.length; k++){ benches[k].classList.remove("active"); }
+        btn.classList.add("active");
+        syncBenchInputs();
+        renderAll();
+      });
+    })(benches[bi]);
+  }
+  var bsIn = byId("benchStart"), beIn = byId("benchEnd");
+  function pinBench(){
+    /* A hand-typed pair pins the benchmark: it stops tracking the period. */
+    state.bCode = "";
+    state.bStart = bsIn.value || state.bStart;
+    state.bEnd = beIn.value || state.bEnd;
+    if(state.bStart > state.bEnd){ var t = state.bStart; state.bStart = state.bEnd; state.bEnd = t; }
+    bsIn.value = state.bStart; beIn.value = state.bEnd;
+    for(var k = 0; k < benches.length; k++){ benches[k].classList.remove("active"); }
+    renderAll();
+  }
+  bsIn.addEventListener("change", pinBench);
+  beIn.addEventListener("change", pinBench);
+  syncBenchInputs();
+  wireTuck();
 
   var grans = document.querySelectorAll(".gran");
   for(var j = 0; j < grans.length; j++){
@@ -2115,7 +2521,7 @@ function initControls(){
       });
     })(grans[j]);
   }
-  document.querySelector('.gran[data-gran="week"]').classList.add("active");
+  document.querySelector('.gran[data-gran="auto"]').classList.add("active");
 
   /* campaign filter, only when rows carry campaign names */
   var camps = [];
@@ -2232,8 +2638,8 @@ function boot(){
   DOMAIN = Object.keys(domSet); DOMAIN.sort();
   if(!DOMAIN.length){ DOMAIN = DATA.dates.slice(); }
 
-  if(DATA.logo){ byId("brand-logo").src = DATA.logo; }
-  if(DATA.agora_logo){ byId("agora-logo").src = DATA.agora_logo; byId("foot-agora").src = DATA.agora_logo; }
+  if(DATA.logo){ byId("logo").src = DATA.logo; }
+  if(DATA.agora_logo){ byId("agora").src = DATA.agora_logo; byId("foot-agora").src = DATA.agora_logo; }
   setText("top-sub", "Meta Ads · " + (DATA.location || ""));
   var lo = DATA.dates[0], hi = DATA.dates[DATA.dates.length - 1];
   setHTML("foot-about", "Paid social performance for <strong style=\"color:#fff\">" + esc(DATA.client || "") +
@@ -2241,17 +2647,35 @@ function boot(){
     esc(DATA.source.platform) + ", " + esc(DATA.source.account) + " via " + esc(DATA.source.connector) +
     ", " + prettyDate(lo) + " – " + prettyDate(hi) + ". Data refreshes with each sync.");
   setText("foot-through", "Data through " + prettyDate(hi));
-  byId("loading").style.display = "none";
+  stampMeta();
+  setInterval(stampMeta, 60000);       /* keep "updated N min ago" honest without a reload */
+  byId("syncBtn").addEventListener("click", doSync);
   byId("main").style.display = "";
   initControls();
   renderAudience();
   renderAll();
+  /* Open whichever tab the URL asks for, then reveal the app. */
+  var want = location.hash.replace("#", "");
+  setTab(document.querySelector('.tab[data-tab="' + want + '"]') ? want : "ads", true);
+  window.addEventListener("hashchange", function(){
+    var n = location.hash.replace("#", "");
+    if(n && n !== activeTab && document.querySelector('.tab[data-tab="' + n + '"]')){ setTab(n, true); }
+  });
+  byId("boot").hidden = true;
+  byId("app").hidden = false;
 }
+/* The period inputs fire before state.start/end are updated, so refresh a tracking benchmark on
+   the next tick rather than reading a stale period. */
+function syncBenchInputsSoon(){ setTimeout(syncBenchInputs, 0); }
 
 if(DATA){ boot(); }
 else {
   fetch("data.json").then(function(r){ return r.json(); }).then(function(j){ DATA = j; boot(); })
-    .catch(function(){ byId("loading").textContent = "Could not load data.json"; });
+    .catch(function(e){
+      byId("boot").innerHTML = '<div class="empty-note" style="display:block">Could not load ' +
+        "data.json &mdash; the page itself is fine, this is the data fetch failing. " +
+        "Try Sync, or check the export job.</div>";
+    });
 }
 </script>
 

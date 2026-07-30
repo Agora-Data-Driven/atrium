@@ -3,6 +3,16 @@
 How to build the next client dashboard correctly. Written after Honey Tribe (Shopify + Meta,
 2026-07-27); most entries below cost real hours the first time.
 
+> **This playbook is the WHY. [`clients/_standard/STANDARD.md`](../clients/_standard/STANDARD.md) is
+> the SHAPE.** As of 2026-07-30 every dashboard in `clients/` follows one of two standard layouts
+> (**Leads** or **Sales**) over one shared shell, and `clients/_standard/check_standard.py` enforces
+> it as 21 machine-checked rules. Sections 7 and 8 below are the reasoning behind that shell; the
+> standard is where the ids, class names, helper names and section order are actually fixed.
+>
+> **Do not start a new dashboard from this file.** Copy
+> `clients/_standard/dash/dashboard-leads.html` or `dashboard-sales.html`, then read the sections
+> here for the connector you are wiring (§5) and the traps that apply (§3).
+
 **Sources differ per client.** Sections 1–4 and 6–10 are source-agnostic and always apply.
 Section 5 is a per-connector appendix — **read only the connectors you are actually using.**
 

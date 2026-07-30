@@ -64,11 +64,38 @@ The `kpis.*` keys come from `kpi_overview`; each row of `daily` comes from
 `dash/main.py`) and reads `data.client`, `data.last_updated`, `data.data_through`,
 `data.kpis.sessions|users|conversions|spend|revenue|roas|days_covered`, and iterates
 `data.daily` for the chart/table. It shows "Loading dashboard…" until the fetch
-resolves.
+resolves. Those keys are **the entire contract** — nothing else is required, and
+nothing has been renamed.
+
+**Rebuilt 2026-07-30 as a conformant instance of the Agora dashboard standard**
+([`clients/_standard/STANDARD.md`](../_standard/STANDARD.md) §4, the **Sales** layout).
+It used to be a 222-line stub, which meant every client copied the wrong shape. It now
+carries the full shell — header freshness (`Updated` / `Data through`, red when stale)
+and a Sync button, a tuckable filter bar with **two independent date ranges**, hash-routed
+tabs, scorecards that toggle series on the chart below them, funnel stage cards, sortable
+tables, wired empty states, and a "Reading of the period" insight strip — over the same
+`kpis` + `daily` contract as before. Two tabs: **01 Performance** and **02 Daily record**.
+
+These blocks are **VENDORED, not linked** (a dashboard is one self-contained file, so it
+loads no external stylesheet or script):
+
+| Block | Source | Posture |
+|---|---|---|
+| the helper library | `clients/_standard/dash/_lib.js` | byte-identical in every dashboard — **fix it everywhere or nowhere** |
+| the stylesheet | `clients/_standard/dash/_shell.css` | copied here as the reference; a real client **re-brands `:root` only** |
+
+Re-sync them with `py -3 clients/_standard/vendor_lib.py`; never edit a vendored block in
+place. Adding a metric to the dashboard is one entry in the `SPEC` object at the top of the
+script — plus the matching view column and job key, because the three stages match **by name**.
 
 > The inline dashboard JS must parse under **esprima 4.x** (the pre-deploy JS gate).
 > Esprima 4.x predates optional chaining (`?.`) and nullish coalescing (`??`) — they
 > are its one known false-positive. Use classic `&&` / `||` guards instead.
+>
+> Two traps that are not obvious and both fail the gate a long way from their cause: a
+> **`*/` sequence inside a JS block comment** (a `clients/*/dash` style glob will do it)
+> closes the comment early, and a **literal script-src tag written inside an HTML comment**
+> makes the gate parse the rest of the file as JavaScript.
 
 ### Adding a metric is usually three edits
 
@@ -169,6 +196,15 @@ clients/client_template/
 - **Inline JS is esprima-4.x-safe** (no `?.` / `??`) — `tools/_validate_dash_js.py` gates it; pass
   THIS client's `dash/dashboard.html` path explicitly (a bare run only checks the template copy —
   which here is the same file, but copies must pass their own path).
+- **Never edit a vendored block in place.** The `AGORA STANDARD LIB` and `AGORA STANDARD SHELL CSS`
+  sentinel pairs are overwritten wholesale by `clients/_standard/vendor_lib.py`; an edit inside them
+  is lost on the next sync and silently diverges the estate until then. Edit the source under
+  `clients/_standard/dash/` instead.
+- **A dashboard must pass BOTH gates before deploy**, not just the JS one:
+  ```powershell
+  py -3 tools\_validate_dash_js.py       clients\client_template\dash\dashboard.html
+  py -3 clients\_standard\check_standard.py clients\client_template\dash\dashboard.html
+  ```
 - **`FORCE_REBUILD=1` is mandatory for view-only / code / seed changes** (they don't advance the
   watermark — see the dedicated section above).
 - **Never edit views in the BigQuery console** — `sql/*.sql` + `create_views.py` are the source of

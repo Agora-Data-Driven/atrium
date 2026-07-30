@@ -80,9 +80,45 @@ inlines into each workspace (the deployed container only bundles `dash/`, so log
 
 Each dashboard is **one big self-contained `dash/dashboard.html`** (no build step, no external JS).
 Grep for the metric or label you want to change and edit in place. Theme colors are CSS custom
-properties in `:root` (the `--ag-*` palette). Inline JS must stay **esprima-4.x-safe**: no optional
+properties in `:root`. Inline JS must stay **esprima-4.x-safe**: no optional
 chaining `?.` and no nullish coalescing `??` (the pre-deploy gate `tools/_validate_dash_js.py`
 parses it with esprima, which predates those tokens). Use classic `&&`/`||` guards.
+
+### 🔴 Every dashboard follows the dashboard standard (since 2026-07-30)
+
+**Read [`clients/_standard/STANDARD.md`](clients/_standard/STANDARD.md) before editing any
+dashboard.** All eight client dashboards now follow **one of two layouts** — **Leads** (the product
+of advertising is an enquiry: CPL, no revenue) or **Sales** (an order or booking: revenue, AOV,
+ROAS) — over **one shared shell**: the same chrome ids, the same class vocabulary, the same helper
+names, the same section order, two independent date ranges, and a "Reading of the …" insight strip.
+Client extras are untouched — the standard is a **floor, never a ceiling**.
+
+- **A new client copies a reference implementation**, not another client:
+  `clients/_standard/dash/dashboard-{leads,sales}.html`. `clients/client_template/` is the worked
+  BigQuery instance of the Sales standard.
+- **`clients/_standard/dash/_lib.js` and `_conform.css` are VENDORED** into every dashboard between
+  sentinel comments — the same posture as `freshness.py` / `platform_sso.py`: **fix them everywhere
+  or nowhere.** Edit the source and run `py -3 clients/_standard/vendor_lib.py`. Never edit a
+  vendored block in place; `vendor_lib.py --check` fails if a copy is stale.
+- **`_shell.css` is copied and re-branded, not vendored.** Identity is meant to differ per client;
+  structure is not. A client edits only the identity tokens in `:root` — **encoding** (`--s1..--s8`
+  series ramp) must stay distinguishable, and **status** (`--ok/--warn/--crit`) never inherits a
+  brand hue.
+- **Two gates before any dash deploy** (both exit non-zero on failure):
+
+```powershell
+py -3 tools\_validate_dash_js.py       clients\client_<c>\dash\dashboard.html
+py -3 clients\_standard\check_standard.py                # 21 rules, every client
+py -3 clients\_standard\vendor_lib.py --check            # shared blocks in sync
+```
+
+- **Waivers are attributes, not exceptions in a script.** Three dashboards legitimately skip a rule
+  (an uptime monitor should not grow a KPI-benchmark average); each states its reason in a
+  `data-no-benchmark` / `data-single-view` attribute on `<body>`, and the gate prints it every run.
+- Two traps that cost real time when the standard went in, both now guarded: a **`*/` inside a JS
+  block comment** (e.g. a `clients/*/dash` glob) closes the comment early and fails the esprima
+  gate a thousand lines later; and a **literal script-src tag inside an HTML comment** makes the
+  gate parse the rest of the file as JavaScript.
 
 ## Agora Atrium (client workspace in the portal)
 

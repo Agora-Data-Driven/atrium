@@ -134,3 +134,36 @@ do not strip it; it disappears only when a real pull writes payloads without it.
 builder). Building and running that image today produces a container that exits immediately. It is
 the placeholder for the future live-pull job: when you build the real pull, either create
 `job/main.py` or fix the CMD — until then do not deploy the job image and expect it to run.
+
+## Dashboard standard (applied 2026-07-30)
+
+This dashboard follows [`clients/_standard/STANDARD.md`](../_standard/STANDARD.md) — the **Leads**
+layout over the shared shell. Client extras are untouched: the standard is a floor, never a ceiling.
+
+It carries a **documented waiver** on `<body data-no-benchmark="…">`: this is an uptime monitor, not
+a performance report, and a KPI-benchmark average is exactly the analytics scope creep the brief
+forbids. `check_standard.py` prints the waiver on every run — it is a stated decision, not a gap.
+
+🔴 **One divergence from the standard, and it OUTRANKS the standard here.** `presetRange()` ignores
+the `maxIso` it is handed and anchors every relative window to **`PULL.day`** — the pull clock. The
+data can never be fresher than the pull that produced it, and a viewer with a wrong system clock
+must not be able to invent an outage or hide one. Do not "fix" it to use the latest date in the data.
+
+Other 2026-07-30 changes:
+- **`#updated` / `#thru` were added to the header** alongside the existing `.fchip`. They are not
+  redundant: the chip answers *is the pipeline healthy*, these answer *how old is what I am reading*.
+  Both are stamped from the same `PULL` clock by `stampStandardMeta()`, so they cannot diverge.
+- `autoGrain` / `grainOf` / `segWire` are standard-name aliases over this file's existing `grainFor`
+  and `markSeg` — the same logic, not a second implementation.
+- The global strip is now tuckable (`s7000_tuck` in `localStorage`) and carries `.controls` /
+  `.cgroup` / `.rangenote` alongside its own `.gbar` / `.gnote` classes.
+
+**`clients/_standard/dash/_conform.css` is VENDORED into this file** between sentinel comments (the
+print + reduced-motion + screen-reader block). Never edit inside the sentinels — re-sync with
+`py -3 clients/_standard/vendor_lib.py`. Both gates before any dash deploy:
+
+```powershell
+py -3 tools\_validate_dash_js.py       clients\client_S7000\dash\dashboard.html
+py -3 clients\_standard\check_standard.py clients\client_S7000\dash\dashboard.html
+py -3 clients\_standard\vendor_lib.py --check
+```

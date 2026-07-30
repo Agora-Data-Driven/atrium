@@ -165,3 +165,36 @@ Deploys/uploads run as `info@agoradatadriven.com` (the scripts set
 Move the processed store into BigQuery per the repo's three-stage contract
 (`sql/` views → export job → dash). The pull+process loop is already a Cloud
 Run job (see above).
+
+## Dashboard standard (applied 2026-07-30)
+
+This board follows [`clients/_standard/STANDARD.md`](../_standard/STANDARD.md) over the shared shell.
+It is internal, not a client deliverable, and carries **two documented waivers** on `<body>`:
+`data-single-view` (one question, so a one-tab bar would be chrome rather than navigation) and
+`data-no-benchmark` — the **Comparable / Raw count / % of jobs** control *is* this board's benchmark
+mechanism. It chain-links each feed-pipeline era to today's coverage because the collector
+over-delivered ~3x for one stretch and under-delivers now; a second free-floating date range would
+invite comparing two windows of different collector coverage and reading a market shift that is
+really a pipeline artefact.
+
+What changed on 2026-07-30:
+- **Header freshness and a Sync button.** `#updated` is the aggregates' `generated_at`; `#thru` is
+  the **newest captured job**, and it turns red past two days. This is load-bearing on a
+  scraper-fed board: **a stalled collector looks exactly like a quiet market** unless the page says
+  how old the newest job is. The insight strip raises the same thing as a `crit` card.
+- **`Auto` grain.** `state.gran` is sent to the API, which only understands `day|week|month`, so
+  Auto is a separate `state.granAuto` flag and `resolveGrain()` recomputes a **concrete** grain from
+  the selected window before every request — chart, data table and API therefore always agree.
+- **The filter block tucks** (`agora_demand_tuck` in `localStorage`). Three rows of filters was the
+  difference between seeing the chart on a laptop and not.
+- **A "Reading of the slice" strip**, plus `#boot`/`#app` so nothing renders before the aggregates
+  land, and a shared `#tip` beside the demand chart's own `#demandTip`.
+
+`clients/_standard/dash/_conform.css` is **VENDORED** into `dash/dashboard.html` between sentinel
+comments. Never edit inside the sentinels — re-sync with `py -3 clients/_standard/vendor_lib.py`.
+
+```powershell
+py -3 tools\_validate_dash_js.py       clients\client_agora\dash\dashboard.html
+py -3 clients\_standard\check_standard.py clients\client_agora\dash\dashboard.html
+py -3 clients\_standardendor_lib.py --check
+```

@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 </head>
-<body>
+<body data-no-benchmark="uptime monitor, not a performance report: the question is whether a campaign is delivering RIGHT NOW, and a KPI-benchmark average is exactly the analytics scope creep the brief forbids. The Performance tab does carry a period.">
 <style>
 /* ============================================================================================
    CAMPAIGN UPTIME MONITOR, one stylesheet, three brands.
@@ -604,6 +604,106 @@ details.meth .mb code{font-family:var(--mono);background:var(--track);border-rad
   .tab-pane[hidden]{display:block !important}
   body{background:#fff} .card,.verdict,.fresh{box-shadow:none;break-inside:avoid}
 }
+
+/* ============================================================ Agora standard control chrome
+   The global strip is this file's .gbar; these rules give it the standard vocabulary so a
+   control built on another dashboard drops in here unchanged. */
+.controls-inner{position:relative;padding-right:58px}
+.cgroup{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ctuck{position:absolute;top:6px;right:14px;display:inline-flex;align-items:center;gap:5px;
+  border:1px solid var(--line2);background:var(--surface);color:var(--muted);font-size:10.5px;
+  font-weight:800;letter-spacing:.6px;text-transform:uppercase;padding:4px 9px;
+  border-radius:var(--r-xs);transition:.15s;z-index:2}
+.ctuck:hover{border-color:var(--brand);color:var(--brand-deep)}
+.ctuck .cv{font-size:9px;transition:transform .18s}
+/* Collapsed, the summary line STAYS -- it already states the period and the campaign count, so
+   nothing is lost. */
+.controls.tucked .cgroup,.controls.tucked .gsep,.controls.tucked input,
+.controls.tucked .preset,.controls.tucked .clabel,.controls.tucked .seg{display:none}
+.controls.tucked .controls-inner{padding-top:6px;padding-bottom:6px;gap:0}
+.controls.tucked .ctuck{top:4px}
+.controls.tucked .ctuck .cv{transform:rotate(180deg)}
+.rangenote{width:100%;font-size:11px;color:var(--muted)}
+.rangenote b{color:var(--ink2)}
+
+/* >>> AGORA STANDARD CONFORM v1 -- vendored from clients/_standard/dash/_conform.css -- DO NOT EDIT HERE
+/* ===========================================================================================
+   AGORA DASHBOARD STANDARD -- conformance block v1
+   ===========================================================================================
+   SOURCE OF TRUTH: clients/_standard/dash/_conform.css
+   VENDORED byte-identically into every client dashboard, at the END of its stylesheet, between
+   the sentinel pair vendor_lib.py looks for (grep AGORA STANDARD CONFORM in any dashboard).
+
+   To change it: edit THIS file and run  py -3 clients/_standard/vendor_lib.py
+
+   WHY THIS BLOCK IS SEPARATE FROM _shell.css
+       _shell.css is the REFERENCE stylesheet: a new client copies it and re-brands it. It is
+       not vendored, because identity is supposed to differ per client.
+
+       This block is different. It holds only rules that are (a) required by the standard,
+       (b) identical for every brand, and (c) incapable of fighting a client's existing CSS --
+       so it is safe to append verbatim to eight already-shipped, individually-branded
+       stylesheets. That constraint is why it contains print and motion rules and nothing else:
+       every other standard rule either resolves from a brand token or would override work a
+       client dashboard has already done deliberately.
+
+       If you are tempted to add a layout or colour rule here: don't. Add it to _shell.css and
+       hand-apply it, or it will silently restyle eight live dashboards.
+   =========================================================================================== */
+
+/* ---------------------------------------------------------------------------------------------
+   PRINT. Clients print these for meetings and paste them into decks. Without this rule a print
+   is the sticky chrome plus whichever tab happened to be open, with every other tab's content
+   missing entirely -- so the printed artefact is not the dashboard the client was looking at.
+   Every pane opens, the interactive furniture goes, and cards stop breaking across pages.
+   Class names are the standard vocabulary; a selector that matches nothing is free.
+--------------------------------------------------------------------------------------------- */
+@media print{
+  header.top, .tabbar, .tabs, .controls, .gbar, .filters, .filterbar,
+  .sync, .iconbtn, .ctuck, .tip, #tip, .toast, .cmod, .modal, .fsbtn, .exportbtn, .pager{
+    display:none !important;
+  }
+  /* Every tab prints, not just the open one. */
+  .tab-pane[hidden]{ display:block !important; }
+  [hidden].tab-pane{ display:block !important; }
+  body{ background:#fff !important; }
+  main{ padding-top:8px !important; }
+  /* Flat on paper: a drop shadow prints as grey mush. */
+  .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .hero, .bm, .ccard, .fresh, .acct{
+    box-shadow:none !important;
+  }
+  /* Do not split a figure across a page break. */
+  section, .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .bm, .ccard, .acct{
+    break-inside:avoid; page-break-inside:avoid;
+  }
+  /* Sticky headers inside scroll panes become a repeated band on paper. */
+  thead th{ position:static !important; }
+  /* A scroll pane prints only its first screenful unless it is released. */
+  .tblwrap, .tablewrap, .scroll-x, .scrolly, .hbwrap, .macc{
+    overflow:visible !important; max-height:none !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   REDUCED MOTION. A spinner, a pulse and a dozen hover transitions are a real accessibility
+   problem for anyone who has asked their OS to stop moving things, and every one of these
+   dashboards animates something. Honouring the preference is one rule.
+--------------------------------------------------------------------------------------------- */
+@media (prefers-reduced-motion:reduce){
+  *, *::before, *::after{
+    transition:none !important;
+    animation:none !important;
+    scroll-behavior:auto !important;
+  }
+  html{ scroll-behavior:auto !important; }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Screen-reader-only text, so a control whose meaning is carried by a glyph can still name
+   itself. Required by the standard's "colour is never the only signal" rule.
+--------------------------------------------------------------------------------------------- */
+.vh{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+/* <<< AGORA STANDARD CONFORM v1 */
 </style>
 
 <header class="top">
@@ -617,6 +717,13 @@ details.meth .mb code{font-family:var(--mono);background:var(--track);border-rad
     </div>
     <div class="top-spacer"></div>
     <span class="scopetag" id="scopeTag" hidden></span>
+    <!-- Agora standard: #updated and #thru are the two ids every dashboard exposes. The .fchip
+         beside them is this client's own, richer signal -- they are not redundant, because the
+         chip answers "is the PIPELINE healthy" and these answer "how old is what I am reading". -->
+    <div class="top-meta">
+      <div>Updated <b id="updated">&mdash;</b></div>
+      <div>Data through <b id="thru">&mdash;</b></div>
+    </div>
     <button type="button" class="fchip" id="freshChip" title="Jump to the data-pipeline panel">
       <span class="pulse"></span><span id="freshChipTxt">-</span>
     </button>
@@ -652,10 +759,11 @@ details.meth .mb code{font-family:var(--mono);background:var(--track);border-rad
 
 <div id="app" hidden>
 
-<div class="gbar" id="gbar">
-  <div class="gbar-inner">
+<div class="gbar controls" id="gbar">
+  <div class="gbar-inner controls-inner">
+    <button type="button" class="ctuck" aria-label="Collapse or expand the filters"><span class="cv">&#9650;</span><span class="cl">Filters</span></button>
     <span class="clabel">Account</span>
-    <div class="seg" id="acctSeg"></div>
+    <div class="cgroup"><div class="seg" id="acctSeg"></div></div>
     <div class="gsep" id="searchSep"></div>
     <input type="search" id="q" placeholder="Find a campaign&hellip;" autocomplete="off"
            aria-label="Filter campaigns by name">
@@ -831,8 +939,8 @@ details.meth .mb code{font-family:var(--mono);background:var(--track);border-rad
 
 <!-- ==================================================================== TAB 4, performance -->
 <div id="tab-perf" class="tab-pane" role="tabpanel" aria-labelledby="tabbtn-perf" hidden>
- <div class="gbar" style="top:auto;position:static">
-   <div class="gbar-inner">
+ <div class="gbar controls" style="top:auto;position:static">
+   <div class="gbar-inner controls-inner">
      <span class="clabel">Period</span>
      <button type="button" class="preset" data-pp="7">7d</button>
      <button type="button" class="preset active" data-pp="30">30d</button>
@@ -847,7 +955,7 @@ details.meth .mb code{font-family:var(--mono);background:var(--track);border-rad
        <button type="button" data-pg="day">Day</button>
        <button type="button" data-pg="week">Week</button>
      </div>
-     <div class="gnote" id="perfNote"></div>
+     <div class="gnote rangenote" id="perfNote"></div>
    </div>
  </div>
  <main><div class="wrap">
@@ -1735,6 +1843,7 @@ function init(){
   wireTabs();
   wireGlobal();
   wirePerf();
+  wireTuck();          /* Agora standard: collapsible filter strip, choice persisted */
   wireSort("tblCamp", "data-cs", campSort, renderCamps);
   wireSort("tblStops", "data-ss", stopSort, renderStops);
   wireSort("tblPerf", "data-ps", perfSort, renderPerfTable);
@@ -1806,6 +1915,7 @@ function chrome(){
 function renderFreshChip(){
   var c = byId("freshChip");
   c.className = "fchip" + (PULL.ok ? "" : " bad");
+  stampStandardMeta();   /* Agora standard #updated / #thru, from the SAME pull clock as the chip */
   setText("freshChipTxt", PULL.ok
     ? "Live · updated " + ago(PULL.ageMin)
     : "Stale · " + ago(PULL.ageMin));
@@ -2749,6 +2859,89 @@ function grainFor(from, to){
   return (daysBetween(from, to) + 1) <= 62 ? "day" : "week";
 }
 function bucketOf(iso, g){ return g === "week" ? weekStart(iso) : iso; }
+
+/* ---------------------------------------------------------------------------------------------
+   AGORA STANDARD HELPER NAMES.
+
+   The standard fixes the NAMES of these three helpers so a control or chart written against one
+   dashboard resolves on every other one. This file already had the behaviour under local names;
+   these are the standard aliases over the SAME logic, not a second implementation.
+
+   🔴 One deliberate divergence, and it outranks the standard here: every relative window on this
+   dashboard is measured from PULL.day -- the pull clock -- and NOT from the newest date in the
+   data or from the viewer's system clock. The data can never be fresher than the pull that
+   produced it, and a viewer with a wrong clock must not be able to invent an outage or hide one.
+   presetRange() therefore ignores the maxIso it is handed and anchors to PULL.day.
+--------------------------------------------------------------------------------------------- */
+function autoGrain(from, to){ return (daysBetween(from, to) + 1) <= 62 ? "day" : "week"; }
+function grainOf(key, from, to){ return grainFor(from, to); }
+function presetRange(code, maxIso, minIso){
+  if(code === "all"){ return [minIso || earliestDay(), PULL.day]; }
+  var n = parseInt(code, 10);
+  if(!isFinite(n)){ return [PULL.day, PULL.day]; }
+  var from = addDays(PULL.day, -(n - 1));
+  if(minIso && from < minIso){ from = minIso; }
+  return [from, PULL.day];
+}
+/* One helper wires every segmented control (standard §2.3). This file's markSeg paints them. */
+function segWire(id, apply){
+  var box = byId(id);
+  if(!box){ return; }
+  box.addEventListener("click", function(e){
+    var b = e.target.closest ? e.target.closest("button[data-v]") : null;
+    if(!b){ return; }
+    box.querySelectorAll("button").forEach(function(x){ x.classList.remove("on"); });
+    b.classList.add("on");
+    apply(b.getAttribute("data-v"));
+  });
+}
+/* The tuckable filter strip: the choice persists, and ONE toggle collapses every strip. */
+var TUCK_KEY = "s7000_tuck";
+function isTucked(){
+  try { return window.localStorage.getItem(TUCK_KEY) === "1"; } catch(e){ return false; }
+}
+function setTuck(on){
+  document.querySelectorAll(".controls").forEach(function(c){ c.classList.toggle("tucked", !!on); });
+  document.querySelectorAll(".ctuck .cl").forEach(function(l){ l.textContent = on ? "Filters" : "Hide"; });
+  try { window.localStorage.setItem(TUCK_KEY, on ? "1" : "0"); } catch(e){ /* private mode */ }
+}
+function wireTuck(){
+  document.querySelectorAll(".ctuck").forEach(function(b){
+    b.addEventListener("click", function(){
+      setTuck(!document.querySelector(".controls").classList.contains("tucked"));
+    });
+  });
+  setTuck(isTucked());
+}
+/* The two standard freshness ids. The .fchip answers "is the pipeline healthy"; these answer
+   "how old is what I am reading", which is a different question and a different audience. */
+function stampStandardMeta(){
+  setText("updated", PULL.at ? relMin(PULL.ageMin) : "—");
+  var t = byId("thru");
+  if(t){
+    t.textContent = PULL.day ? fmtDay(PULL.day) : "—";
+    /* A dashboard that cannot tell you it is stale is worse than none. */
+    t.className = PULL.ok ? "" : "stale";
+    t.title = PULL.ok ? "" : "the pull is late by " + Math.round(PULL.lateMin) + " min";
+  }
+}
+/* The earliest day any campaign reports, for the "all time" preset. */
+function earliestDay(){
+  var lo = null;
+  (CAMPS || []).forEach(function(c){
+    (c.daily || []).forEach(function(r){ if(!lo || r.d < lo){ lo = r.d; } });
+  });
+  return lo || PULL.day;
+}
+function relMin(mins){
+  if(!isFinite(mins)){ return "—"; }
+  if(mins < 1){ return "just now"; }
+  if(mins < 60){ return Math.round(mins) + " min ago"; }
+  var h2 = Math.round(mins / 60);
+  if(h2 < 24){ return h2 + (h2 === 1 ? " hour ago" : " hours ago"); }
+  var d2 = Math.round(h2 / 24);
+  return d2 + (d2 === 1 ? " day ago" : " days ago");
+}
 function bucketLabel(k, g){ return g === "week" ? fmtDayShort(k) : fmtDayShort(k); }
 function bucketTip(k, g){ return g === "week" ? "Week of " + fmtDay(k) : fmtDayDow(k) + " " + k.slice(0, 4); }
 

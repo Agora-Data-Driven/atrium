@@ -395,12 +395,98 @@
     header.top{position:static}
     .cmp-row{grid-template-columns:1fr}
   }
+
+  /* ---------- Boot state (Agora standard) ----------
+     Everything stays behind #boot until data.json resolves, so a slow fetch reads as loading
+     rather than as an empty dashboard. */
+  .loading{padding:80px 20px;text-align:center;color:var(--muted);font-family:var(--accent);font-size:15px}
+  .loading .spin2{width:26px;height:26px;margin:0 auto 14px;border-radius:50%;border:3px solid var(--line);
+        border-top-color:var(--green);animation:spin .8s linear infinite}
+
+/* >>> AGORA STANDARD CONFORM v1 -- vendored from clients/_standard/dash/_conform.css -- DO NOT EDIT HERE
+/* ===========================================================================================
+   AGORA DASHBOARD STANDARD -- conformance block v1
+   ===========================================================================================
+   SOURCE OF TRUTH: clients/_standard/dash/_conform.css
+   VENDORED byte-identically into every client dashboard, at the END of its stylesheet, between
+   the sentinel pair vendor_lib.py looks for (grep AGORA STANDARD CONFORM in any dashboard).
+
+   To change it: edit THIS file and run  py -3 clients/_standard/vendor_lib.py
+
+   WHY THIS BLOCK IS SEPARATE FROM _shell.css
+       _shell.css is the REFERENCE stylesheet: a new client copies it and re-brands it. It is
+       not vendored, because identity is supposed to differ per client.
+
+       This block is different. It holds only rules that are (a) required by the standard,
+       (b) identical for every brand, and (c) incapable of fighting a client's existing CSS --
+       so it is safe to append verbatim to eight already-shipped, individually-branded
+       stylesheets. That constraint is why it contains print and motion rules and nothing else:
+       every other standard rule either resolves from a brand token or would override work a
+       client dashboard has already done deliberately.
+
+       If you are tempted to add a layout or colour rule here: don't. Add it to _shell.css and
+       hand-apply it, or it will silently restyle eight live dashboards.
+   =========================================================================================== */
+
+/* ---------------------------------------------------------------------------------------------
+   PRINT. Clients print these for meetings and paste them into decks. Without this rule a print
+   is the sticky chrome plus whichever tab happened to be open, with every other tab's content
+   missing entirely -- so the printed artefact is not the dashboard the client was looking at.
+   Every pane opens, the interactive furniture goes, and cards stop breaking across pages.
+   Class names are the standard vocabulary; a selector that matches nothing is free.
+--------------------------------------------------------------------------------------------- */
+@media print{
+  header.top, .tabbar, .tabs, .controls, .gbar, .filters, .filterbar,
+  .sync, .iconbtn, .ctuck, .tip, #tip, .toast, .cmod, .modal, .fsbtn, .exportbtn, .pager{
+    display:none !important;
+  }
+  /* Every tab prints, not just the open one. */
+  .tab-pane[hidden]{ display:block !important; }
+  [hidden].tab-pane{ display:block !important; }
+  body{ background:#fff !important; }
+  main{ padding-top:8px !important; }
+  /* Flat on paper: a drop shadow prints as grey mush. */
+  .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .hero, .bm, .ccard, .fresh, .acct{
+    box-shadow:none !important;
+  }
+  /* Do not split a figure across a page break. */
+  section, .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .bm, .ccard, .acct{
+    break-inside:avoid; page-break-inside:avoid;
+  }
+  /* Sticky headers inside scroll panes become a repeated band on paper. */
+  thead th{ position:static !important; }
+  /* A scroll pane prints only its first screenful unless it is released. */
+  .tblwrap, .tablewrap, .scroll-x, .scrolly, .hbwrap, .macc{
+    overflow:visible !important; max-height:none !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   REDUCED MOTION. A spinner, a pulse and a dozen hover transitions are a real accessibility
+   problem for anyone who has asked their OS to stop moving things, and every one of these
+   dashboards animates something. Honouring the preference is one rule.
+--------------------------------------------------------------------------------------------- */
+@media (prefers-reduced-motion:reduce){
+  *, *::before, *::after{
+    transition:none !important;
+    animation:none !important;
+    scroll-behavior:auto !important;
+  }
+  html{ scroll-behavior:auto !important; }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Screen-reader-only text, so a control whose meaning is carried by a glyph can still name
+   itself. Required by the standard's "colour is never the only signal" rule.
+--------------------------------------------------------------------------------------------- */
+.vh{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+/* <<< AGORA STANDARD CONFORM v1 */
 </style>
 
 <header class="top">
   <div class="top-inner">
     <div class="brand">
-      <img id="mark" alt="" hidden>
+      <img id="logo" alt="" hidden>
       <div class="crest" id="crest">RHE</div>
       <div>
         <div class="wm" id="wm">ROOMING HOUSE EXPERT</div>
@@ -410,11 +496,11 @@
     <div class="top-spacer"></div>
     <div class="syncbox">
       <div class="top-meta">
-        <div>Updated <b id="upd">—</b></div>
-        <div>Data through <b id="through">—</b></div>
+        <div>Updated <b id="updated">—</b></div>
+        <div>Data through <b id="thru">—</b></div>
         <div id="srcbadges" style="margin-top:2px"></div>
       </div>
-      <button class="sync" id="sync" type="button"><span class="spin"></span><span id="synclbl">Sync</span></button>
+      <button class="sync" id="syncBtn" type="button"><span class="spin" id="syncSpin" aria-hidden="true"></span><span id="syncLbl">Sync</span></button>
       <div class="agency">
         <div class="lbl">Built by</div>
         <img id="agora" alt="Agora Data Driven" hidden>
@@ -469,6 +555,9 @@
   </div>
 </div>
 
+<div id="boot" class="loading"><div class="spin2"></div>Loading the dashboard&hellip;</div>
+
+<div id="app" hidden>
 <main>
 
 <!-- ================================================================= TAB 1: META FUNNEL -->
@@ -903,6 +992,7 @@
 </div>
 
 </main>
+</div><!-- /#app -->
 
 <div class="cmod" id="cMod" role="dialog" aria-modal="true" aria-label="Creative preview">
   <div class="cmod-card">
@@ -1377,9 +1467,9 @@ function daysOld(iso){
   return Math.floor((Date.now() - t) / 86400000);
 }
 function stampMeta(){
-  setText("upd", ago(DATA.generated_at));
+  setText("updated", ago(DATA.generated_at));
   var through = DATA.data_through;
-  var e = byId("through");
+  var e = byId("thru");
   if(e){
     e.textContent = prettyDate(through);
     /* A dashboard that cannot tell you it is stale is worse than none. */
@@ -1399,11 +1489,11 @@ function stampMeta(){
   setHTML("srcbadges", html);
 }
 function setSync(state, label){
-  var b = byId("sync");
+  var b = byId("syncBtn");
   if(!b){ return; }
   b.className = "sync" + (state ? " " + state : "");
   b.disabled = state === "busy";
-  setText("synclbl", label);
+  setText("syncLbl", label);
 }
 function doSync(){
   setSync("busy", "Syncing…");
@@ -1569,10 +1659,16 @@ function boot(){
   fetchData().then(function(d){
     DATA = d;
     init();
+    /* Agora standard: nothing is visible until the payload has actually rendered. */
+    var bt = byId("boot"), ap = byId("app");
+    if(bt){ bt.hidden = true; }
+    if(ap){ ap.hidden = false; }
   }).catch(function(e){
-    document.body.insertAdjacentHTML("afterbegin",
-      '<div style="padding:26px;font:14px system-ui;color:#C0472F">Could not load data.json — ' +
-      esc(e.message) + "</div>");
+    var bt = byId("boot");
+    if(bt){
+      bt.innerHTML = '<div class="err"><b>Could not load the dashboard data.</b>' + esc(e.message) +
+        "<br>The page itself is fine — this is the data fetch failing. Try Sync, or check the export job.</div>";
+    }
   });
 }
 
@@ -1581,7 +1677,7 @@ function init(){
   var b = DATA.brand || {};
   /* A real logo replaces the monogram crest the moment one lands in job/assets/rhe-mark.png. */
   if(b.mark){
-    var mk = byId("mark"); mk.src = b.mark; mk.hidden = false; byId("favicon").href = b.mark;
+    var mk = byId("logo"); mk.src = b.mark; mk.hidden = false; byId("favicon").href = b.mark;
     var cr = byId("crest"); if(cr){ cr.style.display = "none"; }
     var bw = document.querySelector(".brand");
     if(bw){ bw.className = "brand has-logo"; }
@@ -1715,7 +1811,7 @@ function wireControls(){
   byId("ctuck").addEventListener("click", function(){
     setTuck(!byId("controls").classList.contains("tucked"));
   });
-  byId("sync").addEventListener("click", doSync);
+  byId("syncBtn").addEventListener("click", doSync);
   var cx = byId("cModX");
   if(cx){ cx.addEventListener("click", closeCreative); }
   var cm = byId("cMod");
@@ -1791,7 +1887,6 @@ function wireSegs(){
   segWire("seg-laxis",  function(v){ SEG.laxis = v; });
   segWire("seg-eaxis",  function(v){ SEG.eaxis = v; });
   segWire("seg-tpl",    function(v){ SEG.tpl = v; });
-  segWire("seg-agmet",  function(v){ SEG.agmet = v; });
   segWire("seg-geo",    function(v){ SEG.geo = v; });
   segWire("seg-demo",   function(v){ SEG.demo = v; });
   segWire("seg-crank",  function(v){ SEG.crank = v; });

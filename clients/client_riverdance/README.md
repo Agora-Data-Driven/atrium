@@ -1,3 +1,21 @@
+> # ⚠️ THIS README IS A STALE `client_template` COPY — DO NOT TRUST IT
+>
+> Everything below was copied verbatim from `clients/client_template/README.md` and never rewritten.
+> It describes three SQL views, a `client_riverdance` BigQuery dataset, a `create_views.py` and a
+> `*/10` scheduler. **Riverdance has none of those.** It is a Windsor-LIVE client: `job/main.py`
+> pulls the Windsor connector API directly and writes `riverdance.json` itself, and refresh is driven
+> by the platform's 6-hourly `sync-refresh` job.
+>
+> **The authorities for this client are:** [`CLAUDE.md`](CLAUDE.md) (rewritten 2026-07-30),
+> the module docstrings in [`job/main.py`](job/main.py) and
+> [`job/activecampaign.py`](job/activecampaign.py),
+> [`ACTIVECAMPAIGN_TAB_GUIDE.md`](ACTIVECAMPAIGN_TAB_GUIDE.md), and
+> [`clients/_standard/STANDARD.md`](../_standard/STANDARD.md) for the dashboard shape.
+> `dash/LIVE_URL.md` is a stale template copy too.
+>
+> Flagged during the 2026-07-30 dashboard-standard audit. Rewriting the prose below needs someone
+> who can verify the live resource names — it was left rather than guessed at.
+
 # `client_template` — the per-client dashboard template
 
 This directory is the **repeatable template** for one Agora Data Driven client. To

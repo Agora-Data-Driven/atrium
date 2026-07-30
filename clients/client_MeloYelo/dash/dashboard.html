@@ -314,6 +314,95 @@
     .frow .fv{grid-column:2}
   }
 
+
+  /* ---------- KPI benchmark group (Agora standard) ----------
+     A second date range needs to be unmistakably NOT the period, or the two get read as one
+     control. On the dark theme that means a green-tinted well rather than a pale wash. */
+  .bench-group{background:rgba(76,175,23,.10);border:1px solid rgba(76,175,23,.34);
+        border-radius:9px;padding:4px 9px}
+  .bench-group .clabel{color:#8FD46A}
+  .preset.bench.active{background:var(--green);border-color:var(--green);color:#0B0B07}
+  input[type=date].bench-date{border-color:rgba(76,175,23,.45);color:#CDE9B8}
+  .rangenote .bench{color:#8FD46A}
+
+/* >>> AGORA STANDARD CONFORM v1 -- vendored from clients/_standard/dash/_conform.css -- DO NOT EDIT HERE
+/* ===========================================================================================
+   AGORA DASHBOARD STANDARD -- conformance block v1
+   ===========================================================================================
+   SOURCE OF TRUTH: clients/_standard/dash/_conform.css
+   VENDORED byte-identically into every client dashboard, at the END of its stylesheet, between
+   the sentinel pair vendor_lib.py looks for (grep AGORA STANDARD CONFORM in any dashboard).
+
+   To change it: edit THIS file and run  py -3 clients/_standard/vendor_lib.py
+
+   WHY THIS BLOCK IS SEPARATE FROM _shell.css
+       _shell.css is the REFERENCE stylesheet: a new client copies it and re-brands it. It is
+       not vendored, because identity is supposed to differ per client.
+
+       This block is different. It holds only rules that are (a) required by the standard,
+       (b) identical for every brand, and (c) incapable of fighting a client's existing CSS --
+       so it is safe to append verbatim to eight already-shipped, individually-branded
+       stylesheets. That constraint is why it contains print and motion rules and nothing else:
+       every other standard rule either resolves from a brand token or would override work a
+       client dashboard has already done deliberately.
+
+       If you are tempted to add a layout or colour rule here: don't. Add it to _shell.css and
+       hand-apply it, or it will silently restyle eight live dashboards.
+   =========================================================================================== */
+
+/* ---------------------------------------------------------------------------------------------
+   PRINT. Clients print these for meetings and paste them into decks. Without this rule a print
+   is the sticky chrome plus whichever tab happened to be open, with every other tab's content
+   missing entirely -- so the printed artefact is not the dashboard the client was looking at.
+   Every pane opens, the interactive furniture goes, and cards stop breaking across pages.
+   Class names are the standard vocabulary; a selector that matches nothing is free.
+--------------------------------------------------------------------------------------------- */
+@media print{
+  header.top, .tabbar, .tabs, .controls, .gbar, .filters, .filterbar,
+  .sync, .iconbtn, .ctuck, .tip, #tip, .toast, .cmod, .modal, .fsbtn, .exportbtn, .pager{
+    display:none !important;
+  }
+  /* Every tab prints, not just the open one. */
+  .tab-pane[hidden]{ display:block !important; }
+  [hidden].tab-pane{ display:block !important; }
+  body{ background:#fff !important; }
+  main{ padding-top:8px !important; }
+  /* Flat on paper: a drop shadow prints as grey mush. */
+  .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .hero, .bm, .ccard, .fresh, .acct{
+    box-shadow:none !important;
+  }
+  /* Do not split a figure across a page break. */
+  section, .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .bm, .ccard, .acct{
+    break-inside:avoid; page-break-inside:avoid;
+  }
+  /* Sticky headers inside scroll panes become a repeated band on paper. */
+  thead th{ position:static !important; }
+  /* A scroll pane prints only its first screenful unless it is released. */
+  .tblwrap, .tablewrap, .scroll-x, .scrolly, .hbwrap, .macc{
+    overflow:visible !important; max-height:none !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   REDUCED MOTION. A spinner, a pulse and a dozen hover transitions are a real accessibility
+   problem for anyone who has asked their OS to stop moving things, and every one of these
+   dashboards animates something. Honouring the preference is one rule.
+--------------------------------------------------------------------------------------------- */
+@media (prefers-reduced-motion:reduce){
+  *, *::before, *::after{
+    transition:none !important;
+    animation:none !important;
+    scroll-behavior:auto !important;
+  }
+  html{ scroll-behavior:auto !important; }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Screen-reader-only text, so a control whose meaning is carried by a glyph can still name
+   itself. Required by the standard's "colour is never the only signal" rule.
+--------------------------------------------------------------------------------------------- */
+.vh{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+/* <<< AGORA STANDARD CONFORM v1 */
 </style>
 
 <header class="top">
@@ -368,6 +457,19 @@
         <button type="button" class="preset" data-p1="365">12m</button>
         <button type="button" class="preset" data-p1="all">All time</button>
         <input type="date" id="s1from"><span style="color:var(--muted);font-size:11px">to</span><input type="date" id="s1to">
+      </div>
+      <div class="sep"></div>
+      <!-- The KPI benchmark is a SEPARATE control from the reporting period: the period drives every
+           tile, chart and table, the benchmark drives only the comparison line under each scorecard.
+           Tinted end to end so the two are never confused at a glance. -->
+      <div class="cgroup bench-group">
+        <span class="clabel">KPI benchmark</span>
+        <button type="button" class="preset bench active" data-b1="prev">Previous window</button>
+        <button type="button" class="preset bench" data-b1="90">90d</button>
+        <button type="button" class="preset bench" data-b1="365">Rolling 12m</button>
+        <button type="button" class="preset bench" data-b1="lastfy">Last FY</button>
+        <button type="button" class="preset bench" data-b1="all">All time</button>
+        <input type="date" id="s1bfrom" class="bench-date"><span style="color:var(--muted);font-size:11px">to</span><input type="date" id="s1bto" class="bench-date">
       </div>
       <div class="sep"></div>
       <div class="cgroup">
@@ -978,6 +1080,17 @@ function fyLabel(iso){
 function presetRange(code, maxIso, minIso){
   if(code === "all"){ return [minIso, maxIso]; }
   if(code === "fytd"){ return [fyStartOf(maxIso), maxIso]; }
+  /* The whole PREVIOUS financial year. A rolling 12 months over-weights whichever season it
+     starts in, which on a seasonal e-bike business is most of the signal. NZ FY starts 1 April
+     and the FY label is the END year, so "last FY" is the year ending at this FY's start. */
+  if(code === "lastfy"){
+    var fs = fyStartOf(maxIso);
+    var t = shiftDays(fs, -1);          /* the last day of the previous FY */
+    var f = fyStartOf(t);               /* ...and its first */
+    if(f < minIso){ f = minIso; }
+    if(f > t){ return presetRange("365", maxIso, minIso); }
+    return [f, t];
+  }
   if(code === "ytd"){ return [maxIso.slice(0,4) + "-01-01", maxIso]; }
   var n = parseInt(code,10);
   var from = shiftDays(maxIso, -(n-1));
@@ -1274,7 +1387,10 @@ var SL = [], RID = [], REQ = [], EVT = [];
 var SALES_MAX = null, CRM_MAX = null;
 var BIKE_GROUPS = { "Bikes":1, "Special Bike Package":1 };
 var PA_GROUPS = { "Parts":1, "Accessories":1 };
-var S1 = { from:null, to:null, agent:"", ast:"", ct:"", prod:"" };
+/* bfrom/bto are the KPI BENCHMARK range -- independent of from/to, and used ONLY by the
+   comparison line under each scorecard. "prev" reproduces the original behaviour (the
+   equal-length window immediately before the period), so the default view is unchanged. */
+var S1 = { from:null, to:null, bfrom:null, bto:null, bcode:"prev", agent:"", ast:"", ct:"", prod:"" };
 var S2 = { from:null, to:null, agent:"", src:"" };
 var GRAIN = { kpi:"auto", model:"month", req:"month" };
 var KPI_SCALE = "rel";
@@ -1392,13 +1508,43 @@ function segWire(id, attr, apply){
     });
   });
 }
+/* The benchmark is resolved from its CODE, not stored as fixed dates, so "Previous window"
+   follows the period wherever the period moves -- the pairing stays relative to the SELECTED
+   period start, never to today. A hand-typed date pair sets bcode to "" and pins it. */
+function benchRange(){
+  if(!S1.bcode){ return [S1.bfrom, S1.bto]; }
+  if(S1.bcode === "prev"){
+    var span = daysBetween(S1.from, S1.to) + 1;
+    return [shiftDays(S1.from, -span), shiftDays(S1.from, -1)];
+  }
+  return presetRange(S1.bcode, SALES_MAX, DATA.sales.range[0]);
+}
 function syncDates(){
   byId("s1from").value = S1.from; byId("s1to").value = S1.to;
   byId("s2from").value = S2.from; byId("s2to").value = S2.to;
+  var b = benchRange();
+  S1.bfrom = b[0]; S1.bto = b[1];
+  byId("s1bfrom").value = S1.bfrom; byId("s1bto").value = S1.bto;
 }
 function wireControls(){
   document.querySelectorAll("[data-tuck]").forEach(function(b){
     b.addEventListener("click", function(){ setTuck(!document.querySelector(".controls").classList.contains("tucked")); });
+  });
+  document.querySelectorAll("[data-b1]").forEach(function(b){
+    b.addEventListener("click", function(){
+      S1.bcode = b.getAttribute("data-b1");
+      setActive("[data-b1]", b); syncDates(); renderS1();
+    });
+  });
+  byId("s1bfrom").addEventListener("change", function(){
+    S1.bcode = ""; S1.bfrom = this.value || S1.bfrom;
+    if(S1.bfrom > S1.bto){ var t = S1.bfrom; S1.bfrom = S1.bto; S1.bto = t; }
+    setActive("[data-b1]", null); syncDates(); renderS1();
+  });
+  byId("s1bto").addEventListener("change", function(){
+    S1.bcode = ""; S1.bto = this.value || S1.bto;
+    if(S1.bfrom > S1.bto){ var t = S1.bfrom; S1.bfrom = S1.bto; S1.bto = t; }
+    setActive("[data-b1]", null); syncDates(); renderS1();
   });
   document.querySelectorAll("[data-p1]").forEach(function(b){
     b.addEventListener("click", function(){
@@ -1579,10 +1725,22 @@ function renderS1Kpis(){
   var lines = s1Lines();
   var s = sumsOf(lines);
   var span = daysBetween(S1.from, S1.to) + 1;
-  var pf = shiftDays(S1.from, -span), ptt = shiftDays(S1.from, -1);
-  var p = sumsOf(linesIn(pf, ptt));
+  var b = benchRange();
+  var p = sumsOf(linesIn(b[0], b[1]));
+  var bSpan = daysBetween(b[0], b[1]) + 1;
+  /* The two columns mean DIFFERENT things by metric kind, and the label says which:
+       VOLUME (units, revenue, P&A, gross profit, orders) -> the benchmark scaled to the period's
+         LENGTH, so the arrow is like-for-like whatever period is picked. Comparing a 90-day
+         period against a 365-day benchmark raw would report a collapse every time.
+       RATE (avg $ per bike) -> the aggregate ratio across the whole benchmark, never the average
+         of daily ratios, which skews badly when volume is uneven. */
+  var scale = bSpan > 0 ? (span / bSpan) : 1;
   var vals = { units:s.units, brev:s.brev, avg:s.avg, pa:s.pa, gp:s.gp, orders:s.nOrders };
-  var prevs = { units:p.units, brev:p.brev, avg:p.avg, pa:p.pa, gp:p.gp, orders:p.nOrders };
+  var prevs = { units:p.units * scale, brev:p.brev * scale, avg:p.avg,
+                pa:p.pa * scale, gp:p.gp * scale, orders:p.nOrders * scale };
+  var bLabel = (S1.bcode === "prev")
+    ? ("prev " + span + "d")
+    : ("benchmark" + (Math.abs(scale - 1) > 0.01 ? " ×" + scale.toFixed(2) : ""));
   var box = byId("s1kpis");
   box.innerHTML = "";
   KPI_DEFS.forEach(function(def){
@@ -1592,7 +1750,7 @@ function renderS1Kpis(){
     d.innerHTML =
       '<div class="kl"><span class="dot" style="background:' + def.color + '"></span>' + esc(def.label) + "</div>" +
       '<div class="kv tnum">' + def.fmt(vals[def.k]) + "</div>" +
-      '<div class="kd">prev ' + span + "d: " + def.fmt(prevs[def.k]) + " " + deltaHTML(vals[def.k], prevs[def.k]) + "</div>";
+      '<div class="kd">' + esc(bLabel) + ": " + def.fmt(prevs[def.k]) + " " + deltaHTML(vals[def.k], prevs[def.k]) + "</div>";
     d.addEventListener("click", function(){
       KPI_ON[def.k] = !KPI_ON[def.k];
       d.classList.toggle("off", !KPI_ON[def.k]);
@@ -2010,7 +2168,10 @@ function renderS1(){
   if(S1.model){ bits.push("model <b>" + esc(S1.model) + "</b>"); }
   if(S1.prod){ bits.push("product contains <b>" + esc(S1.prod) + "</b>"); }
   setHTML("s1note", "Reporting " + bits.join(" · ") +
-    " · bike counts include the legacy Special Bike Package group; revenue is net of credit notes.");
+    " · bike counts include the legacy Special Bike Package group; revenue is net of credit notes." +
+    ' <span class="bench">The <b>KPI benchmark</b> ' + prettyDate(S1.bfrom) + " &rarr; " + prettyDate(S1.bto) +
+    " drives the comparison line under each scorecard only &mdash; volume metrics are scaled to this " +
+    "period's length, rates are the benchmark's own aggregate.</span>");
   renderFyHero();
   renderS1Kpis();
   renderKpiChart();
