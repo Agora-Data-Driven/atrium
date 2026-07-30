@@ -9,7 +9,10 @@
 -- window against a full 30-day one and print a fake decline every single morning.
 CREATE OR REPLACE VIEW `agora-data-driven.client_tcs.paid_media_kpis` AS
 WITH src AS (
-  SELECT * FROM `agora-data-driven.raw_windsor.perf_meta` WHERE client_slug = 'tcs'
+  -- Lead-gen campaigns only, so these tiles match every other panel on the tab.
+  -- See 15_paid_media_daily.sql for why this is a LIKE.
+  SELECT * FROM `agora-data-driven.raw_windsor.perf_meta`
+  WHERE client_slug = 'tcs' AND objective LIKE '%LEAD%'
 ),
 bounds AS (
   SELECT MIN(metric_date) AS first_day, MAX(metric_date) AS last_day FROM src

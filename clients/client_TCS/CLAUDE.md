@@ -18,10 +18,10 @@ open/click events, a grain Windsor does not serve. The pull logic is ported from
 sql/*.sql (view column) -> job/main.py (data dict key) -> dash/dashboard.html (data.* key)
 ```
 
-- **`sql/`** — NINETEEN views. Quiz side (`01_`–`14_`): quiz → conversion → engagement → monthly →
+- **`sql/`** — TWENTY views. Quiz side (`01_`–`14_`): quiz → conversion → engagement → monthly →
   cohort → kpi; leads keyed to their FIRST quiz submission (one row per email). Paid side
-  (`15_`–`19_`, added 2026-07-30): `paid_media_daily` / `_ads` / `_campaigns` / `_kpis` / `_funnel`.
-  Reapply with `create_views.py` (never the BQ console).
+  (`15_`–`20_`, added 2026-07-30): `paid_media_daily` / `_ads` / `_campaigns` / `_kpis` / `_funnel`
+  / `_funnel_stages`. Reapply with `create_views.py` (never the BQ console).
 - **`job/`** — assembles `tcs.json` (`kpis` / `monthly` / `cohorts` / `leads` / **`paid`**);
   self-gates on the `raw_windsor.tcs_*` tables **and `raw_windsor.perf_meta`**. `freshness.py` is
   vendored identically.
@@ -50,6 +50,36 @@ if paid data looks wrong, fix the shared loader (`services/ingest/meta/`) or the
   a $0.18 CPC and win the creative table on noise).
 - **The KPI comparison windows anchor to the last day WITH DATA**, never `CURRENT_DATE()` — Windsor
   lands yesterday overnight, so anchoring on today would print a fake decline every morning.
+- 🔴 **`objective LIKE '%LEAD%'` in EVERY paid_media_* view.** The tab is Lead Gen; TCS also runs
+  OUTCOME_SALES campaigns, and folding their spend into a cost-per-lead makes the number
+  meaningless. Filtering narrowed the tab from $13,529/653 leads/31 ads to **$9,375/538/11**, and
+  CPL from $20.72 to $17.43. It is a `LIKE` because Meta renamed objectives in 2022-23
+  (`LEAD_GENERATION` → `OUTCOME_LEADS`) and only those two contain "LEAD" — an exact match would
+  silently drop a legacy lead campaign. **Change it in one view and the tab contradicts itself.**
+
+### The Lead Gen tab's spine (reading order is the design)
+
+Summary tiles → trend line → **where the funnel leaks** → **creative** → the reading.
+
+- **The heatmap (`paid_media_funnel_stages`)** is reach → impressions → clicks → page views →
+  leads, one row per ad. 🔴 **Shading is normalised PER COLUMN**, because a 1.8% CTR and a 15%
+  lead rate cannot share a scale — a cell only ever means "better/worse than the other ads at
+  *this* step". Thin ads are shaded but **excluded from each column's min/max**, so a four-click
+  ad cannot define the scale everyone else is judged against. The panel also states its finding
+  in words, ranked by *relative spread* rather than level (a low CTR is normal; a step where the
+  ads wildly disagree is where the money is). On the real data it correctly names **page-view
+  rate** — clicks that never become a page load, spanning 11%–96% across ads.
+- 🔴 **`reach_daily_sum` is NOT unique people.** Meta dedupes reach only within a queried window
+  and our grain is (ad × day), so someone reached on three days counts three times. There is no
+  way to derive true multi-day unique reach from this table. The column is named, labelled and
+  captioned as a daily sum — rates stay comparable between ads, which is what a heatmap is for.
+- **The creative grid** renders `thumbnail_url` straight from Meta's CDN. ⚠️ Those URLs are
+  **signed and expire**; this is only safe because the shared Meta loader re-pulls and MERGEs
+  nightly, so a stored URL is never older than the last ingest. If ingest stops, the images go
+  first — hence the `onerror` handler that swaps in a readable tile instead of a broken-image
+  icon. 🔴 **`object-fit: contain`, never `cover`**: Meta serves square, portrait *and* wide
+  banner creatives, and `cover` cropped the wide ones to a headless strip of lettering. The panel
+  exists to judge the creative, so the whole frame must be visible.
 - **`dash/`** — one self-contained `dashboard.html`, dark `--ag-*` theme, inline JS **esprima-4.x-safe**
   (no `?.` / `??`). The engagement chart deliberately avoids a dual axis: rates share one % axis,
   volume is a separate bar strip.

@@ -39,6 +39,7 @@ WITH agg AS (
     SUM(thruplays)                                    AS thruplays
   FROM `agora-data-driven.raw_windsor.perf_meta`
   WHERE client_slug = 'tcs'
+    AND objective LIKE '%LEAD%'   -- lead-gen campaigns only; see 15_paid_media_daily.sql
   GROUP BY ad_id
 )
 SELECT
