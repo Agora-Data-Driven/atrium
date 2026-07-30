@@ -1,6 +1,6 @@
-"""Create the raw_windsor.meta table (idempotent).
+"""Create the raw_windsor.perf_meta table (idempotent).
 
-raw_windsor.meta is the Meta (Facebook Ads) connector's slot in the shared raw layer.
+raw_windsor.perf_meta is the Meta (Facebook Ads) connector's slot in the shared raw layer.
 The schema below covers what the per-client template views need from Meta (date,
 campaign, spend, impressions, clicks). It is created in asia-southeast1 alongside the
 rest of the project.
@@ -15,7 +15,7 @@ from google.cloud import bigquery
 LOCATION = "asia-southeast1"
 PROJECT = os.environ.get("GCP_PROJECT", "agora-data-driven")
 RAW_DATASET = os.environ.get("RAW_DATASET", "raw_windsor")
-TABLE = "meta"
+TABLE = "perf_meta"
 
 # TODO: align these columns to Windsor's ACTUAL Meta field names/types for this account.
 # This schema matches the template data contract's needs (spend feeds the blended

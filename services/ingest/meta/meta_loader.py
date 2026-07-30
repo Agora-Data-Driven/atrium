@@ -1,6 +1,6 @@
 """Windsor.ai Meta connector loader.
 
-Raw target : raw_windsor.meta  (the shared raw layer; project agora-data-driven,
+Raw target : raw_windsor.perf_meta  (the shared raw layer; project agora-data-driven,
              dataset raw_windsor, location asia-southeast1).
 Source     : Windsor.ai -- meta connector (Meta / Facebook Ads).
 Cadence    : daily scheduled pull (see tools/deploy_ingest_jobs.ps1, cron 20 1 * * *).
@@ -8,7 +8,7 @@ Cadence    : daily scheduled pull (see tools/deploy_ingest_jobs.ps1, cron 20 1 *
 This is a scheduled API pull -- a plain WRITER of the shared raw_windsor dataset. It is
 NOT self-gating: the freshness watermark logic lives downstream in the client export
 jobs and the status dashboard, which probe whether raw_windsor advanced before
-rebuilding. This loader just keeps raw_windsor.meta fresh once a day.
+rebuilding. This loader just keeps raw_windsor.perf_meta fresh once a day.
 
 Auth:
   * The shared Windsor API key is read from Secret Manager (secret ``windsor-api-key``)
@@ -28,7 +28,7 @@ from google.cloud import secretmanager
 PROJECT = os.environ.get("GCP_PROJECT", "agora-data-driven")
 RAW_DATASET = os.environ.get("RAW_DATASET", "raw_windsor")
 WINDSOR_SECRET = "windsor-api-key"  # Secret Manager secret id (shared ingest key).
-TABLE = "meta"
+TABLE = "perf_meta"
 LOCATION = "asia-southeast1"
 
 # Windsor REST base. The connector path / fields are account-specific -- see TODOs.
@@ -50,7 +50,7 @@ def read_windsor_api_key() -> str:
 def fetch_rows(api_key: str) -> list:
     """Pull Meta Ads metrics from the Windsor REST API and return rows for BigQuery.
 
-    Returns a list of dicts whose keys match the raw_windsor.meta schema
+    Returns a list of dicts whose keys match the raw_windsor.perf_meta schema
     (date, campaign, spend, impressions, clicks).
     """
     # TODO: Build the real Windsor request for the Meta connector. Windsor's "all"
@@ -65,7 +65,7 @@ def fetch_rows(api_key: str) -> list:
     #     resp = requests.get(WINDSOR_API_BASE, params=params, timeout=120)
     #     resp.raise_for_status()
     #     payload = resp.json()["data"]
-    # TODO: Map Windsor's returned field names to the raw_windsor.meta columns. The
+    # TODO: Map Windsor's returned field names to the raw_windsor.perf_meta columns. The
     # exact Windsor field labels depend on the account's connector config.
     raise NotImplementedError(
         "TODO: implement the Windsor Meta request + field mapping for this account"
@@ -73,7 +73,7 @@ def fetch_rows(api_key: str) -> list:
 
 
 def load_rows(bq: bigquery.Client, rows: list) -> None:
-    """Truncate-and-load ``rows`` into raw_windsor.meta (idempotent full refresh)."""
+    """Truncate-and-load ``rows`` into raw_windsor.perf_meta (idempotent full refresh)."""
     table_id = f"{PROJECT}.{RAW_DATASET}.{TABLE}"
 
     # Truncate-and-load: each daily run replaces the table contents, so a re-run is
