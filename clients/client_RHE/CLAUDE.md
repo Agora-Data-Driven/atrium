@@ -221,3 +221,31 @@ crawl long; later runs are incremental off the stored watermark.
 
 Never Cloud Build from a laptop; never `--allow-unauthenticated` (org policy forbids it — the app
 does its own password/SSO auth behind `--no-invoker-iam-check`).
+
+## Dashboard standard (applied 2026-07-30)
+
+This dashboard follows [`clients/_standard/STANDARD.md`](../_standard/STANDARD.md) — the **Leads**
+layout over the shared shell. Client extras are untouched: the standard is a floor, never a ceiling.
+
+Most of the standard's *helper library* is this file's, generalised — `grainOf`/`bucketOf`/`segWire`/
+`wireSorts`/`presetRange` were lifted from here into `clients/_standard/dash/_lib.js`.
+
+What changed on 2026-07-30, and why:
+- **Chrome ids renamed to the standard names** so a shared feature can find them:
+  `#mark`→`#logo`, `#upd`→`#updated`, `#through`→`#thru`, `#sync`→`#syncBtn`,
+  `#synclbl`→`#syncLbl`. Every JS reference moved with them — grep before assuming an old id exists.
+- **A `#boot` / `#app` swap was added.** The page used to render straight into `<main>`, so a slow
+  or failed fetch showed an empty dashboard rather than a loading state; a fetch failure now lands
+  inside `#boot` instead of being prepended to `<body>`.
+- **Removed a dead `segWire("seg-agmet", …)`** — there is no `#seg-agmet` control on the page, so it
+  silently no-oped. `SEG.agmet` is still in the state object; wire a control to it or drop it.
+
+**`clients/_standard/dash/_conform.css` is VENDORED into this file** between sentinel comments (the
+print + reduced-motion + screen-reader block). Never edit inside the sentinels — re-sync with
+`py -3 clients/_standard/vendor_lib.py`. Both gates before any dash deploy:
+
+```powershell
+py -3 tools\_validate_dash_js.py       clients\client_RHE\dash\dashboard.html
+py -3 clients\_standard\check_standard.py clients\client_RHE\dash\dashboard.html
+py -3 clients\_standard\vendor_lib.py --check
+```

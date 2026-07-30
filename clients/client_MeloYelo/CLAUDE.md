@@ -87,3 +87,34 @@ now DELETES `meloyelo-export-6h` if it exists. Don't re-add one without asking.
 Remaining to go fully live: share the CRM sheet with the job SA (riders/leads), one-time Lark
 auth via `job/lark_auth.py` (production orders), rotate the connector keys. Full metric
 definitions and the verified-numbers table: [README.md](README.md).
+
+## Dashboard standard (applied 2026-07-30)
+
+This dashboard follows [`clients/_standard/STANDARD.md`](../_standard/STANDARD.md) — the **Sales**
+layout over the shared shell. Client extras are untouched: the standard is a floor, never a ceiling.
+
+The Riders & Leads tab follows the **Leads** section order inside the Sales shell — that is the
+sanctioned shape for a client that genuinely needs both (STANDARD.md §1).
+
+What changed on 2026-07-30: the Sales tab gained a real **KPI benchmark** range. It previously
+compared every scorecard against a hardcoded equal-length window immediately before the period.
+That is now the `prev` preset (so the default view is unchanged), joined by 90d / rolling 12m /
+last FY / all time and a hand-typed pair.
+- **`benchRange()` resolves from a CODE, not stored dates**, so "Previous window" follows the period
+  wherever the period moves. Typing a date pair sets `S1.bcode = ""` and pins it.
+- **Volume metrics are scaled to the period's length; rates are not.** Comparing a 90-day period
+  against a 365-day benchmark raw would report a collapse every time. The tile's sub-line says which
+  it is doing (`benchmark ×0.25`).
+- **`lastfy` is the whole previous financial year**, not a rolling 12 months, which over-weights
+  whichever season it starts in — on a seasonal e-bike business that is most of the signal. NZ FY
+  starts 1 April and the FY label is the END year, so read `fyStartOf` before touching it.
+
+**`clients/_standard/dash/_conform.css` is VENDORED into this file** between sentinel comments (the
+print + reduced-motion + screen-reader block). Never edit inside the sentinels — re-sync with
+`py -3 clients/_standard/vendor_lib.py`. Both gates before any dash deploy:
+
+```powershell
+py -3 tools\_validate_dash_js.py       clients\client_MeloYelo\dash\dashboard.html
+py -3 clients\_standard\check_standard.py clients\client_MeloYelo\dash\dashboard.html
+py -3 clients\_standard\vendor_lib.py --check
+```

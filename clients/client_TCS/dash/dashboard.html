@@ -131,34 +131,270 @@
   .emreset a:hover { text-decoration: underline; }
   :fullscreen .wrap { max-width: none; }
   :fullscreen { background: var(--bg); overflow: auto; }
+
+  /* ==========================================================================================
+     AGORA STANDARD CHROME (clients/_standard/STANDARD.md), added 2026-07-30.
+     Additive: the existing .panel/.kpi/.hero styling is untouched. These rules only NAME and
+     style the parts the standard requires and this file did not have -- the freshness pair, the
+     Sync control, the tuckable filter bar, the insight strip and the wired empty state.
+     ========================================================================================== */
+  header .brand{display:flex;align-items:center;gap:11px;min-width:0}
+  header .brand .wm{font-size:16px;font-weight:800;color:var(--navy);line-height:1.15}
+  header .brand .tg{font-size:12px;color:var(--muted);line-height:1.3}
+  .syncbox{display:flex;align-items:center;gap:12px;margin-left:auto}
+  .top-meta{text-align:right;font-size:11px;color:var(--muted);line-height:1.6;white-space:nowrap}
+  .top-meta b{color:var(--ink);font-weight:700}
+  /* Data-through turns red past the stale threshold. This is the honesty guard: a dashboard that
+     cannot tell you it is stale is worse than none. */
+  .stale{color:var(--coral) !important;font-weight:700}
+  .sync{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12.5px;font-weight:700;
+        border:1px solid var(--border);background:#fff;color:var(--navy);padding:7px 14px;
+        border-radius:999px;cursor:pointer;transition:.15s;white-space:nowrap}
+  .sync:hover{background:var(--teal-bg);border-color:var(--teal-soft)}
+  .sync[disabled]{opacity:.6;cursor:default}
+  .sync.ok{border-color:var(--teal-soft);color:var(--teal-d);background:var(--teal-bg)}
+  .sync.bad{border-color:#f3c4b6;color:var(--coral);background:#fdece7}
+  .spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--border);
+        border-top-color:var(--teal);display:none;animation:spin .7s linear infinite}
+  .sync.busy .spin{display:inline-block}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .agency{display:flex;align-items:center;gap:9px;padding-left:14px;border-left:1px solid var(--border)}
+  .agency .lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;text-align:right}
+  .agency img{height:20px;opacity:.9;display:block}
+  .agency img[hidden],.brand img[hidden]{display:none}
+
+  /* ---- the tuckable filter bar. Filters should not own the screen; collapsed, the summary line
+       stays, because it already states the period. ---- */
+  .controls{background:#fff;border:1px solid var(--border);border-radius:14px;
+            box-shadow:var(--shadow);margin-bottom:20px}
+  .controls-inner{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;
+                  padding:11px 58px 11px 16px;position:relative}
+  .ctuck{position:absolute;top:8px;right:14px;display:inline-flex;align-items:center;gap:5px;
+         border:1px solid var(--border);background:#fff;color:var(--muted);font:inherit;font-size:10.5px;
+         font-weight:800;letter-spacing:.6px;text-transform:uppercase;padding:4px 9px;border-radius:7px;
+         cursor:pointer;transition:.15s;z-index:2}
+  .ctuck:hover{border-color:var(--teal);color:var(--teal-d)}
+  .ctuck .cv{font-size:9px;transition:transform .18s}
+  .controls.tucked .cgroup{display:none}
+  .controls.tucked .controls-inner{padding-top:7px;padding-bottom:7px;gap:0}
+  .controls.tucked .ctuck{top:5px}
+  .controls.tucked .ctuck .cv{transform:rotate(180deg)}
+  .cgroup{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .clabel{font-size:9.5px;text-transform:uppercase;letter-spacing:1.05px;color:var(--muted);font-weight:800}
+  .preset{font:inherit;font-size:12px;font-weight:700;border:1px solid var(--border);background:#fff;
+          color:var(--ink);padding:5px 11px;border-radius:7px;cursor:pointer;transition:.14s}
+  .preset:hover{border-color:var(--teal);color:var(--teal-d)}
+  .preset.active{background:var(--teal-d);border-color:var(--teal-d);color:#fff}
+  .controls input[type=date]{font:inherit;font-size:12px;padding:5px 9px;border:1px solid var(--border);
+          border-radius:7px;background:#fff;color:var(--ink)}
+  .rangenote{width:100%;font-size:11.5px;color:var(--muted)}
+  .rangenote b{color:var(--ink)}
+  .seg{display:inline-flex;align-items:center;background:#eef3f2;border:1px solid var(--border);
+       border-radius:999px;padding:2px}
+  .seg .cap{font-size:9.5px;text-transform:uppercase;letter-spacing:1.05px;color:var(--muted);
+            font-weight:800;padding:5px 8px 5px 10px}
+  .seg button{border:none;background:transparent;color:var(--muted);font:inherit;font-size:11.5px;
+              font-weight:700;padding:5px 12px;border-radius:999px;cursor:pointer}
+  .seg button.on{background:#fff;color:var(--teal-d);box-shadow:0 1px 2px rgba(21,58,91,.08)}
+
+  /* ---- section heads, so a panel and a section read the same on every dashboard ---- */
+  .shead{display:flex;align-items:baseline;gap:12px;margin-bottom:13px;padding-bottom:9px;
+         border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .shead h2{margin:0;font-size:16px;font-weight:800;color:var(--navy)}
+  .shead h2::before{display:none}
+  .shead .sub{font-size:13px;color:var(--muted);font-style:italic}
+  .csub{font-size:11.5px;color:var(--muted);margin-bottom:10px}
+
+  /* ---- KPI tile internals under the standard names ---- */
+  .kpi .kl{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:600}
+  .kpi .kv{font-size:25px;font-weight:800;margin-top:7px;color:var(--navy);letter-spacing:-.5px;
+           font-variant-numeric:tabular-nums}
+  .kpi .kd{font-size:12px;color:var(--muted);margin-top:3px}
+
+  /* ---- the insight strip. Every dashboard ends with one: it is what turns a report into an
+       opinion, and it is what gets quoted back to you in meetings. ---- */
+  .insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
+  .insight{display:flex;gap:11px;background:#fff;border:1px solid var(--border);
+           border-left:3px solid var(--teal);border-radius:12px;padding:13px 15px;box-shadow:var(--shadow)}
+  .insight.win{border-left-color:var(--teal-d)}
+  .insight.warn{border-left-color:var(--amber)}
+  .insight.crit{border-left-color:var(--coral)}
+  .insight .ico{font-size:16px;line-height:1.25}
+  .insight .it{font-size:12.5px;font-weight:800;color:var(--navy);margin-bottom:2px}
+  .insight .ib{font-size:12px;color:var(--ink);line-height:1.5}
+
+  /* ---- an unwired panel must look WAITING, never blank and never like an error ---- */
+  .empty{background:repeating-linear-gradient(135deg,#f7fbfa,#f7fbfa 9px,#eef4f3 9px,#eef4f3 18px);
+         border:1px dashed var(--teal-soft);border-radius:14px;padding:20px 22px;color:var(--ink)}
+  .empty h4{margin:0 0 5px;font-size:13px;color:var(--navy)}
+  .empty p{margin:0;font-size:12px;color:var(--muted);line-height:1.55;max-width:74ch}
+  .empty code{background:#fff;border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11px}
+  .loading{padding:60px 0;text-align:center;color:var(--muted);font-size:15px}
+  .loading .spin2{width:26px;height:26px;margin:0 auto 14px;border-radius:50%;
+                  border:3px solid var(--border);border-top-color:var(--teal);animation:spin .8s linear infinite}
+  .err{background:#fdece7;border:1px solid #f3c4b6;color:#9a3520;border-radius:14px;padding:16px 18px;
+       font-size:13px;text-align:left;max-width:70ch;margin:0 auto}
+  .err b{display:block;font-size:15px;margin-bottom:5px}
+  .tfoot{padding:8px 2px 0;font-size:11.5px;color:var(--muted)}
+  th.srt{cursor:pointer;user-select:none}
+  th.srt:hover{color:var(--ink)}
+  /* A shared tooltip, so a chart added later does not need its own. */
+  #tip{position:fixed;pointer-events:none;background:var(--navy);color:#fff;border-radius:10px;
+       padding:9px 11px;font-size:11.5px;opacity:0;transition:opacity .1s;z-index:300;
+       box-shadow:0 10px 30px rgba(21,58,91,.28);max-width:280px}
+  #tip .td{font-weight:800;font-size:12px;margin-bottom:5px;color:var(--teal-soft)}
+  #tip .tr{display:flex;justify-content:space-between;gap:16px;font-variant-numeric:tabular-nums}
+  #tip .tr .m{opacity:.72}
+
+/* >>> AGORA STANDARD CONFORM v1 -- vendored from clients/_standard/dash/_conform.css -- DO NOT EDIT HERE
+/* ===========================================================================================
+   AGORA DASHBOARD STANDARD -- conformance block v1
+   ===========================================================================================
+   SOURCE OF TRUTH: clients/_standard/dash/_conform.css
+   VENDORED byte-identically into every client dashboard, at the END of its stylesheet, between
+   the sentinel pair vendor_lib.py looks for (grep AGORA STANDARD CONFORM in any dashboard).
+
+   To change it: edit THIS file and run  py -3 clients/_standard/vendor_lib.py
+
+   WHY THIS BLOCK IS SEPARATE FROM _shell.css
+       _shell.css is the REFERENCE stylesheet: a new client copies it and re-brands it. It is
+       not vendored, because identity is supposed to differ per client.
+
+       This block is different. It holds only rules that are (a) required by the standard,
+       (b) identical for every brand, and (c) incapable of fighting a client's existing CSS --
+       so it is safe to append verbatim to eight already-shipped, individually-branded
+       stylesheets. That constraint is why it contains print and motion rules and nothing else:
+       every other standard rule either resolves from a brand token or would override work a
+       client dashboard has already done deliberately.
+
+       If you are tempted to add a layout or colour rule here: don't. Add it to _shell.css and
+       hand-apply it, or it will silently restyle eight live dashboards.
+   =========================================================================================== */
+
+/* ---------------------------------------------------------------------------------------------
+   PRINT. Clients print these for meetings and paste them into decks. Without this rule a print
+   is the sticky chrome plus whichever tab happened to be open, with every other tab's content
+   missing entirely -- so the printed artefact is not the dashboard the client was looking at.
+   Every pane opens, the interactive furniture goes, and cards stop breaking across pages.
+   Class names are the standard vocabulary; a selector that matches nothing is free.
+--------------------------------------------------------------------------------------------- */
+@media print{
+  header.top, .tabbar, .tabs, .controls, .gbar, .filters, .filterbar,
+  .sync, .iconbtn, .ctuck, .tip, #tip, .toast, .cmod, .modal, .fsbtn, .exportbtn, .pager{
+    display:none !important;
+  }
+  /* Every tab prints, not just the open one. */
+  .tab-pane[hidden]{ display:block !important; }
+  [hidden].tab-pane{ display:block !important; }
+  body{ background:#fff !important; }
+  main{ padding-top:8px !important; }
+  /* Flat on paper: a drop shadow prints as grey mush. */
+  .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .hero, .bm, .ccard, .fresh, .acct{
+    box-shadow:none !important;
+  }
+  /* Do not split a figure across a page break. */
+  section, .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .bm, .ccard, .acct{
+    break-inside:avoid; page-break-inside:avoid;
+  }
+  /* Sticky headers inside scroll panes become a repeated band on paper. */
+  thead th{ position:static !important; }
+  /* A scroll pane prints only its first screenful unless it is released. */
+  .tblwrap, .tablewrap, .scroll-x, .scrolly, .hbwrap, .macc{
+    overflow:visible !important; max-height:none !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   REDUCED MOTION. A spinner, a pulse and a dozen hover transitions are a real accessibility
+   problem for anyone who has asked their OS to stop moving things, and every one of these
+   dashboards animates something. Honouring the preference is one rule.
+--------------------------------------------------------------------------------------------- */
+@media (prefers-reduced-motion:reduce){
+  *, *::before, *::after{
+    transition:none !important;
+    animation:none !important;
+    scroll-behavior:auto !important;
+  }
+  html{ scroll-behavior:auto !important; }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Screen-reader-only text, so a control whose meaning is carried by a glyph can still name
+   itself. Required by the standard's "colour is never the only signal" rule.
+--------------------------------------------------------------------------------------------- */
+.vh{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+/* <<< AGORA STANDARD CONFORM v1 */
 </style>
 </head>
-<body>
+<body data-single-view="one diagnostic question (why quiz-lead conversion changed). A tab bar with a single tab is chrome, not navigation, so this dashboard is deliberately one view."
+      data-no-benchmark="the comparison here is COHORT-based, not window-based: a lead is judged against the year they took the quiz (a recent cohort has simply had less time to buy), plus this-year-against-prior click rate. A second free-floating date range would let a reader compare cohorts of different ages and read a decline that is only age.">
   <div class="topbar"></div>
   <div class="wrap">
     <header>
-      <img class="logo" src="__TCS_LOGO_SRC__" alt="The Contract Shop">
-      <div class="titlewrap">
-        <div class="title">Business Quiz: Lead Diagnostics</div>
-        <div class="subtitle">Who takes the quiz, who buys, and why conversion has changed.</div>
+      <div class="brand">
+        <img class="logo" id="logo" src="__TCS_LOGO_SRC__" alt="The Contract Shop">
+        <div class="titlewrap">
+          <div class="title wm" id="wm">Business Quiz: Lead Diagnostics</div>
+          <div class="subtitle tg" id="tg">Who takes the quiz, who buys, and why conversion has changed.</div>
+        </div>
       </div>
-      <div class="meta" id="meta"></div>
-      <button type="button" class="fsbtn" id="fsBtn" title="Toggle full screen">⛶ Full screen</button>
+      <!-- Agora standard: WHEN the data was generated and WHAT IT COVERS, with Sync beside them.
+           This dashboard had neither until 2026-07-30 -- only an undated "data through" line. -->
+      <div class="syncbox">
+        <div class="top-meta">
+          <div>Updated <b id="updated">&mdash;</b></div>
+          <div>Data through <b id="thru">&mdash;</b></div>
+        </div>
+        <button type="button" class="sync" id="syncBtn" title="Pull the latest data">
+          <span class="spin" id="syncSpin" aria-hidden="true"></span><span id="syncLbl">Sync</span>
+        </button>
+        <button type="button" class="fsbtn" id="fsBtn" title="Toggle full screen">⛶ Full screen</button>
+        <div class="agency">
+          <div class="lbl">Prepared by</div>
+          <img id="agora" alt="Agora Data Driven" hidden>
+        </div>
+      </div>
     </header>
 
-    <div id="status">Loading dashboard…</div>
+    <div id="boot" class="loading"><div class="spin2"></div>Loading dashboard&hellip;</div>
 
-    <div id="content" style="display:none">
+    <div id="app" hidden>
+      <!-- ============ THE CONTROL BAR ============
+           The period drives the trend chart, the cohort table and the lead list. Presets
+           anchor to the newest date IN THE DATA, never to today: the Klaviyo and quiz feeds
+           lag, and "last 90 days" against today would render an empty page that looks broken
+           rather than merely late. -->
+      <div class="controls" id="controls">
+        <div class="controls-inner">
+          <button type="button" class="ctuck" aria-label="Collapse or expand the filters"><span class="cv">&#9650;</span><span class="cl">Filters</span></button>
+          <div class="cgroup">
+            <span class="clabel">Period</span>
+            <button type="button" class="preset" data-p="90">90d</button>
+            <button type="button" class="preset" data-p="365">12m</button>
+            <button type="button" class="preset" data-p="ytd">YTD</button>
+            <button type="button" class="preset active" data-p="all">All time</button>
+            <input type="date" id="from" aria-label="Period from">
+            <span style="color:var(--muted);font-size:11px">to</span>
+            <input type="date" id="to" aria-label="Period to">
+          </div>
+          <div class="cgroup">
+            <span class="clabel">Grain</span>
+            <div class="seg" id="seg-grain">
+              <button type="button" data-v="auto" class="on">Auto</button>
+              <button type="button" data-v="month">Monthly</button>
+              <button type="button" data-v="week">Weekly</button>
+            </div>
+          </div>
+          <div class="rangenote" id="rangenote"></div>
+        </div>
+      </div>
+
       <div class="hero" id="hero"></div>
       <div class="kpis" id="kpis"></div>
 
       <div class="panel">
         <h2>Leads, sales &amp; click rate over time</h2>
         <p class="desc">Quiz-lead activity by month or week, all scoped to the same people: new quiz leads, orders they placed after taking the quiz, and their email <b>click rate</b> (emails clicked ÷ emails sent, one click per email). Each line is indexed to its own peak (100%) so their shape and timing compare on one axis; hover for the actual values. Open rate is left out on purpose. Apple Mail Privacy auto-opens make it unreliable.</p>
-        <div class="toggle" id="actToggle" role="group" aria-label="Time grain">
-          <button type="button" class="tg on" data-mode="month" aria-pressed="true">Monthly</button>
-          <button type="button" class="tg" data-mode="week" aria-pressed="false">Weekly</button>
-        </div>
         <div class="legend">
           <span class="item"><span class="swatch" style="background:#153a5b"></span>Leads</span>
           <span class="item"><span class="swatch" style="background:#17a398"></span>Sales</span>
@@ -223,12 +459,197 @@
           </div>
         </div>
       </div>
+
+      <!-- ============ THE READING ============
+           Every Agora dashboard ends with a "Reading of the ..." strip: plain-language findings
+           that recompute with the filters. It is the highest-value thing on the page -- it turns
+           a report into an opinion. -->
+      <div class="panel">
+        <div class="shead"><h2>Reading of the diagnostics</h2><span class="sub">recomputed with the period</span></div>
+        <div class="insights" id="insights"></div>
+      </div>
     </div>
   </div>
+
+<div id="tip" role="status" aria-live="off"></div>
 
 <script>
   // ES5/ES2015-safe ONLY. No optional chaining (?.) / nullish coalescing (??): esprima 4.x
   // (the pre-deploy gate) cannot parse them. Use classic && / || guards.
+
+
+  /* ==========================================================================================
+     AGORA STANDARD HELPERS (clients/_standard/STANDARD.md 2.3), added 2026-07-30.
+     The standard fixes these NAMES so a control or chart written against one dashboard resolves
+     on every other one in the estate.
+     ========================================================================================== */
+  var ALL_MIN = "", ALL_MAX = "";
+  var ST = { from: "", to: "", grain: "auto" };
+
+  function dObj(iso){ return new Date(String(iso).slice(0, 10) + "T00:00:00Z"); }
+  function isoOf(d){ return d.toISOString().slice(0, 10); }
+  function shiftDays(iso, n){ var d = dObj(iso); d.setUTCDate(d.getUTCDate() + n); return isoOf(d); }
+  function daysBetween(a, b){ return Math.round((dObj(b) - dObj(a)) / 86400000) + 1; }
+  function prettyDate(iso){
+    if(!iso){ return "-"; }
+    var p = String(iso).slice(0, 10).split("-");
+    var m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return m[parseInt(p[1], 10) - 1] + " " + parseInt(p[2], 10) + ", " + p[0];
+  }
+  function clampIso(v, lo, hi){ if(v < lo){ return lo; } if(v > hi){ return hi; } return v; }
+
+  /* Relative presets anchor to the LATEST DATE IN THE DATA, never to today. The quiz and Klaviyo
+     feeds lag, and they lag differently -- "last 90 days" measured from today would render an
+     empty page that reads as broken rather than merely late. */
+  function presetRange(code, maxIso, minIso){
+    if(code === "all"){ return [minIso, maxIso]; }
+    if(code === "ytd"){
+      var y0 = maxIso.slice(0, 4) + "-01-01";
+      return [y0 < minIso ? minIso : y0, maxIso];
+    }
+    var n = parseInt(code, 10);
+    if(!isFinite(n)){ return [minIso, maxIso]; }
+    var from = shiftDays(maxIso, -(n - 1));
+    return [from < minIso ? minIso : from, maxIso];
+  }
+  /* Auto grain scales with the span. Monthly on a six-week window renders two points; weekly on
+     three years renders 150 slivers. This dashboard only has month and week grain in the payload,
+     so Auto picks between those two rather than inventing a daily bucket the data cannot support. */
+  function autoGrain(from, to){ return daysBetween(from, to) <= 180 ? "week" : "month"; }
+  function grainOf(key, from, to){
+    var g = ST.grain;
+    if(!g || g === "auto"){ return autoGrain(from, to); }
+    /* An explicit choice is sticky, so guard it: weekly across the whole history is unreadable. */
+    if(g === "week" && daysBetween(from, to) > 1100){ return "month"; }
+    return g;
+  }
+  /* One helper wires every segmented control on the page. */
+  function segWire(id, apply){
+    var box = el(id);
+    if(!box){ return; }
+    var btns = box.getElementsByTagName("button");
+    var i;
+    for(i = 0; i < btns.length; i++){
+      (function(b){
+        b.addEventListener("click", function(){
+          var all = box.getElementsByTagName("button"), j;
+          for(j = 0; j < all.length; j++){ all[j].className = ""; all[j].setAttribute("aria-pressed", "false"); }
+          b.className = "on"; b.setAttribute("aria-pressed", "true");
+          apply(b.getAttribute("data-v"));
+        });
+      })(btns[i]);
+    }
+  }
+  function setActive(sel, node){
+    var n = document.querySelectorAll(sel), i;
+    for(i = 0; i < n.length; i++){ n[i].classList.remove("active"); }
+    if(node){ node.classList.add("active"); }
+  }
+  /* The filter bar tucks away and the choice persists, so it does not own the screen every visit.
+     Collapsed, the summary line stays -- it already states the period, so nothing is lost. */
+  var TUCK_KEY = "tcs_tuck";
+  function isTucked(){
+    try { return window.localStorage.getItem(TUCK_KEY) === "1"; } catch(e){ return false; }
+  }
+  function setTuck(on){
+    var c = el("controls");
+    if(c){ c.classList.toggle("tucked", !!on); }
+    var ls = document.querySelectorAll(".ctuck .cl"), i;
+    for(i = 0; i < ls.length; i++){ ls[i].textContent = on ? "Filters" : "Hide"; }
+    try { window.localStorage.setItem(TUCK_KEY, on ? "1" : "0"); } catch(e){ /* private mode */ }
+  }
+  function wireTuck(){
+    var bs = document.querySelectorAll(".ctuck"), i;
+    for(i = 0; i < bs.length; i++){
+      bs[i].addEventListener("click", function(){
+        setTuck(!el("controls").classList.contains("tucked"));
+      });
+    }
+    setTuck(isTucked());
+  }
+  /* ---------------------------------------------------------------- freshness (playbook 4) */
+  function agoOf(iso){
+    if(!iso){ return "-"; }
+    var t = Date.parse(iso);
+    if(!isFinite(t)){ return String(iso).slice(0, 16).replace("T", " "); }
+    var mins = Math.round((Date.now() - t) / 60000);
+    if(mins < 1){ return "just now"; }
+    if(mins < 60){ return mins + " min ago"; }
+    var hrs = Math.round(mins / 60);
+    if(hrs < 24){ return hrs + (hrs === 1 ? " hour ago" : " hours ago"); }
+    var days = Math.round(hrs / 24);
+    return days + (days === 1 ? " day ago" : " days ago");
+  }
+  function stampMeta(data){
+    el("updated").textContent = agoOf(data.last_updated);
+    var t = el("thru"), thru = data.data_through ? String(data.data_through).slice(0, 10) : "";
+    t.textContent = thru ? prettyDate(thru) : "-";
+    /* Red past the threshold. The quiz feed is a scheduled pull, so a week behind is a real fault. */
+    var lag = thru ? Math.floor((Date.now() - dObj(thru).getTime()) / 86400000) : 999;
+    t.className = lag > 3 ? "stale" : "";
+    t.title = lag > 3 ? (lag + " days behind") : "";
+  }
+  /* ---------------------------------------------------------------- sync (playbook 4)
+     Ask the service to re-pull when that is wired, then reload the payload EITHER WAY, so the
+     button is always useful and degrades to a plain reload on a deploy with no /refresh route.
+     (This service has no /refresh route today -- which is exactly why the fallback is the point.) */
+  var SYNCING = false;
+  function setSync(cls, label){
+    var b = el("syncBtn");
+    if(!b){ return; }
+    b.className = "sync" + (cls ? " " + cls : "");
+    b.disabled = cls === "busy";
+    el("syncLbl").textContent = label;
+  }
+  function doSync(){
+    if(SYNCING){ return; }
+    SYNCING = true;
+    setSync("busy", "Syncing");
+    fetch("/refresh", { method: "POST", credentials: "same-origin" })
+      .then(function(r){ return r.ok ? r.json() : { ok: false }; })
+      .catch(function(){ return { ok: false }; })
+      .then(function(res){
+        return fetch("/data.json?t=" + Date.now(), { credentials: "same-origin", cache: "no-store" })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            render(j);
+            setSync("ok", (res && res.ok) ? "Rebuilding" : "Reloaded");
+            setTimeout(function(){ setSync("", "Sync"); }, 4000);
+            SYNCING = false;
+          });
+      })
+      .catch(function(){
+        setSync("bad", "Failed");
+        setTimeout(function(){ setSync("", "Sync"); }, 5000);
+        SYNCING = false;
+      });
+  }
+  /* ---------------------------------------------------------------- shared blocks */
+  function insightCard(icon, title, body, tone){
+    return '<div class="insight' + (tone ? " " + tone : "") + '">' +
+           '<div class="ico" aria-hidden="true">' + icon + "</div>" +
+           '<div><div class="it">' + esc(title) + '</div><div class="ib">' + body + "</div></div></div>";
+  }
+  function emptyState(title, body){
+    return '<div class="empty"><h4>' + esc(title) + "</h4><p>" + body + "</p></div>";
+  }
+  function inPeriod(iso){
+    var d = String(iso || "").slice(0, 10);
+    if(d.length < 7){ return false; }
+    /* Month keys are "YYYY-MM"; pad them so a string compare against a full date still works. */
+    if(d.length === 7){ d = d + "-01"; }
+    return d >= ST.from && d <= ST.to;
+  }
+  function syncDateInputs(){
+    el("from").value = ST.from; el("to").value = ST.to;
+    var days = daysBetween(ST.from, ST.to);
+    var g = grainOf("act", ST.from, ST.to);
+    el("rangenote").innerHTML =
+      "<b>Period</b> " + prettyDate(ST.from) + " &rarr; " + prettyDate(ST.to) + " (" + days +
+      " day" + (days === 1 ? "" : "s") + ") drives the trend chart, the cohort table and the lead list." +
+      " Plotted <b>" + (g === "week" ? "weekly" : "monthly") + "</b>" +
+      (ST.grain === "auto" ? " (auto)" : "") + ".";
+  }
 
   function isNum(n) { return !(n === null || n === undefined || isNaN(n)); }
   function fmtInt(n) { if (!isNum(n)) { return "-"; } return Math.round(Number(n)).toLocaleString("en-US"); }
@@ -443,6 +864,8 @@
       var d = LEADS.all[i];
       if (y && leadYear(d) !== y) { continue; }
       if (m && leadMonth(d) !== m) { continue; }
+      /* The period is the outer filter; the year/month selects narrow inside it. */
+      if (!inPeriod(d.submitted_at)) { continue; }
       out.push(d);
     }
     out.sort(leadCmp);
@@ -638,9 +1061,13 @@
     return m;
   }
   function renderActivity() {
-    var weekly = (ACT.period === "week");
-    var rows = (weekly ? ACT.weekly : ACT.monthly) || [];
+    var weekly = grainOf("act", ST.from, ST.to) === "week";
+    var all = (weekly ? ACT.weekly : ACT.monthly) || [];
     var xkey = weekly ? "week" : "month";
+    /* The period filters the series. Buckets outside it are dropped rather than zeroed, because a
+       month with no quiz activity at all is a gap in the FEED here, not a quiet month. */
+    var rows = [], ri;
+    for(ri = 0; ri < all.length; ri++){ if(inPeriod(all[ri][xkey])){ rows.push(all[ri]); } }
     var maxL = seriesMax(rows, "leads"), maxS = seriesMax(rows, "sales"), maxC = seriesMax(rows, "click_rate");
     function norm(v, mx) { if (!isNum(v)) { return null; } return mx > 0 ? Number(v) / mx : null; }
     var plot = [], i;
@@ -669,28 +1096,135 @@
       }
     });
   }
-  function initActToggle() {
-    var t = el("actToggle"); if (!t || t._wired) { return; }
-    var btns = t.getElementsByTagName("button"), j;
-    function onClick() {
-      ACT.period = this.getAttribute("data-mode");
-      var bs = el("actToggle").getElementsByTagName("button"), q;
-      for (q = 0; q < bs.length; q++) {
-        var on = (bs[q].getAttribute("data-mode") === ACT.period);
-        bs[q].className = on ? "tg on" : "tg";
-        bs[q].setAttribute("aria-pressed", on ? "true" : "false");
-      }
-      renderActivity();
+  /* ---- the control bar. Wired once; every control ends in renderPeriod(). ---- */
+  var CONTROLS_WIRED = false;
+  function wireControls() {
+    if (CONTROLS_WIRED) { return; }
+    CONTROLS_WIRED = true;
+    var ps = document.querySelectorAll(".preset[data-p]"), i;
+    for (i = 0; i < ps.length; i++) {
+      (function (btn) {
+        btn.addEventListener("click", function () {
+          var r = presetRange(btn.getAttribute("data-p"), ALL_MAX, ALL_MIN);
+          ST.from = r[0]; ST.to = r[1];
+          setActive(".preset[data-p]", btn);
+          syncDateInputs(); renderPeriod();
+        });
+      })(ps[i]);
     }
-    for (j = 0; j < btns.length; j++) { btns[j].addEventListener("click", onClick); }
-    t._wired = true;
+    var ids = ["from", "to"];
+    for (i = 0; i < ids.length; i++) {
+      (function (id) {
+        el(id).addEventListener("change", function () {
+          var v = el(id).value;
+          if (!v) { return; }
+          ST[id] = clampIso(v, ALL_MIN, ALL_MAX);
+          if (ST.from > ST.to) { var t = ST.from; ST.from = ST.to; ST.to = t; }
+          setActive(".preset[data-p]", null);
+          syncDateInputs(); renderPeriod();
+        });
+      })(ids[i]);
+    }
+    segWire("seg-grain", function (v) { ST.grain = v; syncDateInputs(); renderPeriod(); });
+    wireTuck();
+    el("syncBtn").addEventListener("click", doSync);
+  }
+  /* Everything the period touches, in one place -- so no panel can disagree about what is
+     selected. */
+  function renderPeriod() {
+    renderActivity();
+    renderLeadRows();
+    renderInsights();
   }
 
+  /* The reading. Every card recomputes with the period, and every one of them states a finding
+     rather than a number -- that is the whole point of the strip. */
+  function renderInsights() {
+    var k = (LAST_DATA && LAST_DATA.kpis) || {};
+    var out = [];
+    var rows = leadRowsView();
+    var conv = 0, rev = 0, i;
+    for (i = 0; i < rows.length; i++) {
+      if (rows[i].is_converted) { conv++; rev += Number(rows[i].revenue_post_quiz) || 0; }
+    }
+    var rate = rows.length ? conv / rows.length : 0;
+
+    if (rows.length) {
+      out.push(insightCard(conv ? "\uD83D\uDCB0" : "\u26A0\uFE0F",
+        conv ? "In this period, " + fmtInt(conv) + " of " + fmtInt(rows.length) + " quiz leads bought"
+             : "No quiz lead in this period has bought yet",
+        conv ? "A conversion rate of <b>" + fmtPct(rate) + "</b> on <b>" + fmtMoney(rev) +
+               "</b> of post-quiz revenue."
+             : "<b>" + fmtInt(rows.length) + "</b> people took the quiz in this window and none have " +
+               "purchased. That is the finding the rest of this page exists to explain.",
+        conv ? "win" : "crit"));
+    } else {
+      out.push(insightCard("\u2139\uFE0F", "No quiz leads in this period",
+        "Widen the period, or clear the year and month selects on the lead list."));
+    }
+
+    /* Click rate is the engagement proxy. Open rate is deliberately excluded: Apple Mail Privacy
+       auto-opens make it unusable, and a "100% open rate" is a misclassification, not a triumph. */
+    if (isNum(k.click_rate_this_year) && isNum(k.click_rate_prior)) {
+      var d = k.click_rate_this_year - k.click_rate_prior;
+      out.push(insightCard(d < 0 ? "\uD83D\uDCC9" : "\uD83D\uDCC8",
+        d < 0 ? "Email engagement is falling" : "Email engagement is holding up",
+        "Click rate among quiz leads is <b>" + fmtPct(k.click_rate_this_year) + "</b> this year against <b>" +
+        fmtPct(k.click_rate_prior) + "</b> before &mdash; " + fmtPct(Math.abs(d)) +
+        (d < 0 ? " down. The chart above traces whether the conversion drop follows the engagement drop."
+               : " up, so engagement is not what changed."),
+        d < 0 ? "warn" : "win"));
+    }
+
+    /* Cohorts are the like-for-like read: a recent cohort has had less time to convert, so the
+       comparison is only fair between cohorts of similar age. */
+    var co = (LAST_DATA && LAST_DATA.cohorts) || [];
+    if (co.length > 1) {
+      var best = co[0], worst = co[0];
+      for (i = 0; i < co.length; i++) {
+        if ((co[i].conversion_rate || 0) > (best.conversion_rate || 0)) { best = co[i]; }
+        if ((co[i].conversion_rate || 0) < (worst.conversion_rate || 0)) { worst = co[i]; }
+      }
+      if (best !== worst) {
+        out.push(insightCard("\uD83D\uDCC5", "Best and worst cohort are " +
+          esc(String(best.cohort)) + " and " + esc(String(worst.cohort)),
+          "<b>" + fmtPct(best.conversion_rate) + "</b> against <b>" + fmtPct(worst.conversion_rate) +
+          "</b>. A newer cohort has had less time to buy, so weigh this by cohort age before " +
+          "reading it as a decline."));
+      }
+    }
+    if (isNum(k.avg_days_to_convert) && k.avg_days_to_convert > 0) {
+      out.push(insightCard("\u23F1\uFE0F", "A buyer takes about " + fmt1(k.avg_days_to_convert) + " days",
+        "That is the window the nurture sequence has to work in. Sends after it are talking to " +
+        "people who have already decided."));
+    }
+    el("insights").innerHTML = out.join("");
+  }
+
+  var LAST_DATA = null;
   function render(data) {
-    var meta = "";
-    if (data.data_through) { meta += "<div>data through <b>" + esc(String(data.data_through).slice(0, 10)) + "</b></div>"; }
-    if (data.last_updated) { meta += "<div>updated " + esc(String(data.last_updated).slice(0, 10)) + "</div>"; }
-    el("meta").innerHTML = meta;
+    LAST_DATA = data;
+    stampMeta(data);
+    if (data.brand && data.brand.agora_logo) {
+      var ag = el("agora"); ag.src = data.brand.agora_logo; ag.hidden = false;
+    }
+
+    /* The date domain is the union of every dated source, so the picker can reach a lead who took
+       the quiz before the email archive begins (Klaviyo data only starts Aug 2024 here). */
+    var doms = [], j;
+    var mo = data.activity_monthly || [], wk = data.activity_weekly || [], lds = data.leads || [];
+    for (j = 0; j < mo.length; j++) { if (mo[j].month) { doms.push(String(mo[j].month) + "-01"); } }
+    for (j = 0; j < wk.length; j++) { if (wk[j].week) { doms.push(String(wk[j].week).slice(0, 10)); } }
+    for (j = 0; j < lds.length; j++) { if (lds[j].submitted_at) { doms.push(String(lds[j].submitted_at).slice(0, 10)); } }
+    doms.sort();
+    ALL_MIN = doms.length ? doms[0] : String(data.data_through || "").slice(0, 10);
+    ALL_MAX = doms.length ? doms[doms.length - 1] : ALL_MIN;
+    if (!ALL_MIN) { ALL_MIN = ALL_MAX; }
+    if (!ST.from) { ST.from = ALL_MIN; ST.to = ALL_MAX; }
+    el("from").min = ALL_MIN; el("from").max = ALL_MAX;
+    el("to").min = ALL_MIN; el("to").max = ALL_MAX;
+    syncDateInputs();
+    wireControls();
 
     renderHero(data.kpis);
     renderKpis(data.kpis);
@@ -699,8 +1233,6 @@
     // series' own peak so their shape/timing compare on one axis.
     ACT.monthly = data.activity_monthly || [];
     ACT.weekly = data.activity_weekly || [];
-    ACT.period = "month";
-    initActToggle();
     renderActivity();
     var actClicks = 0, ai;
     for (ai = 0; ai < ACT.monthly.length; ai++) { if (isNum(ACT.monthly[ai].click_rate)) { actClicks++; } }
@@ -711,18 +1243,22 @@
     renderCohorts(data.cohorts);
     renderLeads(data.leads);
     renderCampaigns(data.campaigns, data.lead_emails);
+    renderInsights();
 
-    el("status").style.display = "none";
-    el("content").style.display = "block";
+    el("boot").hidden = true;
+    el("app").hidden = false;
   }
 
-  function fail(msg) { var s = el("status"); s.className = "error"; s.textContent = msg; }
+  function fail(msg) {
+    el("boot").innerHTML = '<div class="err"><b>Could not load the dashboard data.</b>' + esc(msg) +
+      "<br>The page itself is fine \u2014 this is the data fetch failing. Try Sync, or check the export job.</div>";
+  }
 
   function load() {
     fetch("/data.json", { credentials: "same-origin" })
       .then(function (resp) { if (!resp.ok) { throw new Error("HTTP " + resp.status); } return resp.json(); })
       .then(function (data) { render(data); })
-      .catch(function (err) { fail("Could not load dashboard data (" + (err && err.message ? err.message : "error") + ")."); });
+      .catch(function (err) { fail(err && err.message ? err.message : "unknown error"); });
   }
 
   (function () { var b = el("fsBtn"); if (b) { b.addEventListener("click", toggleFullscreen); } })();

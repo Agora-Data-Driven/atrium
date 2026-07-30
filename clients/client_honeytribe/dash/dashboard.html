@@ -366,6 +366,85 @@
     .top-meta{display:none} .cmp-row{grid-template-columns:1fr}
     .tab{padding:11px 12px;font-size:12.5px} .tab .ix{display:none}
   }
+
+/* >>> AGORA STANDARD CONFORM v1 -- vendored from clients/_standard/dash/_conform.css -- DO NOT EDIT HERE
+/* ===========================================================================================
+   AGORA DASHBOARD STANDARD -- conformance block v1
+   ===========================================================================================
+   SOURCE OF TRUTH: clients/_standard/dash/_conform.css
+   VENDORED byte-identically into every client dashboard, at the END of its stylesheet, between
+   the sentinel pair vendor_lib.py looks for (grep AGORA STANDARD CONFORM in any dashboard).
+
+   To change it: edit THIS file and run  py -3 clients/_standard/vendor_lib.py
+
+   WHY THIS BLOCK IS SEPARATE FROM _shell.css
+       _shell.css is the REFERENCE stylesheet: a new client copies it and re-brands it. It is
+       not vendored, because identity is supposed to differ per client.
+
+       This block is different. It holds only rules that are (a) required by the standard,
+       (b) identical for every brand, and (c) incapable of fighting a client's existing CSS --
+       so it is safe to append verbatim to eight already-shipped, individually-branded
+       stylesheets. That constraint is why it contains print and motion rules and nothing else:
+       every other standard rule either resolves from a brand token or would override work a
+       client dashboard has already done deliberately.
+
+       If you are tempted to add a layout or colour rule here: don't. Add it to _shell.css and
+       hand-apply it, or it will silently restyle eight live dashboards.
+   =========================================================================================== */
+
+/* ---------------------------------------------------------------------------------------------
+   PRINT. Clients print these for meetings and paste them into decks. Without this rule a print
+   is the sticky chrome plus whichever tab happened to be open, with every other tab's content
+   missing entirely -- so the printed artefact is not the dashboard the client was looking at.
+   Every pane opens, the interactive furniture goes, and cards stop breaking across pages.
+   Class names are the standard vocabulary; a selector that matches nothing is free.
+--------------------------------------------------------------------------------------------- */
+@media print{
+  header.top, .tabbar, .tabs, .controls, .gbar, .filters, .filterbar,
+  .sync, .iconbtn, .ctuck, .tip, #tip, .toast, .cmod, .modal, .fsbtn, .exportbtn, .pager{
+    display:none !important;
+  }
+  /* Every tab prints, not just the open one. */
+  .tab-pane[hidden]{ display:block !important; }
+  [hidden].tab-pane{ display:block !important; }
+  body{ background:#fff !important; }
+  main{ padding-top:8px !important; }
+  /* Flat on paper: a drop shadow prints as grey mush. */
+  .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .hero, .bm, .ccard, .fresh, .acct{
+    box-shadow:none !important;
+  }
+  /* Do not split a figure across a page break. */
+  section, .card, .kpi, .cmp, .stage, .insight, .verdict, .panel, .bm, .ccard, .acct{
+    break-inside:avoid; page-break-inside:avoid;
+  }
+  /* Sticky headers inside scroll panes become a repeated band on paper. */
+  thead th{ position:static !important; }
+  /* A scroll pane prints only its first screenful unless it is released. */
+  .tblwrap, .tablewrap, .scroll-x, .scrolly, .hbwrap, .macc{
+    overflow:visible !important; max-height:none !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   REDUCED MOTION. A spinner, a pulse and a dozen hover transitions are a real accessibility
+   problem for anyone who has asked their OS to stop moving things, and every one of these
+   dashboards animates something. Honouring the preference is one rule.
+--------------------------------------------------------------------------------------------- */
+@media (prefers-reduced-motion:reduce){
+  *, *::before, *::after{
+    transition:none !important;
+    animation:none !important;
+    scroll-behavior:auto !important;
+  }
+  html{ scroll-behavior:auto !important; }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Screen-reader-only text, so a control whose meaning is carried by a glyph can still name
+   itself. Required by the standard's "colour is never the only signal" rule.
+--------------------------------------------------------------------------------------------- */
+.vh{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+/* <<< AGORA STANDARD CONFORM v1 */
 </style>
 
 <header class="top">

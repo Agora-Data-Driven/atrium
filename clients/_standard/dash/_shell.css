@@ -1,0 +1,584 @@
+/* ===========================================================================================
+   AGORA DASHBOARD STANDARD -- reference stylesheet v1
+   ===========================================================================================
+   SOURCE OF TRUTH for the CLASS VOCABULARY. Unlike _lib.js this file is NOT vendored
+   byte-identically: it is copied and then RE-BRANDED per client. That is deliberate --
+   identity is supposed to differ per client, structure is not.
+
+   The contract is therefore:
+     * the CLASS NAMES below are fixed (clients/_standard/check_standard.py asserts them),
+     * every colour, radius, shadow and face resolves from a token in :root,
+     * a client swaps ONLY the brand tokens.
+
+   COLOUR STRATEGY -- identity vs encoding are different jobs:
+     IDENTITY  (--brand*, header, primary actions) = the client's palette, faithfully.
+     ENCODING  (--s1..--s8 series ramp)            = must be DISTINGUISHABLE FIRST.
+               Five near-identical brand oranges are unreadable as lines. Extend with
+               analogous plus a couple of cool accents that still feel in-family.
+     STATUS    (--ok/--warn/--crit/--stale/--off)  = FIXED, never inherits a brand hue.
+               A client who learns "red means stopped" must not have red mean "the brand".
+
+   Assign category colours ONCE, by overall volume, so a category keeps its colour across
+   every filter, tab and date range. A colour must mean the same thing everywhere on the page.
+   =========================================================================================== */
+
+:root{
+  /* ---- IDENTITY: the only block a client edits ---------------------------------------- */
+  --brand:#2E6BE6; --brand-deep:#1B4CB8; --brand-tint:#EAF0FE; --brand-line:#C8D9FB;
+  --accent:#7A5AF8;
+
+  /* ---- ENCODING: the series ramp. Distinguishable first, in-family second ------------- */
+  --s1:#2E6BE6; --s2:#E8712F; --s3:#199E70; --s4:#7A5AF8;
+  --s5:#D6208A; --s6:#C58515; --s7:#0E8FA8; --s8:#5A6B78;
+
+  /* ---- STATUS: fixed across every brand. Never re-point these at a brand hue ---------- */
+  --ok:#0F8A43;   --ok-bg:#E9F6EE;   --ok-line:#B7E0C6;
+  --warn:#A96A00; --warn-bg:#FDF2E0; --warn-line:#EFD5A6;
+  --crit:#C42B2B; --crit-bg:#FDECEC; --crit-line:#F2C4C4;
+  --stale:#4A5580;--stale-bg:#EDEFF7;--stale-line:#C9CFE4;
+  --off:#5F6B78;  --off-bg:#EFF2F5;  --off-line:#D5DCE4;
+  --good:var(--ok); --bad:var(--crit);
+
+  /* ---- NEUTRALS ---------------------------------------------------------------------- */
+  --canvas:#F6F8FA; --surface:#fff; --surface2:#FBFCFD; --track:#EDF1F5;
+  --ink:#12171D; --ink2:#3D464F; --ink3:#5B6672; --muted:#7C8794;
+  --line:#E6EAEF; --line2:#D2D9E1;
+
+  /* ---- FORM -------------------------------------------------------------------------- */
+  --shadow:0 1px 2px rgba(16,24,40,.04), 0 8px 24px -8px rgba(16,24,40,.10);
+  --shadow-sm:0 1px 2px rgba(16,24,40,.05);
+  --shadow-lift:0 2px 4px rgba(16,24,40,.05), 0 18px 40px -14px rgba(16,24,40,.20);
+  --r:14px; --r-sm:9px; --r-xs:6px;
+  --safe:env(safe-area-inset-bottom, 0px);
+
+  /* ---- TYPE: three roles -- display for headings and numbers, body, and an accent face
+          for subtitles and captions. The accent face does most of the work in making a
+          dashboard feel designed rather than generated. ------------------------------- */
+  --display:system-ui,-apple-system,'Segoe UI',sans-serif;
+  --sans:system-ui,-apple-system,'Segoe UI',sans-serif;
+  --accent-face:Georgia,serif;
+  --mono:ui-monospace,'SFMono-Regular',Menlo,monospace;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+/* An explicit `display:` on a class BEATS the UA stylesheet's [hidden] rule, so an
+   inline-flex control renders as an empty pill even with the attribute set. One global guard
+   rather than a per-class [hidden] for each. */
+[hidden]{display:none !important}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--canvas);color:var(--ink);line-height:1.55;
+     -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+h1,h2,h3,h4{font-family:var(--display);font-weight:800;color:var(--ink);letter-spacing:-.018em}
+button,input,select{font-family:inherit}
+button{cursor:pointer}
+a{color:var(--brand-deep)}
+/* Focus is visible everywhere -- the whole page is keyboard reachable. */
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.wrap{max-width:1400px;margin:0 auto;padding:0 clamp(14px,3vw,26px)}
+.tnum{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ============================================================ header */
+header.top{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:70}
+header.top::after{content:"";display:block;height:3px;
+  background:linear-gradient(90deg,var(--brand),var(--accent) 70%,transparent)}
+.top-inner{display:flex;align-items:center;gap:14px;padding:11px clamp(14px,3vw,26px);max-width:1400px;margin:0 auto}
+.brand{display:flex;align-items:center;gap:11px;min-width:0}
+.brand img{height:40px;width:auto;max-width:190px;display:block;object-fit:contain}
+.brand img[hidden],.agency img[hidden]{display:none}
+.brand .btxt{min-width:0}
+.brand .wm{font-family:var(--display);font-weight:800;font-size:16px;color:var(--ink);line-height:1.15;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand .tg{font-family:var(--accent-face);font-style:italic;font-size:12px;color:var(--muted);line-height:1.3;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top-spacer{flex:1;min-width:0}
+.top-meta{text-align:right;font-size:11px;color:var(--muted);line-height:1.5;white-space:nowrap}
+.top-meta b{color:var(--ink2);font-weight:700}
+/* Data-through goes RED past the stale threshold. This is the honesty guard. */
+.stale{color:var(--crit) !important;font-weight:800}
+.srcbadge{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;
+  border-radius:5px;padding:1px 6px;margin-left:5px;border:1px solid var(--line2);color:var(--muted)}
+.srcbadge.fresh{border-color:var(--ok-line);color:var(--ok);background:var(--ok-bg)}
+.srcbadge.old{border-color:var(--crit-line);color:var(--crit);background:var(--crit-bg)}
+.syncbox{display:flex;align-items:center;gap:12px}
+.sync,.iconbtn{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;
+  border:1px solid var(--line2);background:var(--surface);color:var(--ink2);padding:7px 14px;
+  border-radius:var(--r-sm);transition:.15s;white-space:nowrap}
+.sync:hover,.iconbtn:hover{border-color:var(--brand);color:var(--brand-deep);background:var(--brand-tint)}
+.sync[disabled]{opacity:.6;cursor:default}
+.sync.ok{border-color:var(--ok-line);color:var(--ok);background:var(--ok-bg)}
+.sync.bad{border-color:var(--crit-line);color:var(--crit);background:var(--crit-bg)}
+.spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--brand);
+  display:none;animation:spin .7s linear infinite}
+.sync.busy .spin{display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.agency{display:flex;align-items:center;gap:9px;padding-left:16px;border-left:1px solid var(--line)}
+.agency .lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;text-align:right;line-height:1.3}
+.agency img{height:22px;opacity:.9;display:block}
+/* Honesty ribbon while the data is synthetic. Not dismissible, by design. */
+.demoribbon{background:repeating-linear-gradient(135deg,var(--warn-bg),var(--warn-bg) 12px,#FEF2DA 12px,#FEF2DA 24px);
+  border-bottom:1px solid var(--warn-line);color:#7A4E00;font-size:11.5px;font-weight:700;
+  padding:6px clamp(14px,3vw,26px);text-align:center}
+
+/* ============================================================ tabs */
+.tabbar{background:var(--surface2);border-bottom:1px solid var(--line);position:sticky;top:63px;z-index:65}
+.tabs{display:flex;gap:2px;max-width:1400px;margin:0 auto;padding:0 clamp(14px,3vw,26px);
+  overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{position:relative;border:none;background:transparent;font-family:var(--display);font-size:13.5px;
+  font-weight:700;color:var(--muted);padding:13px 17px 12px;transition:color .15s;white-space:nowrap;
+  display:inline-flex;align-items:center;gap:8px}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected="true"]{color:var(--brand-deep);background:var(--surface)}
+.tab[aria-selected="true"]::after{content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:3px;
+  background:linear-gradient(90deg,var(--brand),var(--accent));border-radius:3px 3px 0 0}
+/* The tab NUMBER. Numbered tabs read as a sequence -- "go to 03" is a thing people say. */
+.tab .ix{font-family:var(--accent-face);font-style:italic;font-size:12.5px;opacity:.6;font-weight:400}
+.tab .cnt{font-size:10px;font-weight:900;min-width:17px;height:17px;padding:0 5px;border-radius:999px;
+  display:inline-flex;align-items:center;justify-content:center;background:var(--crit);color:#fff}
+.tab .cnt.w{background:var(--warn)}
+
+/* ============================================================ control bar (tuckable) */
+.controls{background:var(--surface2);border-bottom:1px solid var(--line);position:sticky;top:112px;z-index:60}
+.controls-inner{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;
+  padding:11px 60px 11px clamp(14px,3vw,26px);max-width:1400px;margin:0 auto;position:relative}
+.ctuck{position:absolute;top:8px;right:16px;display:inline-flex;align-items:center;gap:5px;
+  border:1px solid var(--line2);background:var(--surface);color:var(--muted);font-size:10.5px;font-weight:800;
+  letter-spacing:.6px;text-transform:uppercase;padding:4px 9px;border-radius:var(--r-xs);transition:.15s;z-index:2}
+.ctuck:hover{border-color:var(--brand);color:var(--brand-deep)}
+.ctuck .cv{font-size:9px;transition:transform .18s}
+/* Collapsed, the summary line STAYS -- it already states the period and the benchmark, so
+   nothing is lost. */
+.controls.tucked .cgroup,.controls.tucked .sep{display:none}
+.controls.tucked .controls-inner{padding-top:7px;padding-bottom:7px;gap:0}
+.controls.tucked .rangenote{padding-top:0}
+.controls.tucked .ctuck{top:5px}
+.controls.tucked .ctuck .cv{transform:rotate(180deg)}
+.cgroup{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.clabel{font-size:9.5px;text-transform:uppercase;letter-spacing:1.05px;color:var(--muted);font-weight:800;margin-right:2px}
+.preset{font-size:12px;font-weight:700;border:1px solid var(--line2);background:var(--surface);color:var(--ink3);
+  padding:5px 11px;border-radius:var(--r-xs);transition:.14s}
+.preset:hover{border-color:var(--brand);color:var(--brand-deep)}
+.preset.active{background:var(--brand-deep);border-color:var(--brand-deep);color:#fff}
+/* The Monday-morning shortcut: sets period AND benchmark in one click. */
+.preset.wk{background:linear-gradient(135deg,var(--brand),var(--accent));border-color:var(--brand);color:#fff;font-weight:800}
+.preset.wk:hover{filter:brightness(1.06);color:#fff}
+/* Once armed, Weekly review BECOMES the two weeks it compares -- left is older, right is the
+   most recent, so the pair reads chronologically. */
+.wkpair{display:inline-flex;border-radius:var(--r-xs);overflow:hidden;border:1px solid var(--brand)}
+.wkpair[hidden]{display:none !important}
+.wkpair button{border:none;background:var(--brand-tint);color:var(--brand-deep);font-size:12px;font-weight:800;
+  padding:5px 12px;white-space:nowrap;transition:.14s}
+.wkpair button+button{border-left:1px solid var(--brand)}
+.wkpair button:hover{filter:brightness(.97)}
+.wkpair button.on{background:var(--brand-deep);color:#fff}
+input[type=date],input[type=search],input[type=number],select{font-size:12px;color:var(--ink);
+  border:1px solid var(--line2);background:var(--surface);border-radius:var(--r-xs);padding:5px 9px;font-weight:600;max-width:100%}
+input[type=search]{min-width:160px}
+select{max-width:240px}
+.sep{width:1px;height:22px;background:var(--line2)}
+/* The KPI benchmark is a SEPARATE control from the reporting period -- tinted end to end
+   (label, buttons, date inputs) so the two are never confused at a glance. */
+.bench-group{background:color-mix(in srgb,var(--accent) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:var(--r-sm);padding:4px 9px}
+.bench-group .clabel{color:var(--accent)}
+.preset.bench.active{background:var(--accent);border-color:var(--accent);color:#fff}
+input[type=date].bench-date{border-color:color-mix(in srgb,var(--accent) 50%,transparent);color:var(--accent)}
+/* The line that states WHICH RANGE DRIVES WHAT. Without it two date ranges are a trap. */
+.rangenote{width:100%;font-size:11.5px;color:var(--muted);padding-top:1px}
+.rangenote b{color:var(--ink2)}
+.rangenote .bench{color:var(--accent)}
+/* Several ad accounts can be several BRANDS -- the toggle is first-class, not a dropdown. */
+.acctgroup{display:inline-flex;border:1px solid var(--line2);border-radius:var(--r-xs);overflow:hidden;background:var(--surface)}
+.acctgroup button{border:none;background:transparent;font-size:12px;font-weight:700;color:var(--ink3);
+  padding:5px 12px;white-space:nowrap;transition:.14s}
+.acctgroup button+button{border-left:1px solid var(--line2)}
+.acctgroup button.on{background:var(--brand-deep);color:#fff}
+
+/* ============================================================ segmented control
+   The ONE toggle vocabulary. Mutually exclusive VIEWS only: Auto/Day/Week/Month,
+   Relative/Absolute, Ranked/By month. A tiny uppercase .cap label when the meaning is not
+   obvious from the options. */
+.seg{display:inline-flex;align-items:center;background:var(--track);border:1px solid var(--line);
+  border-radius:999px;padding:2px}
+.seg .cap{font-size:9.5px;text-transform:uppercase;letter-spacing:1.05px;color:var(--muted);
+  font-weight:800;padding:5px 8px 5px 10px}
+.seg button{border:none;background:transparent;color:var(--ink3);font-size:11.5px;font-weight:700;
+  padding:5px 12px;border-radius:999px;transition:.14s;white-space:nowrap}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--surface);color:var(--brand-deep);box-shadow:var(--shadow-sm)}
+.seg.mini button{font-size:10.5px;padding:4px 9px}
+
+/* ============================================================ layout
+   Sections are separated by a heading plus a hairline rule, NOT boxes-in-boxes. Keep the first
+   screen useful: scorecards plus one chart should fit above the fold -- hence the tuckable
+   filter bar and a ~260px chart, not 450px. */
+main{padding:22px 0 calc(60px + var(--safe))}
+.tab-pane[hidden]{display:none}
+section{margin-bottom:28px}
+.shead{display:flex;align-items:baseline;gap:12px;margin-bottom:13px;padding-bottom:9px;
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.shead h2{font-size:17px}
+.shead .sub{font-family:var(--accent-face);font-style:italic;font-size:13px;color:var(--muted)}
+.shead .spacer{flex:1;min-width:0}
+.grid{display:grid;gap:15px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+/* Explicit two-column splits carry their ratio HERE rather than in an inline style, so the
+   mobile query can actually collapse them -- an inline grid-template-columns cannot be
+   overridden by a stylesheet rule, which is how a horizontal overflow reaches a phone. */
+.split{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}
+.split-r{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:16px 18px;box-shadow:var(--shadow-sm)}
+.card.flush{padding:0;overflow:hidden}
+.card h3{font-size:13.5px;font-weight:800;margin-bottom:2px}
+.card .csub{font-size:11.5px;color:var(--muted);margin-bottom:10px}
+.cardhead{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.cardhead>div:first-child{flex:1;min-width:170px}
+.cardhead .csub{margin-bottom:0}
+.note{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5}
+.note b{color:var(--ink2)}
+.note code{font-family:var(--mono);background:var(--track);border-radius:4px;padding:1px 5px;font-size:10.5px}
+/* Method notes are real and worth keeping, but they are reference material, not the report.
+   Behind a summary they cost one line until someone actually wants them. */
+details.meth{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+details.meth>summary{font-size:11px;font-weight:800;color:var(--ink3);cursor:pointer;list-style:none;
+  display:inline-flex;align-items:center;gap:6px;padding:2px 0}
+details.meth>summary::-webkit-details-marker{display:none}
+details.meth>summary::before{content:"▸";font-size:9px;color:var(--muted);transition:transform .15s}
+details.meth[open]>summary::before{transform:rotate(90deg)}
+details.meth .mb{font-size:11.5px;color:var(--muted);line-height:1.55;padding:7px 0 2px;max-width:88ch}
+details.meth .mb b{color:var(--ink2)}
+
+/* ============================================================ verdict (the five-second read) */
+.verdict{border-radius:var(--r);padding:clamp(16px,2.6vw,24px);display:flex;align-items:center;
+  gap:clamp(14px,2.4vw,22px);position:relative;overflow:hidden;border:1px solid;box-shadow:var(--shadow)}
+.verdict::before{content:"";position:absolute;inset:0;opacity:.55;pointer-events:none;
+  background:radial-gradient(120% 160% at 0% 0%,rgba(255,255,255,.85),transparent 60%)}
+.verdict.ok{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)}
+.verdict.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+.verdict.bad{background:var(--crit-bg);border-color:var(--crit-line);color:var(--crit)}
+.verdict.stale{background:var(--stale-bg);border-color:var(--stale-line);color:var(--stale)}
+.vico{width:clamp(46px,7vw,60px);height:clamp(46px,7vw,60px);border-radius:50%;flex:none;display:flex;
+  align-items:center;justify-content:center;font-size:clamp(22px,3.6vw,30px);font-weight:900;
+  background:currentColor;position:relative;z-index:1}
+.vico span{color:#fff;line-height:1}
+.vtxt{flex:1;min-width:0;position:relative;z-index:1}
+.vh1{font-family:var(--display);font-weight:800;font-size:clamp(18px,3.2vw,27px);letter-spacing:-.028em;
+  line-height:1.12;color:inherit}
+.vs{font-size:clamp(12.5px,1.5vw,14px);color:var(--ink2);margin-top:6px;max-width:74ch}
+.vs b{color:var(--ink)}
+.vcounts{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.vcount{background:rgba(255,255,255,.72);border:1px solid rgba(0,0,0,.06);border-radius:999px;padding:4px 11px;
+  font-size:11.5px;font-weight:800;color:var(--ink2);display:inline-flex;align-items:center;gap:6px}
+.vcount .n{font-variant-numeric:tabular-nums;font-size:13px;color:var(--ink)}
+
+/* ============================================================ KPI tiles
+   One big number per card, a label above, a supporting line below. Resist a fourth number.
+   Muted colour for anything the client will not act on. */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:14px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px 16px;
+  box-shadow:var(--shadow-sm);position:relative;overflow:hidden;transition:transform .16s,box-shadow .16s}
+.kpi::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--accent,var(--brand))}
+.kpi .kl{font-size:10px;text-transform:uppercase;letter-spacing:1.05px;color:var(--muted);font-weight:800;
+  display:flex;align-items:center;gap:6px}
+.kpi .kv{font-family:var(--display);font-weight:800;font-size:28px;line-height:1.1;margin-top:6px;
+  letter-spacing:-.03em;font-variant-numeric:tabular-nums;color:var(--ink)}
+.kpi .kd{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.4;min-height:1em}
+/* A field the source returns but never populates renders n/a, never 0. */
+.kpi.na .kv{font-size:16px;color:var(--muted);font-weight:700;letter-spacing:0}
+/* A scorecard is a SERIES TOGGLE: its accent bar and dot ARE the line colour on the chart
+   below, so no legend lookup is needed. Inactive tiles dim but stay readable. */
+.kpi.sel{cursor:pointer;user-select:none}
+.kpi.sel:hover{transform:translateY(-2px);box-shadow:var(--shadow-lift)}
+.kpi.sel .dot{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 0 2px rgba(255,255,255,.9)}
+.kpi.sel.off{opacity:.55}
+.kpi.sel.off::after{opacity:.3}
+.kpi.sel.off .dot{background:transparent !important;box-shadow:inset 0 0 0 2px var(--line2)}
+.kpi.sel.off .kv{color:var(--muted)}
+.kpi.hero{background:linear-gradient(140deg,var(--brand),var(--brand-deep));border-color:transparent;color:#fff}
+.kpi.hero .kl,.kpi.hero .kd{color:rgba(255,255,255,.74)}
+.kpi.hero .kv{color:#fff;font-size:33px}
+.kpi.hero::after{background:var(--accent)}
+.kpi.hero .delta{color:#fff !important}
+
+/* ============================================================ target meter */
+.meter{position:relative;height:14px;background:var(--track);border-radius:7px;margin:14px 0 6px}
+.meter .fill{position:absolute;left:0;top:0;bottom:0;background:var(--brand);border-radius:7px 3px 3px 7px;min-width:3px}
+.meter .pace{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink)}
+.meter .pace i{position:absolute;top:-15px;left:-24px;width:50px;text-align:center;font-style:normal;
+  font-size:9px;font-weight:700;color:var(--ink2)}
+.meter-notes{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);flex-wrap:wrap;gap:4px}
+.meter-notes b{color:var(--ink2)}
+
+/* ============================================================ compare + stage cards */
+.cmp{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-sm);overflow:hidden}
+.cmp-head{display:flex;align-items:center;gap:10px;padding:12px 17px;
+  background:linear-gradient(90deg,var(--brand-tint),transparent)}
+.cmp-head h3{font-size:14px}
+.cmp-head .tag{font-family:var(--accent-face);font-style:italic;font-size:12.5px;color:var(--muted)}
+.cmp-cols{display:grid;grid-template-columns:1fr 1fr;font-size:9.5px;text-transform:uppercase;
+  letter-spacing:1.05px;font-weight:800;padding:8px 17px 6px;color:var(--muted)}
+.cmp-cols .b{color:var(--accent)}
+.cmp-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:9px 17px;border-top:1px solid var(--line)}
+.cmp-row .cell .l{font-size:10.5px;color:var(--muted);line-height:1.3}
+.cmp-row .cell .v{font-family:var(--display);font-weight:800;font-size:19px;color:var(--ink);
+  letter-spacing:-.02em;line-height:1.2;font-variant-numeric:tabular-nums}
+.cmp-row .cell.bench .v{color:var(--accent)}
+/* Green ALWAYS means better. For a cost metric that is DOWN -- deltaSpan() owns the direction. */
+.delta{font-size:11px;font-weight:700;margin-left:6px}
+.delta.up{color:var(--good)} .delta.dn{color:var(--bad)} .delta.flat{color:var(--muted)}
+.stages{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:15px}
+.stage{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-sm);overflow:hidden;position:relative;padding-bottom:4px;transition:transform .16s,box-shadow .16s}
+.stage:hover{transform:translateY(-2px);box-shadow:var(--shadow-lift)}
+.stage::after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px}
+.stage-head{padding:12px 17px 10px;border-bottom:1px solid var(--line)}
+.stage-head h3{font-size:16px}
+.stage-head .n{font-family:var(--accent-face);font-style:italic;font-size:12.5px;color:var(--muted)}
+.stage.s1 .stage-head{background:linear-gradient(100deg,color-mix(in srgb,var(--s1) 16%,transparent),transparent)}
+.stage.s2 .stage-head{background:linear-gradient(100deg,color-mix(in srgb,var(--s2) 16%,transparent),transparent)}
+.stage.s3 .stage-head{background:linear-gradient(100deg,color-mix(in srgb,var(--s3) 16%,transparent),transparent)}
+.stage.s4 .stage-head{background:linear-gradient(100deg,color-mix(in srgb,var(--s4) 16%,transparent),transparent)}
+.stage.s1::after{background:var(--s1)} .stage.s2::after{background:var(--s2)}
+.stage.s3::after{background:var(--s3)} .stage.s4::after{background:var(--s4)}
+.stage-body{padding:2px 0 6px}
+
+/* ============================================================ funnel bars */
+.funnel{display:flex;flex-direction:column;gap:7px}
+.frow{display:grid;grid-template-columns:minmax(120px,170px) 1fr minmax(120px,160px);align-items:center;gap:12px}
+.frow .fl{font-size:12px;font-weight:600;color:var(--ink2);text-align:right}
+.frow .fbar{position:relative;height:26px;background:var(--track);border-radius:var(--r-xs)}
+.frow .fbar i{position:absolute;left:0;top:0;bottom:0;border-radius:var(--r-xs);min-width:2px}
+.frow .fv{font-size:12px;color:var(--ink2)}
+.frow .fv b{font-variant-numeric:tabular-nums;color:var(--ink)}
+.frow .fv .cv{color:var(--muted);font-size:11px}
+
+/* ============================================================ tables
+   EVERY column header is a sort control (wireSorts). Cap long tables and say so in .tfoot. */
+.tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--r-sm);border:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+thead th{background:var(--surface2);color:var(--ink3);font-weight:800;text-align:left;padding:9px 12px;
+  white-space:nowrap;font-size:10px;text-transform:uppercase;letter-spacing:.75px;
+  border-bottom:1px solid var(--line2);position:sticky;top:0;z-index:3}
+thead th.srt{cursor:pointer;user-select:none;transition:background .12s}
+thead th.srt:hover{color:var(--brand-deep);background:var(--brand-tint)}
+thead th.on{color:var(--brand-deep);background:var(--brand-tint)}
+thead th .ar{opacity:.35;font-size:8px;margin-left:4px}
+thead th.on .ar{opacity:1;color:var(--accent)}
+tbody td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:middle}
+tbody tr:nth-child(even){background:var(--surface2)}
+tbody tr:hover{background:var(--brand-tint)}
+tbody tr.click{cursor:pointer}
+tbody tr.onrow{background:color-mix(in srgb,var(--brand) 14%,transparent)}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.rank,th.rank{color:var(--muted);width:32px;font-variant-numeric:tabular-nums;font-size:11px}
+td.nm{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* An in-cell bar so outliers pop without a second chart. */
+.bar-cell{position:relative;min-width:96px}
+.bar-cell .bg{position:absolute;left:0;top:3px;bottom:3px;border-radius:4px;
+  background:color-mix(in srgb,var(--accent) 26%,transparent);z-index:0}
+.bar-cell span{position:relative;z-index:1}
+.tfoot{padding:8px 12px;font-size:11.5px;color:var(--muted);background:var(--surface2);border-top:1px solid var(--line)}
+
+/* ============================================================ chips / cross-filter
+   Clicking the same element again clears it; the active filter is a chip with an x; dim rather
+   than hide the unselected, because context is the point. */
+.chips{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;border-radius:999px;
+  padding:3px 6px 3px 11px;background:var(--brand-tint);border:1px solid var(--brand-line);color:var(--brand-deep)}
+.chip button{border:none;background:color-mix(in srgb,var(--brand) 18%,transparent);color:var(--brand-deep);
+  width:17px;height:17px;border-radius:50%;font-size:11px;line-height:1;font-weight:900}
+.chip button:hover{background:var(--brand);color:#fff}
+.chip.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+.chip.crit{background:var(--crit-bg);border-color:var(--crit-line);color:var(--crit)}
+.chip.ok{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)}
+.chip.mut{background:var(--off-bg);border-color:var(--off-line);color:var(--off)}
+/* A status pill ALWAYS carries a glyph and a word -- colour is reinforcement, never the only
+   signal, so the page survives greyscale printing and colour-blind readers. */
+.lamp,.st{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:11.5px;font-weight:800}
+.lamp .b,.st .ic{width:17px;height:17px;border-radius:50%;flex:none;display:flex;align-items:center;
+  justify-content:center;color:#fff;font-size:10.5px;font-weight:900;line-height:1}
+.lamp.ok,.st.ok{color:var(--ok)}         .lamp.ok .b,.st.ok .ic{background:var(--ok)}
+.lamp.warn,.st.warn{color:var(--warn)}   .lamp.warn .b,.st.warn .ic{background:var(--warn)}
+.lamp.crit,.st.crit{color:var(--crit)}   .lamp.crit .b,.st.crit .ic{background:var(--crit)}
+.lamp.stale,.st.stale{color:var(--stale)}.lamp.stale .b,.st.stale .ic{background:var(--stale)}
+.lamp.off,.st.off{color:var(--off)}      .lamp.off .b,.st.off .ic{background:var(--off)}
+
+/* ============================================================ charts
+   Hand-rolled inline SVG, no CDN: the deploy is self-contained and the esprima gate parses the
+   JS that draws it. */
+.ch{width:100%;height:auto;display:block;overflow:visible}
+.axis{fill:var(--muted);font-size:10px;font-family:var(--sans)}
+.gl{stroke:var(--line);stroke-width:1}
+/* Thresholds are a dashed REFERENCE LINE, not a colour ramp. */
+.ref{stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4;opacity:.85}
+.reflbl{font-size:9.5px;fill:var(--accent);font-weight:800;font-family:var(--sans)}
+.legend{display:flex;flex-wrap:wrap;gap:7px 14px;margin-bottom:9px}
+.lg{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink2);cursor:pointer;
+  user-select:none;font-weight:600}
+.lg .sw{width:11px;height:11px;border-radius:3px;flex:none}
+.lg.off{opacity:.35;text-decoration:line-through}
+/* Dark tooltip, brand-coloured title, one row per metric, right-aligned tabular values. */
+.tip{position:fixed;pointer-events:none;background:var(--ink);color:#F2F5F8;border-radius:var(--r-sm);
+  padding:9px 11px;font-size:11.5px;opacity:0;transition:opacity .1s;z-index:300;
+  box-shadow:0 10px 30px rgba(8,12,18,.32);max-width:290px;line-height:1.45}
+.tip .td{font-family:var(--display);font-weight:800;font-size:12px;margin-bottom:5px;color:var(--brand-tint)}
+.tip .tr{display:flex;justify-content:space-between;gap:16px;font-variant-numeric:tabular-nums}
+.tip .tr .m{opacity:.7}
+.tip .tn{opacity:.65;font-size:10.5px;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.14)}
+/* Donut with a clickable legend that cross-filters the tab. */
+.donut-wrap{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.donut-wrap svg{width:190px;flex:none}
+.dleg{flex:1;min-width:180px;display:flex;flex-direction:column;gap:4px;font-size:12px}
+.dl{display:flex;align-items:center;gap:8px;padding:3px 5px;cursor:pointer;border-radius:5px}
+.dl:hover{background:var(--surface2)}
+.dl.off{opacity:.4}
+.dl.sel{background:var(--brand-tint);box-shadow:inset 0 0 0 1px var(--brand-line)}
+.dl .sw{width:11px;height:11px;border-radius:3px;flex:none}
+.dl .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink2)}
+.dl .vv{font-variant-numeric:tabular-nums;font-weight:700}
+.dl .pp{font-size:11px;color:var(--muted);width:42px;text-align:right;font-variant-numeric:tabular-nums}
+/* Cross-tab heatmap. */
+.hm{display:grid;gap:3px;font-size:10px}
+.hm .hh{color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.6px;text-align:center;padding-bottom:2px}
+.hm .rl{color:var(--muted);font-weight:700;display:flex;align-items:center;justify-content:flex-end;padding-right:5px}
+.hm .cell{aspect-ratio:1.9;border-radius:4px;background:var(--track);display:flex;align-items:center;
+  justify-content:center;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* ============================================================ creative gallery + lightbox */
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:14px}
+.ccard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
+  display:flex;flex-direction:column;box-shadow:var(--shadow-sm);transition:transform .16s,box-shadow .16s,border-color .16s}
+.ccard.click{cursor:pointer}
+.ccard.click:hover{transform:translateY(-3px);box-shadow:var(--shadow-lift);border-color:var(--brand)}
+.cc-thumb{width:100%;aspect-ratio:1/1;object-fit:cover;background:var(--track);display:block}
+/* Branded tile when the ad platform's image link has expired and we hold no cached copy --
+   shows what the ad SAID rather than a blank grey box. */
+.cc-fb{width:100%;aspect-ratio:1/1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;text-align:center;padding:18px;
+  background:linear-gradient(155deg,color-mix(in srgb,var(--brand) 18%,transparent),color-mix(in srgb,var(--accent) 12%,transparent) 60%,var(--surface2))}
+.cc-fb .mk{font-size:9px;font-weight:900;letter-spacing:1.6px;text-transform:uppercase;color:var(--brand-deep)}
+.cc-fb .hd{font-family:var(--display);font-size:14.5px;font-weight:800;color:var(--ink);line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:5;line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+.cc-b{padding:11px 13px 13px;display:flex;flex-direction:column;gap:6px;flex:1}
+.cc-h{font-weight:800;font-size:12.5px;line-height:1.3;color:var(--ink);
+  display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.cc-copy{color:var(--muted);font-size:11px;line-height:1.4;
+  display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cc-m{display:flex;flex-wrap:wrap;gap:3px 11px;font-size:10.5px;color:var(--muted);
+  border-top:1px solid var(--line);padding-top:8px;margin-top:auto}
+.cc-m b{color:var(--ink);font-weight:800;font-variant-numeric:tabular-nums}
+.cmod{position:fixed;inset:0;background:rgba(16,22,28,.72);display:none;align-items:center;justify-content:center;
+  z-index:320;padding:24px}
+.cmod.on{display:flex}
+.cmod-card{position:relative;width:100%;max-width:880px;max-height:90vh;overflow:auto;background:var(--surface);
+  border-radius:18px;box-shadow:0 30px 90px rgba(8,12,18,.45)}
+.cmod-x{position:absolute;top:12px;right:14px;z-index:2;border:1px solid var(--line2);background:var(--surface);
+  color:var(--ink);width:32px;height:32px;border-radius:var(--r-sm);font-size:15px;line-height:1}
+.cmod-x:hover{background:var(--brand);border-color:var(--brand);color:#fff}
+.cmod-body{display:flex;gap:22px;padding:26px;flex-wrap:wrap}
+.cm-media{flex:0 0 340px;max-width:100%}
+.cm-media img{width:100%;border-radius:13px;display:block;background:var(--track)}
+.cm-info{flex:1;min-width:270px;display:flex;flex-direction:column;gap:13px}
+.cm-info h3{font-size:19px;line-height:1.25}
+.cm-body{white-space:pre-wrap;font-size:13px;line-height:1.6;color:var(--ink2)}
+.cm-metrics{display:flex;flex-wrap:wrap;gap:9px 20px;font-size:12.5px;color:var(--muted);
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:13px 0}
+.cm-metrics b{color:var(--ink);font-weight:800;font-variant-numeric:tabular-nums}
+.cm-link{display:inline-block;padding:9px 15px;border-radius:var(--r-sm);background:var(--brand);color:#fff;
+  text-decoration:none;font-size:13px;font-weight:800}
+
+/* ============================================================ insight strip
+   Every tab ends with a "Reading of the ..." row of small cards that state findings in plain
+   language and RECOMPUTE with the filters. This is what turns a report into an opinion. */
+.insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
+.insight{display:flex;gap:11px;background:var(--surface);border:1px solid var(--line);
+  border-left:3px solid var(--brand);border-radius:var(--r-sm);padding:13px 15px;box-shadow:var(--shadow-sm)}
+.insight.win{border-left-color:var(--ok)}
+.insight.warn{border-left-color:var(--warn)}
+.insight.crit{border-left-color:var(--crit)}
+.insight .ico{font-size:16px;line-height:1.25}
+.insight .it{font-family:var(--display);font-weight:800;font-size:12.5px;margin-bottom:2px}
+.insight .ib{font-size:12px;color:var(--ink2);line-height:1.5}
+.insight .ib b{color:var(--ink)}
+
+/* ============================================================ empty / loading / error
+   An empty panel must look WIRED, not broken: say what it is waiting for and what enables it,
+   in a soft striped card -- never a blank space and never an error. */
+.empty{background:repeating-linear-gradient(135deg,var(--surface2),var(--surface2) 9px,var(--track) 9px,var(--track) 18px);
+  border:1px dashed var(--line2);border-radius:var(--r);padding:20px 22px;color:var(--ink2)}
+.empty h4{font-size:13px;margin-bottom:5px}
+.empty p{font-size:12px;color:var(--muted);line-height:1.55;max-width:74ch}
+.empty code{font-family:var(--mono);background:var(--surface);border:1px solid var(--line2);border-radius:4px;
+  padding:1px 5px;font-size:11px}
+.loading{padding:80px 20px;text-align:center;color:var(--muted);font-family:var(--accent-face);
+  font-style:italic;font-size:16px}
+.loading .spin2{width:26px;height:26px;margin:0 auto 14px;border-radius:50%;border:3px solid var(--line);
+  border-top-color:var(--brand);animation:spin .8s linear infinite}
+.err{background:var(--crit-bg);border:1px solid var(--crit-line);color:#8E2020;border-radius:var(--r);
+  padding:16px 18px;font-size:13px;font-family:var(--sans);font-style:normal;text-align:left;max-width:70ch;margin:0 auto}
+.err b{display:block;font-family:var(--display);font-size:15px;margin-bottom:5px}
+.banner{border-radius:var(--r-sm);padding:11px 14px;font-size:12.5px;display:flex;gap:10px;align-items:flex-start;
+  border:1px solid var(--stale-line);background:var(--stale-bg);color:#333C5E;margin-bottom:14px}
+.banner b{font-weight:800}
+.toast{position:fixed;left:50%;bottom:calc(24px + var(--safe));transform:translate(-50%,14px);background:var(--ink);
+  color:#fff;border-radius:999px;padding:10px 20px;font-size:12.5px;font-weight:700;
+  box-shadow:0 12px 32px rgba(8,12,18,.34);opacity:0;pointer-events:none;transition:.2s;z-index:400}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* ============================================================ MOBILE
+   Not a shrunk desktop. The verdict and the scorecards are the first things on the page, and
+   wide tables become stacked cards. */
+@media (max-width:900px){
+  .tabbar{top:0;position:static}
+  .controls{position:static}
+  header.top{position:static}
+  .split,.split-r{grid-template-columns:minmax(0,1fr)}
+  .top-meta{font-size:10.5px}
+  .frow{grid-template-columns:110px 1fr}
+  .frow .fv{grid-column:2}
+}
+@media (max-width:680px){
+  .top-inner{gap:10px;flex-wrap:wrap}
+  .brand .tg{display:none}
+  .agency{display:none}
+  .cmp-row{grid-template-columns:1fr}
+  .tab{padding:12px 11px;font-size:12.5px}
+  .tab .ix{display:none}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(134px,1fr));gap:10px}
+  .kpi .kv{font-size:22px}
+  .verdict{flex-direction:column;align-items:flex-start;gap:12px}
+  /* Wide tables become stacked cards. `data-l` on each cell carries its header, so ONE markup
+     path serves both layouts and nothing has to be rendered twice. */
+  table.resp thead{display:none}
+  table.resp,table.resp tbody,table.resp tr,table.resp td{display:block;width:100%}
+  table.resp tbody tr{border:1px solid var(--line);border-radius:var(--r-sm);margin-bottom:10px;
+    background:var(--surface);box-shadow:var(--shadow-sm);padding:4px 0}
+  table.resp tbody td{border:none;padding:5px 13px;display:flex;justify-content:space-between;
+    align-items:baseline;gap:12px;text-align:right}
+  table.resp tbody td::before{content:attr(data-l);font-size:9.5px;text-transform:uppercase;
+    letter-spacing:.85px;color:var(--muted);font-weight:800;text-align:left;flex:none}
+  table.resp tbody td[data-l=""]::before{display:none}
+  table.resp tbody td.hero{display:block;text-align:left;padding:9px 13px 7px;
+    border-bottom:1px solid var(--line);margin-bottom:3px}
+  table.resp tbody td.hero::before{display:none}
+  table.resp tbody td.rank{display:none}
+}
+
+/* ============================================================ print
+   Clients print these for meetings. Every pane opens, the chrome goes. */
+@media print{
+  header.top,.tabbar,.controls,.sync,.iconbtn,.tip,.toast,.cmod{display:none !important}
+  .tab-pane[hidden]{display:block !important}
+  body{background:#fff}
+  .card,.verdict,.cmp,.stage,.insight{box-shadow:none;break-inside:avoid}
+  section{break-inside:avoid}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important;animation:none !important}
+  html{scroll-behavior:auto}
+}

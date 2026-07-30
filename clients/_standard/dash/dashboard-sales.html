@@ -4,74 +4,55 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light">
-<title>Agora Data Driven — Dashboard</title>
+<title>Agora Data Driven — Sales performance dashboard</title>
 <!-- Placeholder so the browser never requests /favicon.ico; swapped for the brand mark on load. -->
 <link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232E6BE6'/%3E%3C/svg%3E">
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-K5CQ062CRG"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-K5CQ062CRG');
-</script>
-<!-- End Google tag (gtag.js) -->
 </head>
 <body>
 <!--
   ===========================================================================================
-  client_template -- THE WORKED EXAMPLE every new client copies.
+  THE AGORA **SALES** DASHBOARD STANDARD  v1
   ===========================================================================================
-  This file is a conformant instance of the AGORA SALES DASHBOARD STANDARD
-  (clients/_standard/STANDARD.md §4), rendered against the template's BigQuery three-stage
-  contract. It is deliberately FULLY conformant rather than minimal: a new client copies this
-  directory, so a stub here teaches the wrong shape to every client after it.
+  Spec: ../STANDARD.md §4.   Copy this file to clients/client_<c>/dash/dashboard.html for any
+  client whose product of advertising is an ORDER or a BOOKING.
 
-  Which standard does a new client take?
-      ENQUIRIES are the product of advertising -> clients/_standard/dash/dashboard-leads.html
-      ORDERS / BOOKINGS are                   -> clients/_standard/dash/dashboard-sales.html
-      Already flowing through raw_windsor     -> this file (the BigQuery kpis + daily contract)
+  >>> If the client's product of advertising is an ENQUIRY, take dashboard-leads.html. <<<
+      A revenue-shaped dashboard on a lead-gen client renders a wall of zeros.
+
+  It is the same shell as the Leads standard — same chrome, same controls, same helper library,
+  same section order. Only SPEC and the render functions differ. A client that needs BOTH takes
+  this file and gives Leads its own tab, following the Leads section order inside it.
 
   ------------------------------------------------------------------------------------------
-  🔴 THE THREE-STAGE CONTRACT -- matched BY NAME. Renaming a key in one stage silently breaks
-     the next, so a rename is a three-file change or a breakage:
+  THE DATA CONTRACT — matched BY NAME to job/main.py's data dict.
 
-         sql/*.sql (view column)  ->  job/main.py (data dict key)  ->  here (data.* key)
+  {
+    "client": "<c>", "currency": "$", "locale": "en-US", "demo": false,
+    "last_updated": "<ISO datetime>", "data_through": "<ISO date>",
+    "brand":   {"name","tagline","logo","agora_logo","favicon"},
+    "sources": [{"name","fetched","error"}],
+    "targets": {"revenue": 0, "roas": 0, "orders": 0, "label": "FY26 revenue target"},
+    "ads": {
+      "enabled": true, "error": "",
+      "rows": [{"date","account","campaign","ad","cid","impressions","reach","clicks",
+                "link_clicks","spend","atc","orders","revenue","frequency"}],
+      "creatives": {"<cid>": {"title","body","image","link"}},
+      "breakdowns": {"age":[{"seg","impressions","clicks","link_clicks","spend","revenue","orders"}],
+                     "gender":[...], "platform":[...], "position":[...], "region":[...]},
+      "breakdown_has_revenue": {"age":true, "region":false}
+    },
+    "store": {
+      "enabled": true, "error": "",
+      "daily":    [{"date","orders","revenue","customers","new_customers","returning_customers","sessions"}],
+      "products": [{"date","product","category","units","revenue"}],
+      "regions":  [{"region","orders","revenue"}],
+      "channels": [{"channel","sessions","orders","revenue"}]
+    }
+  }
 
-     Adding a metric is usually three coordinated edits, one per stage, keeping the name
-     identical across all three.
-
-  WHAT THIS FILE READS -- nothing else, and not one key renamed from the shipped contract:
-
-     data.client            the client key
-     data.last_updated      ISO build time (UTC)  -> "Updated N min ago"
-     data.data_through      newest upstream date  -> "Data through <date>", red when stale
-     data.kpis.{ sessions, users, conversions, spend, revenue, roas, days_covered }
-     data.daily[]           { metric_date, sessions, users, conversions, spend, revenue, roas }
-
-     OPTIONAL. Every one of these degrades to a wired empty state, never a blank space:
-     data.brand.{ name, tagline, logo, agora_logo, favicon }   logos are inlined data-URIs
-     data.currency  default "$"        data.locale  default "en-US"
-     data.targets.{ revenue, label }   data.sources[] { name, fetched, error }
-     data.demo      true while the payload is synthetic -> standing honesty ribbon
-
-  🔴 The inline JS is parsed by tools/_validate_dash_js.py (esprima 4.x): NO optional chaining
-     (?.) and NO nullish coalescing (??). Use classic && / || guards. A syntax error here is
-     invisible -- the page simply stays on "Loading..." forever, because the script that fetches
-     /data.json and swaps the DOM never runs. Run both gates before every deploy:
-
-         py -3 tools\_validate_dash_js.py clients\client_template\dash\dashboard.html
-         py -3 clients\_standard\check_standard.py clients\client_template\dash\dashboard.html
-
-  🔴 The two blocks below are VENDORED, not linked -- a dashboard is ONE self-contained file, so
-     it never loads an external stylesheet or script. Edit clients/_standard/dash/_lib.js or
-     _shell.css and re-run py -3 clients/_standard/vendor_lib.py. Never edit a vendored block in
-     place. (Do not write a literal script-src tag in a comment here either: the esprima gate's
-     regex finds it and parses the rest of the file as if it were JavaScript.)
-
-     A new client re-brands ONLY the identity tokens in :root. Identity is the client's palette;
-     ENCODING (--s1..--s8) must stay distinguishable -- never five near-identical brand hues as
-     series colours -- and STATUS (--ok/--warn/--crit) never inherits a brand hue at all.
+  ⚠️ ATTRIBUTED AD REVENUE (ads.rows.revenue) and STORE REVENUE (store.daily.revenue) are
+     DIFFERENT NUMBERS. Every tile here labels which one it is showing. Presenting one as the
+     other is the single most common way a sales dashboard loses a client's trust.
   ===========================================================================================
 -->
 <style>
@@ -668,7 +649,7 @@ td.nm{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     <div class="brand">
       <img id="logo" alt="" hidden>
       <div class="btxt">
-        <div class="wm" id="wm">Performance dashboard</div>
+        <div class="wm" id="wm">Sales performance</div>
         <div class="tg" id="tg">loading&hellip;</div>
       </div>
     </div>
@@ -691,23 +672,22 @@ td.nm{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </header>
 
 <div class="demoribbon" id="demoRibbon" hidden>
-  <b>Demo data</b>: synthetic rows in the exact shape of the live export. Nothing here is a real number yet.
+  <b>Demo data</b>: synthetic rows in the exact shape of the live pull. Nothing here is a real number yet.
 </div>
 
 <div class="tabbar">
   <div class="tabs" id="tabs" role="tablist" aria-label="Dashboard sections">
-    <button type="button" class="tab" role="tab" data-tab="overview" aria-selected="true"  aria-controls="tab-overview"><span class="ix">01</span>Performance</button>
-    <button type="button" class="tab" role="tab" data-tab="daily"    aria-selected="false" aria-controls="tab-daily"><span class="ix">02</span>Daily record</button>
+    <button type="button" class="tab" role="tab" data-tab="sales"   aria-selected="true"  aria-controls="tab-sales"><span class="ix">01</span>Sales overview</button>
+    <button type="button" class="tab" role="tab" data-tab="ads"     aria-selected="false" aria-controls="tab-ads"><span class="ix">02</span>Ads &times; Store</button>
+    <button type="button" class="tab" role="tab" data-tab="product" aria-selected="false" aria-controls="tab-product"><span class="ix">03</span>Product &amp; Audience</button>
   </div>
 </div>
 
-<div id="boot" class="loading"><div class="spin2"></div>Loading dashboard&hellip;</div>
+<div id="boot" class="loading"><div class="spin2"></div>Loading the dashboard&hellip;</div>
 
 <div id="app" hidden>
 
-<!-- ONE control bar for both tabs. Two independent ranges: PERIOD drives every tile, chart and
-     table; KPI BENCHMARK drives only the right-hand comparison column, and is tinted differently
-     end to end so the two are never confused at a glance. The .rangenote says which is which. -->
+<!-- ============================================================ THE CONTROL BAR -->
 <div class="controls" id="controls">
   <div class="controls-inner">
     <button type="button" class="ctuck" aria-label="Collapse or expand the filters"><span class="cv">&#9650;</span><span class="cl">Filters</span></button>
@@ -750,22 +730,42 @@ td.nm{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       <input type="date" id="bto" class="bench-date" aria-label="Benchmark to">
     </div>
 
+    <div class="sep"></div>
+
+    <div class="cgroup" id="acctGroupWrap" hidden>
+      <span class="clabel">Account</span>
+      <div class="acctgroup" id="acctGroup"></div>
+    </div>
+
+    <div class="cgroup">
+      <span class="clabel">Customer</span>
+      <button type="button" class="preset active" data-ct="">All</button>
+      <button type="button" class="preset" data-ct="new">First time</button>
+      <button type="button" class="preset" data-ct="returning">Returning</button>
+    </div>
+
+    <div class="cgroup">
+      <span class="clabel">Campaign</span>
+      <select id="campSel"><option value="">All campaigns</option></select>
+      <input type="search" id="prodQ" placeholder="Filter by product&hellip;" aria-label="Filter by product">
+    </div>
+
     <div class="rangenote" id="rangenote"></div>
   </div>
 </div>
 
-<!-- ============================================================ TAB 01 · PERFORMANCE -->
-<div id="tab-overview" class="tab-pane" role="tabpanel" aria-labelledby="tabs">
+<!-- ============================================================ TAB 01 · SALES OVERVIEW -->
+<div id="tab-sales" class="tab-pane" role="tabpanel" aria-labelledby="tabs">
  <main><div class="wrap">
 
   <section><div id="verdict"></div></section>
 
-  <!-- Renders only when data.targets.revenue is set. No target, no meter: an empty progress bar
-       is worse than none. -->
+  <!-- The target meter renders only when the payload carries a target. No target, no meter --
+       an empty progress bar is worse than none. -->
   <section id="targetSection" hidden>
     <div class="card">
       <div class="cardhead"><div>
-        <h3 id="targetLabel">Revenue target</h3>
+        <h3 id="targetLabel">Target</h3>
         <div class="csub" id="targetSub">&mdash;</div>
       </div></div>
       <div class="meter" id="targetMeter"><div class="fill"></div></div>
@@ -788,7 +788,7 @@ td.nm{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     <div class="kpis" id="kpiRail" style="margin-bottom:14px"></div>
     <div class="card">
       <div class="cardhead"><div>
-        <h3>Revenue, spend and return together</h3>
+        <h3>Revenue, orders and average order value together</h3>
         <div class="csub" id="mainChartSub">&mdash;</div>
       </div></div>
       <svg class="ch" id="chartMain" viewBox="0 0 1180 270" role="img" aria-label="Selected metrics over time"></svg>
@@ -798,119 +798,275 @@ td.nm{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   </section>
 
   <section>
-    <div class="shead"><h2>Period against your own benchmark</h2>
-      <span class="sub">actuals for the period, against the benchmark average</span></div>
+    <div class="shead"><h2>This week and month to date</h2>
+      <span class="sub">actual against the benchmark average</span></div>
     <div class="grid g2">
       <div class="cmp" id="cmpVolume"></div>
       <div class="cmp" id="cmpEfficiency"></div>
     </div>
     <div class="note">
       <b>How to read the two columns.</b> The left figure is the selected <b>period</b>. The right is the
-      <b>KPI benchmark</b>: for <i>volume</i> metrics (sessions, users, conversions, spend, revenue) it is the
-      <b>average per week</b> over the benchmark range; for <i>rate</i> metrics (ROAS, conversion rate, revenue
-      per session, cost per conversion) it is the <b>aggregate ratio</b> across the whole benchmark &mdash; never
-      the average of daily ratios, which skews badly when spend is uneven. The arrow on a volume metric compares
-      the period total against what the benchmark's weekly rate would have produced over the same number of
-      weeks, so it stays like-for-like whatever period you pick. Green always means <i>better</i>: for a cost
-      that is <i>down</i>.
+      <b>KPI benchmark</b>: for <i>volume</i> metrics (revenue, orders, customers, spend) it is the
+      <b>average per week</b> over the benchmark range; for <i>rate</i> metrics (AOV, ROAS, CTR, CPM) it is the
+      <b>aggregate ratio</b> across the whole benchmark &mdash; never the average of daily ratios. The arrow on a
+      volume metric compares the period total against what the benchmark's weekly rate would have produced
+      over the same number of weeks.
     </div>
   </section>
 
   <section>
-    <div class="shead"><h2>How far the funnel carries people</h2>
-      <span class="sub">every stage as a conversion, not a loss</span></div>
-    <div class="stages" id="stages"></div>
-    <div class="grid split" style="margin-top:15px">
+    <div class="shead"><h2>Where the customers are</h2><span class="sub">click a region to filter this tab</span></div>
+    <div class="grid split">
       <div class="card">
-        <h3>Sessions &rarr; users &rarr; conversions</h3>
-        <div class="csub">stage widths use a square-root scale, or conversions vanish next to sessions</div>
-        <div id="funnel"></div>
+        <h3>Orders by region</h3>
+        <div class="csub" id="regionSub">the scale is square-rooted so mid-volume regions stay visible</div>
+        <svg class="ch" id="chartRegions" viewBox="0 0 560 380" role="img" aria-label="Orders by region"></svg>
       </div>
       <div class="card">
         <div class="cardhead"><div>
-          <h3>Revenue against spend</h3>
-          <div class="csub">the gap between them is the return earned above spend</div>
+          <h3>Customers, AOV and sales</h3>
+          <div class="csub" id="trendSub">trend across the selected period</div>
         </div></div>
-        <svg class="ch" id="chartRevSpend" viewBox="0 0 620 300" role="img" aria-label="Revenue against spend"></svg>
-        <div class="legend" id="revSpendLegend"></div>
+        <svg class="ch" id="chartTrend" viewBox="0 0 620 320" role="img" aria-label="Customers, AOV and sales"></svg>
+        <div class="legend" id="trendLegend"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>New against returning</h2>
+      <span class="sub">AOV is revenue ÷ CUSTOMERS, which is why this split is the point</span></div>
+    <div class="grid g2">
+      <div class="card">
+        <h3>Orders by customer type</h3>
+        <div class="csub">click a slice to filter this tab</div>
+        <div class="donut-wrap">
+          <svg id="donutCust" viewBox="0 0 200 200" role="img" aria-label="Orders by customer type"></svg>
+          <div class="dleg" id="donutCustLegend"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>What each type is worth</h3>
+        <div class="csub">revenue per customer, first-time against returning</div>
+        <svg class="ch" id="chartCustValue" viewBox="0 0 560 220" role="img" aria-label="Revenue per customer by type"></svg>
+        <div class="note" id="aovNote"></div>
       </div>
     </div>
   </section>
 
   <section>
     <div class="shead"><h2>Reading of the period</h2><span class="sub">recomputed with your filters</span></div>
-    <div class="insights" id="overviewInsights"></div>
+    <div class="insights" id="salesInsights"></div>
   </section>
  </div></main>
 </div>
 
-<!-- ============================================================ TAB 02 · DAILY RECORD -->
-<div id="tab-daily" class="tab-pane" role="tabpanel" aria-labelledby="tabs" hidden>
+<!-- ============================================================ TAB 02 · ADS × STORE -->
+<div id="tab-ads" class="tab-pane" role="tabpanel" aria-labelledby="tabs" hidden>
  <main><div class="wrap">
-  <section>
-    <div class="shead"><h2>Momentum</h2>
-      <span class="sub">the most recent four weeks against the earlier weeks of the same period</span></div>
-    <div class="kpis" id="momentumRail"></div>
-    <div class="note">
-      A metric is called ahead or behind only when the gap clears <b>3%</b>; anything inside that is noise on a
-      four-week window, and saying so is the point. Both sides are expressed <b>per week</b>, so an uneven split
-      cannot flatter either one.
-    </div>
-  </section>
+  <section><div id="adsGate"></div></section>
+  <div id="adsBody">
+    <section>
+      <div class="shead"><h2>The funnel, stage by stage</h2>
+        <span class="sub">current period against the benchmark's weekly rate</span></div>
+      <div class="stages" id="stages"></div>
+    </section>
 
-  <section>
-    <div class="shead"><h2>By weekday</h2><span class="sub">which days actually carry the account</span></div>
-    <div class="grid g2">
-      <div class="card">
-        <h3>Revenue by weekday</h3>
-        <div class="csub">total across the selected period</div>
-        <svg class="ch" id="chartDow" viewBox="0 0 560 240" role="img" aria-label="Revenue by weekday"></svg>
+    <section>
+      <div class="grid split">
+        <div class="card">
+          <h3>Impression to purchase</h3>
+          <div class="csub">stage widths use a square-root scale, or orders vanish next to impressions</div>
+          <div id="funnel"></div>
+        </div>
+        <div class="card">
+          <div class="cardhead"><div>
+            <h3>Revenue against spend</h3>
+            <div class="csub">attributed purchase value against ad spend &mdash; the gap is the return earned above spend</div>
+          </div></div>
+          <svg class="ch" id="chartRevSpend" viewBox="0 0 660 300" role="img" aria-label="Revenue against spend"></svg>
+          <div class="legend" id="revSpendLegend"></div>
+        </div>
       </div>
-      <div class="card">
-        <h3>Return by weekday</h3>
-        <div class="csub">revenue &divide; spend on the same day; a low-spend day is greyed and labelled</div>
-        <svg class="ch" id="chartDowRoas" viewBox="0 0 560 240" role="img" aria-label="Return by weekday"></svg>
+    </section>
+
+    <section>
+      <div class="grid g2">
+        <div class="card">
+          <div class="cardhead"><div>
+            <h3>Efficiency over time</h3>
+            <div class="csub">return on ad spend and CPM</div>
+          </div></div>
+          <svg class="ch" id="chartEff" viewBox="0 0 620 280" role="img" aria-label="ROAS and CPM over time"></svg>
+          <div class="legend" id="effLegend"></div>
+        </div>
+        <div class="card">
+          <div class="cardhead"><div>
+            <h3>Audience freshness</h3>
+            <div class="csub">frequency &mdash; how often the same person sees an ad</div>
+          </div></div>
+          <svg class="ch" id="chartFreq" viewBox="0 0 620 280" role="img" aria-label="Frequency over time"></svg>
+          <div class="note" id="freqNote"></div>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section>
-    <div class="shead"><h2>Daily performance</h2>
-      <span class="sub">click any column header to rank by it</span></div>
-    <div class="tblwrap">
-      <table class="resp" id="dailyTbl" data-sort="daily"><thead><tr>
-        <th class="rank"></th>
-        <th data-k="metric_date">Date</th>
-        <th class="r" data-k="sessions">Sessions</th>
-        <th class="r" data-k="users">Users</th>
-        <th class="r" data-k="conversions">Conversions</th>
-        <th class="r" data-k="cvr">Conversion rate</th>
-        <th class="r" data-k="spend">Spend</th>
-        <th class="r" data-k="revenue">Revenue</th>
-        <th class="r" data-k="roas">ROAS</th>
-      </tr></thead><tbody></tbody></table>
-      <div class="tfoot" id="dailyFoot"></div>
-    </div>
-    <details class="meth"><summary>Where these numbers come from</summary><div class="mb">
-      Every column is a view column carried through <code>job/main.py</code> unchanged, so the three stages
-      match <b>by name</b>: <code>sql/02_model.sql</code> &rarr; <code>data.daily[]</code> &rarr; this table.
-      <b>ROAS</b> is derived per row in the view as <code>revenue / NULLIF(spend, 0)</code>; every tile and the
-      totals line below re-derive it from the <i>summed</i> revenue and spend rather than averaging the daily
-      ratios &mdash; which is why a period total can legitimately differ from the average of the column above it.
-      Averaging daily ROAS would let a day with $1 of spend count as much as a day with $10,000.
-    </div></details>
-  </section>
+    <section>
+      <div class="shead">
+        <h2>The actual ads that ran</h2>
+        <span class="sub">the creatives behind the numbers above</span>
+        <span class="spacer"></span>
+        <div class="seg mini" id="seg-crank"><span class="cap">Rank by</span>
+          <button type="button" data-v="impressions" class="on">Impressions</button><button type="button" data-v="orders">Orders</button><button type="button" data-v="revenue">Revenue</button><button type="button" data-v="spend">Spend</button>
+        </div>
+      </div>
+      <div class="note" id="galNote" style="margin:0 0 12px"></div>
+      <div class="cgrid" id="gallery"></div>
+      <div class="tfoot" id="galFoot"></div>
+    </section>
 
-  <section>
-    <div class="shead"><h2>Reading of the record</h2><span class="sub">recomputed with your filters</span></div>
-    <div class="insights" id="dailyInsights"></div>
-  </section>
+    <section>
+      <div class="shead"><h2>Campaigns</h2>
+        <span class="sub">click any column header to rank by it, a row to filter the tab</span>
+        <span class="spacer"></span><div class="chips" id="campChips"></div></div>
+      <div class="tblwrap">
+        <table class="resp" id="campTbl" data-sort="camp"><thead><tr>
+          <th class="rank"></th>
+          <th data-k="name">Campaign</th>
+          <th class="r" data-k="spend">Spend</th>
+          <th class="r" data-k="impressions">Impressions</th>
+          <th class="r" data-k="reach">Reach</th>
+          <th class="r" data-k="link_clicks">Link clicks</th>
+          <th class="r" data-k="ctr">CTR</th>
+          <th class="r" data-k="cpm">CPM</th>
+          <th class="r" data-k="atc">Add to cart</th>
+          <th class="r" data-k="orders">Orders</th>
+          <th class="r" data-k="revenue">Sales</th>
+          <th class="r" data-k="roas">ROAS</th>
+        </tr></thead><tbody></tbody></table>
+        <div class="tfoot" id="campFoot"></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shead"><h2>Reading of the funnel</h2><span class="sub">which stage is holding us back</span></div>
+      <div class="insights" id="adsInsights"></div>
+    </section>
+  </div>
+ </div></main>
+</div>
+
+<!-- ============================================================ TAB 03 · PRODUCT & AUDIENCE -->
+<div id="tab-product" class="tab-pane" role="tabpanel" aria-labelledby="tabs" hidden>
+ <main><div class="wrap">
+  <section><div id="prodGate"></div></section>
+  <div id="prodBody">
+    <section>
+      <div class="chips" id="prodChips"></div>
+      <div class="kpis" id="prodRail"></div>
+    </section>
+
+    <section>
+      <div class="shead"><h2>What sells</h2>
+        <span class="sub">by revenue in the selected period</span>
+        <span class="spacer"></span>
+        <div class="seg mini" id="seg-prank"><span class="cap">Rank by</span>
+          <button type="button" data-v="revenue" class="on">Revenue</button><button type="button" data-v="units">Units</button>
+        </div>
+      </div>
+      <div class="grid split">
+        <div class="card">
+          <div class="tblwrap" style="border:0;max-height:440px;overflow-y:auto">
+            <table class="resp" id="prodTbl" data-sort="prod"><thead><tr>
+              <th class="rank"></th>
+              <th data-k="product">Product</th>
+              <th data-k="category">Category</th>
+              <th class="r" data-k="units">Units</th>
+              <th class="r" data-k="revenue">Revenue</th>
+              <th class="r" data-k="share">Share</th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+          <div class="tfoot" id="prodFoot"></div>
+        </div>
+        <div class="card">
+          <h3>Category mix</h3>
+          <div class="csub">click a slice to filter this tab</div>
+          <div class="donut-wrap">
+            <svg id="donutCat" viewBox="0 0 200 200" role="img" aria-label="Category mix"></svg>
+            <div class="dleg" id="donutCatLegend"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shead"><h2>Category by month</h2><span class="sub">the seasonality of what actually sells</span></div>
+      <div class="card">
+        <svg class="ch" id="chartCatMonth" viewBox="0 0 1180 300" role="img" aria-label="Category revenue by month"></svg>
+        <div class="legend" id="catMonthLegend"></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shead"><h2>Where the customers come from</h2><span class="sub">visitors against buyers, by channel</span></div>
+      <div class="card">
+        <div class="tblwrap" style="border:0">
+          <table class="resp" id="chanTbl" data-sort="chan"><thead><tr>
+            <th class="rank"></th>
+            <th data-k="channel">Channel</th>
+            <th class="r" data-k="sessions">Sessions</th>
+            <th class="r" data-k="orders">Orders</th>
+            <th class="r" data-k="cvr">Conversion</th>
+            <th class="r" data-k="revenue">Revenue</th>
+            <th class="r" data-k="rps">Revenue / session</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+        <div class="tfoot" id="chanFoot"></div>
+        <details class="meth"><summary>Why the channel names look the way they do</summary><div class="mb">
+          Every referrer — order attribution and session attribution alike — goes through <b>one</b> normaliser
+          in the export job. That is the only reason a visitors-against-buyers comparison is valid. The store's
+          own second domain and on-site apps collapse to <code>direct</code>; a substring match on the shop
+          handle is not enough, because punctuation differs between the handle and the domain.
+        </div></details>
+      </div>
+    </section>
+
+    <section>
+      <div class="shead">
+        <h2>Who the ads reach</h2>
+        <span class="sub">delivery by segment</span>
+        <span class="spacer"></span>
+        <div class="seg mini" id="seg-split"><span class="cap">Split by</span></div>
+        <div class="seg mini" id="seg-dmet"><span class="cap">Measure</span>
+          <button type="button" data-v="impressions" class="on">Impressions</button><button type="button" data-v="link_clicks">Link clicks</button><button type="button" data-v="spend">Spend</button><button type="button" data-v="revenue">Revenue</button>
+        </div>
+      </div>
+      <div class="grid split">
+        <div class="card">
+          <h3 id="segChartTitle">By segment</h3>
+          <div class="csub" id="segChartSub">&mdash;</div>
+          <svg class="ch" id="chartSeg" viewBox="0 0 620 360" role="img" aria-label="Delivery by segment"></svg>
+        </div>
+        <div class="card">
+          <h3>Return by segment</h3>
+          <div class="csub" id="segRoasSub">ROAS where the breakdown carries revenue</div>
+          <svg class="ch" id="chartSegRoas" viewBox="0 0 460 360" role="img" aria-label="ROAS by segment"></svg>
+        </div>
+      </div>
+      <div class="note" id="segNote"></div>
+    </section>
+
+    <section>
+      <div class="shead"><h2>Reading of the catalogue</h2><span class="sub">recomputed with your filters</span></div>
+      <div class="insights" id="prodInsights"></div>
+    </section>
+  </div>
  </div></main>
 </div>
 
 </div><!-- /#app -->
 
-<div class="cmod" id="cMod" role="dialog" aria-modal="true" aria-label="Detail">
+<div class="cmod" id="cMod" role="dialog" aria-modal="true" aria-label="Creative preview">
   <div class="cmod-card">
     <button class="cmod-x" type="button" id="cModX" aria-label="Close">&#10005;</button>
     <div class="cmod-body" id="cModBody"></div>
@@ -1999,63 +2155,77 @@ function wireModal(){
 // <<< AGORA STANDARD LIB v1
 
 /* ===========================================================================================
-   THE SPEC — the per-client part. Everything above this line is the shared standard.
-   ===========================================================================================
-   Adding a metric is ONE entry here, plus the matching view column and job key (the three-stage
-   contract at the top of this file). goodDir tells deltaSpan which direction is good, so a cost
-   metric goes GREEN when it falls. axis puts a series on the right absolute axis family.
+   THE SALES SPEC — the per-client part. Everything above this line is the shared standard.
    =========================================================================================== */
 
+function pct1(v){ return pct(v, 1); }
 function pct2(v){ return pct(v, 2); }
-function roasFmt(v){ return ratio(v, 2); }
+function roas(v){ return ratio(v, 2); }
 
 var SPEC = {
   kpis: [
-    { key:"revenue",     label:"Revenue",           axis:"money", fmt:money,   goodDir:"up",   accent:"var(--s1)", on:true },
-    { key:"spend",       label:"Spend",             axis:"money", fmt:money,   goodDir:"up",   accent:"var(--s2)", on:true },
-    { key:"roas",        label:"ROAS",              axis:"rate",  fmt:roasFmt, goodDir:"up",   accent:"var(--s3)", on:true,
-      note:"revenue ÷ spend" },
-    { key:"conversions", label:"Conversions",       axis:"count", fmt:num,     goodDir:"up",   accent:"var(--s4)", on:false },
-    { key:"cvr",         label:"Conversion rate",   axis:"rate",  fmt:pct2,    goodDir:"up",   accent:"var(--s5)", on:false,
-      note:"conversions ÷ sessions" },
-    { key:"sessions",    label:"Sessions",          axis:"count", fmt:num,     goodDir:"up",   accent:"var(--s6)", on:false },
-    { key:"users",       label:"Users",             axis:"count", fmt:num,     goodDir:"up",   accent:"var(--s7)", on:false },
-    { key:"rps",         label:"Revenue / session", axis:"rate",  fmt:money,   goodDir:"up",   accent:"var(--s8)", on:false }
+    { key:"revenue",   label:"Revenue",         axis:"money", fmt:money, goodDir:"up",   accent:"var(--s1)", on:true,
+      note:"store revenue in the period" },
+    { key:"orders",    label:"Orders",          axis:"count", fmt:num,   goodDir:"up",   accent:"var(--s2)", on:true },
+    { key:"aov",       label:"AOV",             axis:"rate",  fmt:money, goodDir:"up",   accent:"var(--s3)", on:true,
+      /* AOV IS AMBIGUOUS. Agora's agreed default is revenue ÷ CUSTOMERS, so first-timer and
+         returning spend are comparable; revenue ÷ orders ships beside it as "Per order". Say the
+         denominator on screen — guessing is wrong half the time on the number they look at most. */
+      note:"revenue ÷ customers" },
+    { key:"perOrder",  label:"Per order",       axis:"rate",  fmt:money, goodDir:"up",   accent:"var(--s4)", on:false,
+      note:"revenue ÷ orders" },
+    { key:"spend",     label:"Ad spend",        axis:"money", fmt:money, goodDir:"up",   accent:"var(--s5)", on:false },
+    { key:"roas",      label:"ROAS",            axis:"rate",  fmt:roas,  goodDir:"up",   accent:"var(--s6)", on:true,
+      note:"attributed revenue ÷ spend" },
+    { key:"customers", label:"Customers",       axis:"count", fmt:num,   goodDir:"up",   accent:"var(--s7)", on:false },
+    { key:"ctr",       label:"Click-through",   axis:"rate",  fmt:pct2,  goodDir:"up",   accent:"var(--s8)", on:false,
+      note:"link clicks ÷ impressions" }
   ],
-  /* VOLUME metrics get a per-week benchmark average; everything else gets the aggregate ratio.
-     This distinction is the whole reason the compare card is trustworthy. */
-  volume: { sessions:1, users:1, conversions:1, spend:1, revenue:1 },
+  volume: { revenue:1, orders:1, customers:1, spend:1, impressions:1, reach:1, clicks:1,
+            link_clicks:1, atc:1, units:1, sessions:1 },
   funnel: [
-    { key:"sessions",    label:"Sessions",    color:"var(--s1)" },
-    { key:"users",       label:"Users",       color:"var(--s2)" },
-    { key:"conversions", label:"Conversions", color:"var(--s4)" }
-  ]
+    { key:"impressions", label:"Impressions",  color:"var(--s1)" },
+    { key:"reach",       label:"People reached",color:"var(--s2)" },
+    { key:"link_clicks", label:"Link clicks",  color:"var(--s3)" },
+    { key:"atc",         label:"Add to cart",  color:"var(--s4)", optional:true },
+    { key:"orders",      label:"Orders",       color:"var(--s5)" }
+  ],
+  splits: [
+    { key:"age",      label:"Age" },
+    { key:"gender",   label:"Gender" },
+    { key:"platform", label:"Platform" },
+    { key:"position", label:"Placement" },
+    { key:"region",   label:"Region" }
+  ],
+  floor: { spendShare:0.01, clicks:30 },
+  fatigue: 2.5
 };
 
 /* ===================================================================== state */
 var ALL_MIN = "", ALL_MAX = "";
-var ST = { from:"", to:"", bfrom:"", bto:"", wk:0 };
-var SEG = { axis:"rel" };
+var ST = { from:"", to:"", bfrom:"", bto:"", acct:"", camp:"", prodq:"", ct:"", region:"",
+           cat:"", split:"age", wk:0 };
+var SEG = { axis:"rel", crank:"impressions", prank:"revenue", dmet:"impressions" };
 var ON = {};
 GRAIN.main = "auto";
+GRAIN.ads = "auto";
 
-/* onData() is the standard hook the shared boot() calls once, after the payload lands and
-   before the first render. */
 function onData(d){
   show("demoRibbon", d.demo === true);
   renderSourceBadges(d.sources);
 
-  var rows = dailyRows(), i;
   ALL_MIN = ""; ALL_MAX = "";
-  for(i = 0; i < rows.length; i++){
-    var dt = String(rows[i].metric_date).slice(0, 10);
-    if(dt.length < 10){ continue; }
+  var i;
+  var pushDate = function(iso){
+    var dt = String(iso).slice(0, 10);
+    if(!dt || dt.length < 10){ return; }
     if(!ALL_MIN || dt < ALL_MIN){ ALL_MIN = dt; }
     if(!ALL_MAX || dt > ALL_MAX){ ALL_MAX = dt; }
-  }
-  /* Presets anchor to the newest date IN THE DATA, never to today: the upstream feed lags, and
-     "last 30 days" measured from today on a lagging feed renders an empty dashboard that looks
-     broken rather than merely late. */
+  };
+  var ar = adRows();
+  for(i = 0; i < ar.length; i++){ pushDate(ar[i].date); }
+  var sd = storeDaily();
+  for(i = 0; i < sd.length; i++){ pushDate(sd[i].date); }
   if(!ALL_MAX){ ALL_MAX = String(d.data_through || isoOf(new Date())).slice(0, 10); }
   if(!ALL_MIN){ ALL_MIN = ALL_MAX; }
 
@@ -2065,12 +2235,25 @@ function onData(d){
   ST.bfrom = b[0]; ST.bto = b[1];
 
   for(i = 0; i < SPEC.kpis.length; i++){ ON[SPEC.kpis[i].key] = SPEC.kpis[i].on === true; }
+  ST.split = SPEC.splits.length ? SPEC.splits[0].key : "";
 
+  buildAccountToggle();
+  buildCampaignSelect();
+  buildSplitSeg();
   buildTargetMeter();
   syncDateInputs();
   wireControls();
   wireSegs();
   wireModal();
+  wireChips("campChips", clearChip);
+  wireChips("prodChips", clearChip);
+}
+function clearChip(key){
+  ST[key] = "";
+  if(key === "camp"){ byId("campSel").value = ""; }
+  if(key === "prodq"){ byId("prodQ").value = ""; }
+  if(key === "ct"){ setActive(".preset[data-ct]", document.querySelector('.preset[data-ct=""]')); }
+  renderAll();
 }
 function renderSourceBadges(sources){
   if(!sources || !sources.length){ return; }
@@ -2083,36 +2266,95 @@ function renderSourceBadges(sources){
   setHTML("srcbadges", h);
 }
 
-/* ===================================================================== data access
-   These four functions are the ONLY place the contract keys appear. If a view column is ever
-   renamed, this is the only block in the file that has to follow it. */
-function dailyRows(){ return (DATA && DATA.daily) ? DATA.daily : []; }
+/* ===================================================================== data access */
+function adsBlock(){ return (DATA && DATA.ads) || {}; }
+function storeBlock(){ return (DATA && DATA.store) || {}; }
+function adRows(){ var a = adsBlock(); return (a.enabled !== false && a.rows) ? a.rows : []; }
+function storeDaily(){ var s = storeBlock(); return (s.enabled !== false && s.daily) ? s.daily : []; }
+function storeProducts(){ var s = storeBlock(); return (s.enabled !== false && s.products) ? s.products : []; }
 function inRange(iso, from, to){ var d = String(iso).slice(0, 10); return d >= from && d <= to; }
-function rowsIn(from, to){
-  var rows = dailyRows(), out = [], i;
-  for(i = 0; i < rows.length; i++){ if(inRange(rows[i].metric_date, from, to)){ out.push(rows[i]); } }
-  return out;
-}
-function roll(rows){
-  var t = { sessions:0, users:0, conversions:0, spend:0, revenue:0, days:{} }, i;
+
+function adsIn(from, to){
+  var rows = adRows(), out = [], i;
   for(i = 0; i < rows.length; i++){
     var r = rows[i];
-    t.sessions    += n0(r.sessions);
-    t.users       += n0(r.users);
-    t.conversions += n0(r.conversions);
-    t.spend       += n0(r.spend);
-    t.revenue     += n0(r.revenue);
-    t.days[String(r.metric_date).slice(0, 10)] = 1;
+    if(!inRange(r.date, from, to)){ continue; }
+    if(ST.acct && r.account !== ST.acct){ continue; }
+    if(ST.camp && r.campaign !== ST.camp){ continue; }
+    out.push(r);
   }
-  return derive(t);
+  return out;
 }
-/* Every rate is derived from the TOTALS, never averaged across days. */
-function derive(t){
-  t.roas = safe(t.revenue, t.spend);
-  t.cvr  = safe(t.conversions, t.sessions) * 100;
-  t.rps  = safe(t.revenue, t.sessions);
-  t.cpa  = safe(t.spend, t.conversions);
-  t.dayCount = 0;
+function storeIn(from, to){
+  var rows = storeDaily(), out = [], i;
+  for(i = 0; i < rows.length; i++){ if(inRange(rows[i].date, from, to)){ out.push(rows[i]); } }
+  return out;
+}
+function productsIn(from, to){
+  var rows = storeProducts(), out = [], i;
+  var q = ST.prodq.toLowerCase();
+  for(i = 0; i < rows.length; i++){
+    var r = rows[i];
+    if(r.date && !inRange(r.date, from, to)){ continue; }
+    if(ST.cat && r.category !== ST.cat){ continue; }
+    if(q && String(r.product || "").toLowerCase().indexOf(q) < 0){ continue; }
+    out.push(r);
+  }
+  return out;
+}
+
+/* Roll ads and store together. The two revenue figures stay SEPARATE keys: revenue is the
+   store's, adRevenue is what the ad platform attributed. ROAS uses adRevenue, because dividing
+   total store revenue by ad spend is not a return on ad spend. */
+function rollAll(from, to){
+  var t = { impressions:0, reach:0, clicks:0, link_clicks:0, spend:0, atc:0, adOrders:0, adRevenue:0,
+            orders:0, revenue:0, customers:0, newCustomers:0, returningCustomers:0, sessions:0,
+            _freqSum:0, _freqW:0, days:{} };
+  var ads = adsIn(from, to), i;
+  for(i = 0; i < ads.length; i++){
+    var r = ads[i];
+    t.impressions += n0(r.impressions); t.reach += n0(r.reach);
+    t.clicks += n0(r.clicks); t.link_clicks += n0(r.link_clicks);
+    t.spend += n0(r.spend); t.atc += n0(r.atc);
+    t.adOrders += n0(r.orders); t.adRevenue += n0(r.revenue);
+    if(isNum(r.frequency)){ t._freqSum += n0(r.frequency) * n0(r.impressions); t._freqW += n0(r.impressions); }
+    t.days[String(r.date).slice(0, 10)] = 1;
+  }
+  var st = storeIn(from, to);
+  for(i = 0; i < st.length; i++){
+    var s = st[i];
+    /* The customer-type filter is applied HERE, once, so no panel can disagree about it. */
+    if(ST.ct === "new"){
+      t.orders += n0(s.new_orders !== undefined ? s.new_orders : 0);
+      t.customers += n0(s.new_customers);
+      t.revenue += n0(s.new_revenue !== undefined ? s.new_revenue : 0);
+    } else if(ST.ct === "returning"){
+      t.orders += n0(s.returning_orders !== undefined ? s.returning_orders : 0);
+      t.customers += n0(s.returning_customers);
+      t.revenue += n0(s.returning_revenue !== undefined ? s.returning_revenue : 0);
+    } else {
+      t.orders += n0(s.orders);
+      t.revenue += n0(s.revenue);
+      t.customers += n0(s.customers);
+    }
+    t.newCustomers += n0(s.new_customers);
+    t.returningCustomers += n0(s.returning_customers);
+    t.sessions += n0(s.sessions);
+    t.days[String(s.date).slice(0, 10)] = 1;
+  }
+  return deriveAll(t);
+}
+function deriveAll(t){
+  /* AOV = revenue ÷ CUSTOMERS by agreement; per-order ships beside it. */
+  t.aov       = safe(t.revenue, t.customers);
+  t.perOrder  = safe(t.revenue, t.orders);
+  t.roas      = safe(t.adRevenue, t.spend);
+  t.ctr       = safe(t.link_clicks, t.impressions) * 100;
+  t.cpm       = safe(t.spend, t.impressions) * 1000;
+  t.cpc       = safe(t.spend, t.link_clicks);
+  t.cvr       = safe(t.orders, t.sessions) * 100;
+  t.frequency = t._freqW ? t._freqSum / t._freqW : 0;
+  t.dayCount  = 0;
   for(var k in t.days){ if(t.days.hasOwnProperty(k)){ t.dayCount++; } }
   return t;
 }
@@ -2122,6 +2364,54 @@ function benchOf(key, bench, weeks){
 }
 
 /* ===================================================================== controls */
+function buildAccountToggle(){
+  var rows = adRows(), seen = {}, list = [], i;
+  for(i = 0; i < rows.length; i++){
+    var a = rows[i].account;
+    if(a && !seen[a]){ seen[a] = 1; list.push(a); }
+  }
+  if(list.length < 2){ show("acctGroupWrap", false); return; }
+  show("acctGroupWrap", true);
+  var h = '<button type="button" data-acct="" class="on">Blended</button>';
+  for(i = 0; i < list.length; i++){ h += '<button type="button" data-acct="' + esc(list[i]) + '">' + esc(list[i]) + "</button>"; }
+  setHTML("acctGroup", h);
+  var btns = byId("acctGroup").querySelectorAll("button");
+  for(i = 0; i < btns.length; i++){
+    (function(b){
+      b.addEventListener("click", function(){
+        var all = byId("acctGroup").querySelectorAll("button"), j;
+        for(j = 0; j < all.length; j++){ all[j].classList.remove("on"); }
+        b.classList.add("on");
+        ST.acct = b.getAttribute("data-acct");
+        buildCampaignSelect();
+        renderAll();
+      });
+    })(btns[i]);
+  }
+}
+function buildCampaignSelect(){
+  var rows = adRows(), seen = {}, list = [], i;
+  for(i = 0; i < rows.length; i++){
+    if(ST.acct && rows[i].account !== ST.acct){ continue; }
+    var c = rows[i].campaign;
+    if(c && !seen[c]){ seen[c] = 1; list.push(c); }
+  }
+  list.sort();
+  var h = '<option value="">All campaigns</option>';
+  for(i = 0; i < list.length; i++){ h += '<option value="' + esc(list[i]) + '">' + esc(list[i]) + "</option>"; }
+  setHTML("campSel", h);
+  if(list.indexOf(ST.camp) < 0){ ST.camp = ""; }
+  byId("campSel").value = ST.camp;
+}
+function buildSplitSeg(){
+  var h = '<span class="cap">Split by</span>', i;
+  for(i = 0; i < SPEC.splits.length; i++){
+    h += '<button type="button" data-v="' + esc(SPEC.splits[i].key) + '"' + (i === 0 ? ' class="on"' : "") + ">" +
+         esc(SPEC.splits[i].label) + "</button>";
+  }
+  setHTML("seg-split", h);
+}
+/* No target in the payload, no meter. An empty progress bar is worse than none. */
 function buildTargetMeter(){
   var t = (DATA && DATA.targets) || {};
   show("targetSection", isNum(t.revenue) && t.revenue > 0);
@@ -2143,9 +2433,6 @@ function wireControls(){
   for(i = 0; i < ps.length; i++){
     (function(btn){
       btn.addEventListener("click", function(){
-        /* Do NOT hijack the rolling presets: 7d stays a rolling 7 days. Picking one drops the
-           weekly pair's highlight but LEAVES IT ON SCREEN -- it is the control they reach for,
-           not a mode to be exited. */
         var r = presetRange(btn.getAttribute("data-p"), ALL_MAX, ALL_MIN);
         ST.from = r[0]; ST.to = r[1]; ST.wk = 0;
         setActive(".preset[data-p]", btn);
@@ -2165,6 +2452,16 @@ function wireControls(){
       });
     })(bs[i]);
   }
+  var cts = document.querySelectorAll(".preset[data-ct]");
+  for(i = 0; i < cts.length; i++){
+    (function(btn){
+      btn.addEventListener("click", function(){
+        ST.ct = btn.getAttribute("data-ct");
+        setActive(".preset[data-ct]", btn);
+        renderAll();
+      });
+    })(cts[i]);
+  }
   var ids = ["from", "to", "bfrom", "bto"];
   for(i = 0; i < ids.length; i++){
     (function(id){
@@ -2179,23 +2476,20 @@ function wireControls(){
       });
     })(ids[i]);
   }
-  /* Weekly review: the button BECOMES the two weeks it compares, ordered left-to-right in time.
-     Picking either snaps the period to that COMPLETE Mon-Sun week AND the benchmark to the week
-     before it, plus day grain -- so every number on screen is week-over-week and you can step
-     between weeks live while presenting. Snapping to complete weeks is what stops a partial
-     current week sneaking into a report. */
   byId("wkBtn").addEventListener("click", function(){ show("wkPair", true); applyWeek(1); });
   var wks = byId("wkPair").querySelectorAll("button");
   for(i = 0; i < wks.length; i++){
     (function(b){ b.addEventListener("click", function(){ applyWeek(parseInt(b.getAttribute("data-wkn"), 10)); }); })(wks[i]);
   }
+  byId("campSel").addEventListener("change", function(){ ST.camp = byId("campSel").value; renderAll(); });
+  byId("prodQ").addEventListener("input", debounce(function(){ ST.prodq = byId("prodQ").value.trim(); renderAll(); }));
 }
 function applyWeek(n){
   var cur = completeWeek(ALL_MAX, n), prev = completeWeek(ALL_MAX, n + 1);
   ST.from = cur[0]; ST.to = cur[1];
   ST.bfrom = prev[0]; ST.bto = prev[1];
   ST.wk = n;
-  GRAIN.main = "day";
+  GRAIN.main = "day"; GRAIN.ads = "day";
   setActive(".preset[data-p]", null);
   setActive(".preset[data-b]", null);
   var wks = byId("wkPair").querySelectorAll("button"), i;
@@ -2212,29 +2506,40 @@ function clearWkHighlight(){
 function wireSegs(){
   segWire("seg-grain", function(v){ GRAIN.main = v; });
   segWire("seg-axis",  function(v){ SEG.axis = v; });
+  segWire("seg-crank", function(v){ SEG.crank = v; });
+  segWire("seg-prank", function(v){ SEG.prank = v; });
+  segWire("seg-dmet",  function(v){ SEG.dmet = v; });
+  segWire("seg-split", function(v){ ST.split = v; });
 }
 
-/* ===================================================================== render entry point
-   renderAll() is the ONE re-render path. Every control calls it and nothing else. */
+/* ===================================================================== render entry point */
 function renderAll(){
   if(!DATA){ return; }
   var t = currentTab();
-  if(t === "overview"){ renderOverview(); }
-  else if(t === "daily"){ renderDaily(); }
+  if(t === "sales"){ renderSalesTab(); }
+  else if(t === "ads"){ renderAdsTab(); }
+  else if(t === "product"){ renderProductTab(); }
+}
+function activeChips(){
+  var out = [];
+  if(ST.camp){ out.push({ key:"camp", label:"Campaign: " + ST.camp }); }
+  if(ST.ct){ out.push({ key:"ct", label:"Customer: " + (ST.ct === "new" ? "first time" : "returning") }); }
+  if(ST.region){ out.push({ key:"region", label:"Region: " + ST.region }); }
+  if(ST.cat){ out.push({ key:"cat", label:"Category: " + ST.cat }); }
+  if(ST.prodq){ out.push({ key:"prodq", label:"Product: " + ST.prodq }); }
+  return out;
 }
 
-/* ===================================================================== TAB 01 · PERFORMANCE */
-function renderOverview(){
-  if(!dailyRows().length){
-    setHTML("verdict", emptyState("No daily rows in the payload",
-      "The page is fine — the export has nothing to show. On a fresh project the views and the export job " +
-      "have nothing to read until the shared Windsor ingest has landed <code>raw_windsor</code> at least " +
-      "once. And a view-only, code-only or seed-only change does NOT advance the freshness watermark, so a " +
-      "normal tick no-ops and keeps serving the old JSON — re-run the job with <code>FORCE_REBUILD=1</code>."));
+/* ===================================================================== TAB 01 · SALES */
+function renderSalesTab(){
+  var s = storeBlock();
+  if(s.enabled === false && adsBlock().enabled === false){
+    setHTML("verdict", emptyState("No feed is wired in yet",
+      "This dashboard needs at least <code>store.daily</code> or <code>ads.rows</code>. " + esc(s.error || "")));
     return;
   }
-  var cur = roll(rowsIn(ST.from, ST.to));
-  var bch = roll(rowsIn(ST.bfrom, ST.bto));
+  var cur = rollAll(ST.from, ST.to);
+  var bch = rollAll(ST.bfrom, ST.bto);
   var weeks = weeksBetween(ST.bfrom, ST.bto);
   var curWeeks = weeksBetween(ST.from, ST.to);
 
@@ -2243,58 +2548,62 @@ function renderOverview(){
   renderKpiRail(cur, bch, weeks, curWeeks);
   renderMainChart();
   renderCompareCards(cur, bch, weeks, curWeeks);
-  renderStages(cur, bch, weeks, curWeeks);
-  renderFunnelChart(cur);
-  renderRevSpend();
-  renderOverviewInsights(cur, bch, weeks, curWeeks);
+  renderRegions();
+  renderTrend();
+  renderCustomerSplit(cur);
+  renderSalesInsights(cur, bch, weeks, curWeeks);
 }
 function renderVerdict(cur, bch, weeks, curWeeks){
   var expRev = benchOf("revenue", bch, weeks) * curWeeks;
   if(!cur.revenue && !cur.spend){
-    setHTML("verdict", verdictBlock("stale", "?", "Nothing in this window",
-      "No spend and no revenue between <b>" + prettyDate(ST.from) + "</b> and <b>" + prettyDate(ST.to) +
-      "</b>. Widen the period.", []));
+    setHTML("verdict", verdictBlock("stale", "?", "Nothing happened in this window",
+      "No revenue and no spend between <b>" + prettyDate(ST.from) + "</b> and <b>" + prettyDate(ST.to) +
+      "</b>. Widen the period, or clear the filters.", []));
     return;
   }
   var ahead = expRev > 0 && cur.revenue >= expRev;
-  var payback = cur.spend > 0 ? cur.roas >= 1 : true;
-  var tone = (ahead && payback) ? "ok" : ((ahead || payback) ? "warn" : "bad");
+  var profitable = cur.spend > 0 ? cur.roas >= 1 : true;
+  var tone = (ahead && profitable) ? "ok" : ((ahead || profitable) ? "warn" : "bad");
   var glyph = tone === "ok" ? "✓" : (tone === "warn" ? "!" : "▼");
-  var head = tone === "ok" ? "Ahead of the benchmark, and the spend is paying back"
-           : (tone === "bad" ? "Behind the benchmark and the spend is not paying back"
+  var head = tone === "ok" ? "Ahead of the benchmark, and the ads are paying for themselves"
+           : (tone === "bad" ? "Behind the benchmark and the ads are not paying back"
                              : "Mixed: one of volume or return is behind");
-  var sub = "<b>" + money(cur.revenue) + "</b> of revenue on <b>" + money(cur.spend) +
-            "</b> of spend — a return of <b>" + (cur.spend ? ratio(cur.roas, 2) : na()) + "</b>, from <b>" +
-            num(cur.conversions) + "</b> conversions across " + num(cur.sessions) + " sessions. " +
+  var sub = "<b>" + money(cur.revenue) + "</b> of store revenue from <b>" + num(cur.orders) +
+            "</b> orders and <b>" + num(cur.customers) + "</b> customers, at <b>" + money(cur.aov) +
+            "</b> per customer. " +
+            (cur.spend > 0 ? ("Ads spent " + money(cur.spend) + " and were credited with " +
+                              money(cur.adRevenue) + " — a return of <b>" + ratio(cur.roas, 2) + "</b>. ") : "") +
             (expRev > 0 ? ("The benchmark's weekly rate would have produced about " + money(expRev) + ".") : "");
   setHTML("verdict", verdictBlock(tone, glyph, head, sub, [
     ["revenue", money(cur.revenue)],
-    ["spend", money(cur.spend)],
-    ["ROAS", cur.spend ? ratio(cur.roas, 2) : na()],
-    ["conversions", num(cur.conversions)]
+    ["orders", num(cur.orders)],
+    ["AOV", money(cur.aov)],
+    ["ROAS", cur.spend ? ratio(cur.roas, 2) : na()]
   ]));
 }
+/* The meter carries a PACE MARKER, so "ahead" and "behind" are visible rather than inferred. */
 function renderTarget(cur){
   var t = (DATA && DATA.targets) || {};
   if(!(isNum(t.revenue) && t.revenue > 0)){ return; }
-  var frac = Math.min(1, safe(cur.revenue, t.revenue));
+  var got = cur.revenue, frac = Math.min(1, safe(got, t.revenue));
   byId("targetMeter").querySelector(".fill").style.width = (frac * 100).toFixed(1) + "%";
-  /* The pace marker is what makes "ahead" and "behind" visible rather than inferred. */
+  /* Pace = how far through the period we are, so the marker means "where we should be by now". */
   var span = daysBetween(ST.from, ST.to);
   var elapsed = Math.min(span, daysBetween(ST.from, ALL_MAX));
   var pace = span ? elapsed / span : 0;
-  var m = byId("targetMeter"), old = m.querySelector(".pace");
+  var m = byId("targetMeter");
+  var old = m.querySelector(".pace");
   if(old){ m.removeChild(old); }
   var p = document.createElement("div");
   p.className = "pace";
   p.style.left = (pace * 100).toFixed(1) + "%";
   p.innerHTML = "<i>pace</i>";
   m.appendChild(p);
-  setText("targetSub", money(cur.revenue) + " of " + money(t.revenue) + " · " + pct(frac * 100, 1) + " of target");
+  setText("targetSub", money(got) + " of " + money(t.revenue) + " · " + pct(frac * 100, 1) + " of target");
   setHTML("targetNotes",
-    "<span>" + (frac >= pace ? "<b>Ahead of pace</b>" : "<b>Behind pace</b>") + " — " + pct(frac * 100, 1) +
-    " of the target with " + pct(pace * 100, 0) + " of the period gone.</span>" +
-    "<span>Remaining: <b>" + money(Math.max(0, t.revenue - cur.revenue)) + "</b></span>");
+    "<span>" + (frac >= pace ? "<b>Ahead of pace</b>" : "<b>Behind pace</b>") + " — " +
+    pct(frac * 100, 1) + " of the target with " + pct(pace * 100, 0) + " of the period gone.</span>" +
+    "<span>Remaining: <b>" + money(Math.max(0, t.revenue - got)) + "</b></span>");
 }
 function renderKpiRail(cur, bch, weeks, curWeeks){
   var h = "", i;
@@ -2302,8 +2611,7 @@ function renderKpiRail(cur, bch, weeks, curWeeks){
     var k = SPEC.kpis[i];
     var b = benchOf(k.key, bch, weeks);
     var comp = SPEC.volume[k.key] ? b * curWeeks : b;
-    /* ROAS with no spend is n/a, never 0 and never Infinity. A metric the source returns but
-       never populates must read n/a: "0" reads as "we got none", which is a lie. */
+    /* ROAS with no spend is n/a, not 0 — and never Infinity. */
     var blank = (k.key === "roas" && !cur.spend) || !isNum(cur[k.key]);
     h += kpiTile({
       key:k.key, label:k.label, accent:k.accent, sel:true, on:ON[k.key] !== false,
@@ -2321,11 +2629,11 @@ function renderKpiRail(cur, bch, weeks, curWeeks){
     rail.addEventListener("click", function(e){
       var n = e.target;
       while(n && n !== rail && !(n.getAttribute && n.getAttribute("data-kpi"))){ n = n.parentNode; }
-      if(n && n.getAttribute && n.getAttribute("data-kpi")){ toggleSeries(n.getAttribute("data-kpi")); }
+      if(!n || !n.getAttribute || !n.getAttribute("data-kpi")){ return; }
+      toggleSeries(n.getAttribute("data-kpi"));
     });
   }
 }
-/* NEVER allow an empty chart: block deselecting the last active series. */
 function toggleSeries(key){
   var live = 0, kk;
   for(kk in ON){ if(ON.hasOwnProperty(kk) && ON[kk]){ live++; } }
@@ -2333,26 +2641,38 @@ function toggleSeries(key){
   ON[key] = !ON[key];
   renderAll();
 }
+
 function seriesRows(from, to, grainKey){
   var g = grainOf(grainKey, from, to);
-  /* Buckets are DENSE: a day with no sessions plots as a zero, not a gap, or a quiet day
-     silently disappears from a weekly review -- which is the opposite of useful. */
   var keys = denseBuckets(from, to, g, 420) || [];
   var byBucket = {}, i;
   for(i = 0; i < keys.length; i++){
-    byBucket[keys[i]] = { sessions:0, users:0, conversions:0, spend:0, revenue:0, days:{} };
+    byBucket[keys[i]] = { impressions:0, reach:0, clicks:0, link_clicks:0, spend:0, atc:0,
+                          adOrders:0, adRevenue:0, orders:0, revenue:0, customers:0,
+                          newCustomers:0, returningCustomers:0, sessions:0,
+                          _freqSum:0, _freqW:0, days:{} };
   }
-  var rows = rowsIn(from, to);
-  for(i = 0; i < rows.length; i++){
-    var b = byBucket[bucketOf(rows[i].metric_date, g)];
+  var ads = adsIn(from, to);
+  for(i = 0; i < ads.length; i++){
+    var b = byBucket[bucketOf(ads[i].date, g)];
     if(!b){ continue; }
-    b.sessions += n0(rows[i].sessions);
-    b.users += n0(rows[i].users);
-    b.conversions += n0(rows[i].conversions);
-    b.spend += n0(rows[i].spend);
-    b.revenue += n0(rows[i].revenue);
+    var r = ads[i];
+    b.impressions += n0(r.impressions); b.reach += n0(r.reach);
+    b.clicks += n0(r.clicks); b.link_clicks += n0(r.link_clicks);
+    b.spend += n0(r.spend); b.atc += n0(r.atc);
+    b.adOrders += n0(r.orders); b.adRevenue += n0(r.revenue);
+    if(isNum(r.frequency)){ b._freqSum += n0(r.frequency) * n0(r.impressions); b._freqW += n0(r.impressions); }
   }
-  for(i = 0; i < keys.length; i++){ derive(byBucket[keys[i]]); }
+  var st = storeIn(from, to);
+  for(i = 0; i < st.length; i++){
+    var sb = byBucket[bucketOf(st[i].date, g)];
+    if(!sb){ continue; }
+    var s = st[i];
+    sb.orders += n0(s.orders); sb.revenue += n0(s.revenue); sb.customers += n0(s.customers);
+    sb.newCustomers += n0(s.new_customers); sb.returningCustomers += n0(s.returning_customers);
+    sb.sessions += n0(s.sessions);
+  }
+  for(i = 0; i < keys.length; i++){ deriveAll(byBucket[keys[i]]); }
   return { keys:keys, rows:byBucket, grain:g };
 }
 function renderMainChart(){
@@ -2362,8 +2682,7 @@ function renderMainChart(){
     var k = SPEC.kpis[i];
     series.push({ key:k.key, label:k.label, color:k.accent, fmt:k.fmt, axis:k.axis, on:ON[k.key] !== false });
   }
-  drawSeries("chartMain", s.keys, s.rows, series, { mode:SEG.axis, grain:s.grain });
-  /* SAY the resolved grain, so the user knows what they are looking at. */
+  drawSeries("chartMain", s.keys, s.rows, series, { mode:SEG.axis, grain:s.grain, bars:false });
   setText("mainChartSub", grainNote(s.grain, s.keys.length) + " in the selected period · " +
     (SEG.axis === "rel" ? "indexed to each series' own peak" : "real values, one axis per family"));
   var h = "";
@@ -2372,7 +2691,6 @@ function renderMainChart(){
          '<span class="sw" style="background:' + series[i].color + '"></span>' + esc(series[i].label) + "</span>";
   }
   setHTML("mainLegend", h);
-  /* The legend MIRRORS the scorecard toggles, so both routes work. */
   var leg = byId("mainLegend");
   if(leg && !leg.getAttribute("data-wired")){
     leg.setAttribute("data-wired", "1");
@@ -2385,51 +2703,86 @@ function renderMainChart(){
 }
 function renderCompareCards(cur, bch, weeks, curWeeks){
   setHTML("cmpVolume", cmpCard("Volume", "period total vs the benchmark's weekly rate over " + curWeeks.toFixed(1) + " weeks", [
-    { label:"Revenue",     cur:cur.revenue,     bench:benchOf("revenue", bch, weeks) * curWeeks,     fmt:money, basis:"expected at benchmark rate" },
-    { label:"Spend",       cur:cur.spend,       bench:benchOf("spend", bch, weeks) * curWeeks,       fmt:money, basis:"expected at benchmark rate" },
-    { label:"Conversions", cur:cur.conversions, bench:benchOf("conversions", bch, weeks) * curWeeks, fmt:num,   basis:"expected at benchmark rate" },
-    { label:"Sessions",    cur:cur.sessions,    bench:benchOf("sessions", bch, weeks) * curWeeks,    fmt:num,   basis:"expected at benchmark rate" }
+    { label:"Revenue",   cur:cur.revenue,   bench:benchOf("revenue", bch, weeks) * curWeeks,   fmt:money, basis:"expected at benchmark rate" },
+    { label:"Orders",    cur:cur.orders,    bench:benchOf("orders", bch, weeks) * curWeeks,    fmt:num,   basis:"expected at benchmark rate" },
+    { label:"Customers", cur:cur.customers, bench:benchOf("customers", bch, weeks) * curWeeks, fmt:num,   basis:"expected at benchmark rate" },
+    { label:"Ad spend",  cur:cur.spend,     bench:benchOf("spend", bch, weeks) * curWeeks,     fmt:money, basis:"expected at benchmark rate" }
   ]));
   setHTML("cmpEfficiency", cmpCard("Efficiency", "aggregate ratio across the whole benchmark", [
-    { label:"ROAS",              cur:cur.roas, bench:bch.roas, fmt:roasFmt, goodDir:"up",   basis:"benchmark aggregate" },
-    { label:"Conversion rate",   cur:cur.cvr,  bench:bch.cvr,  fmt:pct2,    goodDir:"up",   basis:"benchmark aggregate" },
-    { label:"Revenue / session", cur:cur.rps,  bench:bch.rps,  fmt:money,   goodDir:"up",   basis:"benchmark aggregate" },
-    { label:"Cost / conversion", cur:cur.cpa,  bench:bch.cpa,  fmt:money,   goodDir:"down", basis:"benchmark aggregate" }
+    { label:"AOV (per customer)", cur:cur.aov,      bench:bch.aov,      fmt:money, goodDir:"up", basis:"benchmark aggregate" },
+    { label:"Per order",          cur:cur.perOrder, bench:bch.perOrder, fmt:money, goodDir:"up", basis:"benchmark aggregate" },
+    { label:"ROAS",               cur:cur.roas,     bench:bch.roas,     fmt:roas,  goodDir:"up", basis:"benchmark aggregate" },
+    { label:"CPM",                cur:cur.cpm,      bench:bch.cpm,      fmt:money, goodDir:"down", basis:"benchmark aggregate" }
   ]));
 }
-function renderStages(cur, bch, weeks, curWeeks){
-  var st = SPEC.funnel, h = "", i;
-  for(i = 0; i < st.length; i++){
-    var s = st[i];
-    var prev = i ? n0(cur[st[i - 1].key]) : 0;
-    var carry = i && prev ? (n0(cur[s.key]) / prev * 100) : null;
-    h += stageCard(i, s.label,
-      carry === null ? "top of the funnel"
-        : (carry.toFixed(carry < 10 ? 2 : 1) + "% carried through from " + st[i - 1].label.toLowerCase()),
-      [{ label:"This period", cur:cur[s.key], bench:benchOf(s.key, bch, weeks) * curWeeks, fmt:num,
-         basis:"expected at benchmark rate" }]);
+function renderRegions(){
+  var s = storeBlock(), regions = (s.regions || []).slice();
+  if(!regions.length){
+    drawRanked("chartRegions", [], num, {});
+    setText("regionSub", "No region rows in the payload.");
+    return;
   }
-  setHTML("stages", h);
-}
-function renderFunnelChart(cur){
-  var stages = [], i;
-  for(i = 0; i < SPEC.funnel.length; i++){
-    var s = SPEC.funnel[i];
-    stages.push({ label:s.label, value:cur[s.key], color:s.color, fmt:num });
+  regions.sort(function(a, b){ return n0(b.orders) - n0(a.orders); });
+  var rows = [], i;
+  for(i = 0; i < regions.slice(0, 12).length; i++){
+    rows.push({ label:regions[i].region, value:regions[i].orders,
+                color:ST.region === regions[i].region ? "var(--brand)" : "var(--s1)",
+                note:money(regions[i].revenue) + " of revenue" });
   }
-  drawFunnel("funnel", stages);
+  drawRanked("chartRegions", rows, num, { metric:"Orders", labelW:110 });
+  setText("regionSub", regions.length + " regions · ranked by orders");
 }
-function renderRevSpend(){
+function renderTrend(){
   var s = seriesRows(ST.from, ST.to, "main");
-  drawSeries("chartRevSpend", s.keys, s.rows, [
-    { key:"spend",   label:"Spend",   color:"var(--s2)", fmt:money, axis:"money" },
-    { key:"revenue", label:"Revenue", color:"var(--s1)", fmt:money, axis:"money" }
-  ], { mode:"abs", grain:s.grain, bars:true, padL:56, padR:20 });
-  setHTML("revSpendLegend",
-    '<span class="lg"><span class="sw" style="background:var(--s2)"></span>Spend</span>' +
-    '<span class="lg"><span class="sw" style="background:var(--s1)"></span>Revenue</span>');
+  drawSeries("chartTrend", s.keys, s.rows, [
+    { key:"revenue",   label:"Revenue",   color:"var(--s1)", fmt:money, axis:"money" },
+    { key:"customers", label:"Customers", color:"var(--s7)", fmt:num,   axis:"count" },
+    { key:"aov",       label:"AOV",       color:"var(--s3)", fmt:money, axis:"rate" }
+  ], { mode:"abs", grain:s.grain, bars:true, padL:56, padR:56 });
+  setHTML("trendLegend",
+    '<span class="lg"><span class="sw" style="background:var(--s1)"></span>Revenue</span>' +
+    '<span class="lg"><span class="sw" style="background:var(--s7)"></span>Customers</span>' +
+    '<span class="lg"><span class="sw" style="background:var(--s3)"></span>AOV</span>');
+  setText("trendSub", grainNote(s.grain, s.keys.length) + " · counts, money and rates each on their own axis");
 }
-function renderOverviewInsights(cur, bch, weeks, curWeeks){
+function renderCustomerSplit(cur){
+  var rows = [
+    { label:"First time", value:cur.newCustomers, color:"var(--s2)" },
+    { label:"Returning",  value:cur.returningCustomers, color:"var(--s1)" }
+  ];
+  drawDonut("donutCust", "donutCustLegend", rows, num, function(pick){
+    var map = { "First time":"new", "Returning":"returning" };
+    var want = map[pick] || "";
+    /* Clicking the same slice again clears the filter. */
+    ST.ct = (ST.ct === want) ? "" : want;
+    setActive(".preset[data-ct]", document.querySelector('.preset[data-ct="' + ST.ct + '"]'));
+    renderAll();
+  }, ST.ct === "new" ? "First time" : (ST.ct === "returning" ? "Returning" : ""));
+
+  /* Revenue per customer by type needs the split revenue keys; without them, say so rather than
+     drawing a misleading equal split. */
+  var st = storeIn(ST.from, ST.to), nr = 0, rr = 0, i, haveSplit = false;
+  for(i = 0; i < st.length; i++){
+    if(st[i].new_revenue !== undefined || st[i].returning_revenue !== undefined){ haveSplit = true; }
+    nr += n0(st[i].new_revenue);
+    rr += n0(st[i].returning_revenue);
+  }
+  if(!haveSplit){
+    drawRanked("chartCustValue", [], money, {});
+    setHTML("aovNote", "The store feed does not carry <code>new_revenue</code> / <code>returning_revenue</code> yet, " +
+      "so revenue per customer cannot be split by type. Customer COUNTS above are real.");
+    return;
+  }
+  drawRanked("chartCustValue", [
+    { label:"First time", value:safe(nr, cur.newCustomers), color:"var(--s2)",
+      note:money(nr) + " from " + num(cur.newCustomers) + " customers" },
+    { label:"Returning",  value:safe(rr, cur.returningCustomers), color:"var(--s1)",
+      note:money(rr) + " from " + num(cur.returningCustomers) + " customers" }
+  ], money, { metric:"Revenue per customer", labelW:96 });
+  setHTML("aovNote", "<b>AOV here is revenue ÷ customers</b>, which is the whole reason this split is " +
+    "meaningful. Revenue ÷ orders is shown separately as <b>Per order</b>.");
+}
+function renderSalesInsights(cur, bch, weeks, curWeeks){
   var out = [], expRev = benchOf("revenue", bch, weeks) * curWeeks;
   if(expRev > 0){
     var d = (cur.revenue - expRev) / expRev * 100;
@@ -2439,22 +2792,295 @@ function renderOverviewInsights(cur, bch, weeks, curWeeks){
       "</b> expected at the benchmark's weekly rate over the same " + curWeeks.toFixed(1) + " weeks.",
       d >= 0 ? "win" : "warn"));
   }
-  if(cur.spend > 0 && bch.roas > 0){
-    var dr = (cur.roas - bch.roas) / bch.roas * 100;
-    out.push(insightCard(dr >= 0 ? "💰" : "⚠️",
-      dr >= 0 ? "Return on spend is improving" : "Return on spend is falling",
-      "ROAS is <b>" + ratio(cur.roas, 2) + "</b> against <b>" + ratio(bch.roas, 2) + "</b> on the benchmark — " +
-      Math.abs(dr).toFixed(0) + "% " + (dr >= 0 ? "up" : "down") + ".",
-      dr >= 0 ? "win" : "warn"));
+  if(cur.spend > 0){
+    var payback = cur.roas >= 1;
+    out.push(insightCard(payback ? "💰" : "⚠️",
+      payback ? "The ads are paying for themselves" : "The ads are not paying back yet",
+      "<b>" + money(cur.spend) + "</b> of spend was credited with <b>" + money(cur.adRevenue) +
+      "</b> — a return of <b>" + ratio(cur.roas, 2) + "</b>" +
+      (bch.roas ? (" against " + ratio(bch.roas, 2) + " on the benchmark") : "") + ". " +
+      "That is <i>attributed</i> ad revenue, not the store total of " + money(cur.revenue) + ".",
+      payback ? "win" : "warn"));
   }
-  /* Name the weakest stage: "the funnel is bad" is not actionable. */
-  var st = SPEC.funnel, worst = null, i;
+  if(cur.newCustomers + cur.returningCustomers > 0){
+    var retShare = safe(cur.returningCustomers, cur.newCustomers + cur.returningCustomers) * 100;
+    out.push(insightCard("🔁", retShare >= 30 ? "A healthy share of buyers are returning" : "Most buyers are first-timers",
+      "<b>" + pct(retShare, 1) + "</b> of customers in the period had bought before. " +
+      (retShare < 30 ? "Growth is coming from acquisition, which is the expensive half."
+                     : "Repeat purchase is doing real work here."),
+      retShare >= 30 ? "win" : "warn"));
+  }
+  if(bch.aov && cur.aov){
+    var da = (cur.aov - bch.aov) / bch.aov * 100;
+    if(Math.abs(da) >= 3){
+      out.push(insightCard("🧾", da > 0 ? "Customers are spending more" : "Customers are spending less",
+        "AOV is <b>" + money(cur.aov) + "</b> per customer against <b>" + money(bch.aov) +
+        "</b> on the benchmark — " + Math.abs(da).toFixed(0) + "% " + (da > 0 ? "up" : "down") + ".",
+        da > 0 ? "win" : "warn"));
+    }
+  }
+  if(!out.length){ out.push(insightCard("ℹ️", "Not enough benchmark to judge this yet",
+    "Set a KPI benchmark range that actually contains data and every card here fills in.")); }
+  setHTML("salesInsights", out.join(""));
+}
+
+/* ===================================================================== TAB 02 · ADS × STORE */
+function renderAdsTab(){
+  var a = adsBlock();
+  if(a.enabled === false || !a.rows){
+    setHTML("adsGate", emptyState("The ad feed is not wired in yet",
+      "This tab lights up the day <code>ads.rows</code> lands in the payload. " + esc(a.error || "")));
+    show("adsBody", false);
+    return;
+  }
+  setHTML("adsGate", "");
+  show("adsBody", true);
+  var cur = rollAll(ST.from, ST.to);
+  var bch = rollAll(ST.bfrom, ST.bto);
+  var weeks = weeksBetween(ST.bfrom, ST.bto);
+  var curWeeks = weeksBetween(ST.from, ST.to);
+
+  renderStages(cur, bch, weeks, curWeeks);
+  renderAdFunnel(cur);
+  renderRevSpend();
+  renderEff();
+  renderFreq(cur);
+  renderGallery();
+  renderCampaignTable();
+  renderAdsInsights(cur, bch, weeks, curWeeks);
+  setHTML("campChips", chipRow(activeChips()));
+}
+function renderStages(cur, bch, weeks, curWeeks){
+  var st = SPEC.funnel, h = "", i, shown = 0;
+  for(i = 0; i < st.length; i++){
+    var s = st[i];
+    if(s.optional && !cur[s.key]){ continue; }
+    var key = s.key === "orders" ? "adOrders" : s.key;
+    var prev = i ? n0(cur[st[i - 1].key === "orders" ? "adOrders" : st[i - 1].key]) : 0;
+    var carry = i && prev ? (n0(cur[key]) / prev * 100) : null;
+    h += stageCard(shown++, s.label,
+      carry === null ? "top of the funnel"
+        : (carry.toFixed(carry < 10 ? 2 : 1) + "% carried through from " + st[i - 1].label.toLowerCase()),
+      [{ label:"This period", cur:cur[key], bench:benchOf(s.key, bch, weeks) * curWeeks, fmt:num,
+         basis:"expected at benchmark rate" }]);
+  }
+  setHTML("stages", h);
+}
+function renderAdFunnel(cur){
+  var stages = [], i;
+  for(i = 0; i < SPEC.funnel.length; i++){
+    var s = SPEC.funnel[i];
+    var key = s.key === "orders" ? "adOrders" : s.key;
+    if(s.optional && !cur[key]){ continue; }
+    stages.push({ label:s.label, value:cur[key], color:s.color, fmt:num });
+  }
+  drawFunnel("funnel", stages);
+}
+function renderRevSpend(){
+  var s = seriesRows(ST.from, ST.to, "main");
+  drawSeries("chartRevSpend", s.keys, s.rows, [
+    { key:"spend",     label:"Ad spend",           color:"var(--s5)", fmt:money, axis:"money" },
+    { key:"adRevenue", label:"Attributed revenue", color:"var(--s1)", fmt:money, axis:"money" }
+  ], { mode:"abs", grain:s.grain, bars:true, padL:56, padR:20 });
+  setHTML("revSpendLegend",
+    '<span class="lg"><span class="sw" style="background:var(--s5)"></span>Ad spend</span>' +
+    '<span class="lg"><span class="sw" style="background:var(--s1)"></span>Attributed revenue</span>');
+}
+function renderEff(){
+  var s = seriesRows(ST.from, ST.to, "main");
+  drawSeries("chartEff", s.keys, s.rows, [
+    { key:"roas", label:"ROAS", color:"var(--s6)", fmt:roas,  axis:"rate" },
+    { key:"cpm",  label:"CPM",  color:"var(--s4)", fmt:money, axis:"money" }
+  ], { mode:"abs", grain:s.grain, padL:52, padR:52 });
+  setHTML("effLegend",
+    '<span class="lg"><span class="sw" style="background:var(--s6)"></span>ROAS</span>' +
+    '<span class="lg"><span class="sw" style="background:var(--s4)"></span>CPM</span>');
+}
+function renderFreq(cur){
+  var s = seriesRows(ST.from, ST.to, "main");
+  drawSeries("chartFreq", s.keys, s.rows, [
+    { key:"frequency", label:"Frequency", color:"var(--s7)", fmt:roas, axis:"rate" }
+  ], { mode:"abs", grain:s.grain, padL:46, padR:20 });
+  /* The threshold is a dashed reference line, not a colour ramp. */
+  var svg = byId("chartFreq");
+  if(svg){
+    var vb = (svg.getAttribute("viewBox") || "0 0 620 280").split(/\s+/);
+    var H = Number(vb[3]), box = { x:46, y:14, w:Number(vb[2]) - 46 - 20, h:H - 14 - 30 };
+    var mx = 0, i;
+    for(i = 0; i < s.keys.length; i++){
+      var v = n0(s.rows[s.keys[i]].frequency);
+      if(v > mx){ mx = v; }
+    }
+    mx = niceMax(Math.max(mx, SPEC.fatigue * 1.1));
+    var y = box.y + box.h - (SPEC.fatigue / mx) * box.h;
+    svg.appendChild(el("line", { class:"ref", x1:box.x, y1:y.toFixed(1), x2:box.x + box.w, y2:y.toFixed(1) }));
+    var t = el("text", { class:"reflbl", x:box.x + 4, y:(y - 5).toFixed(1) });
+    t.textContent = SPEC.fatigue + "× fatigue watch";
+    svg.appendChild(t);
+  }
+  setHTML("freqNote", "Frequency is the <b>mean of the platform's own per-row value</b>, impression-weighted — " +
+    "never impressions ÷ summed reach, because reach is not additive across days. " +
+    "Currently " + (cur._freqW ? ratio(cur.frequency, 2) : na()) + " across the period.");
+}
+function renderGallery(){
+  var a = adsBlock(), creatives = a.creatives || {};
+  var rows = adsIn(ST.from, ST.to), by = {}, i;
+  for(i = 0; i < rows.length; i++){
+    var cid = rows[i].cid;
+    if(!cid){ continue; }
+    if(!by[cid]){ by[cid] = { cid:cid, name:rows[i].ad, impressions:0, link_clicks:0, spend:0, orders:0, revenue:0 }; }
+    by[cid].impressions += n0(rows[i].impressions);
+    by[cid].link_clicks += n0(rows[i].link_clicks);
+    by[cid].spend       += n0(rows[i].spend);
+    by[cid].orders      += n0(rows[i].orders);
+    by[cid].revenue     += n0(rows[i].revenue);
+  }
+  var list = [];
+  for(var k in by){
+    if(!by.hasOwnProperty(k)){ continue; }
+    var c = by[k];
+    c.roas = safe(c.revenue, c.spend);
+    list.push(c);
+  }
+  if(!list.length){
+    byId("gallery").innerHTML = emptyState("No creative ids on these rows",
+      "The gallery needs <code>cid</code> on every ad row plus an <code>ads.creatives</code> map. " +
+      "The id rides along on the main pull for free — it is not a second metrics call.");
+    setHTML("galNote", "");
+    setHTML("galFoot", "");
+    return;
+  }
+  list.sort(function(x, y){ return n0(y[SEG.crank]) - n0(x[SEG.crank]); });
+  var top = list.slice(0, 12), h = "";
+  for(i = 0; i < top.length; i++){
+    var t = top[i], meta = creatives[t.cid] || {};
+    var media = meta.image
+      ? '<img class="cc-thumb" src="' + esc(meta.image) + '" alt="" loading="lazy">'
+      : '<div class="cc-fb"><div class="mk">Ad copy</div><div class="hd">' + esc(meta.title || t.name || "Creative") + "</div></div>";
+    h += '<div class="ccard click" role="button" tabindex="0" data-cid="' + esc(t.cid) + '">' + media +
+         '<div class="cc-b"><div class="cc-h">' + esc(meta.title || t.name || "Creative") + "</div>" +
+         (meta.body ? '<div class="cc-copy">' + esc(meta.body) + "</div>" : "") +
+         '<div class="cc-m"><span>Impr <b>' + compactN(t.impressions) + "</b></span>" +
+         "<span>Orders <b>" + num(t.orders) + "</b></span>" +
+         "<span>Sales <b>" + compact(t.revenue) + "</b></span>" +
+         "<span>ROAS <b>" + (t.spend ? ratio(t.roas, 2) : na()) + "</b></span></div></div></div>";
+  }
+  setHTML("gallery", h);
+  setHTML("galNote", "Ranked by " + esc(SEG.crank.replace("_", " ")) +
+    ". Numbers are the same rows that feed the tiles above — the creative pull supplies only the text and image.");
+  setHTML("galFoot", capNote(top.length, list.length, "creatives"));
+  var g = byId("gallery");
+  if(g && !g.getAttribute("data-wired")){
+    g.setAttribute("data-wired", "1");
+    var openIt = function(e){
+      var n = e.target;
+      while(n && n !== g && !(n.getAttribute && n.getAttribute("data-cid"))){ n = n.parentNode; }
+      if(n && n.getAttribute && n.getAttribute("data-cid")){ showCreative(n.getAttribute("data-cid")); }
+    };
+    g.addEventListener("click", openIt);
+    g.addEventListener("keydown", function(e){ if(e.key === "Enter" || e.key === " "){ e.preventDefault(); openIt(e); } });
+  }
+}
+function showCreative(cid){
+  var a = adsBlock(), meta = (a.creatives || {})[cid] || {};
+  var rows = adsIn(ST.from, ST.to), t = { impressions:0, link_clicks:0, spend:0, orders:0, revenue:0 }, i, name = "";
+  for(i = 0; i < rows.length; i++){
+    if(rows[i].cid !== cid){ continue; }
+    name = rows[i].ad || name;
+    t.impressions += n0(rows[i].impressions);
+    t.link_clicks += n0(rows[i].link_clicks);
+    t.spend += n0(rows[i].spend);
+    t.orders += n0(rows[i].orders);
+    t.revenue += n0(rows[i].revenue);
+  }
+  openModal('<div class="cm-media">' +
+    (meta.image ? '<img src="' + esc(meta.image) + '" alt="">'
+                : '<div class="cc-fb"><div class="mk">Ad copy</div><div class="hd">' + esc(meta.title || name) + "</div></div>") +
+    "</div>" +
+    '<div class="cm-info"><h3>' + esc(meta.title || name || "Creative") + "</h3>" +
+    (meta.body ? '<div class="cm-body">' + esc(meta.body) + "</div>" : "") +
+    '<div class="cm-metrics">' +
+      "<span>Impressions <b>" + num(t.impressions) + "</b></span>" +
+      "<span>Link clicks <b>" + num(t.link_clicks) + "</b></span>" +
+      "<span>Orders <b>" + num(t.orders) + "</b></span>" +
+      "<span>Sales <b>" + money(t.revenue) + "</b></span>" +
+      "<span>Spend <b>" + money(t.spend) + "</b></span>" +
+      "<span>ROAS <b>" + (t.spend ? ratio(safe(t.revenue, t.spend), 2) : na()) + "</b></span>" +
+    "</div>" +
+    (meta.link ? '<a class="cm-link" href="' + esc(meta.link) + '" target="_blank" rel="noopener">Open the destination</a>' : "") +
+    "</div>");
+}
+function renderCampaignTable(){
+  var rows = adsIn(ST.from, ST.to), by = {}, i;
+  for(i = 0; i < rows.length; i++){
+    var c = rows[i].campaign || "(unnamed)";
+    if(!by[c]){ by[c] = { name:c, impressions:0, reach:0, clicks:0, link_clicks:0, spend:0, atc:0,
+                          orders:0, revenue:0, _freqSum:0, _freqW:0 }; }
+    var b = by[c], r = rows[i];
+    b.impressions += n0(r.impressions); b.reach += n0(r.reach);
+    b.clicks += n0(r.clicks); b.link_clicks += n0(r.link_clicks);
+    b.spend += n0(r.spend); b.atc += n0(r.atc);
+    b.orders += n0(r.orders); b.revenue += n0(r.revenue);
+    if(isNum(r.frequency)){ b._freqSum += n0(r.frequency) * n0(r.impressions); b._freqW += n0(r.impressions); }
+  }
+  var list = [];
+  for(var k in by){
+    if(!by.hasOwnProperty(k)){ continue; }
+    var x = by[k];
+    x.ctr = safe(x.link_clicks, x.impressions) * 100;
+    x.cpm = safe(x.spend, x.impressions) * 1000;
+    x.roas = safe(x.revenue, x.spend);
+    x.frequency = x._freqW ? x._freqSum / x._freqW : 0;
+    list.push(x);
+  }
+  var st = SORT.camp;
+  if(!st.k){ st.k = "spend"; }
+  var sorted = sortRows(list, st), top = sorted.slice(0, 10), h = "";
+  var maxRoas = 0;
+  for(i = 0; i < top.length; i++){ if(top[i].roas > maxRoas){ maxRoas = top[i].roas; } }
+  for(i = 0; i < top.length; i++){
+    var r2 = top[i];
+    var w = maxRoas ? (r2.roas / maxRoas * 100) : 0;
+    h += '<tr class="click' + (ST.camp === r2.name ? " onrow" : "") + '" data-camp="' + esc(r2.name) + '">' +
+      '<td class="rank" data-l="">' + (i + 1) + "</td>" +
+      '<td class="nm hero" data-l="Campaign">' + esc(r2.name) + "</td>" +
+      '<td class="r" data-l="Spend">' + money(r2.spend) + "</td>" +
+      '<td class="r" data-l="Impressions">' + num(r2.impressions) + "</td>" +
+      '<td class="r" data-l="Reach">' + num(r2.reach) + "</td>" +
+      '<td class="r" data-l="Link clicks">' + num(r2.link_clicks) + "</td>" +
+      '<td class="r" data-l="CTR">' + pct(r2.ctr, 2) + "</td>" +
+      '<td class="r" data-l="CPM">' + money(r2.cpm) + "</td>" +
+      '<td class="r" data-l="Add to cart">' + (r2.atc ? num(r2.atc) : na()) + "</td>" +
+      '<td class="r" data-l="Orders">' + num(r2.orders) + "</td>" +
+      '<td class="r" data-l="Sales">' + money(r2.revenue) + "</td>" +
+      '<td class="r bar-cell" data-l="ROAS"><span class="bg" style="width:' + w.toFixed(1) + '%"></span>' +
+        "<span>" + (r2.spend ? ratio(r2.roas, 2) : na()) + "</span></td>" +
+    "</tr>";
+  }
+  setHTML("campTbl", byId("campTbl").querySelector("thead").outerHTML + "<tbody>" + h + "</tbody>");
+  markSort("campTbl", st);
+  setHTML("campFoot", capNote(top.length, list.length, "campaigns", "click a row to filter the whole tab"));
+  byId("campTbl").querySelector("tbody").addEventListener("click", function(e){
+    var n = e.target;
+    while(n && n.tagName !== "TR"){ n = n.parentNode; }
+    if(!n || !n.getAttribute("data-camp")){ return; }
+    var c = n.getAttribute("data-camp");
+    ST.camp = (ST.camp === c) ? "" : c;
+    byId("campSel").value = ST.camp;
+    renderAll();
+  });
+}
+function renderAdsInsights(cur, bch, weeks, curWeeks){
+  var out = [], st = SPEC.funnel, worst = null, i;
   for(i = 1; i < st.length; i++){
-    var prev = n0(cur[st[i - 1].key]);
+    var kNow = st[i].key === "orders" ? "adOrders" : st[i].key;
+    var kPrev = st[i - 1].key === "orders" ? "adOrders" : st[i - 1].key;
+    if(st[i].optional && !cur[kNow]){ continue; }
+    var prev = n0(cur[kPrev]);
     if(!prev){ continue; }
-    var carry = n0(cur[st[i].key]) / prev;
-    var bprev = n0(bch[st[i - 1].key]);
-    var bcarry = bprev ? n0(bch[st[i].key]) / bprev : 0;
+    var carry = n0(cur[kNow]) / prev;
+    var bprev = n0(bch[kPrev]);
+    var bcarry = bprev ? n0(bch[kNow]) / bprev : 0;
     if(!bcarry){ continue; }
     var gap = (carry - bcarry) / bcarry;
     if(worst === null || gap < worst.gap){
@@ -2466,166 +3092,317 @@ function renderOverviewInsights(cur, bch, weeks, curWeeks){
       "This period carries <b>" + (worst.carry * 100).toFixed(2) + "%</b> through that stage against <b>" +
       (worst.bcarry * 100).toFixed(2) + "%</b> on the benchmark.", "warn"));
   }
-  /* The export publishes its own days_covered; a gap against what is actually in view means the
-     upstream feed has holes in this window, which no chart would tell you. */
-  if(cur.dayCount && DATA.kpis && isNum(DATA.kpis.days_covered)){
-    var span = daysBetween(ST.from, ST.to);
-    if(cur.dayCount < span){
-      out.push(insightCard("🕳️", (span - cur.dayCount) + " day(s) missing from this window",
-        "The period spans <b>" + span + "</b> days but only <b>" + cur.dayCount + "</b> carry rows. " +
-        "The export reports <b>" + num(DATA.kpis.days_covered) + "</b> days covered overall. Missing days " +
-        "plot as zeros, so the shape stays honest — but the feed has holes.", "warn"));
-    }
+  if(cur.frequency >= SPEC.fatigue){
+    out.push(insightCard("🔁", "The audience is seeing the ads a lot",
+      "Frequency is <b>" + ratio(cur.frequency, 2) + "</b>, at or past the <b>" + SPEC.fatigue +
+      "×</b> refresh signal.", "warn"));
+  }
+  if(cur.spend && bch.roas){
+    var dr = (cur.roas - bch.roas) / bch.roas * 100;
+    out.push(insightCard(dr >= 0 ? "💰" : "⚠️",
+      dr >= 0 ? "Return on ad spend is improving" : "Return on ad spend is falling",
+      "ROAS is <b>" + ratio(cur.roas, 2) + "</b> against <b>" + ratio(bch.roas, 2) +
+      "</b> on the benchmark — " + Math.abs(dr).toFixed(0) + "% " + (dr >= 0 ? "up" : "down") + ".",
+      dr >= 0 ? "win" : "warn"));
+  }
+  if(cur.adRevenue && cur.revenue){
+    var share = safe(cur.adRevenue, cur.revenue) * 100;
+    out.push(insightCard("🧮", "Ads are credited with " + pct(share, 1) + " of store revenue",
+      "<b>" + money(cur.adRevenue) + "</b> attributed against <b>" + money(cur.revenue) +
+      "</b> of store revenue. Attribution windows overlap and over-count, so read this as a share of " +
+      "influence, not a clean split."));
   }
   if(!out.length){ out.push(insightCard("ℹ️", "Not enough benchmark to judge this yet",
-    "Set a KPI benchmark range that actually contains data and every card here fills in.")); }
-  setHTML("overviewInsights", out.join(""));
+    "Set a KPI benchmark range that actually contains data.")); }
+  setHTML("adsInsights", out.join(""));
 }
 
-/* ===================================================================== TAB 02 · DAILY RECORD */
-function renderDaily(){
-  renderMomentum();
-  renderDowCharts();
-  renderDailyTable();
-  renderDailyInsights();
+/* ===================================================================== TAB 03 · PRODUCT */
+function catColours(){
+  /* Category colours are assigned ONCE, by overall volume across the WHOLE dataset — so a
+     category keeps its colour across every filter, tab and date range. */
+  var all = storeProducts(), by = {}, i;
+  for(i = 0; i < all.length; i++){
+    var c = all[i].category || "(uncategorised)";
+    by[c] = (by[c] || 0) + n0(all[i].revenue);
+  }
+  var list = [];
+  for(var k in by){ if(by.hasOwnProperty(k)){ list.push({ cat:k, v:by[k] }); } }
+  list.sort(function(a, b){ return b.v - a.v; });
+  var map = {};
+  for(i = 0; i < list.length; i++){ map[list[i].cat] = "var(--s" + ((i % 8) + 1) + ")"; }
+  return map;
 }
-/* Momentum: the most recent four weeks of the period against the earlier weeks of the SAME
-   period, so it never silently reaches outside what the user selected. Both sides are per week. */
-function renderMomentum(){
-  var rows = rowsIn(ST.from, ST.to);
-  if(!rows.length){ setHTML("momentumRail", ""); return; }
-  var recentFrom = shiftDays(ST.to, -27);
-  if(recentFrom < ST.from){ recentFrom = ST.from; }
-  var recent = roll(rowsIn(recentFrom, ST.to));
-  var recentWeeks = weeksBetween(recentFrom, ST.to);
-  var priorTo = shiftDays(recentFrom, -1);
-  var prior = (priorTo >= ST.from) ? roll(rowsIn(ST.from, priorTo)) : null;
-  var priorWeeks = prior ? weeksBetween(ST.from, priorTo) : 0;
-  var keys = ["revenue", "spend", "conversions", "sessions"];
-  var labels = { revenue:"Revenue", spend:"Spend", conversions:"Conversions", sessions:"Sessions" };
-  var fmts = { revenue:money, spend:money, conversions:num, sessions:num };
-  var h = "", i;
-  for(i = 0; i < keys.length; i++){
-    var k = keys[i];
-    var now = n0(recent[k]) / recentWeeks;
-    var was = prior ? n0(prior[k]) / priorWeeks : null;
-    var delta = "", note;
-    if(was !== null && was > 0){
-      var ch = (now - was) / was * 100;
-      /* Inside 3% on a four-week window is noise, and saying so is the point. */
-      delta = Math.abs(ch) < 3 ? '<span class="delta flat">→ flat</span>' : deltaSpan(now, was, "up");
-      note = "vs " + fmts[k](was) + " per week earlier in the period";
-    } else {
-      note = "no earlier weeks in this period to compare against";
-    }
-    h += kpiTile({ label:labels[k] + " / week", value:fmts[k](now),
-                   accent:"var(--s" + (i + 1) + ")", delta:delta, note:note });
-  }
-  setHTML("momentumRail", h);
-}
-function renderDowCharts(){
-  var rows = rowsIn(ST.from, ST.to);
-  var rev = [0,0,0,0,0,0,0], spend = [0,0,0,0,0,0,0], i;
-  for(i = 0; i < rows.length; i++){
-    var w = dObj(rows[i].metric_date).getUTCDay();
-    rev[w] += n0(rows[i].revenue);
-    spend[w] += n0(rows[i].spend);
-  }
-  var totSpend = 0;
-  for(i = 0; i < 7; i++){ totSpend += spend[i]; }
-  var order = [1,2,3,4,5,6,0], revRows = [], roasRows = [];
-  for(i = 0; i < order.length; i++){
-    var d = order[i];
-    revRows.push({ label:DOW3[d], value:rev[d], color:"var(--s1)" });
-    /* A weekday carrying almost no spend produces a wild ROAS on one lucky order. Grey it and
-       say why, rather than letting it win the chart. */
-    var thin = totSpend > 0 && spend[d] < totSpend * 0.02;
-    roasRows.push({ label:DOW3[d], value:safe(rev[d], spend[d]),
-                    color:thin ? "var(--off)" : "var(--s3)",
-                    note:thin ? "only " + money(spend[d]) + " of spend — too little to trust"
-                              : money(spend[d]) + " of spend" });
-  }
-  drawRanked("chartDow", revRows, money, { metric:"Revenue", labelW:52 });
-  drawRanked("chartDowRoas", roasRows, roasFmt, { metric:"ROAS", labelW:52 });
-}
-function renderDailyTable(){
-  var rows = rowsIn(ST.from, ST.to), view = [], i;
-  for(i = 0; i < rows.length; i++){
-    var r = rows[i];
-    view.push({
-      metric_date: String(r.metric_date).slice(0, 10),
-      sessions: n0(r.sessions), users: n0(r.users), conversions: n0(r.conversions),
-      spend: n0(r.spend), revenue: n0(r.revenue),
-      /* Re-derive rather than trusting the row, so the column and the totals line agree. */
-      cvr: safe(n0(r.conversions), n0(r.sessions)) * 100,
-      roas: safe(n0(r.revenue), n0(r.spend))
-    });
-  }
-  var st = SORT.daily;
-  if(!st.k){ st.k = "metric_date"; }
-  var sorted = sortRows(view, st), top = sorted.slice(0, 60), h = "";
-  for(i = 0; i < top.length; i++){
-    var d = top[i];
-    h += "<tr>" +
-      '<td class="rank" data-l="">' + (i + 1) + "</td>" +
-      '<td class="hero" data-l="Date">' + esc(dayLabel(d.metric_date)) + "</td>" +
-      '<td class="r" data-l="Sessions">' + num(d.sessions) + "</td>" +
-      '<td class="r" data-l="Users">' + num(d.users) + "</td>" +
-      '<td class="r" data-l="Conversions">' + num(d.conversions) + "</td>" +
-      '<td class="r" data-l="Conversion rate">' + (d.sessions ? pct(d.cvr, 2) : na()) + "</td>" +
-      '<td class="r" data-l="Spend">' + money(d.spend) + "</td>" +
-      '<td class="r" data-l="Revenue">' + money(d.revenue) + "</td>" +
-      '<td class="r" data-l="ROAS">' + (d.spend ? ratio(d.roas, 2) : na()) + "</td>" +
-    "</tr>";
-  }
-  if(!h){ h = '<tr><td colspan="9">No days in the selected period.</td></tr>'; }
-  setHTML("dailyTbl", byId("dailyTbl").querySelector("thead").outerHTML + "<tbody>" + h + "</tbody>");
-  markSort("dailyTbl", st);
-  /* A capped table must never be mistakable for the whole set: say what is shown AND that the
-     totals cover everything. */
-  var tot = roll(rows);
-  setHTML("dailyFoot", capNote(top.length, view.length, "days",
-    "totals across all " + view.length + ": " + money(tot.revenue) + " revenue, " + money(tot.spend) +
-    " spend, " + (tot.spend ? ratio(tot.roas, 2) : na()) + " ROAS"));
-}
-function renderDailyInsights(){
-  var rows = rowsIn(ST.from, ST.to), out = [];
-  if(!rows.length){
-    setHTML("dailyInsights", insightCard("ℹ️", "Nothing in view", "No days in the selected period."));
+function renderProductTab(){
+  var s = storeBlock();
+  if(s.enabled === false || !s.products){
+    setHTML("prodGate", emptyState("The catalogue feed is not wired in yet",
+      "This tab needs <code>store.products</code> with a product, a category, units and revenue per row. " +
+      esc(s.error || "")));
+    show("prodBody", false);
     return;
   }
-  var best = null, worst = null, zero = 0, i;
+  setHTML("prodGate", "");
+  show("prodBody", true);
+  setHTML("prodChips", chipRow(activeChips()));
+
+  var rows = productsIn(ST.from, ST.to), COL = catColours();
+  var units = 0, rev = 0, byProd = {}, byCat = {}, i;
   for(i = 0; i < rows.length; i++){
-    var r = rows[i], rev = n0(r.revenue), sp = n0(r.spend);
-    if(!rev && !sp){ zero++; }
-    if(!best || rev > n0(best.revenue)){ best = r; }
-    if(sp > 0 && (!worst || safe(rev, sp) < safe(n0(worst.revenue), n0(worst.spend)))){ worst = r; }
+    var r = rows[i];
+    units += n0(r.units); rev += n0(r.revenue);
+    var p = r.product || "(unnamed)";
+    if(!byProd[p]){ byProd[p] = { product:p, category:r.category || "(uncategorised)", units:0, revenue:0 }; }
+    byProd[p].units += n0(r.units); byProd[p].revenue += n0(r.revenue);
+    var c = r.category || "(uncategorised)";
+    byCat[c] = (byCat[c] || 0) + n0(r.revenue);
   }
-  if(best){
-    out.push(insightCard("🏆", "Best day was " + dayLabel(String(best.metric_date).slice(0, 10)),
-      "<b>" + money(best.revenue) + "</b> of revenue on " + money(best.spend) + " of spend. " +
-      "Weekday matters more than most accounts expect — the two charts above are the fast check.",
-      "win"));
+  var prods = [];
+  for(var k in byProd){
+    if(!byProd.hasOwnProperty(k)){ continue; }
+    byProd[k].share = safe(byProd[k].revenue, rev) * 100;
+    prods.push(byProd[k]);
   }
-  if(worst && n0(worst.spend) > 0){
-    out.push(insightCard("⚠️", "Weakest return was " + dayLabel(String(worst.metric_date).slice(0, 10)),
-      "<b>" + ratio(safe(n0(worst.revenue), n0(worst.spend)), 2) + "</b> on " + money(worst.spend) +
-      " of spend.", "warn"));
+  setHTML("prodRail", [
+    kpiTile({ label:"Revenue in view", value:money(rev), accent:"var(--s1)", note:"after every filter on this tab" }),
+    kpiTile({ label:"Units", value:num(units), accent:"var(--s2)" }),
+    kpiTile({ label:"Products sold", value:num(prods.length), accent:"var(--s3)", note:"distinct lines with a sale" }),
+    kpiTile({ label:"Revenue per unit", value:money(safe(rev, units)), accent:"var(--s4)" })
+  ].join(""));
+
+  var st = SORT.prod;
+  if(!st.k){ st.k = SEG.prank; }
+  var sorted = sortRows(prods, st), top = sorted.slice(0, 20), h = "";
+  for(i = 0; i < top.length; i++){
+    var t = top[i];
+    h += "<tr>" +
+      '<td class="rank" data-l="">' + (i + 1) + "</td>" +
+      '<td class="nm hero" data-l="Product">' + esc(t.product) + "</td>" +
+      '<td data-l="Category"><span class="chip mut">' + esc(t.category) + "</span></td>" +
+      '<td class="r" data-l="Units">' + num(t.units) + "</td>" +
+      '<td class="r" data-l="Revenue">' + money(t.revenue) + "</td>" +
+      '<td class="r" data-l="Share">' + pct(t.share, 1) + "</td>" +
+    "</tr>";
   }
-  /* A hole in the feed and a genuinely quiet day look identical on a chart. Say which it is. */
-  if(zero){
-    out.push(insightCard("🕳️", zero + (zero === 1 ? " day" : " days") + " with no spend and no revenue",
-      "Those days plot as zeros rather than being skipped, so the shape of the period stays honest. " +
-      "If they are not real days off, the upstream feed has holes — and the export's freshness watermark " +
-      "would still look satisfied.", "warn"));
+  setHTML("prodTbl", byId("prodTbl").querySelector("thead").outerHTML + "<tbody>" + h + "</tbody>");
+  markSort("prodTbl", st);
+  setHTML("prodFoot", capNote(top.length, prods.length, "products", money(rev) + " of revenue in view"));
+
+  var catRows = [];
+  for(var kk in byCat){
+    if(!byCat.hasOwnProperty(kk)){ continue; }
+    catRows.push({ label:kk, value:byCat[kk], color:COL[kk] || "var(--s8)" });
   }
-  setHTML("dailyInsights", out.join(""));
+  catRows.sort(function(a, b){ return b.value - a.value; });
+  drawDonut("donutCat", "donutCatLegend", catRows, money, function(pick){
+    ST.cat = (ST.cat === pick) ? "" : pick;
+    renderAll();
+  }, ST.cat);
+
+  renderCatMonth(COL);
+  renderChannels();
+  renderSegments();
+  renderProdInsights(prods, catRows, rev, units);
+}
+function renderCatMonth(COL){
+  var all = storeProducts(), months = {}, cats = {}, i;
+  for(i = 0; i < all.length; i++){
+    var r = all[i];
+    if(!r.date){ continue; }
+    if(!inRange(r.date, ST.from, ST.to)){ continue; }
+    var m = monthKey(r.date), c = r.category || "(uncategorised)";
+    if(!months[m]){ months[m] = {}; }
+    months[m][c] = (months[m][c] || 0) + n0(r.revenue);
+    cats[c] = (cats[c] || 0) + n0(r.revenue);
+  }
+  var keys = [];
+  for(var k in months){ if(months.hasOwnProperty(k)){ keys.push(k); } }
+  keys.sort();
+  var catList = [];
+  for(var c2 in cats){ if(cats.hasOwnProperty(c2)){ catList.push({ cat:c2, v:cats[c2] }); } }
+  catList.sort(function(a, b){ return b.v - a.v; });
+  catList = catList.slice(0, 6);
+  var svg = byId("chartCatMonth");
+  if(!svg){ return; }
+  clear(svg);
+  if(!keys.length){
+    var t = el("text", { class:"axis", x:590, y:150, "text-anchor":"middle" });
+    t.textContent = "Product rows carry no date, so seasonality is not buildable.";
+    svg.appendChild(t);
+    setHTML("catMonthLegend", "");
+    return;
+  }
+  var clip = clipBuckets(keys, 36);
+  keys = clip.keys;
+  var box = { x:56, y:14, w:1180 - 56 - 20, h:300 - 14 - 34 };
+  var mx = 0, j;
+  for(i = 0; i < keys.length; i++){
+    var tot = 0;
+    for(j = 0; j < catList.length; j++){ tot += n0(months[keys[i]][catList[j].cat]); }
+    if(tot > mx){ mx = tot; }
+  }
+  mx = niceMax(mx);
+  gridY(svg, box, mx, compact);
+  var gw = box.w / keys.length;
+  for(i = 0; i < keys.length; i++){
+    var y0 = box.y + box.h;
+    for(j = 0; j < catList.length; j++){
+      var v = n0(months[keys[i]][catList[j].cat]);
+      var hh = (v / mx) * box.h;
+      if(hh <= 0){ continue; }
+      svg.appendChild(el("rect", { x:(box.x + i * gw + gw * 0.16).toFixed(1), y:(y0 - hh).toFixed(1),
+        width:(gw * 0.68).toFixed(1), height:hh.toFixed(1), fill:COL[catList[j].cat] || "var(--s8)" }));
+      y0 -= hh;
+    }
+    if(i % Math.max(1, Math.ceil(keys.length / 12)) === 0){
+      var lb = el("text", { class:"axis", x:(box.x + i * gw + gw / 2).toFixed(1), y:300 - 10, "text-anchor":"middle" });
+      lb.textContent = monthLabel(keys[i]);
+      svg.appendChild(lb);
+    }
+  }
+  hoverBands(svg, box, keys, function(idx){
+    var h2 = tipTitle(monthLabelLong(keys[idx])), q;
+    for(q = 0; q < catList.length; q++){
+      h2 += tipRow(catList[q].cat, money(n0(months[keys[idx]][catList[q].cat])));
+    }
+    return h2;
+  });
+  var lh = "";
+  for(j = 0; j < catList.length; j++){
+    lh += '<span class="lg"><span class="sw" style="background:' + (COL[catList[j].cat] || "var(--s8)") +
+          '"></span>' + esc(catList[j].cat) + "</span>";
+  }
+  /* Never a silent cap: say what was dropped. */
+  if(clip.clipped){ lh += '<span class="lg" style="opacity:.7">showing the most recent ' + keys.length +
+    " months of " + (keys.length + clip.clipped) + "</span>"; }
+  setHTML("catMonthLegend", lh);
+}
+function renderChannels(){
+  var s = storeBlock(), list = (s.channels || []).slice(), i;
+  if(!list.length){
+    setHTML("chanTbl", byId("chanTbl").querySelector("thead").outerHTML +
+      '<tbody><tr><td colspan="7">No channel rows in the payload.</td></tr></tbody>');
+    setHTML("chanFoot", "");
+    return;
+  }
+  for(i = 0; i < list.length; i++){
+    list[i].cvr = safe(n0(list[i].orders), n0(list[i].sessions)) * 100;
+    list[i].rps = safe(n0(list[i].revenue), n0(list[i].sessions));
+  }
+  var st = SORT.chan;
+  if(!st.k){ st.k = "revenue"; }
+  var sorted = sortRows(list, st), h = "";
+  for(i = 0; i < sorted.length; i++){
+    var c = sorted[i];
+    h += "<tr>" +
+      '<td class="rank" data-l="">' + (i + 1) + "</td>" +
+      '<td class="hero" data-l="Channel">' + esc(c.channel) + "</td>" +
+      '<td class="r" data-l="Sessions">' + (isNum(c.sessions) ? num(c.sessions) : na()) + "</td>" +
+      '<td class="r" data-l="Orders">' + num(c.orders) + "</td>" +
+      '<td class="r" data-l="Conversion">' + (c.sessions ? pct(c.cvr, 2) : na()) + "</td>" +
+      '<td class="r" data-l="Revenue">' + money(c.revenue) + "</td>" +
+      '<td class="r" data-l="Revenue per session">' + (c.sessions ? money(c.rps) : na()) + "</td>" +
+    "</tr>";
+  }
+  setHTML("chanTbl", byId("chanTbl").querySelector("thead").outerHTML + "<tbody>" + h + "</tbody>");
+  markSort("chanTbl", st);
+  setHTML("chanFoot", sorted.length + " channels");
+}
+function renderSegments(){
+  var a = adsBlock();
+  var bd = (a.breakdowns || {})[ST.split] || [];
+  var hasRev = !(a.breakdown_has_revenue && a.breakdown_has_revenue[ST.split] === false);
+  var rows = [], i, totSpend = 0;
+  for(i = 0; i < bd.length; i++){
+    var s = bd[i];
+    if(s.date && !inRange(s.date, ST.from, ST.to)){ continue; }
+    var key = s.seg || "(unknown)", found = null, j;
+    for(j = 0; j < rows.length; j++){ if(rows[j].label === key){ found = rows[j]; break; } }
+    if(!found){ found = { label:key, impressions:0, clicks:0, link_clicks:0, spend:0, revenue:0, orders:0 }; rows.push(found); }
+    found.impressions += n0(s.impressions);
+    found.clicks += n0(s.clicks);
+    found.link_clicks += n0(s.link_clicks);
+    found.spend += n0(s.spend);
+    if(hasRev){ found.revenue += n0(s.revenue); found.orders += n0(s.orders); }
+  }
+  for(i = 0; i < rows.length; i++){ totSpend += rows[i].spend; }
+  for(i = 0; i < rows.length; i++){
+    rows[i].roas = hasRev ? safe(rows[i].revenue, rows[i].spend) : null;
+    rows[i].spendShare = safe(rows[i].spend, totSpend) * 100;
+    rows[i].thin = rows[i].spendShare < SPEC.floor.spendShare * 100 && rows[i].link_clicks < SPEC.floor.clicks;
+    rows[i].color = "var(--s" + ((i % 8) + 1) + ")";
+  }
+  var metric = SEG.dmet;
+  if(metric === "revenue" && !hasRev){ metric = "impressions"; }
+  var mFmt = (metric === "spend" || metric === "revenue") ? money : num;
+  var mLabel = { impressions:"Impressions", link_clicks:"Link clicks", spend:"Spend", revenue:"Revenue" }[metric];
+  var bars = rows.slice();
+  bars.sort(function(x, y){ return n0(y[metric]) - n0(x[metric]); });
+  var barRows = [];
+  for(i = 0; i < bars.slice(0, 14).length; i++){
+    barRows.push({ label:bars[i].label, value:bars[i][metric], color:bars[i].color,
+                   note:money(bars[i].spend) + " of spend" + (bars[i].thin ? " · below the volume floor" : "") });
+  }
+  drawRanked("chartSeg", barRows, mFmt, { metric:mLabel, labelW:96 });
+  setText("segChartTitle", mLabel + " by " + (ST.split === "position" ? "placement" : ST.split));
+  setText("segChartSub", rows.length + " segments in the selected period");
+
+  if(!hasRev){
+    drawRanked("chartSegRoas", [], roas, {});
+    setText("segRoasSub", "This breakdown carries no revenue — delivery only.");
+    setHTML("segNote", "<b>Not every breakdown carries revenue.</b> The platform returns delivery metrics only " +
+      "on this split, so return on ad spend is not buildable here however reasonable the ask. The payload flags it " +
+      "with <code>breakdown_has_revenue</code> so these columns hide instead of rendering zeros — a zero would " +
+      "read as \"this segment sold nothing\", which is a lie.");
+    return;
+  }
+  var rr = [];
+  for(i = 0; i < rows.length; i++){
+    if(rows[i].thin || !rows[i].spend){ continue; }
+    rr.push({ label:rows[i].label, value:rows[i].roas, color:rows[i].color,
+              note:money(rows[i].revenue) + " on " + money(rows[i].spend) });
+  }
+  rr.sort(function(x, y){ return y.value - x.value; });
+  drawRanked("chartSegRoas", rr.slice(0, 14), roas, { metric:"ROAS", labelW:96 });
+  setText("segRoasSub", "best return at the top · segments below the volume floor excluded");
+  var dropped = 0;
+  for(i = 0; i < rows.length; i++){ if(rows[i].thin){ dropped++; } }
+  setHTML("segNote", dropped
+    ? ("<b>" + dropped + " segment" + (dropped === 1 ? "" : "s") + " below the volume floor</b> (under " +
+       (SPEC.floor.spendShare * 100) + "% of spend and under " + SPEC.floor.clicks +
+       " link clicks) are excluded from the return chart and can never be crowned best or worst.")
+    : "");
+}
+function renderProdInsights(prods, catRows, rev, units){
+  var out = [], i;
+  if(prods.length){
+    var sorted = prods.slice();
+    sorted.sort(function(a, b){ return b.revenue - a.revenue; });
+    var topN = Math.min(5, sorted.length), topRev = 0;
+    for(i = 0; i < topN; i++){ topRev += sorted[i].revenue; }
+    var conc = safe(topRev, rev) * 100;
+    out.push(insightCard(conc > 70 ? "⚠️" : "📦",
+      conc > 70 ? "Revenue is concentrated in a handful of lines" : "Revenue is spread across the catalogue",
+      "The top <b>" + topN + "</b> products carry <b>" + pct(conc, 1) + "</b> of revenue in view. " +
+      "<b>" + esc(sorted[0].product) + "</b> alone is " + pct(safe(sorted[0].revenue, rev) * 100, 1) + ".",
+      conc > 70 ? "warn" : "win"));
+  }
+  if(catRows.length > 1){
+    out.push(insightCard("🏷️", esc(catRows[0].label) + " is the biggest category",
+      "<b>" + money(catRows[0].value) + "</b> of <b>" + money(rev) + "</b> in view (" +
+      pct(safe(catRows[0].value, rev) * 100, 1) + "). Click a slice to see what that category alone looks like."));
+  }
+  if(units){
+    out.push(insightCard("🧾", "Revenue per unit is " + money(safe(rev, units)),
+      "<b>" + num(units) + "</b> units for <b>" + money(rev) + "</b> in view. " +
+      "Compare this against AOV on the overview tab: a gap means baskets carry more than one item."));
+  }
+  if(!out.length){ out.push(insightCard("ℹ️", "Nothing in view", "No product rows match the current filters.")); }
+  setHTML("prodInsights", out.join(""));
 }
 
-/* ===================================================================== go
-   boot() is the shared entry point: it wires tabs, the tuck, sorts and Sync, fetches
-   /data.json, calls onData(), swaps #boot for #app and runs the first render. */
-boot("overview");
+/* ===================================================================== go */
+boot("sales");
 </script>
 </body>
 </html>
