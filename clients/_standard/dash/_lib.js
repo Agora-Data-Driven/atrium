@@ -646,7 +646,11 @@ function doSync(){
   SYNCING = true;
   if(btn){ btn.classList.add("busy"); btn.classList.remove("ok", "bad"); btn.disabled = true; }
   if(lbl){ lbl.textContent = "Syncing"; }
-  fetch("/refresh", { method:"POST", credentials:"same-origin" })
+  /* 🔴 RELATIVE, never "/refresh". The portal serves this dashboard under
+     portal.agoradatadriven.com/d/<client>/ (the reverse proxy in services/portal/dash/main.py), so a
+     root-anchored "/refresh" leaves the frame and hits the PORTAL. Relative resolves correctly under
+     BOTH the proxy path and the dashboard's own root host -- see the twin note on loadData(). */
+  fetch("refresh", { method:"POST", credentials:"same-origin" })
     .then(function(r){
       if(r.status === 404 || r.status === 405){ return { fallback:true }; }
       return r.json().catch(function(){ return { ok:r.ok }; });
@@ -677,7 +681,12 @@ function doSync(){
    exists. */
 var DATA = null;
 function loadData(){
-  return fetch("/data.json", { credentials:"same-origin" })
+  /* 🔴 RELATIVE, never "/data.json" -- the ONE line that decides whether this dashboard works inside
+     Atrium. Under the portal's /d/<client>/ proxy a root-anchored path resolves to
+     portal.agoradatadriven.com/data.json (the portal, not this dash) and the page strands on #boot
+     forever. "data.json" resolves to /d/<client>/data.json there and to /data.json on the
+     dashboard's own host -- correct in both, which is why this is not a proxy-only hack. */
+  return fetch("data.json", { credentials:"same-origin" })
     .then(function(r){
       if(!r.ok){ throw new Error("HTTP " + r.status); }
       return r.json();

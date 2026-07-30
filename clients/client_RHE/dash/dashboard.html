@@ -1497,7 +1497,9 @@ function setSync(state, label){
 }
 function doSync(){
   setSync("busy", "Syncing…");
-  fetch("/refresh", { method:"POST", credentials:"same-origin" })
+  /* RELATIVE, never "/refresh" -- correct both on this service's own host and under the portal's
+     /d/<client>/ proxy, where a root-anchored path would hit the PORTAL instead of this dash. */
+  fetch("refresh", { method:"POST", credentials:"same-origin" })
     .then(function(r){ return r.json(); })
     .catch(function(){ return { ok:false, reason:"refresh unavailable" }; })
     .then(function(res){

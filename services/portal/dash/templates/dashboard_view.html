@@ -95,8 +95,10 @@
 
     {% if dash.url %}
     <div class="ax-dash-frame">
+      {#- allow-forms is LOAD-BEARING -- see the twin comment in atrium.html: without it the browser
+          blocks the embedded dashboard's own password form and Sign in silently does nothing. -#}
       <iframe src="{{ dash.url }}" width="100%" height="{{ dash.height }}" frameborder="0" style="border:0" allowfullscreen
-              sandbox="allow-storage-access-by-user-activation allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
+              sandbox="allow-forms allow-storage-access-by-user-activation allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
     </div>
     {% else %}
     <div class="empty">No dashboard configured. <a href="/w/{{ client }}/dashboard">Open the workspace to add one.</a></div>
