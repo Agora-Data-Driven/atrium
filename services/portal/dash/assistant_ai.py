@@ -82,6 +82,19 @@ INDEX_VERSION = 5           # bump to force a one-time rebuild when the index SH
                             #  communications/tasks/reports indexed, video summary chunks with
                             #  parent pointers for small-to-big expansion)
                             # (v5: the Company profile -- facts/brand/story/products indexed)
+                            # 🔴 BUMPING THIS INVALIDATES EVERY STORED VECTOR (the chunk shape
+                            # changes, so every emb_sig mismatches) -> the next rebuild re-embeds
+                            # the WHOLE corpus. That is JOB work, never request work: see
+                            # needs_full_embed + assistant_reindex.py.
+
+# The request path must never pay for an unbounded embed. When a rebuild needs more NEW vectors
+# than this, the ask embeds this many, marks the index `emb_partial`, and queues the client for the
+# assistant-reindex JOB (which runs uncapped) to finish it. Sized so the worst case is a few
+# seconds of Vertex calls, not the ~344s full re-embed that blew the request timeout on 2026-07-31.
+EMBED_MAX_NEW_INLINE = 400
+
+# How many mail thread archives feed the index (newest first). Mirrored by main._assistant_mail.
+MAIL_ARCHIVE_CAP = 150
 
 
 def _tokens(text):
@@ -401,8 +414,79 @@ def _emb_sig(chunk):
     return hashlib.md5(_searchable(chunk).encode("utf-8")).hexdigest()
 
 
-def embed_index(index, embedder, prev=None):
+def carry_over(prev):
+    """Just the vector maps of `prev` -- what embed_index reuses, and NOTHING else.
+
+    A stored index is mostly `chunks` (34 MiB / 6.5k chunks for a big workspace, and several times
+    that once parsed). The rebuild only ever reads prev's emb/emb_sig/emb_dim, so lifting those out
+    lets the caller DROP the rest before it builds and serializes the new index. Holding the whole
+    previous index across that peak is what pushed the container past its memory limit on
+    2026-07-31 -- see main._assistant_index."""
+    p = prev or {}
+    return {"emb": p.get("emb") or {}, "emb_sig": p.get("emb_sig") or {},
+            "emb_dim": p.get("emb_dim") or 0}
+
+
+def needs_full_embed(prev):
+    """True when rebuilding from `prev` would have to embed the WHOLE corpus (job work, not request).
+
+    Two cases: `prev` carries no semantic leg at all, or it was built at a DIFFERENT INDEX_VERSION
+    -- a shape change alters every chunk's searchable text, so every stored emb_sig mismatches and
+    nothing can be carried over. On a big workspace that is minutes of Vertex calls; because the
+    index is written LAST, such a rebuild never persisted and every later ask retried it, which is
+    exactly how the Assistant went permanently dead on 2026-07-31."""
+    p = prev or {}
+    return (not p.get("emb")) or (not p.get("emb_dim")) or p.get("v") != INDEX_VERSION
+
+
+def dash_stamp(client, dashboard_url=""):
+    """The dashboard export blob's last-modified marker (metadata-only GET), or None.
+
+    Feeds the index fingerprint so a refreshed dashboard re-indexes. 🔴 The ask path and the
+    assistant-reindex JOB must derive this IDENTICALLY -- if the job computed a different stamp,
+    the index it wrote would read as stale on the very next ask and the client would requeue
+    forever. Any failure (no bucket, no access, local dev) is None, which fingerprints consistently.
+
+    ⚠️ KNOWN BUG, deliberately preserved here: this probes `agora-data-driven-<client>-dash`, but
+    the dashboard stack's key is `dash_data_key(client, dashboard_url)` and the two DIVERGE for
+    every production client (see dash_data_key) -- so in production this is always None and a
+    dashboard refresh alone never re-indexes. Fixing it changes the fingerprint for EVERY client
+    and forces an estate-wide rebuild, so it is a change of its own, not a side effect of this
+    one. `dashboard_url` is already threaded through for when that fix is made."""
+    try:
+        from google.cloud import storage  # lazy
+        blob = storage.Client().bucket("agora-data-driven-%s-dash" % client) \
+                               .get_blob("%s.json" % client)
+        return blob.updated.isoformat() if blob is not None and blob.updated else None
+    except Exception:
+        return None
+
+
+def gather_sources(client, ws):
+    """Every input the index is built from: (archives, mail_threads, dash_data, stamp).
+
+    ONE definition, shared by the ask path (main._assistant_index) and the assistant-reindex JOB.
+    They MUST agree: the fingerprint is derived from exactly these, so a job that gathered a
+    different set would write an index the next ask considers stale -- an endless requeue loop."""
+    import workspace
+    archives = [(ch, workspace.read_watcher_videos(client, ch.get("id", "")))
+                for ch in workspace.watcher_channels(ws)]
+    mail = []
+    for t in workspace.mail_threads(ws)[:MAIL_ARCHIVE_CAP]:
+        full = workspace.read_mail_thread(client, t.get("id", ""))
+        if full:
+            mail.append(full)
+    url = (ws or {}).get("dashboard_url", "")
+    return archives, mail, read_client_dash_data(client, url), dash_stamp(client, url)
+
+
+def embed_index(index, embedder, prev=None, max_new=0):
     """Attach a semantic leg to `index` IN PLACE: embed every chunk's text and store packed vectors.
+
+    `max_new` (0 = uncapped, what the JOB uses) bounds how many chunks may be embedded in one call.
+    Over the cap the remainder is left unembedded and recorded as `emb_partial`, so the request path
+    can never stall on a full-corpus embed -- those chunks keep working on the BM25 leg until the
+    assistant-reindex job fills them in.
 
     INCREMENTAL: when `prev` (this client's previous index) carries a semantic leg, any chunk whose id
     AND content signature are unchanged REUSES its stored vector instead of re-embedding. So a Watcher
@@ -436,6 +520,14 @@ def embed_index(index, embedder, prev=None):
         else:
             to_embed.append((cid, _searchable(c), s))
 
+    # Bound the work when a cap is in force (the ask path). The deferred chunks simply have no
+    # vector yet -- BM25 still retrieves them -- and `emb_partial` tells the caller to hand the
+    # rest to the job rather than silently shipping a half-embedded index forever.
+    deferred = 0
+    if max_new and len(to_embed) > max_new:
+        deferred = len(to_embed) - max_new
+        to_embed = to_embed[:max_new]
+
     if to_embed:
         try:
             vectors, _err = embedder([t for _cid, t, _s in to_embed])
@@ -453,6 +545,10 @@ def embed_index(index, embedder, prev=None):
         index["emb_sig"] = sig        # per-embedded-chunk content signature (powers the next reuse)
         index["emb_dim"] = dim
         index["emb_count"] = len(emb)
+    if deferred:
+        index["emb_partial"] = deferred
+    else:
+        index.pop("emb_partial", None)
     return index
 
 

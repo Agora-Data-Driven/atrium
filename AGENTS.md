@@ -408,6 +408,31 @@ auto-refresh (see those bullets below). Product name is one constant:
   Vertex code paths run off-cloud with a `gcloud auth print-access-token` token. Off-cloud test:
   `dash/_assistant_localtest.py` (in CI). The Watcher tab also gained a Looker-style upload-date
   range control (presets + custom from/to) that filters videos and creators client-side.
+  - 🔴 **A FULL rebuild is JOB work, never request work (`assistant_reindex.py`, 2026-07-31).**
+    A full rebuild re-chunks every source and re-embeds the whole corpus: on a 30 MiB / 6.8k-chunk
+    workspace that measured **~344s and a peak past 512 MiB**. It used to run inside the ask, and
+    two properties turned that from "slow" into **permanently dead**: the index is written **LAST**
+    (so a rebuild that died persisted nothing) and the reuse check demands
+    `stored v == INDEX_VERSION` (so after a version bump *every* ask re-attempted the identical
+    doomed rebuild — chat never recovered on its own, and the SSE stream logged **HTTP 200** while
+    the container was OOM-killed mid-stream). `main._assistant_index` now has three outcomes, none
+    unbounded: **reuse** a current index; **rebuild** cheap drift, embedding at most
+    `assistant_ai.EMBED_MAX_NEW_INLINE` (400) new chunks and recording any remainder as
+    `emb_partial`; or — when `needs_full_embed` says nothing can be carried over — **keep answering
+    from the index it already has** and flag the client via `workspace.queue_assistant_reindex`.
+    Cloud Run **job `assistant-reindex`** (`deploy_assistant_reindex.ps1`, **2Gi + a 3600s task
+    timeout — those numbers ARE the fix, don't trim them to match the other jobs**) does the heavy
+    rebuild uncapped and clears the flag; its scheduler tick (every 15 min) only reads the small
+    workspace JSONs for that flag, because `needs_reindex(..., inspect=True)` downloads **every**
+    index (tens of MB per client) and is reserved for the post-version-bump `--sweep`. The Rebuild
+    button triggers the job per-client (`sync_dash.trigger_job`, env override
+    `REINDEX_CLIENT=<key>`) and returns immediately, falling back to the old inline rebuild only
+    when the job is unreachable. ⚠️ Triggering **with overrides** needs
+    `run.jobs.runWithOverrides` — `roles/run.invoker` does NOT carry it, so the web SA holds
+    `roles/run.developer` on the job. ⚠️ **After bumping `INDEX_VERSION`, run the job with
+    `--sweep`** or big workspaces silently serve a stale index until someone asks. `carry_over`
+    lifts only the vector maps out of the previous index so the caller can release its chunks
+    before building + serializing the new one (measured 202 → 172 MiB peak).
   - **The distilled layer (`digest.py`, 2026-07-29, INDEX_VERSION 4):** the Assistant is fed
     INSIGHTS, not raw dumps. `digest.py` (pure, stdlib) derives titled sections from raw data:
     the dashboard export becomes overview/campaigns/creatives/trend/audience/email sections

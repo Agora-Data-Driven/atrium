@@ -700,6 +700,95 @@ def run():
            r.get_json()["ok"] is True
            and not any(x["id"] == "cv3" for x in r.get_json()["conversations"]))
 
+    # --- The rebuild is BOUNDED on the request path (the 2026-07-31 permanent-death fix) ----------
+    # A full rebuild re-embeds the whole corpus. Run inside a request that blew BOTH the memory
+    # limit and the request timeout -- and since the index is written LAST it persisted nothing, so
+    # every later ask retried the identical doomed work. Chat was permanently dead, not just slow.
+    _check("needs_full_embed: a version-mismatched index can carry nothing over",
+           assistant_ai.needs_full_embed({"v": 3, "emb": {"a": "x"}, "emb_dim": 4}) is True)
+    _check("needs_full_embed: an index with no semantic leg needs a full embed",
+           assistant_ai.needs_full_embed({"v": assistant_ai.INDEX_VERSION}) is True)
+    _check("needs_full_embed: a current, embedded index does NOT",
+           assistant_ai.needs_full_embed(
+               {"v": assistant_ai.INDEX_VERSION, "emb": {"a": "x"}, "emb_dim": 4}) is False)
+
+    # carry_over keeps ONLY the vector maps, so the caller can release the old index's (multi-MB)
+    # chunks before building + serializing the new one -- that retention was the memory peak.
+    carried = assistant_ai.carry_over(
+        {"v": 5, "chunks": [{"id": "big", "text": "x" * 10000}], "df": {"a": 1},
+         "emb": {"c1": "packed"}, "emb_sig": {"c1": "sig"}, "emb_dim": 8})
+    _check("carry_over keeps the vector maps",
+           carried["emb"] == {"c1": "packed"} and carried["emb_sig"] == {"c1": "sig"}
+           and carried["emb_dim"] == 8)
+    _check("carry_over drops chunks + df (the bulk of a stored index)",
+           "chunks" not in carried and "df" not in carried)
+
+    # embed_index(max_new=) bounds the work: past the cap the rest is DEFERRED and RECORDED, so a
+    # request can never stall on a whole-corpus embed and the leftovers stay visible to the job.
+    calls = []
+
+    def _emb(texts):
+        calls.append(len(texts))
+        return [[0.1, 0.2, 0.3, 0.4] for _ in texts], ""
+
+    def _mk(n):
+        return assistant_ai.build_index(
+            [{"id": "c%d" % i, "kind": "video", "title": "t%d" % i, "text": "body %d" % i}
+             for i in range(n)], fp="fp")
+
+    idx = _mk(10)
+    assistant_ai.embed_index(idx, _emb, prev=None, max_new=4)
+    _check("embed_index(max_new=4) embeds only 4 of 10", calls == [4])
+    _check("embed_index records the deferred remainder", idx.get("emb_partial") == 6)
+    calls[:] = []
+    idx2 = _mk(10)
+    assistant_ai.embed_index(idx2, _emb, prev=None, max_new=0)
+    _check("embed_index uncapped (what the JOB uses) embeds everything", calls == [10])
+    _check("an uncapped index carries no emb_partial marker", "emb_partial" not in idx2)
+
+    # The queue: the ask path FLAGS the client instead of doing job-sized work inline.
+    workspace.clear_assistant_reindex(CLIENT)
+    _check("a cleared workspace is not flagged",
+           workspace.assistant_reindex_pending(workspace.load_workspace(CLIENT)) is False)
+    workspace.queue_assistant_reindex(CLIENT, "index built at v3, code is v5")
+    ws_q = workspace.load_workspace(CLIENT)
+    _check("queue_assistant_reindex flags it, with the reason",
+           workspace.assistant_reindex_pending(ws_q) is True
+           and "v3" in ws_q["assistant"]["reindex"]["reason"])
+    workspace.clear_assistant_reindex(CLIENT, built_at="2026-07-31T00:00:00Z")
+    _check("clear_assistant_reindex unflags it",
+           workspace.assistant_reindex_pending(workspace.load_workspace(CLIENT)) is False)
+
+    # End to end: a stale, version-mismatched index must be SERVED, never rebuilt on the ask path.
+    stale = {"v": 3, "fingerprint": "old-fp", "built_at": "2026-07-18T10:00:59Z",
+             "chunks": [{"id": "old1", "kind": "video", "title": "Kept", "text": "old content"}],
+             "df": {"old": 1}, "n_docs": 1, "avgdl": 2.0,
+             "emb": {"old1": "packed"}, "emb_sig": {"old1": "sig"}, "emb_dim": 4}
+    workspace.write_assistant_index(CLIENT, stale)
+    _real_cfg = main.intel_ai.embeddings_configured
+    main.intel_ai.embeddings_configured = lambda: True
+    try:
+        served = main._assistant_index(workspace.load_workspace(CLIENT), CLIENT)
+    finally:
+        main.intel_ai.embeddings_configured = _real_cfg
+    _check("a version-mismatched index is SERVED as-is, not rebuilt on the ask path",
+           served.get("v") == 3 and served.get("built_at") == "2026-07-18T10:00:59Z")
+    _check("the stored index is left untouched (no half-written rebuild)",
+           workspace.read_assistant_index(CLIENT).get("v") == 3)
+    _check("...and the client is queued for the assistant-reindex job",
+           workspace.assistant_reindex_pending(workspace.load_workspace(CLIENT)) is True)
+
+    # The JOB is what actually repairs it -- uncapped, off the request path.
+    import assistant_reindex
+    res = assistant_reindex.reindex_client(CLIENT, embedder=_emb, summarize=False)
+    _check("the job rebuilds the index at the current INDEX_VERSION",
+           res["ok"] is True
+           and workspace.read_assistant_index(CLIENT)["v"] == assistant_ai.INDEX_VERSION)
+    _check("the job clears the queue flag",
+           workspace.assistant_reindex_pending(workspace.load_workspace(CLIENT)) is False)
+    _check("a repaired client is no longer selected by the cheap tick",
+           assistant_reindex.needs_reindex(CLIENT, workspace.load_workspace(CLIENT))[0] is False)
+
 
 if __name__ == "__main__":
     try:

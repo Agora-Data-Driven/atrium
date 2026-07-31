@@ -314,6 +314,33 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   `POST /admin/atrium/<c>/rename` (superadmin) updates the registry name
   (`store.set_client_name`) AND the workspace `display_name` — display-only, the key/resources
   never change; the console cards have a Rename button (prompt-driven).
+- **`assistant_reindex.py`** — the Cloud Run JOB `assistant-reindex`: the FULL Assistant index
+  rebuild, deliberately OFF the request path. Reuses the platform-dash image + web SA (mirrors
+  `intel_refresh` / `mail_refresh`), gated `ASSISTANT_REINDEX_ENABLED=1`, deployed by
+  `deploy_assistant_reindex.ps1` (**2Gi memory + a 3600s task timeout — those are the fix, not
+  boilerplate; do not trim them to match the other jobs**).
+  🔴 **Why it exists (2026-07-31).** A full rebuild re-chunks every source and re-embeds the whole
+  corpus — ~344s and a multi-hundred-MB peak on a 30 MiB / 6.8k-chunk workspace. Running that
+  inside the ask blew both the 512 MiB memory limit and the 300s request timeout, and because the
+  index is written **LAST** it persisted nothing; since the reuse check demands
+  `stored v == INDEX_VERSION`, after a version bump **every** ask retried the identical doomed
+  rebuild and chat was permanently dead rather than slow. Diagnosing it is unintuitive: the SSE
+  stream logs **HTTP 200** (it opens before the model call, then the container is killed
+  mid-stream) — the tells are a missing `asked the assistant (streamed)` activity line and a
+  separate `severity>=ERROR` "Memory limit ... exceeded" entry.
+  `main._assistant_index` is now bounded: reuse → cheap incremental rebuild (≤
+  `assistant_ai.EMBED_MAX_NEW_INLINE` new vectors, remainder recorded as `emb_partial`) → or, when
+  `assistant_ai.needs_full_embed` says nothing carries over, SERVE the existing index and
+  `workspace.queue_assistant_reindex` the client. Selection: the 15-min tick takes only FLAGGED
+  clients (the flag rides in the workspace JSON it already loads); `--sweep` also opens each stored
+  index (🔴 downloads tens of MB per client — post-version-bump only); `--all` forces everything;
+  `--client <key>` is what the Rebuild button triggers via `sync_dash.trigger_job`.
+  ⚠️ Overrides need `run.jobs.runWithOverrides` — `roles/run.invoker` does NOT carry it, so the web
+  SA gets `roles/run.developer` on the job. ⚠️ `assistant_ai.gather_sources` + `dash_stamp` are ONE
+  definition shared by the ask path and the job **on purpose**: if the job derived a different
+  fingerprint, the index it wrote would read as stale on the next ask and the client would requeue
+  forever. ⚠️ **Bumping `INDEX_VERSION` now requires running the job with `--sweep`.** Covered by
+  the bounded-rebuild checks in `_assistant_localtest.py`.
 - **`mailroom.py` / `mail_refresh.py`** -- the team-only email machinery, now FOLDED INTO the
   Communications tab (2026-07-15; no standalone Mail tab -- its contacts/sync/briefing/stats live in
   the Communications **Email intelligence** panel and email threads render as email-channel cards in
