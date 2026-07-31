@@ -36,8 +36,10 @@ App / library (grep the anchor to land in the right place):
 Templates (`templates/`): `atrium.html` (~8,300 ln — the whole client workspace; Jinja
 `tab_titles`:115 / `tab_subtitles`:119, JS `titles`:3982 / `subtitles`:3990 mirrors,
 `wireAssistantChat`:5368), `admin_atrium.html` (~3,400 ln — operator console + Delivery board),
-`portal.html`, `login.html`, `admin.html`, `superadmin.html`, `signup.html`,
+`login.html`, `admin.html`, `superadmin.html`, `signup.html`,
 `request_access.html`, `profile.html`, `dashboard_view.html`, `recap.html`.
+(`portal.html` — the "Welcome back" landing card list — was **deleted 2026-07-31**; `/` is now a
+bare redirect, see AGENTS.md.)
 
 Ops scripts (all in this dir unless noted): `deploy_dash_platform.ps1` (fast redeploy),
 `../deploy.ps1` (full portal standup), `deploy_intel_refresh.ps1` / `deploy_mail_refresh.ps1` /

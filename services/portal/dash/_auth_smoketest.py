@@ -136,6 +136,31 @@ def run():
     _check("/superadmin -> 302 /admin/atrium",
            c.get("/superadmin").headers.get("Location", "").endswith("/admin/atrium"))
 
+    # --- "/" has NO page of its own (the portal landing was deleted 2026-07-31) ---------------
+    # It only decides where you belong: console for the team, their own workspace for a client with
+    # exactly one, the marketing site for everyone else (a Sentinel staffer with no dashboards).
+    r = c.get("/")
+    _check("/ as super admin -> 302 console",
+           r.status_code == 302 and r.headers.get("Location", "").endswith("/admin/atrium"))
+    main.workspace.save_workspace("riverdance", {"display_name": "Riverdance"})
+    with c.session_transaction() as s:
+        s.clear(); s.update({"ok": True, "user": "owner@gmail.com", "clients": ["riverdance"]})
+    r = c.get("/")
+    _check("/ as a single-client login -> 302 that workspace",
+           r.status_code == 302 and r.headers.get("Location", "").endswith("/w/riverdance/dashboard"))
+    with c.session_transaction() as s:
+        s.clear(); s.update({"ok": True, "user": "staff@agora.ph", "clients": []})
+    r = c.get("/")
+    _check("/ with no dashboards -> 302 the marketing site",
+           r.status_code == 302 and r.headers.get("Location", "") == main.WEBSITE_HOME_URL)
+    with c.session_transaction() as s:
+        s.clear()
+    r = c.get("/")
+    _check("/ signed out -> 302 the login page (NOT the marketing site)",
+           r.status_code == 302 and "/login" in r.headers.get("Location", ""))
+    with c.session_transaction() as s:
+        s.clear(); s.update(SUPER)
+
     # --- Console renders the app suite (the "Switch app" dropdown) + the grant form ------------
     # (The old Home-hub suite cards were replaced by a Switch-app dropdown; "Skill Mastery" is now
     # reached from inside Sentinel/Academy rather than a top-level card.)
@@ -166,8 +191,9 @@ def run():
     with c.session_transaction() as s:
         _check("session now the target user", s.get("user") == "owner@gmail.com")
         _check("impersonator remembered", s.get("impersonator") == "info@agoradatadriven.com")
-    # Any HTML page now carries the injected 'Stop acting as' banner.
-    body = c.get("/").get_data(as_text=True)
+    # Any HTML page now carries the injected 'Stop acting as' banner. (/profile, not "/" -- the
+    # portal landing page was deleted 2026-07-31 and "/" is now a bare redirect with no HTML.)
+    body = c.get("/profile").get_data(as_text=True)
     _check("impersonation banner injected on pages", "Stop acting as" in body and "Acting as" in body)
     r = c.post("/admin/stop-impersonating")
     _check("stop-impersonating -> 302", r.status_code == 302)

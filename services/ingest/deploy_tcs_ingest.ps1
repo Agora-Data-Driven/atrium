@@ -51,7 +51,9 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # services/i
 # The cron times are staggered so the three Klaviyo jobs never collide on the API rate limit.
 $JOBS = @(
   @{ key="tcs-shopify";           dir="services/ingest/tcs_shopify";           job="tcs-shopify-ingest";           mem="1Gi";   cpu="1"; cron="45 1 * * *"; env="SHOPIFY_STORE_DOMAIN=contractshop.myshopify.com,BACKFILL_START=2017-10" }
-  @{ key="tcs-klaviyo";           dir="services/ingest/tcs_klaviyo";           job="tcs-klaviyo-ingest";           mem="1Gi";   cpu="1"; cron="50 1 * * *"; env="BACKFILL_START=2023-06" }
+  # 4Gi, not 1Gi: collect_window holds a whole month of sends in memory before the load job, and a
+  # busy month (~275k) OOM-killed the task (signal 9) at 1Gi repeatedly on 2026-07-29/30.
+  @{ key="tcs-klaviyo";           dir="services/ingest/tcs_klaviyo";           job="tcs-klaviyo-ingest";           mem="4Gi";   cpu="1"; cron="50 1 * * *"; env="BACKFILL_START=2023-06" }
   @{ key="tcs-quiz";              dir="services/ingest/tcs_quiz";              job="tcs-quiz-ingest";              mem="512Mi"; cpu="1"; cron="55 1 * * *"; env="" }
   @{ key="tcs-sessions";          dir="services/ingest/tcs_sessions";          job="tcs-sessions-ingest";          mem="1Gi";   cpu="1"; cron="10 2 * * *"; env="SHOPIFY_STORE_DOMAIN=contractshop.myshopify.com,BACKFILL_START=2022-09-01" }
   @{ key="tcs-klaviyo-profiles";  dir="services/ingest/tcs_klaviyo_profiles";  job="tcs-klaviyo-profiles-ingest";  mem="1Gi";   cpu="1"; cron="20 2 * * *"; env="" }

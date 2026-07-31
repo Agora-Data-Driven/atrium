@@ -24,6 +24,7 @@ WITH agg AS (
     SUM(purchase_value)                         AS revenue
   FROM `agora-data-driven.raw_windsor.perf_meta`
   WHERE client_slug = 'tcs'
+    AND objective LIKE '%LEAD%'   -- lead-gen campaigns only; see 15_paid_media_daily.sql
   GROUP BY campaign_id
 )
 SELECT

@@ -16,8 +16,8 @@ Auth model (two cooperating layers):
 Reverse proxy (/d/<client>/...):
   The portal logs into the upstream <client>-dash service ONCE, server-side, using that dash's own
   Secret-Manager password (store.get_client_dash_password), holds the upstream session in a cookie
-  jar, and proxies requests/responses. It injects a small logout pill + feedback widget into proxied
-  HTML so the user always has a way back to the portal. This means the end user only ever types the
+  jar, and proxies requests/responses. It injects a small back-to-workspace + logout chrome into
+  proxied HTML so the user always has a way out. This means the end user only ever types the
   PORTAL password -- they never see the per-dashboard password.
 
 Org policy forbids public Cloud Run: deploy with --no-invoker-iam-check (never
@@ -86,6 +86,11 @@ REGION = os.environ.get("REGION", "asia-southeast1")
 SKILL_MASTERY_URL = os.environ.get(
     "SKILL_MASTERY_URL", "https://mastery.agoradatadriven.com")
 WEBSITE_EDITOR_URL = os.environ.get("WEBSITE_EDITOR_URL", "https://agoradatadriven.com/?edit=1")
+# The marketing site is the estate's home page. The portal has NO landing page of its own any more
+# (the old "Welcome back" card list was removed 2026-07-31): a bare "/" that isn't a super-admin's
+# console hands the user back to the website, so the portal only ever serves real destinations --
+# /admin/atrium, /w/<c>/, /d/<c>/.
+WEBSITE_HOME_URL = os.environ.get("WEBSITE_HOME_URL", "https://agoradatadriven.com")
 SENTINEL_URL = os.environ.get(
     # Must be the custom domain: the portal `ag_sso` cookie is scoped to
     # .agoradatadriven.com, so on a raw *.run.app host SSO is inert and the user
@@ -482,15 +487,6 @@ def _inject_head(resp):
     return resp
 
 
-def _visible_clients():
-    """The client dicts this session is allowed to see, for the portal landing page."""
-    clients = store.list_clients()
-    if real_superadmin():
-        return clients
-    allowed = set(allowed_clients())
-    return [c for c in clients if c.get("key") in allowed]
-
-
 def _brand_ctx():
     """Shared brand assets for every rendered page (the AGORA mark + favicon, from brand.py).
 
@@ -504,44 +500,49 @@ def _brand_ctx():
 def _post_login_destination(granted, next_url):
     """Where to send a user immediately after a successful login.
 
-    A client who can open exactly ONE workspace lands straight on that workspace's overview -- the
-    company overview -- instead of the portal card list, so a single-client login feels like "their"
-    app. Super-admins ("*") and users with several clients keep the card list, and an explicit deep
-    link (any next_url other than the bare "/") always wins so /admin, a specific /w/<c>/ tab, or a
-    proxied dashboard link is never hijacked.
+    There is no portal landing page: every login resolves to a real destination. A super-admin gets
+    the operator console; a client who can open exactly ONE workspace lands straight on that
+    workspace; anyone else (a Sentinel-authorized staffer with no client dashboards, or a login with
+    several clients and no deep link) is handed to the marketing site, which is the estate's home.
+    An explicit deep link (any next_url other than the bare "/") always wins, so /admin, a specific
+    /w/<c>/ tab, or a proxied dashboard link is never hijacked.
     """
     if next_url and next_url not in ("/", ""):
         return next_url
-    if "*" not in granted and len(granted) == 1:
+    if "*" in granted:
+        return url_for("admin_atrium")
+    if len(granted) == 1:
         only = granted[0]
         if workspace.workspace_exists(only):
             return url_for("atrium", client=only, tab="dashboard")
-    return next_url or "/"
+    return WEBSITE_HOME_URL
 
 
 # --- Routes: auth + landing --------------------------------------------------------------
 @app.route("/", methods=["GET"])
 def index():
+    """The portal has no landing page of its own -- "/" only decides where you belong.
+
+    The old "Welcome back" card list (portal.html) was deleted 2026-07-31: for most people it was an
+    empty box ("No dashboards are assigned to your account yet") sitting between them and the thing
+    they actually came for. A super-admin still lands on the operator console, a single-client login
+    on that client's workspace, and everyone else on the marketing site.
+
+    Unauthenticated visitors still get the LOGIN page, not the website -- portal.agoradatadriven.com
+    is where a client types their password, so bouncing them to the marketing site would leave them
+    with no way in.
+    """
     if not authed():
         return redirect(url_for("login", next="/"))
-    # The team console IS the landing page for the agency operator -- a super-admin never sees the
-    # old client portal page; they go straight to /admin/atrium. Clients still land on their portal.
-    if is_superadmin():
-        return redirect(url_for("admin_atrium"))
-    return render_template(
-        "portal.html",
-        user=current_user(),
-        clients=_visible_clients(),
-        is_admin=authed(),
-        is_superadmin=is_superadmin(),
-        **_brand_ctx(),
-    )
+    return redirect(_post_login_destination(allowed_clients(), ""))
 
 
 @app.route("/dashboard/<client>")
 def client_dashboard(client):
-    """Standalone full-screen Looker Studio dashboard for ONE client, reachable from the portal
-    'Open dashboard' button -- it shows their live report without entering the full Atrium workspace.
+    """Standalone full-screen Looker Studio dashboard for ONE client -- their live report without the
+    full Atrium workspace around it. A DEEP LINK only since the portal landing page was deleted
+    (2026-07-31): nothing in the UI points here any more, but the URL still works and is worth
+    keeping for anyone who bookmarked or was sent one.
     Gated to whoever may open the client (super-admin opens any; a client opens only their own). The
     URL + height come from the workspace settings (atrium_view.dashboard)."""
     if not authed():
@@ -869,13 +870,17 @@ def _ensure_upstream_login(client_key):
 
 
 def _inject_portal_chrome(html, client_key):
-    """Inject a logout pill + feedback widget into proxied dashboard HTML.
+    """Inject a small "back to the workspace" + logout chrome into proxied dashboard HTML.
 
-    Keeps the user oriented inside the portal frame: a way back/out, and a one-line feedback box
-    that posts to the portal's own /feedback. Inserted just before </body> when present.
+    Keeps the user oriented inside the portal frame when they open /d/<c>/ directly (embedded in
+    Atrium's Dashboard tab this sits outside the iframe's useful area, which is fine). Inserted just
+    before </body> when present.
+
+    The old "All dashboards" and "Feedback" pills both pointed at the portal landing page; that page
+    was deleted 2026-07-31, so the way back is now the client's OWN workspace.
     """
-    # Brand-aligned floating chrome: clean white pills + a green feedback CTA, readable on any
-    # dashboard background (mirrors assets/brand.json -- green CTA, charcoal text).
+    # Brand-aligned floating chrome: clean white pills, readable on any dashboard background
+    # (mirrors assets/brand.json -- charcoal text, danger red for log out).
     _pill = ("padding:7px 13px;border-radius:999px;background:#fff;border:1px solid #E7E8EE;"
              "text-decoration:none;font-size:12px;font-weight:600;"
              "box-shadow:0 4px 14px rgba(16,24,40,.16);")
@@ -883,13 +888,10 @@ def _inject_portal_chrome(html, client_key):
         '<div id="ag-portal-chrome" style="position:fixed;top:12px;right:12px;z-index:2147483647;'
         'display:flex;gap:8px;align-items:center;font-family:-apple-system,BlinkMacSystemFont,'
         '\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;">'
-        '<a href="/" style="%scolor:#353535;">All dashboards</a>'
+        '<a href="/w/%s/" style="%scolor:#353535;">Back to workspace</a>'
         '<a href="/logout" style="%scolor:#E5413E;">Log out</a>'
-        '<a href="/" title="Send feedback" style="padding:7px 13px;border-radius:999px;'
-        'background:#4FA84A;color:#fff;text-decoration:none;font-size:12px;font-weight:700;'
-        'box-shadow:0 4px 14px rgba(79,168,74,.34);">Feedback</a>'
         '</div>'
-    ) % (_pill, _pill)
+    ) % (client_key, _pill, _pill)
     marker = "</body>"
     if marker in html:
         return html.replace(marker, pill + marker, 1)
@@ -962,6 +964,9 @@ def admin_legacy_redirect():
 
 
 # --- Feedback (text + voice) -------------------------------------------------------------
+# ⚠️ NO UI POSTS HERE ANY MORE. The send-feedback box lived on the portal landing page, which was
+# deleted 2026-07-31; the endpoint + feedback.py storage are kept because they still work and a
+# future surface (Atrium, the console) can point at them, but nothing calls this today.
 @app.route("/feedback", methods=["POST"])
 def feedback():
     """Store user feedback in the portal's own private bucket; optionally enrich it with AI.
@@ -5634,7 +5639,13 @@ def admin_impersonate():
     _audit("", "started acting as", target)
     session["impersonator"] = current_user()
     _establish_session(target, granted)
-    resp = redirect(_post_login_destination(granted, "/"))
+    # Acting-as must land on a PORTAL page: the "Stop acting as" banner is injected into our own
+    # HTML, so following the normal no-destination fallback (the marketing site) would strand the
+    # super admin outside the app with no escape hatch. /profile is the one page every session has.
+    dest = _post_login_destination(granted, "/")
+    if dest == WEBSITE_HOME_URL:
+        dest = url_for("profile")
+    resp = redirect(dest)
     return _mint_sso_on(resp, granted, target)
 
 

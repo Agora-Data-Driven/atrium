@@ -175,6 +175,49 @@
   .viewtabs .ix{display:inline-block;min-width:17px;height:17px;line-height:17px;margin-right:7px;
     border-radius:5px;background:#dbe5e3;color:var(--muted);font-size:10.5px;font-weight:700;text-align:center}
   .viewtabs .seg button.on .ix{background:var(--teal);color:#fff}
+
+  /* ---- funnel heatmap ---- */
+  /* Shading is applied per COLUMN (see renderPaidHeat): a 1.8% CTR and a 15% lead rate cannot
+     share one scale, so each column is normalised against itself and the colour only ever means
+     "better/worse than the other ads at THIS step". */
+  #paidHeat th .hsub{display:block;font-weight:500;text-transform:none;letter-spacing:0;
+    color:var(--muted);font-size:10px;margin-top:2px}
+  #paidHeat td.heat{text-align:center;font-variant-numeric:tabular-nums;font-weight:600;
+    color:var(--navy);border-radius:5px}
+  #paidHeat tr.thin td{opacity:.45}
+  #paidHeat td.adcell{max-width:210px;white-space:normal;line-height:1.3}
+  #paidHeat td.adcell .cmp{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+
+  /* ---- creative grid ---- */
+  .cregroup{display:flex;align-items:center;gap:9px;margin:0 0 14px 13px}
+  .cregrid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(232px,1fr))}
+  .crecard{border:1px solid var(--border);border-radius:13px;overflow:hidden;background:#fff;
+    display:flex;flex-direction:column}
+  .crecard.thin{opacity:.62}
+  /* Fixed-ratio well so a portrait and a square creative do not make the grid ragged. */
+  .crethumb{position:relative;aspect-ratio:1/1;background:#e4ecea;display:flex;align-items:center;
+    justify-content:center;overflow:hidden}
+  /* 🔴 contain, NOT cover. Meta serves square, portrait AND wide banner creatives; `cover` on a
+     1:1 well crops a wide banner to its middle strip, so the grid showed headless slabs of
+     lettering instead of the ad. This panel exists to judge the creative, so the whole frame has
+     to be visible -- letterboxing against the well is the correct trade. */
+  .crethumb img{width:100%;height:100%;object-fit:contain;display:block}
+  .crethumb .noimg{color:var(--muted);font-size:11px;text-align:center;padding:0 14px;line-height:1.45}
+  .crebadge{position:absolute;top:8px;left:8px;background:rgba(21,58,91,.86);color:#fff;
+    font-size:10px;font-weight:700;padding:3px 7px;border-radius:6px;letter-spacing:.3px}
+  .crebadge.off{background:rgba(107,124,140,.86)}
+  .crebody{padding:11px 12px 12px;display:flex;flex-direction:column;gap:8px;flex:1}
+  .crename{font-size:12.5px;font-weight:700;color:var(--navy);line-height:1.32}
+  .crecopy{font-size:11.5px;color:var(--muted);line-height:1.45;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .crestats{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-top:auto;
+    border-top:1px solid var(--border);padding-top:9px}
+  .crestat .k{font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:600}
+  .crestat .v{font-size:14px;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums}
+  .crestat .v.teal{color:var(--teal-d)}
+  .crestat .v.coral{color:var(--coral)}
+  .crethinflag{font-size:10px;color:#b45309;font-weight:600}
+  @media (max-width:620px){ .cregrid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))} }
   .controls{background:#fff;border:1px solid var(--border);border-radius:14px;
             box-shadow:var(--shadow);margin-bottom:20px}
   .controls-inner{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;
@@ -545,25 +588,44 @@
         </div>
 
         <div class="panel">
-          <h2>Creative</h2>
-          <p class="desc">Every ad over its whole flight, biggest spend first. Click a heading to sort. <b>An ad with too little volume to judge on a rate is marked &ldquo;thin&rdquo;</b> &mdash; four clicks can post a $0.18 CPC and win the table on noise, which is how a targeting decision gets made on nothing.</p>
-          <div class="tablewrap scrolly">
-            <table id="paidAds">
+          <div class="shead"><h2>Where the funnel leaks</h2><span class="sub">reach → leads, per ad</span></div>
+          <p class="desc">Read each row left to right as a <b>chain</b>: of the people who got this far, what share went one step further? <b>Reached → saw it → clicked → page loaded → became a lead.</b> A weak step shows up as a pale cell, instead of having to be inferred from five separate totals.<br>
+          <b>&ldquo;… page loaded&rdquo; is the step nobody measures.</b> Someone clicks the ad &mdash; you have already paid for that click &mdash; but the page never finishes loading, so they never arrive. A slow page, a bad redirect, a broken link. Meta still bills the click, and it is invisible in any report that stops at CTR.<br>
+          <b>Shading compares each column against itself</b>: a 1.8% click rate and a 15% lead rate cannot share a scale, so darker only ever means "better than the other ads at <i>this</i> step". <span style="color:#b45309">Reach is a <b>daily sum</b>, not unique people &mdash; Meta de-duplicates only inside a window it is asked for, and these rows are per-ad-per-day, so someone reached on three days counts three times. Rates compare fairly between ads; don't read the reach column as a headcount.</span> Ads too thin to judge on a rate are dimmed.</p>
+          <div class="tablewrap">
+            <table id="paidHeat">
+              <!-- Plain English FIRST, formula underneath. The columns are a chain -- each one is
+                   "of the people who got this far, what share went one step further?" -- and
+                   leading with the ratio made that read as a jumble of unrelated metrics. -->
               <thead><tr>
-                <th class="sortable" data-key="ad_name" data-type="str">Ad</th>
-                <th class="sortable" data-key="campaign_name" data-type="str">Campaign</th>
-                <th class="sortable" data-key="status" data-type="str">Status</th>
-                <th class="sortable" data-key="spend" data-type="num">Spend</th>
-                <th class="sortable" data-key="impressions" data-type="num">Impr.</th>
-                <th class="sortable" data-key="link_clicks" data-type="num">Link clicks</th>
-                <th class="sortable" data-key="ctr" data-type="num">CTR</th>
-                <th class="sortable" data-key="cpc" data-type="num">CPC</th>
-                <th class="sortable" data-key="leads" data-type="num">Leads</th>
-                <th class="sortable" data-key="cpl" data-type="num">Cost / lead</th>
+                <th>Ad</th><th>Spend</th>
+                <th>Reached<br><span class="hsub">daily sum</span></th>
+                <th>… saw it<br><span class="hsub">impressions ÷ reach</span></th>
+                <th>… clicked<br><span class="hsub">clicks ÷ impressions (CTR)</span></th>
+                <th>… page loaded<br><span class="hsub">page views ÷ clicks</span></th>
+                <th>… became a lead<br><span class="hsub">leads ÷ page views</span></th>
+                <th>End to end<br><span class="hsub">leads ÷ reach</span></th>
+                <th>Cost / lead</th>
               </tr></thead>
               <tbody></tbody>
             </table>
           </div>
+          <p class="note" id="heatNote"></p>
+        </div>
+
+        <div class="panel">
+          <h2>Creative</h2>
+          <p class="desc">Every ad over its whole flight, biggest spend first &mdash; the actual creative next to what it bought. <b>An ad with too little volume to judge on a rate is marked &ldquo;thin&rdquo;</b>: four clicks can post a $0.18 CPC and win on noise, which is how a budget decision gets made on nothing. Sort by any metric to re-rank the grid.</p>
+          <div class="cregroup">
+            <span class="clabel">Sort by</span>
+            <div class="seg" id="seg-cresort">
+              <button type="button" data-v="spend" class="on">Spend</button>
+              <button type="button" data-v="leads">Leads</button>
+              <button type="button" data-v="cpl">Cost / lead</button>
+              <button type="button" data-v="ctr">CTR</button>
+            </div>
+          </div>
+          <div class="cregrid" id="paidAds"></div>
         </div>
 
         <div class="panel">
@@ -1208,7 +1270,7 @@
      Nothing here calls Windsor -- the shared ingest job writes the raw layer for the whole
      estate and this client reads its own slice through a view.
      ========================================================================================== */
-  var PAID = { kpis: null, daily: [], ads: [], campaigns: [], funnel: [], sortKey: "spend", sortDir: -1 };
+  var PAID = { kpis: null, daily: [], ads: [], campaigns: [], funnel: [], stages: [], sortKey: "spend" };
 
   function weekStart(iso) {
     var d = dObj(iso);
@@ -1377,64 +1439,157 @@
       out.length ? out.join("") : '<tr><td colspan="10">No campaigns yet.</td></tr>';
   }
 
-  function renderPaidAds() {
-    var rows = (PAID.ads || []).slice(0), i;
-    var key = PAID.sortKey, dir = PAID.sortDir;
-    rows.sort(function (a, b) {
-      var av = a[key], bv = b[key];
-      if (typeof av === "string" || typeof bv === "string") {
-        av = String(av || "").toLowerCase(); bv = String(bv || "").toLowerCase();
-        return av < bv ? -dir : av > bv ? dir : 0;
+  /* ---- the funnel heatmap: reach -> leads, per ad ----------------------------------------
+     🔴 SHADING IS PER COLUMN, not across the whole grid. A 1.8% CTR and a 15% lead rate live on
+     completely different scales; one shared scale would paint every CTR cell white and every
+     lead-rate cell dark, which says nothing about either. Normalising each column against its
+     own min/max makes a cell mean exactly one thing: "better or worse than the other ads at
+     THIS step" -- which is the question "where does it leak?" actually asks.
+     Thin ads are shaded too but dimmed via .thin, and are EXCLUDED from the min/max so a
+     four-click ad cannot define the scale everyone else is measured against. */
+  var HEAT_COLS = [
+    { key: "impr_per_reach", fmt: "x", lowerBetter: true },
+    { key: "ctr", fmt: "pct", lowerBetter: false },
+    { key: "lp_rate", fmt: "pct", lowerBetter: false },
+    { key: "lead_rate", fmt: "pct", lowerBetter: false },
+    { key: "leads_per_reach", fmt: "pct", lowerBetter: false }
+  ];
+
+  function heatCell(v, lo, hi, lowerBetter, fmt) {
+    if (!isNum(v)) { return '<td class="heat">–</td>'; }
+    var t = (hi > lo) ? (Number(v) - lo) / (hi - lo) : 0.5;   // 0..1 within this column
+    if (t < 0) { t = 0; } if (t > 1) { t = 1; }
+    if (lowerBetter) { t = 1 - t; }
+    /* Teal at varying alpha rather than a rainbow: it survives greyscale printing and stays
+       readable for colour-blind readers, and the number is always shown as well as the shade --
+       the colour is an accelerator, never the only encoding. */
+    var bg = "rgba(23,163,152," + (0.06 + t * 0.62).toFixed(3) + ")";
+    var txt = fmt === "pct" ? fmtPct(v) : (Number(v).toFixed(2) + "x");
+    return '<td class="heat" style="background:' + bg + '">' + txt + "</td>";
+  }
+
+  function renderPaidHeat() {
+    var rows = (PAID.stages || []).slice(0), i, c;
+    var tb = el("paidHeat").getElementsByTagName("tbody")[0];
+    if (!rows.length) {
+      tb.innerHTML = '<tr><td colspan="9">No lead-generation ads yet.</td></tr>';
+      el("heatNote").textContent = "";
+      return;
+    }
+    /* Column scales from the SIGNIFICANT rows only (see above). */
+    var scale = {};
+    for (c = 0; c < HEAT_COLS.length; c++) {
+      var k = HEAT_COLS[c].key, lo = null, hi = null;
+      for (i = 0; i < rows.length; i++) {
+        if (!rows[i].is_significant) { continue; }
+        var v = rows[i][k];
+        if (!isNum(v)) { continue; }
+        v = Number(v);
+        if (lo === null || v < lo) { lo = v; }
+        if (hi === null || v > hi) { hi = v; }
       }
-      av = isNum(av) ? Number(av) : -Infinity;
-      bv = isNum(bv) ? Number(bv) : -Infinity;
-      return (av - bv) * dir;
-    });
+      scale[k] = { lo: (lo === null ? 0 : lo), hi: (hi === null ? 1 : hi) };
+    }
     var out = [];
     for (i = 0; i < rows.length; i++) {
       var r = rows[i];
-      /* 🔴 A rate on tiny volume is noise, and noise wins tables. An ad below the floor keeps
-         its counts but is marked, so nobody reallocates budget onto four clicks. */
-      var thin = r.is_significant ? "" :
-        ' <span title="Too little volume to judge on a rate" style="color:#b45309;font-size:11px">thin</span>';
-      out.push("<tr><td>" + esc(String(r.ad_name || r.ad_id || "–")) + thin + "</td>" +
-        "<td>" + esc(String(r.campaign_name || "–")) + "</td>" +
-        "<td>" + esc(String(r.status || "–")) + "</td>" +
-        "<td>" + fmtMoney(r.spend) + "</td>" +
-        "<td>" + fmtInt(r.impressions) + "</td>" +
-        "<td>" + fmtInt(r.link_clicks) + "</td>" +
-        "<td>" + (r.is_significant ? fmtPct(r.ctr) : '<span style="color:#9aa8b4">' + fmtPct(r.ctr) + "</span>") + "</td>" +
-        "<td>" + (isNum(r.cpc) ? "$" + Number(r.cpc).toFixed(2) : "–") + "</td>" +
-        "<td>" + fmtInt(r.leads) + "</td>" +
-        "<td>" + (isNum(r.cpl) ? "$" + Number(r.cpl).toFixed(2) : "–") + "</td></tr>");
+      var tr = '<tr class="' + (r.is_significant ? "" : "thin") + '">';
+      tr += '<td class="adcell">' + esc(String(r.ad_name || r.ad_id || "–")) +
+            (r.is_significant ? "" : ' <span class="crethinflag">thin</span>') +
+            '<span class="cmp">' + esc(String(r.campaign_name || "")) + "</span></td>";
+      tr += "<td>" + fmtMoney(r.spend) + "</td>";
+      tr += "<td>" + fmtInt(r.reach_daily_sum) + "</td>";
+      for (c = 0; c < HEAT_COLS.length; c++) {
+        var col = HEAT_COLS[c], s = scale[col.key];
+        tr += heatCell(r[col.key], s.lo, s.hi, col.lowerBetter, col.fmt);
+      }
+      tr += "<td>" + (isNum(r.cpl) ? "$" + Number(r.cpl).toFixed(2) : "–") + "</td>";
+      out.push(tr + "</tr>");
     }
-    el("paidAds").getElementsByTagName("tbody")[0].innerHTML =
-      out.length ? out.join("") : '<tr><td colspan="10">No ads yet.</td></tr>';
+    tb.innerHTML = out.join("");
 
-    var ths = el("paidAds").getElementsByTagName("th"), t;
-    for (t = 0; t < ths.length; t++) {
-      var tk = ths[t].getAttribute("data-key");
-      var arrow = (tk === PAID.sortKey) ? ' <span class="arrow">' + (PAID.sortDir < 0 ? "▼" : "▲") + "</span>" : "";
-      ths[t].innerHTML = ths[t].textContent.replace(/[▼▲]\s*$/, "").trim() + arrow;
+    /* Name the weakest step in words. A heatmap shows you where to look; it should still say
+       what it found, because that is the whole point of the panel. */
+    var best = null, worst = null, sig = 0;
+    for (i = 0; i < rows.length; i++) { if (rows[i].is_significant) { sig++; } }
+    for (c = 0; c < HEAT_COLS.length; c++) {
+      var kk = HEAT_COLS[c].key;
+      if (kk === "impr_per_reach" || kk === "leads_per_reach") { continue; }
+      var num = 0, den = 0;
+      for (i = 0; i < rows.length; i++) {
+        if (!rows[i].is_significant || !isNum(rows[i][kk])) { continue; }
+        num += Number(rows[i][kk]); den++;
+      }
+      if (!den) { continue; }
+      var avg = num / den;
+      var lbl = kk === "ctr" ? "click rate" : kk === "lp_rate" ? "page-view rate" : "lead conversion";
+      /* Spread, not level: a low CTR is normal, so "worst step" means the step where the ads
+         disagree with each other most -- that is where there is something to fix. */
+      var spread = scale[kk].hi - scale[kk].lo;
+      var rel = avg > 0 ? spread / avg : 0;
+      if (!worst || rel > worst.rel) { worst = { label: lbl, rel: rel, spread: spread, avg: avg }; }
+      if (!best || rel < best.rel) { best = { label: lbl, rel: rel }; }
     }
+    el("heatNote").innerHTML = worst && sig > 1
+      ? "Across the " + sig + " ads with enough volume to judge, the widest gap is in <b>" +
+        esc(worst.label) + "</b> (best to worst spans " + fmtPct(worst.spread) +
+        " around a " + fmtPct(worst.avg) + " average) — that is the step with the most to gain."
+      : (sig <= 1 ? "Only " + sig + " ad has enough volume to judge on a rate, so there is nothing to compare yet." : "");
   }
 
-  var PAID_ADS_WIRED = false;
-  function wirePaidAds() {
-    if (PAID_ADS_WIRED) { return; }
-    PAID_ADS_WIRED = true;
-    var ths = el("paidAds").getElementsByTagName("th"), t;
-    for (t = 0; t < ths.length; t++) {
-      (function (th) {
-        var k = th.getAttribute("data-key");
-        if (!k) { return; }
-        th.addEventListener("click", function () {
-          if (PAID.sortKey === k) { PAID.sortDir = -PAID.sortDir; }
-          else { PAID.sortKey = k; PAID.sortDir = (th.getAttribute("data-type") === "num") ? -1 : 1; }
-          renderPaidAds();
-        });
-      })(ths[t]);
-    }
+  /* ---- the creative grid: the actual ad, next to what it bought ---------------------------
+     ⚠️ thumbnail_url points at Meta's CDN and those URLs are SIGNED AND EXPIRE. That is safe
+     only because the shared Meta loader re-pulls and MERGEs nightly, so a stored URL is never
+     older than the last ingest. If ingest stops, images go first -- hence the onerror handler,
+     which swaps in a readable text tile rather than leaving a browser broken-image icon. */
+  function creativeCard(r) {
+    var thin = r.is_significant ? "" : " thin";
+    var img = r.thumbnail_url
+      ? '<img src="' + esc(String(r.thumbnail_url)) + '" alt="' + esc(String(r.ad_name || "ad creative")) +
+        '" loading="lazy" onerror="this.style.display=\'none\';' +
+        'this.parentNode.querySelector(&quot;.noimg&quot;).style.display=&quot;block&quot;">' +
+        '<div class="noimg" style="display:none">Creative preview unavailable<br>(Meta image link expired)</div>'
+      : '<div class="noimg">No creative preview</div>';
+    var live = String(r.status || "").toUpperCase().indexOf("ACTIVE") === 0;
+    var badge = '<span class="crebadge' + (live ? "" : " off") + '">' +
+                esc(live ? "Active" : String(r.status || "—").replace(/_/g, " ").toLowerCase()) + "</span>";
+    var cplCls = isNum(r.cpl) && isNum(PAID.kpis && PAID.kpis.cpl)
+      ? (Number(r.cpl) <= Number(PAID.kpis.cpl) ? "teal" : "coral") : "";
+    var stat = function (k, v, cls) {
+      return '<div class="crestat"><div class="k">' + k + '</div><div class="v' +
+             (cls ? " " + cls : "") + '">' + v + "</div></div>";
+    };
+    return '<div class="crecard' + thin + '">' +
+      '<div class="crethumb">' + img + badge + "</div>" +
+      '<div class="crebody">' +
+        '<div class="crename">' + esc(String(r.ad_name || r.ad_id || "Untitled ad")) +
+          (r.is_significant ? "" : ' <span class="crethinflag">thin</span>') + "</div>" +
+        (r.creative_title ? '<div class="crecopy">' + esc(String(r.creative_title)) + "</div>" : "") +
+        '<div class="crestats">' +
+          stat("Spend", fmtMoney(r.spend)) +
+          stat("Leads", fmtInt(r.leads)) +
+          stat("Cost / lead", isNum(r.cpl) ? "$" + Number(r.cpl).toFixed(2) : "–", cplCls) +
+          stat("CTR", fmtPct(r.ctr)) +
+        "</div>" +
+      "</div></div>";
+  }
+
+  function renderPaidAds() {
+    var rows = (PAID.ads || []).slice(0), i;
+    var key = PAID.sortKey;
+    /* Cost per lead sorts ASCENDING (cheapest first) -- for every other metric bigger is the
+       interesting end. An ad with no value for the sort key sinks, never floats to the top. */
+    var asc = (key === "cpl");
+    rows.sort(function (a, b) {
+      var av = a[key], bv = b[key];
+      av = isNum(av) ? Number(av) : (asc ? Infinity : -Infinity);
+      bv = isNum(bv) ? Number(bv) : (asc ? Infinity : -Infinity);
+      return asc ? (av - bv) : (bv - av);
+    });
+    var out = [];
+    for (i = 0; i < rows.length; i++) { out.push(creativeCard(rows[i])); }
+    el("paidAds").innerHTML = out.length ? out.join("") :
+      emptyState("No creative yet", "Once the Meta ingest job has run, every ad appears here with its image and its numbers.");
   }
 
   function renderPaidInsights() {
@@ -1502,13 +1657,15 @@
     el("paidInsights").innerHTML = out.join("");
   }
 
+  /* The tab's spine, in reading order: the summary numbers, then the trend, then WHERE it
+     leaks, then the individual creative that caused it. */
   function renderPaid() {
     renderPaidHero();
     renderPaidKpis();
     renderPaidChart();
+    renderPaidHeat();
     renderPaidFunnel();
     renderPaidCampaigns();
-    wirePaidAds();
     renderPaidAds();
     renderPaidInsights();
   }
@@ -1579,6 +1736,7 @@
     }
     segWire("seg-grain", function (v) { ST.grain = v; syncDateInputs(); renderPeriod(); });
     segWire("seg-view", function (v) { showView(v); });
+    segWire("seg-cresort", function (v) { PAID.sortKey = v; renderPaidAds(); });
     wireTuck();
     el("syncBtn").addEventListener("click", doSync);
   }
@@ -1711,6 +1869,7 @@
     PAID.ads = paid.ads || [];
     PAID.campaigns = paid.campaigns || [];
     PAID.funnel = paid.funnel || [];
+    PAID.stages = paid.stages || [];
 
     el("boot").hidden = true;
     el("app").hidden = false;

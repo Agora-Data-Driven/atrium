@@ -340,20 +340,34 @@ def _read_paid_daily(bq):
 
 
 def _read_paid_ads(bq):
+    """One row per ad, WITH its creative (thumbnail + headline + body copy).
+
+    ⚠️ `thumbnail_url` points straight at Meta's CDN (scontent*.fbcdn.net) and those URLs are
+    SIGNED AND EXPIRE. That is safe here only because the shared Meta loader re-pulls and MERGEs
+    every night, so the stored URL is never older than the last ingest. If ingest stops, the
+    images go first -- which is why the dashboard degrades each card to a clean text tile on
+    image error instead of showing a broken-image icon.
+    """
     sql = f"""
         SELECT ad_id, ad_name, campaign_name, adset_name, thumbnail_url, creative_title,
-               destination_url, status, first_day, last_day, spend, impressions, clicks,
-               link_clicks, leads, purchases, revenue, ctr, cpc, cpm, cpl, roas, is_significant
+               creative_body, destination_url, status, first_day, last_day, spend, impressions,
+               clicks, link_clicks, leads, purchases, revenue, ctr, cpc, cpm, cpl, roas,
+               is_significant
         FROM `{PROJECT}.{DATASET}.paid_media_ads`
         ORDER BY spend DESC
         LIMIT {ADS_LIMIT}
     """
     out = []
     for r in bq.query(sql, location=LOC).result():
+        body = r["creative_body"]
         out.append({
             "ad_id": r["ad_id"], "ad_name": r["ad_name"], "campaign_name": r["campaign_name"],
             "adset_name": r["adset_name"], "thumbnail_url": r["thumbnail_url"],
-            "creative_title": r["creative_title"], "destination_url": r["destination_url"],
+            "creative_title": r["creative_title"],
+            # Ad copy can run to paragraphs; the card shows a couple of lines, so cap the
+            # payload rather than shipping the full body for every ad.
+            "creative_body": (body[:400] if body else None),
+            "destination_url": r["destination_url"],
             "status": r["status"], "first_day": _date(r["first_day"]),
             "last_day": _date(r["last_day"]), "spend": _f(r["spend"]),
             "impressions": _i(r["impressions"]), "clicks": _i(r["clicks"]),
@@ -361,6 +375,35 @@ def _read_paid_ads(bq):
             "purchases": _i(r["purchases"]), "revenue": _f(r["revenue"]),
             "ctr": _f(r["ctr"]), "cpc": _f(r["cpc"]), "cpm": _f(r["cpm"]),
             "cpl": _f(r["cpl"]), "roas": _f(r["roas"]),
+            "is_significant": bool(r["is_significant"]),
+        })
+    return out
+
+
+def _read_paid_stages(bq):
+    """Per-ad reach -> leads step-through rates; the heatmap's source.
+
+    ⚠️ `reach_daily_sum` is a SUM of daily reach, not unique people -- Meta only dedupes within
+    a queried window and our grain is (ad x day). Named and labelled that way everywhere.
+    """
+    sql = f"""
+        SELECT ad_id, ad_name, campaign_name, spend, reach_daily_sum, impressions, link_clicks,
+               landing_page_views, leads, impr_per_reach, ctr, lp_rate, lead_rate,
+               leads_per_reach, cpl, is_significant
+        FROM `{PROJECT}.{DATASET}.paid_media_funnel_stages`
+        ORDER BY spend DESC
+        LIMIT {ADS_LIMIT}
+    """
+    out = []
+    for r in bq.query(sql, location=LOC).result():
+        out.append({
+            "ad_id": r["ad_id"], "ad_name": r["ad_name"], "campaign_name": r["campaign_name"],
+            "spend": _f(r["spend"]), "reach_daily_sum": _i(r["reach_daily_sum"]),
+            "impressions": _i(r["impressions"]), "link_clicks": _i(r["link_clicks"]),
+            "landing_page_views": _i(r["landing_page_views"]), "leads": _i(r["leads"]),
+            "impr_per_reach": _f(r["impr_per_reach"]), "ctr": _f(r["ctr"]),
+            "lp_rate": _f(r["lp_rate"]), "lead_rate": _f(r["lead_rate"]),
+            "leads_per_reach": _f(r["leads_per_reach"]), "cpl": _f(r["cpl"]),
             "is_significant": bool(r["is_significant"]),
         })
     return out
@@ -467,6 +510,7 @@ def main():
             "ads": _read_paid_ads(bq),
             "campaigns": _read_paid_campaigns(bq),
             "funnel": _read_paid_funnel(bq),
+            "stages": _read_paid_stages(bq),
         },
     }
 

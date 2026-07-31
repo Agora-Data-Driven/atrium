@@ -39,5 +39,16 @@ SELECT
   SAFE_DIVIDE(SUM(frequency * impressions), SUM(impressions)) AS frequency
 FROM `agora-data-driven.raw_windsor.perf_meta`
 WHERE client_slug = 'tcs'
+  -- 🔴 LEAD-GEN CAMPAIGNS ONLY (the whole tab is "Lead Gen"). TCS also runs OUTCOME_SALES
+  -- campaigns; folding their spend into a cost-per-lead makes the number meaningless, which is
+  -- the exact error this dashboard's own copy warns about. Excluded here so every paid_media_*
+  -- view agrees on the denominator -- change it in ONE view and the tab starts contradicting
+  -- itself.
+  --
+  -- LIKE, not `= 'OUTCOME_LEADS'`, on purpose: Meta renamed objectives in 2022-23
+  -- (LEAD_GENERATION -> OUTCOME_LEADS) and old campaigns keep the old name. Only those two
+  -- objectives contain "LEAD", so this cannot over-match SALES/TRAFFIC/AWARENESS -- and it
+  -- cannot silently drop a legacy lead campaign from the client's own dashboard either.
+  AND objective LIKE '%LEAD%'
 GROUP BY day
 ORDER BY day;

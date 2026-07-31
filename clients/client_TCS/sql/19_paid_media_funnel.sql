@@ -24,6 +24,7 @@ WITH spend AS (
          COUNT(DISTINCT metric_date)      AS spend_days
   FROM `agora-data-driven.raw_windsor.perf_meta`
   WHERE client_slug = 'tcs'
+    AND objective LIKE '%LEAD%'   -- lead-gen campaigns only; see 15_paid_media_daily.sql
   GROUP BY m
 ),
 -- quiz_leads is one row per lead (first submission), already carrying conversion + revenue.

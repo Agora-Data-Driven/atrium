@@ -901,9 +901,22 @@ auto-refresh (see those bullets below). Product name is one constant:
   display name only, updates the registry `name` + workspace `display_name`; the key `<c>` and
   every derived resource never change). **Add a new client** (`POST /admin/atrium/new`) asks ONLY for a
   display name (key auto-derives, password auto-generates) and on success redirects STRAIGHT to the
-  new client's blank `/w/<c>/`. The
-  portal landing (`/`) shows **Open dashboard** per client; the workspace `/w/<c>/` stays reachable
-  directly and from the console.
+  new client's blank `/w/<c>/`.
+- **🔴 There is NO portal landing page — `/` only decides where you belong (2026-07-31).** The old
+  "Welcome back" card list (`templates/portal.html`) was deleted: for most people it was an empty
+  box ("No dashboards are assigned to your account yet") standing between them and what they came
+  for. `index()` now redirects through the SAME `_post_login_destination()` every login uses —
+  super-admin (`"*"`) → `/admin/atrium`, a login with exactly ONE client whose workspace exists →
+  `/w/<c>/dashboard`, everyone else (a Sentinel-authorized staffer with no dashboards) →
+  `WEBSITE_HOME_URL` (`https://agoradatadriven.com`, env-overridable). **Signed-out visitors still
+  get `/login`, never the website** — portal.agoradatadriven.com is where a client types their
+  password, so bouncing them to the marketing site would leave them no way in. Consequences to know:
+  a login holding SEVERAL client keys has no switcher any more (it lands on the website; deep-link
+  `/w/<c>/` still works), the client-side "Back to portal" button is gone from `atrium.html` (the
+  team's "Back to console" stays), the proxy chrome's pills became one **Back to workspace**
+  (`/w/<c>/`) since "All dashboards" and "Feedback" both pointed at the deleted page, and
+  `POST /feedback` + `feedback.py` still work but **no UI posts to them**. `GET /dashboard/<c>`
+  (`dashboard_view.html`) survives as a deep link with nothing linking to it.
 - **Auth foundation (central Google sign-in + impersonation):** the portal is the ONE app that runs
   Google OAuth (`google_oauth.py`, `/auth/google/{login,callback}`) and, on a verified email, mints
   the SAME session + shared `ag_sso` cookie as a password login — so the website editor and every
