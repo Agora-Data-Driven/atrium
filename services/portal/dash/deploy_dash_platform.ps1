@@ -238,12 +238,20 @@ if (Test-SecretExists "watcher-proxy-url") {
 }
 
 Write-Host "[..] Deploying Cloud Run service $PLATFORM" -ForegroundColor Cyan
+# 🔴 --memory 2Gi is LOAD-BEARING, not a default. At the old 512Mi the Assistant's index work
+# OOM-killed the container mid-SSE-stream (2026-07-31): the stream logged HTTP 200 while the
+# instance died, and since the index is written LAST nothing persisted, so every later ask retried
+# the same doomed rebuild and chat was permanently dead. The FULL rebuild now lives in the
+# `assistant-reindex` job, but the app still parses multi-MB indexes and archives per ask.
+# It was raised out of band first and only survived this deploy because the script pinned no
+# resource flags at all -- so a fresh standup would have silently recreated the service at 512Mi.
 gcloud run deploy $PLATFORM `
     --image $IMG `
     --region $REGION `
     --project $PROJECT `
     --service-account $WEB_SA `
     --no-invoker-iam-check `
+    --memory 2Gi `
     --update-env-vars $ENV_VARS `
     --update-secrets $SECRETS
 Must "deploy Cloud Run service $PLATFORM"
