@@ -55,7 +55,13 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   needing attention sorted first) or green **"All caught up"**.
   It IS the admin landing: `/` redirects a super-admin here and the legacy `/admin` + `/superadmin`
   routes now just redirect here too (their client-add / password-reveal
-  functions live in the console). Account routes
+  functions live in the console). **`/` has no page of its own at all since 2026-07-31** — the
+  "Welcome back" `portal.html` card list was deleted and `index()` now just runs
+  `_post_login_destination()`: `"*"` → the console, one client → `/w/<c>/dashboard`, anyone else →
+  `WEBSITE_HOME_URL` (the marketing site). Signed out it still goes to `/login`, never the website.
+  Knock-ons: no client switcher for a multi-client login, `atrium.html` lost its client-side
+  "Back to portal" button, `_inject_portal_chrome` links **Back to workspace** instead of
+  "All dashboards"/"Feedback", and `POST /feedback` + `feedback.py` now have NO caller. Account routes
   (`/admin/accounts/{create-client,create-admin,grant-google,set-password,reset-password,delete}` +
   `/admin/profile/password`) are gated `is_superadmin()`; **admin-account** creation/management +
   **granting a role** + **impersonation** are gated `is_root_admin()`. `POST /admin/accounts/grant-google`

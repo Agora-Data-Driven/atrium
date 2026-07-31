@@ -2204,7 +2204,9 @@
                     {% if view.active_tab != 'overview' %}style="display:none"{% endif %}>Share recap <span class="ax-share-arrow">&rarr;</span></button>
 
             {#- Account: the avatar opens a small menu (identity + Profile + Sign out), one place for
-               logout, no duplicate. The Back button differs by role (admin -> console, client -> portal). -#}
+               logout, no duplicate. The Back button is TEAM-ONLY (admin -> console): the client
+               portal page it used to point at was deleted 2026-07-31, and a client's workspace is
+               their whole app -- there is nothing behind it to go back to. -#}
             <div class="ax-menuwrap">
               <button class="ax-avatar" type="button" id="ax-avatarbtn" title="{{ user }}" aria-haspopup="true" aria-expanded="false">{% if profile_photo %}<img class="ax-avatar-img" src="{{ profile_photo }}" alt="">{% else %}{{ view.initials }}{% endif %}</button>
               <div class="ax-menu ax-menu-r" id="ax-avatarmenu" hidden>
@@ -2218,8 +2220,6 @@
             {% if is_superadmin %}
             {#- ?section=clients lands the team on the console's Clients pane (pick another client). -#}
             <a class="ax-backadmin" href="/admin/atrium?section=clients" title="Back to all client workspaces">{{ ic('overview') }}<span>Back to console</span></a>
-            {% else %}
-            <a class="ax-backadmin" href="/" title="Back to your portal">{{ ic('overview') }}<span>Back to portal</span></a>
             {% endif %}
           </div>
         </header>
