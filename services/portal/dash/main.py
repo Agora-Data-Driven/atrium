@@ -3835,18 +3835,12 @@ def _assistant_reranker():
 
 
 def _dash_stamp(client):
-    """The dashboard export blob's last-modified marker (metadata-only GET), or None.
+    """The dashboard export blob's last-modified marker -- see assistant_ai.dash_stamp.
 
-    Feeds the index fingerprint so a refreshed dashboard re-indexes -- without it the dashboard
-    chunks sat stale until some OTHER source moved. Any failure (no bucket, no access, local dev)
-    is None, which fingerprints consistently."""
-    try:
-        from google.cloud import storage  # lazy
-        blob = storage.Client().bucket("agora-data-driven-%s-dash" % client) \
-                               .get_blob("%s.json" % client)
-        return blob.updated.isoformat() if blob is not None and blob.updated else None
-    except Exception:
-        return None
+    ONE definition lives in assistant_ai so the ask path and the assistant-reindex JOB can never
+    derive different fingerprints for the same data (which would requeue the client forever)."""
+    import assistant_ai
+    return assistant_ai.dash_stamp(client)
 
 
 def _assistant_caller(ws):
@@ -3890,13 +3884,24 @@ def _assistant_action_ctx(ws, client):
 
 
 def _assistant_index(ws, client, force=False):
-    """The client's knowledge index, rebuilt lazily whenever any source changed (or on `force`).
+    """The client's knowledge index -- reused when current, rebuilt only when the rebuild is BOUNDED.
 
-    When embeddings are configured the semantic leg is attached at build time (and back-filled onto
-    an existing, still-current index the first time embeddings are enabled -- no need to rechunk)."""
+    🔴 A request must never pay for a FULL rebuild. An INDEX_VERSION bump invalidates every stored
+    vector, so the rebuild re-embeds the whole corpus: on a big workspace that measured ~344s and a
+    peak that OOM-killed a 512 MiB container. And because the index is written LAST, that rebuild
+    persisted NOTHING -- so every later ask retried the identical doomed work and the Assistant was
+    permanently dead rather than merely slow (2026-07-31).
+
+    So the ask path now has three outcomes, none of them unbounded:
+      * current index      -> reuse it as-is;
+      * cheap drift        -> rebuild, embedding at most EMBED_MAX_NEW_INLINE new chunks;
+      * full re-embed due  -> keep answering from the index we already have (older content, still
+                              grounded) and queue the client for the `assistant-reindex` JOB.
+    `force=True` -- the job itself, and the Rebuild button's fallback -- does the whole thing
+    uncapped, which is safe because neither is a user-facing request."""
     import assistant_ai
-    archives = _assistant_archives(ws, client)
-    fp = assistant_ai.fingerprint(ws, archives, dash_stamp=_dash_stamp(client))
+    archives, mail, dash_data, stamp = assistant_ai.gather_sources(client, ws)
+    fp = assistant_ai.fingerprint(ws, archives, dash_stamp=stamp)
     want_emb = intel_ai.embeddings_configured()
     # Always read the previous index: reused as-is when nothing changed, and as the SOURCE OF
     # CARRIED-OVER VECTORS when the data moved -- so a rebuild only embeds the chunks that changed
@@ -3911,13 +3916,27 @@ def _assistant_index(ws, client, force=False):
         assistant_ai.embed_index(prev, _assistant_embedder())
         workspace.write_assistant_index(client, prev)
         return prev
-    chunks = assistant_ai.build_chunks(ws, archives,
-                                       dash_data=assistant_ai.read_client_dash_data(
-                                           client, (ws or {}).get("dashboard_url", "")),
-                                       mail_threads=_assistant_mail(ws, client))
+    # Stale, and nothing can be carried over -> this is a whole-corpus re-embed. Hand it to the job
+    # and answer from the index we still have; a slightly older index beats a dead chat.
+    if not force and prev is not None and want_emb and assistant_ai.needs_full_embed(prev):
+        if not workspace.assistant_reindex_pending(ws):
+            reason = ("index built at v%s, code is v%s" % (prev.get("v"),
+                                                           assistant_ai.INDEX_VERSION)
+                      if prev.get("v") != assistant_ai.INDEX_VERSION else "no stored vectors")
+            workspace.queue_assistant_reindex(client, reason)
+        return prev
+    chunks = assistant_ai.build_chunks(ws, archives, dash_data=dash_data, mail_threads=mail)
     index = assistant_ai.build_index(chunks, fp=fp)
     if want_emb:
-        assistant_ai.embed_index(index, _assistant_embedder(), prev=prev)
+        # Carry ONLY prev's vector maps, then release prev: its chunks are the bulk of a multi-MB
+        # index and nothing below reads them, so holding it across build+serialize was pure peak.
+        carried = assistant_ai.carry_over(prev)
+        prev = None
+        assistant_ai.embed_index(index, _assistant_embedder(), prev=carried,
+                                 max_new=0 if force else assistant_ai.EMBED_MAX_NEW_INLINE)
+        if index.get("emb_partial") and not workspace.assistant_reindex_pending(ws):
+            workspace.queue_assistant_reindex(
+                client, "%d chunk(s) still to embed" % index["emb_partial"])
     workspace.write_assistant_index(client, index)
     return index
 
@@ -3962,6 +3981,24 @@ def atrium_admin_assistant(client):
     op = request.form.get("op", "ask")
 
     if op == "reindex":
+        # 🔴 A full rebuild re-chunks every source and re-embeds the whole corpus -- ~344s and a
+        # multi-hundred-MB peak on a large workspace, i.e. past both the memory limit and the
+        # request timeout (2026-07-31). So the button HANDS IT TO THE JOB and returns immediately.
+        # The inline path below is only the fallback for when the job can't be reached (not
+        # deployed, no credentials, local preview), where the old behaviour is better than none.
+        import sync_dash
+        workspace.queue_assistant_reindex(
+            client, "rebuild requested by %s" % _admin_sender_name(current_user()))
+        started, terr = sync_dash.trigger_job(
+            "assistant-reindex",
+            {"REINDEX_CLIENT": client, "ASSISTANT_REINDEX_ENABLED": "1"})
+        if started:
+            _audit(client, "started an assistant reindex", "job assistant-reindex")
+            return jsonify(ok=True, started=True, queued=True,
+                           message=("Rebuilding in the background. A large workspace takes a few "
+                                    "minutes; the Assistant keeps answering from the current "
+                                    "index until it finishes."))
+        print("[assistant] reindex job unavailable (%s) -- rebuilding inline" % terr)
         # The explicit rebuild is ALSO where new Watcher transcripts get their cached AI summaries
         # (a capped batch per run) -- deliberately here and never on the lazy ask path, so chat
         # latency stays flat while the digest layer fills in over successive reindexes.
@@ -3976,6 +4013,8 @@ def atrium_admin_assistant(client):
                 _audit(client, "summarized watcher videos", "%d new" % summarized)
         index = _assistant_index(ws, client, force=True)
         embedded = index.get("emb_count", 0)
+        # The inline rebuild satisfied the flag we set above -- clear it so the job doesn't redo it.
+        workspace.clear_assistant_reindex(client, built_at=index.get("built_at", ""))
         _audit(client, "rebuilt assistant index",
                "%d chunks%s" % (len(index.get("chunks") or []),
                                 (", %d embedded" % embedded) if embedded else ""))

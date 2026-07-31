@@ -3048,6 +3048,45 @@ def set_assistant_depth(client, depth):
     return _mutate(client, fn)
 
 
+# --- Assistant reindex queue ---------------------------------------------------------------------
+# A FULL index rebuild (re-chunk + re-embed the whole corpus) is too heavy for a request: on a big
+# workspace it is minutes of Vertex calls and a multi-hundred-MB peak, and because the index is
+# written LAST a rebuild that dies persists nothing -- so every later ask retried the same doomed
+# work and the Assistant stayed permanently dead (2026-07-31). The ask path now flags the client
+# here instead and keeps answering from the index it already has; the `assistant-reindex` JOB
+# (assistant_reindex.py) does the heavy rebuild out of band and clears the flag.
+def assistant_reindex_pending(ws):
+    """True iff this workspace is already flagged for a full Assistant reindex.
+
+    PURE (no I/O) on purpose: the ask path checks the workspace it already holds, so a client that
+    is queued does not pay for a redundant workspace write on every single question."""
+    return bool((((ws or {}).get("assistant") or {}).get("reindex") or {}).get("pending"))
+
+
+def queue_assistant_reindex(client, reason=""):
+    """Flag `client` for a full Assistant index rebuild by the assistant-reindex job.
+
+    Idempotent -- re-queuing only refreshes the reason/timestamp. Returns the queue entry."""
+    def fn(ws):
+        q = ws.setdefault("assistant", {}).setdefault("reindex", {})
+        q["pending"] = True
+        q["reason"] = (reason or "")[:200]
+        q["queued_at"] = now_iso()
+        return dict(q)
+    return _mutate(client, fn)
+
+
+def clear_assistant_reindex(client, built_at=""):
+    """Clear the reindex flag once the job has rebuilt this client's index."""
+    def fn(ws):
+        q = ws.setdefault("assistant", {}).setdefault("reindex", {})
+        q["pending"] = False
+        q["reason"] = ""
+        q["last_run"] = built_at or now_iso()
+        return dict(q)
+    return _mutate(client, fn)
+
+
 def _blank_usage():
     return {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "calls": 0, "by_model": {}}
 

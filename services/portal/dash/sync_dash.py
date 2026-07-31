@@ -99,6 +99,30 @@ def list_export_jobs(sess):
     return sorted(names)
 
 
+def trigger_job(job, env=None):
+    """POST `<job>:run` with optional env overrides. Returns (ok, error) -- never raises.
+
+    The generic sibling of trigger_all (which is specifically the `<c>-export` sweep). The
+    Assistant's Rebuild button uses it to hand a full reindex to the `assistant-reindex` job
+    instead of doing minutes of embedding inside the request, which is what OOM-killed the
+    container and then timed out on 2026-07-31.
+
+    ⚠️ Running a job WITH overrides needs `run.jobs.runWithOverrides`, which roles/run.invoker does
+    NOT carry -- the caller SA needs roles/run.developer ON THE JOB, or every trigger 403s while
+    the IAM policy looks correct (the same trap that left riverdance stale for 13 days)."""
+    url = "https://run.googleapis.com/v2/projects/%s/locations/%s/jobs/%s:run" % (PROJECT, REGION, job)
+    body = {}
+    if env:
+        body = {"overrides": {"containerOverrides": [
+            {"env": [{"name": k, "value": str(v)} for k, v in env.items()]}]}}
+    try:
+        r = _session().post(url, json=body, timeout=30)
+        r.raise_for_status()
+        return True, ""
+    except Exception as e:  # noqa: BLE001 -- no creds / job absent / denied: report, never crash
+        return False, str(e)[:200]
+
+
 def trigger_all():
     """Discover + trigger every <c>-export job. Returns (triggered[], failed[], iso_ts).
 
