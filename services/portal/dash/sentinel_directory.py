@@ -15,6 +15,18 @@ Everything here is best-effort and gated: if the secret or Sentinel URL is unset
 unreachable / slow / returns non-200, `lookup_user` returns None so the caller simply falls through
 to its existing behavior. A default or local deploy is unaffected; a Sentinel outage can never break
 portal login.
+
+🔴 None means "no answer", NOT "denied" — and the two must never be conflated. Sentinel is a Cloud
+Run service over Cloud SQL: a cold start (scale-from-zero + a fresh DB connection) routinely takes
+longer than the fast-path timeout, so the FIRST lookup for a staff-only login can fail while the
+retry seconds later succeeds. Two defenses against bouncing a real staff member to the
+request-access page on that transient:
+
+1. `lookup_user` RETRIES a transport failure / 5xx once with a much longer timeout
+   (`_RETRY_TIMEOUT_SECONDS`), which covers the cold start.
+2. `user_status` is TRI-STATE ("active" / "denied" / "unknown") so the caller can tell a real
+   "this email is nobody" from "Sentinel didn't answer" — and only the former routes to
+   request-access (see `main._resolve_login_email`).
 """
 from __future__ import annotations
 
@@ -28,6 +40,12 @@ import requests
 # The shared HMAC secret (same one used to sign `ag_sso`). Read at call time so tests/deploys that
 # set it after import still work.
 _TIMEOUT_SECONDS = 3
+# A cold Sentinel routinely outlives the fast-path timeout (Cloud Run scale-from-zero + a Cloud SQL
+# reconnect), so a transport failure / 5xx is retried ONCE with a generous window. That turns a
+# spurious "no answer -> request access" bounce into a slow-but-successful login. A clean 4xx/200 is
+# a definitive answer and is never retried. The pause is module-level so tests can zero it.
+_RETRY_TIMEOUT_SECONDS = 12
+_RETRY_PAUSE_SECONDS = 1
 _PURPOSE = "user-lookup"
 
 
@@ -59,12 +77,42 @@ def _api_base() -> str:
     return base.rstrip("/")
 
 
+def _attempt(base, secret, norm, timeout):
+    """One signed lookup call. Returns (data_or_None, retryable): `data` is Sentinel's dict on a
+    200, else None; `retryable` is True only for a transport failure or a 5xx (a cold start /
+    outage), never for a definitive 4xx answer."""
+    ts = str(int(time.time()))
+    sig = hmac.new(secret.encode(), f"{_PURPOSE}:{ts}".encode(), hashlib.sha256).hexdigest()
+    try:
+        resp = requests.get(
+            f"{base}/api/internal/user-lookup",
+            params={"email": norm},
+            headers={"X-Academy-Ts": ts, "X-Academy-Sig": sig},
+            timeout=timeout,
+        )
+    except requests.RequestException:
+        return None, True
+    if resp.status_code != 200:
+        return None, resp.status_code >= 500
+    try:
+        data = resp.json()
+    except ValueError:
+        return None, False
+    if not isinstance(data, dict):
+        return None, False
+    return data, False
+
+
 def lookup_user(email):
     """Return Sentinel's record for `email` as a dict, or None.
 
     dict shape (on a successful call): {"found": bool, "active": bool, "name": str, "role": str}.
     None means "couldn't ask / not configured / error" -- the caller should treat it as "no answer",
     NOT as "denied". Callers key their allow decision off dict["active"] being True.
+
+    A transport failure / 5xx is retried once with `_RETRY_TIMEOUT_SECONDS`: Sentinel's cold start
+    (scale-from-zero + Cloud SQL reconnect) regularly outlives the fast-path timeout, and the retry
+    is what keeps a staff-only Google login from flapping to the request-access page.
     """
     norm = (email or "").strip().lower()
     if not norm:
@@ -73,29 +121,24 @@ def lookup_user(email):
     base = _api_base()
     if not secret or not base:
         return None
-    ts = str(int(time.time()))
-    sig = hmac.new(secret.encode(), f"{_PURPOSE}:{ts}".encode(), hashlib.sha256).hexdigest()
-    try:
-        resp = requests.get(
-            f"{base}/api/internal/user-lookup",
-            params={"email": norm},
-            headers={"X-Academy-Ts": ts, "X-Academy-Sig": sig},
-            timeout=_TIMEOUT_SECONDS,
-        )
-    except requests.RequestException:
-        return None
-    if resp.status_code != 200:
-        return None
-    try:
-        data = resp.json()
-    except ValueError:
-        return None
-    if not isinstance(data, dict):
-        return None
+    data, retryable = _attempt(base, secret, norm, _TIMEOUT_SECONDS)
+    if data is None and retryable:
+        if _RETRY_PAUSE_SECONDS:
+            time.sleep(_RETRY_PAUSE_SECONDS)
+        data, _ = _attempt(base, secret, norm, _RETRY_TIMEOUT_SECONDS)
     return data
 
 
-def is_active_user(email) -> bool:
-    """True iff Sentinel reports `email` as an active user. False on any not-found / error / outage."""
+def user_status(email) -> str:
+    """Tri-state answer to 'may this verified email sign in?': "active", "denied", or "unknown".
+
+    "unknown" means Sentinel gave NO ANSWER (unconfigured, unreachable, timed out, non-200) even
+    after the retry. It must NEVER be treated as a denial -- only a definitive "denied" routes a
+    Google login to the request-access page (see `main._resolve_login_email`).
+    """
     data = lookup_user(email)
-    return bool(data and data.get("found") and data.get("active"))
+    if data is None:
+        return "unknown"
+    if data.get("found") and data.get("active"):
+        return "active"
+    return "denied"

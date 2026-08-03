@@ -257,6 +257,13 @@ def is_root_admin():
     return bool(acct and acct.get("role") == "superadmin")
 
 
+# Returned by _resolve_login_email when NEITHER store gave an answer AND the Sentinel directory was
+# unreachable -- distinct from None ("authorized nowhere"). A transient Sentinel cold start/outage
+# must NOT bounce a real staff member to the request-access page (the flapping-login bug): callers
+# show a "try again" error instead.
+AUTH_UNKNOWN = object()
+
+
 def _resolve_login_email(email):
     """Client keys a VERIFIED email may open, or None if the email is authorized nowhere.
 
@@ -266,15 +273,20 @@ def _resolve_login_email(email):
     authorized with no client-dashboard keys ([]), which is what makes "added in Sentinel" mean "can
     sign in with Google" without duplicating the record into the portal registry.
 
-    Returns a list of client keys (possibly empty for authorized internal staff) or None. None means
-    "authorized nowhere" -> route to request-access. An empty list is DIFFERENT from None: it is an
-    authorized login with zero client dashboards, so callers must test `is None`, not falsiness."""
+    Returns a list of client keys (possibly empty for authorized internal staff), None, or
+    AUTH_UNKNOWN. None means "authorized nowhere" -> route to request-access. An empty list is
+    DIFFERENT from None: it is an authorized login with zero client dashboards, so callers must test
+    `is None`, not falsiness. AUTH_UNKNOWN means Sentinel gave NO ANSWER (cold start / outage) --
+    NOT a denial, so callers must NOT route to request-access."""
     granted = store.resolve_google_login(email, super_admin_email=SUPER_ADMIN_EMAIL)
     if granted is not None:
         return granted
     # No active portal account: Sentinel is the source of truth for internal staff.
-    if sentinel_directory.is_active_user(email):
+    status = sentinel_directory.user_status(email)
+    if status == "active":
         return []
+    if status == "unknown":
+        return AUTH_UNKNOWN
     return None
 
 
@@ -616,6 +628,14 @@ def google_callback():
                                **_brand_ctx()), 400
     next_url = session.pop("oauth_next", "/") or "/"
     granted = _resolve_login_email(email)
+    if granted is AUTH_UNKNOWN:
+        # The staff directory (Sentinel) gave NO ANSWER -- a cold start or outage, NOT a denial.
+        # Offering an access request here would file a spurious pending account for someone who
+        # already has access, so ask them to retry instead.
+        return render_template("login.html", next=next_url,
+                               error="We couldn't verify your account just now (the staff directory "
+                                     "didn't answer). Please try signing in again.",
+                               **_brand_ctx()), 503
     if granted is None:
         # Authorized nowhere (not a portal account, not an active Sentinel user) -> let them file a
         # request an admin approves in the console. NOTE: an empty list is an AUTHORIZED login with
@@ -5697,7 +5717,9 @@ def admin_stop_impersonating():
         return redirect(url_for("index"))
     was = current_user() or ""     # who we were acting as (capture before we restore ourselves)
     granted = _resolve_login_email(real)
-    if granted is None:            # authorized nowhere anymore -> log out ([] is still authorized)
+    if granted is None or granted is AUTH_UNKNOWN:
+        # Authorized nowhere anymore (or the directory can't be asked) -> log out.
+        # ([] is still authorized; in practice `real` is THE super admin, resolved locally.)
         session.clear()
         return redirect(url_for("login"))
     _establish_session(real, granted)

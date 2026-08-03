@@ -27,18 +27,32 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   `GOOGLE_OAUTH_REDIRECT_URI`).
   - **Authorization = `_resolve_login_email` (main.py), resolve order:** THE super admin -> `["*"]`;
     an **active portal account** (`store.resolve_google_login`) -> its client keys; else **defer to
-    Sentinel** — `sentinel_directory.is_active_user(email)` asks Sentinel (the source of truth for
+    Sentinel** — `sentinel_directory.user_status(email)` asks Sentinel (the source of truth for
     staff) whether the email is an active user and, if so, authorizes them with `[]` (a valid session
     + `ag_sso`, no client dashboards). So **adding someone in Sentinel (People -> Add Employee) is all
     it takes to enable their Google login**, with no copy duplicated into `platform.json`; deactivating
     them in Sentinel blocks it immediately. A grant may legitimately be `[]`, so the callback tests
     `granted is None` (authorized nowhere -> `request_access.html` / `POST /auth/request-access` files a
     **passwordless pending** account in the console's Access-requests tab), NOT falsiness.
+  - 🔴 **"No answer" is NOT "denied" — the three-way return (fixed 2026-08-03).** The staff lookup
+    used to be a boolean, so a Sentinel **cold start** (Cloud Run scale-from-zero + a Cloud SQL
+    reconnect, routinely past the 3s timeout) was indistinguishable from "this email is nobody" and
+    the callback showed a real staff member the **Request access** page — who then signed in fine on
+    the next try. That flapping is the whole symptom; it is not an OAuth or a cookie bug. Now
+    `user_status` returns **"active" / "denied" / "unknown"**, `_resolve_login_email` returns a key
+    list / `None` / **`main.AUTH_UNKNOWN`** (a sentinel object, so `is None` still means exactly
+    "authorized nowhere"), and **only a definitive `denied` routes to request-access**. `AUTH_UNKNOWN`
+    renders the login page with a retry message and **503** — never a spurious pending account for
+    someone who already has access. Both callers (`google_callback`, `admin_stop_impersonating`)
+    handle it explicitly; a new caller MUST too.
   - **`sentinel_directory.py`** is the client: it HMAC-signs `"user-lookup:{ts}"` with `SSO_SECRET`
     (the shared `platform-sso-key`) and GETs `${SENTINEL_API_URL||SENTINEL_URL sans /login}/api/internal/
     user-lookup`. Same HMAC pattern the mastery engine uses against `/api/internal/people`; **no new
     secret**. Best-effort + gated: unset secret/URL, a non-200, a timeout, or an outage all return
-    `None` (login falls through to its old behavior) so a Sentinel outage can never break portal login.
+    `None` from `lookup_user` (-> `"unknown"`), so a Sentinel outage can never break portal login.
+    **A transport failure or a 5xx is retried ONCE** at `_RETRY_TIMEOUT_SECONDS` (12s vs the 3s fast
+    path) — that retry is what absorbs the cold start. A definitive 4xx/200 is never retried, so a
+    bad signature still fails fast (and as `"unknown"`, never as a denial).
 - **Operator console (`/admin/atrium`, `admin_atrium.html`)** = a **focused console** styled to the
   website design system (green `#4FA84A` primary + purple `#6A6AEA` informational). The old Home-hub
   landing (the "Your Agora suite" card grid) was **removed 2026-07-17** — the console is now the ONLY

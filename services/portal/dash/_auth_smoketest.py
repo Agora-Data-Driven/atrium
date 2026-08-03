@@ -76,6 +76,10 @@ def run():
     _check("google login carries client_id + state", "client_id=cid" in loc and "state=" in loc)
 
     # --- Callback for an UNKNOWN email -> request-access page ----------------------------------
+    # Stub the staff directory to a DEFINITIVE "denied" -- only a real answer may route to
+    # request-access. Unstubbed it returns "unknown" (no secret configured off-cloud), which is the
+    # retry path, not this one.
+    main.sentinel_directory.user_status = lambda e: "denied"
     main.google_oauth.exchange_code = lambda code, redirect, **k: ("stranger@gmail.com", None)
     state = _google_state(c)
     body = c.get("/auth/google/callback?state=%s&code=x" % state).get_data(as_text=True)
@@ -103,7 +107,8 @@ def run():
     # The portal defers to Sentinel for a verified email it doesn't already know locally, so adding
     # someone in Sentinel (People -> Add Employee) is all it takes to enable their Google login.
     _sentinel_active = {"staff@agora.ph"}
-    main.sentinel_directory.is_active_user = lambda e: (e or "").strip().lower() in _sentinel_active
+    main.sentinel_directory.user_status = (
+        lambda e: "active" if (e or "").strip().lower() in _sentinel_active else "denied")
     main.google_oauth.exchange_code = lambda code, redirect, **k: ("staff@agora.ph", None)
     state = _google_state(c)
     r = c.get("/auth/google/callback?state=%s&code=x" % state)
@@ -120,8 +125,29 @@ def run():
     body = c.get("/auth/google/callback?state=%s&code=x" % state).get_data(as_text=True)
     _check("non-Sentinel, non-portal email -> request access page",
            "Request access" in body and "outsider@agora.ph" in body)
+
+    # --- Sentinel gave NO ANSWER (cold start / outage) -> retry, NOT request-access ---------------
+    # A Sentinel cold start (scale-from-zero + Cloud SQL reconnect) used to look identical to "this
+    # email is nobody", so a real staff member was intermittently shown Request access and only got
+    # in by trying again. "unknown" must never be read as a denial.
+    main.sentinel_directory.user_status = lambda e: "unknown"
+    main.google_oauth.exchange_code = lambda code, redirect, **k: ("staff@agora.ph", None)
+    with c.session_transaction() as s:
+        s.clear()                      # the staff sign-in above left a live session
+    state = _google_state(c)
+    r = c.get("/auth/google/callback?state=%s&code=x" % state)
+    body = r.get_data(as_text=True)
+    _check("directory outage -> 503, not a sign-in", r.status_code == 503)
+    # NOTE: login.html carries its own "Request access" link to /signup, so match the
+    # request_access PAGE by its own headline instead.
+    _check("directory outage -> NOT the request-access page",
+           "no Agora account for this Google address" not in body)
+    _check("directory outage -> asks the user to retry", "try signing in again" in body)
+    with c.session_transaction() as s:
+        _check("directory outage established no session", not s.get("ok"))
+
     # Restore the default (no Sentinel) for the remaining tests.
-    main.sentinel_directory.is_active_user = lambda e: False
+    main.sentinel_directory.user_status = lambda e: "denied"
 
     # --- Callback with a BAD state is rejected ------------------------------------------------
     _google_state(c)  # set a real state, then send a wrong one
