@@ -1,0 +1,1750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taskboard — F10 page + nav, and the mechanics behind F1–F7</title>
+<style>
+:root{
+  --brand:#4FA84A; --brand-700:#2f7a30; --brand-100:#E8F5E8; --brand-200:#cfe8cd;
+  --violet:#6A6AEA; --violet-100:#ECECFB; --violet-700:#4a44c4;
+  --amber:#B4700A; --amber-100:#FDF3E0; --amber-200:#f0dcb4;
+  --red:#C2402F; --red-100:#FBECE9; --red-200:#f2ccc5;
+  --blue:#2F6BC2; --blue-100:#E9F0FB;
+  --ink:#131a17; --ink-2:#3d4a44; --muted:#6b7a72; --faint:#93a19a;
+  --line:#e3e8e4; --line-2:#eef2ef; --bg:#f5f7f5; --card:#fff;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:var(--font);background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;font-weight:700}
+button{font-family:inherit;font-size:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;font-size:13px;color:var(--ink)}
+
+/* ---------- top chrome ---------- */
+.top{background:var(--card);border-bottom:1px solid var(--line);padding:12px 18px;position:sticky;top:0;z-index:60}
+.top-in{max-width:1720px;margin:0 auto;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.crest{width:30px;height:30px;border-radius:9px;background:linear-gradient(160deg,var(--brand-100),#fff);
+  border:1px solid var(--brand-200);color:var(--brand-700);display:grid;place-items:center;font-weight:800;font-size:13px}
+.top h1{font-size:15.5px;letter-spacing:-.2px}
+.top .sub{font-size:11.5px;color:var(--muted)}
+.spacer{flex:1}
+.seg{display:inline-flex;background:var(--line-2);border:1px solid var(--line);border-radius:9px;padding:2px;gap:2px}
+.seg button{border:0;background:transparent;color:var(--ink-2);padding:5px 10px;border-radius:7px;font-size:12.5px;font-weight:600}
+.seg button[aria-pressed="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.seglab{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:700;margin-right:5px}
+.btn{border:1px solid var(--brand-700);background:var(--brand);color:#fff;padding:7px 12px;border-radius:9px;font-weight:650;font-size:13px}
+.btn:hover{background:var(--brand-700)}
+.btn-v{background:var(--violet);border-color:var(--violet-700)}
+.btn-ghost{border:1px solid var(--line);background:var(--card);color:var(--ink-2);padding:6px 10px;border-radius:9px;font-weight:600;font-size:12.5px}
+.btn-ghost:hover{border-color:var(--faint)}
+.btn-ghost.warn{border-color:var(--red-200);background:var(--red-100);color:var(--red)}
+.btn-ghost.dang{color:var(--red)}
+.btn-xs{padding:3px 8px;font-size:11.5px;border-radius:7px}
+
+.wrap{max-width:1720px;margin:0 auto;padding:14px 18px 60px;display:grid;grid-template-columns:minmax(0,1fr) 392px;gap:14px;align-items:start}
+@media (max-width:1240px){.wrap{grid-template-columns:minmax(0,1fr)}}
+
+/* ---------- the app frame (F10) ---------- */
+.frame{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:14px}
+.urlbar{display:flex;gap:9px;align-items:center;padding:8px 12px;background:#fbfcfb;border-bottom:1px solid var(--line)}
+.dots{display:flex;gap:5px}.dots i{width:9px;height:9px;border-radius:50%;background:#dfe5e0;display:block}
+.url{flex:1;font-family:var(--mono);font-size:11.5px;color:var(--muted);background:var(--card);
+  border:1px solid var(--line);border-radius:7px;padding:4px 9px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.url b{color:var(--ink)}
+.who{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--faint)}
+
+.app{display:grid;grid-template-columns:210px minmax(0,1fr);min-height:520px}
+@media (max-width:860px){.app{grid-template-columns:1fr}}
+.rail{border-right:1px solid var(--line);background:#fbfcfb;padding:10px 8px;display:flex;flex-direction:column;gap:1px}
+.rail .sec{font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);padding:11px 9px 5px}
+.nav{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;font-size:13px;font-weight:600;
+  color:var(--ink-2);border:0;background:transparent;width:100%;text-align:left}
+.nav:hover{background:var(--line-2)}
+.nav[aria-current="page"]{background:var(--brand-100);color:var(--brand-700)}
+.nav .ic{width:15px;height:15px;flex:none;opacity:.85}
+.nav.util{color:var(--muted);font-weight:500}
+.nav .new{margin-left:auto;font-size:9px;font-weight:800;letter-spacing:.04em;background:var(--violet-100);
+  color:var(--violet-700);padding:1px 5px;border-radius:5px}
+.rail .grp{font-size:13px;font-weight:600;color:var(--ink-2);padding:7px 9px;display:flex;align-items:center;gap:9px}
+.rail .grp .chev{margin-left:auto;color:var(--faint);font-size:10px}
+
+.pane{padding:16px 18px}
+.pagehead{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.pagehead h2{font-size:21px;letter-spacing:-.3px}
+.pagehead .lead{font-size:12.5px;color:var(--muted);margin-top:2px;max-width:70ch}
+.filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+.filters input,.filters select{padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+
+/* ---------- board ---------- */
+.board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(200px,1fr);gap:9px;overflow-x:auto;padding-bottom:4px}
+.col{background:var(--bg);border:1px solid var(--line-2);border-radius:10px;display:flex;flex-direction:column;min-height:110px}
+.col-h{padding:8px 10px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px}
+.col-h .nm{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2)}
+.col-h .n{font-size:11px;color:var(--faint);font-weight:600;margin-left:auto}
+.col-h .dot{width:7px;height:7px;border-radius:50%}
+.col-cards{padding:7px;display:flex;flex-direction:column;gap:7px}
+.d-todo{background:#b8c2bc}.d-inprog{background:var(--blue)}.d-rev{background:var(--amber)}
+.d-done{background:var(--brand)}.d-blocked{background:#8d7fd6}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:8px 9px;text-align:left;width:100%;display:block}
+.card:hover{border-color:var(--faint);box-shadow:0 2px 6px rgba(0,0,0,.05)}
+.card .client{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .ttl{font-size:12.8px;font-weight:700;line-height:1.3;margin:3px 0 5px}
+.row{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:650;padding:2px 5px;border-radius:5px;
+  background:var(--line-2);color:var(--ink-2);white-space:nowrap}
+.chip.p{background:var(--violet-100);color:var(--violet-700)}
+.chip.g{background:var(--brand-100);color:var(--brand-700)}
+.chip.a{background:var(--amber-100);color:var(--amber)}
+.chip.r{background:var(--red-100);color:var(--red)}
+.chip.b{background:var(--blue-100);color:var(--blue)}
+.chip.q{background:transparent;color:var(--faint);padding-left:0}
+.meta{font-size:10.5px;color:var(--muted);margin-top:5px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.pdot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.pd-Urgent{background:var(--red)}.pd-Medium{background:#c9a227}.pd-Low{background:#b8c2bc}
+.bar{height:4px;background:var(--line-2);border-radius:3px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--brand)}
+.av{width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff}
+.empty{font-size:11px;color:var(--faint);padding:6px 2px}
+
+.strip{margin-top:14px;border-top:1px solid var(--line);padding-top:11px}
+.strip-h{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.strip-h h3{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2)}
+.strip-cards{display:flex;gap:8px;flex-wrap:wrap}
+.strip-cards .card{width:236px}
+
+/* ---------- dashboard mock (Q6) ---------- */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:11px 12px}
+.kpi .lb{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.kpi .v{font-size:29px;font-weight:700;letter-spacing:-.5px;margin-top:5px}
+.kpi .s{font-size:11px;color:var(--muted)}
+.mywork{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:13px 14px}
+.mywork h3{font-size:14px}
+.mywork .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin:11px 0}
+.mywork .n{font-size:23px;font-weight:700}
+.mywork .n.warn{color:var(--amber)}.mywork .n.bad{color:var(--red)}
+
+/* ---------- client board ---------- */
+.cboard .col{background:#fbfbfe;border-color:#ececf6}
+.cl-note{font-size:11.5px;color:var(--ink-2);margin:4px 0 6px;line-height:1.4}
+.lb-paid{background:var(--violet-100);color:var(--violet-700)}
+.lb-organic{background:var(--brand-100);color:var(--brand-700)}
+.lb-web{background:var(--blue-100);color:var(--blue)}
+
+/* ---------- drawer ---------- */
+.veil{position:fixed;inset:0;background:rgba(18,26,22,.42);z-index:100;display:none}
+.veil.on{display:block}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,96vw);background:var(--card);z-index:101;
+  box-shadow:-8px 0 30px rgba(0,0,0,.14);display:none;flex-direction:column}
+.drawer.on{display:flex}
+.dr-h{padding:13px 15px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:flex-start}
+.dr-h .eyebrow{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:700}
+.dr-h h2{font-size:16px;margin-top:3px;letter-spacing:-.2px}
+.x{border:0;background:transparent;color:var(--muted);font-size:20px;line-height:1;padding:2px 6px;border-radius:6px}
+.x:hover{background:var(--line-2)}
+.dr-b{padding:14px 15px;overflow:auto;flex:1}
+.dr-f{padding:10px 15px;border-top:1px solid var(--line);display:flex;gap:7px;align-items:center;flex-wrap:wrap;background:#fcfdfc}
+.sect{margin-bottom:15px}
+.sect>h4{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin-bottom:7px}
+.kv{display:grid;grid-template-columns:128px minmax(0,1fr);gap:4px 10px;font-size:12.5px}
+.kv dt{color:var(--muted)}.kv dd{margin:0}
+.lock{font-size:10px;color:var(--amber);background:var(--amber-100);border-radius:5px;padding:1px 5px;font-weight:650}
+.note{background:var(--bg);border:1px solid var(--line-2);border-radius:8px;padding:8px 9px;font-size:12.5px;color:var(--ink-2)}
+.mt{border:1px solid var(--line-2);border-radius:9px;margin-bottom:7px;overflow:hidden}
+.mt-h{padding:6px 9px;background:var(--bg);font-size:12px;font-weight:700;display:flex;gap:7px;align-items:center}
+.mt-h .n{font-weight:600;color:var(--faint);font-size:11px;margin-left:auto}
+.sub{display:flex;gap:7px;align-items:flex-start;padding:5px 9px;border-top:1px solid var(--line-2);font-size:12.5px}
+.sub.done label{color:var(--faint);text-decoration:line-through}
+.dod{display:block;font-size:10.5px;color:var(--faint)}
+.ctx{border-radius:9px;padding:8px 10px;font-size:12.5px;margin-bottom:11px;border:1px solid}
+.ctx.a{background:var(--amber-100);border-color:var(--amber-200);color:#7a4d06}
+.ctx.g{background:var(--brand-100);border-color:var(--brand-200);color:var(--brand-700)}
+.ctx.r{background:var(--red-100);border-color:var(--red-200);color:var(--red)}
+.ctx.p{background:var(--violet-100);border-color:#d9d9f5;color:var(--violet-700)}
+.field{margin-bottom:10px}
+.field>label{display:block;font-size:11.5px;font-weight:650;color:var(--ink-2);margin-bottom:4px}
+.field input[type=text],.field input[type=date],.field input[type=number],.field select,.field textarea{
+  width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.field textarea{min-height:58px;resize:vertical}
+.hint{font-size:11px;color:var(--muted);margin-top:3px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.switch{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--brand-200);background:var(--brand-100);
+  border-radius:10px;padding:10px 11px}
+.switch.off{border-color:var(--line);background:var(--bg)}
+.switch .t{font-size:13px;font-weight:700}
+.switch .d{font-size:11.5px;color:var(--ink-2)}
+
+/* ---------- right rail ---------- */
+.side{position:sticky;top:72px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}
+.box-h{padding:10px 12px;border-bottom:1px solid var(--line-2);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.box-h h2{font-size:13px}
+.box-b{padding:11px 12px}
+.tag{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  padding:2px 6px;border-radius:5px;background:var(--line-2);color:var(--muted)}
+.tag.f{background:var(--violet-100);color:var(--violet-700)}
+.tag.g{background:var(--brand-100);color:var(--brand-700)}
+.tag.a{background:var(--amber-100);color:var(--amber)}
+.tag.r{background:var(--red-100);color:var(--red)}
+.insp{font-family:var(--mono);font-size:10.8px;line-height:1.5;background:#1b2320;color:#d8e2dc;border-radius:9px;
+  padding:9px 10px;overflow:auto;max-height:300px;white-space:pre}
+.insp .k{color:#8fd694}.insp .s{color:#e8c07d}.insp .n{color:#9fc7f0}.insp .x{color:#f08d7d}.insp .c{color:#7b8b83}
+.tbl{width:100%;border-collapse:collapse;font-size:11.8px}
+.tbl th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);
+  padding:4px 5px;border-bottom:1px solid var(--line)}
+.tbl td{padding:4px 5px;border-bottom:1px solid var(--line-2);vertical-align:middle}
+.tbl code{font-family:var(--mono);font-size:10.5px;background:var(--bg);padding:1px 4px;border-radius:4px}
+.pass{color:var(--brand-700);font-weight:700}.fail{color:var(--red);font-weight:700}
+.mini{font-size:11px;color:var(--muted)}
+.rowck{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--line-2);font-size:11.8px}
+.rowck:last-child{border-bottom:0}
+.rowck .q{font-size:9.5px;font-weight:800;color:var(--faint);min-width:18px;padding-top:2px}
+.wbar{display:flex;height:12px;border-radius:6px;overflow:hidden;border:1px solid var(--line);background:var(--bg)}
+.wbar i{display:block;height:100%}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#1b2320;color:#fff;
+  padding:10px 15px;border-radius:10px;font-size:13px;z-index:200;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:560px}
+.toast.err{background:var(--red)}
+.warnbox{border:1px solid var(--red-200);background:var(--red-100);border-radius:9px;padding:9px 10px;
+  font-size:11.8px;color:var(--red);margin-bottom:10px}
+.okbox{border:1px solid var(--brand-200);background:var(--brand-100);border-radius:9px;padding:9px 10px;
+  font-size:11.8px;color:var(--brand-700);margin-bottom:10px}
+[hidden]{display:none !important}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-in">
+    <div style="display:flex;gap:10px;align-items:center">
+      <div class="crest">S</div>
+      <div>
+        <h1>Taskboard prototype — F10 first, then the mechanics</h1>
+        <div class="sub">F10 page + nav · F1 share on create · F2 rename (no migration) · F3 resume_to · F4 Past work · F5 standalone ads · F6 editor stays · F7 optional</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div style="display:flex;align-items:center;gap:5px"><span class="seglab">Show</span>
+      <div class="seg" id="seg-view">
+        <button data-v="both" aria-pressed="true">Side by side</button>
+        <button data-v="sentinel" aria-pressed="false">Sentinel</button>
+        <button data-v="atrium" aria-pressed="false">Atrium (client)</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:5px"><span class="seglab">As</span>
+      <div class="seg" id="seg-role">
+        <button data-r="am" aria-pressed="true">AM</button>
+        <button data-r="lead" aria-pressed="false">Team Lead</button>
+        <button data-r="emp" aria-pressed="false">Employee</button>
+        <button data-r="intern" aria-pressed="false">Intern</button>
+      </div>
+    </div>
+    <button class="btn-ghost" id="btn-reset">Reset</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <main>
+    <!-- ============ SENTINEL, with the real sidebar (F10) ============ -->
+    <section class="frame" id="frame-sentinel">
+      <div class="urlbar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="url" id="sn-url"></div>
+        <span class="who">Sentinel · internal</span>
+      </div>
+      <div class="app">
+        <nav class="rail" id="rail"></nav>
+        <div class="pane" id="sn-pane"></div>
+      </div>
+    </section>
+
+    <!-- ============ ATRIUM, the client's window ============ -->
+    <section class="frame" id="frame-atrium">
+      <div class="urlbar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="url"><b>portal.agoradatadriven.com</b>/w/&lt;client&gt;/progress</div>
+        <span class="who">Atrium · client</span>
+      </div>
+      <div class="pane">
+        <div class="pagehead">
+          <div>
+            <h2>Tasks</h2>
+            <div class="lead">Only shared cards, client-safe fields only. No approve button — comment or request a revision.</div>
+          </div>
+          <div class="spacer"></div>
+          <select id="cl-pick" style="padding:6px 9px;border:1px solid var(--line);border-radius:8px"></select>
+        </div>
+        <div class="board cboard" id="cl-board"></div>
+        <div class="strip">
+          <div class="strip-h"><h3>Past work</h3>
+            <span class="mini">What we shipped for you. Visible, not deleted.</span>
+            <div class="spacer"></div><span class="mini" id="cl-past-n"></span></div>
+          <div class="strip-cards" id="cl-past"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ RAIL ============ -->
+  <aside class="side">
+    <section class="box">
+      <div class="box-h"><h2>F10 · deep links</h2><span class="tag r">the one real hazard</span></div>
+      <div class="box-b">
+        <div class="mini" style="margin-bottom:8px"><code>Notification.link</code> rows are already in the
+          database and a deploy cannot rewrite them. Both spellings must land on the board.</div>
+        <table class="tbl" id="dl-tbl"></table>
+        <div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">
+          <button class="btn-ghost btn-xs" data-deep="/tasks?open=T2">Open /tasks?open=…</button>
+          <button class="btn-ghost btn-xs" data-deep="/dashboard?open=T2">Open /dashboard?open=…</button>
+        </div>
+        <div class="mini" id="dl-out" style="margin-top:7px"></div>
+      </div>
+    </section>
+
+    <section class="box">
+      <div class="box-h"><h2>Data inspector</h2>
+        <div class="spacer"></div><span class="mini" id="insp-which">no card selected</span></div>
+      <div class="box-b">
+        <div class="seg" id="seg-insp" style="margin-bottom:8px">
+          <button data-i="row" aria-pressed="true">Sentinel row</button>
+          <button data-i="wire" aria-pressed="false">Publish contract</button>
+          <button data-i="bridge" aria-pressed="false">Bridge log</button>
+        </div>
+        <div class="insp" id="insp"></div>
+      </div>
+    </section>
+
+    <section class="box">
+      <div class="box-h"><h2>Leak assertion</h2><span class="tag r">DoD 12</span>
+        <div class="spacer"></div><span id="leak-verdict" class="mini"></span></div>
+      <div class="box-b">
+        <div class="mini" style="margin-bottom:7px">Scans the rendered client pane for every internal value. Runs on every render.</div>
+        <table class="tbl" id="leak-tbl"></table>
+      </div>
+    </section>
+
+    <section class="box">
+      <div class="box-h"><h2>F2 · Blocked → Parked</h2><span class="tag a">no migration</span></div>
+      <div class="box-b">
+        <div class="mini" style="margin-bottom:8px">Manage → Task Fields already cascades the rename onto
+          every task, in one transaction, rows before the vocab row. The risk is <strong>five code
+          literals</strong> and the <strong>order</strong>.</div>
+
+        <div id="f2-state"></div>
+
+        <table class="tbl" id="lit-tbl" style="margin:9px 0"></table>
+
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn-ghost btn-xs" id="f2-deploy">1 · Deploy code (Parked)</button>
+          <button class="btn-ghost btn-xs" id="f2-rename">2 · Rename in Manage</button>
+          <button class="btn-ghost btn-xs warn" id="f2-wrong">✗ Rename FIRST (wrong order)</button>
+        </div>
+        <div class="mini" id="f2-out" style="margin-top:8px"></div>
+
+        <div style="margin-top:11px;border-top:1px solid var(--line-2);padding-top:9px">
+          <div class="mini" style="margin-bottom:5px"><strong>Monitor workload bar</strong> — built from
+            <code>barSegs</code> (literal 2.4). A segment whose name no longer matches silently disappears.</div>
+          <div class="wbar" id="wbar"></div>
+          <div class="mini" id="wbar-out" style="margin-top:5px"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="box">
+      <div class="box-h"><h2>Manage → Task Fields</h2><span class="tag g">F6 reversed — it stays</span></div>
+      <div class="box-b">
+        <table class="tbl" id="vocab-tbl"></table>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:9px">
+          <select id="ren-key" style="padding:5px 7px;border:1px solid var(--line);border-radius:8px;flex:1"></select>
+          <input id="ren-val" type="text" placeholder="new name" style="padding:5px 7px;border:1px solid var(--line);border-radius:8px;width:98px">
+          <button class="btn-ghost btn-xs" id="ren-go">Rename</button>
+        </div>
+        <div class="mini" id="ren-out" style="margin-top:7px">Renaming cascades to every task. Deleting a status still in use is refused (409).</div>
+        <div style="margin-top:8px"><button class="btn-ghost btn-xs dang" id="del-go">Try to delete the selected status</button></div>
+      </div>
+    </section>
+
+    <section class="box">
+      <div class="box-h"><h2>Open questions</h2><span class="tag a">decide by trying</span></div>
+      <div class="box-b" id="q-panel"></div>
+    </section>
+  </aside>
+</div>
+
+<div class="veil" id="veil"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true">
+  <div class="dr-h">
+    <div style="flex:1"><div class="eyebrow" id="dr-eyebrow"></div><h2 id="dr-title"></h2></div>
+    <button class="x" id="dr-x" aria-label="Close">&times;</button>
+  </div>
+  <div class="dr-b" id="dr-body"></div>
+  <div class="dr-f" id="dr-foot"></div>
+</aside>
+
+<script>
+/* ===================================================================================================
+   Taskboard prototype — rebuilt 2026-07-31 against the REVISED roadmap.
+
+   What changed in the spec, and therefore in here:
+     F10  NEW and first: the board is its own page at /tasks with a sidebar entry. The whole Sentinel
+          frame below (rail + page) exists to make that decision visible, including Q6 (what stays on
+          the Dashboard) and Q7 (label + placement).
+     F2   DOWNGRADED: not a migration. Manage → Task Fields already cascades a rename onto every task
+          in one transaction. The simulator here is about the FIVE CODE LITERALS and the rollout order
+          -- deploy code first, rename second.
+     F6   REVERSED: the editor stays. Delete-while-in-use is refused (409); rename cascades.
+     F7   Optional -- its justification is the residue this file shows: a rename rewrites N task rows.
+
+   Nothing here talks to a server: the bridge is a log, and the leak assertion reads the DOM you see.
+   =================================================================================================== */
+(function () {
+"use strict";
+
+/* ---------------------------------------------------------------------------------------------------
+   The five code literals (F2). Flipping them is "deploy the code"; they start as they ship today.
+   --------------------------------------------------------------------------------------------------- */
+var CODE = null;
+function freshCode() {
+  return {
+    TASK_BLOCKED: "Blocked",                          /* 2.1 constants.py:111  -- the worst one */
+    TASK_STATUSES: ["To Do", "In Progress", "Revision Needed", "Completed", "Blocked"],  /* 2.2 */
+    STATUS_COLORS: { "Blocked": "#C2402F" },           /* 2.3 task_config.py:18 */
+    barSegs: ["To Do", "In Progress", "Revision Needed", "Blocked"],                     /* 2.4 */
+    STAGE_BY_STATUS: { "To Do": "todo", "In Progress": "in_progress",
+                       "Revision Needed": "revision", "Completed": "completed",
+                       "Blocked": "blocked" },         /* 2.5 -- "Parked" must be ADDED, "Blocked" KEPT */
+    deployed: false
+  };
+}
+var LITERALS = [
+  ["2.1", "TASK_BLOCKED", "constants.py:111", "TASK_BLOCKED"],
+  ["2.2", "TASK_STATUSES", "constants.py:122", "TASK_STATUSES"],
+  ["2.3", "STATUS_COLORS", "task_config.py:18", "STATUS_COLORS"],
+  ["2.4", "barSegs / segCls", "taskboard.js:197", "barSegs"],
+  ["2.5", "STAGE_BY_STATUS", "atrium_tasks.py:73", "STAGE_BY_STATUS"]
+];
+
+var STAGE_KEY = { "To Do": "todo", "In Progress": "inprog", "Revision Needed": "rev",
+                  "Completed": "done", "Parked": "blocked", "Blocked": "blocked" };
+var NEVER_PUBLISH = ["assignee", "team", "account_manager", "created_by", "description",
+                     "internal_notes", "service_charge", "review_state", "hold_reason",
+                     "priority", "dod"];
+var DEPTS = { acquisition: "Acquisition", lifecycle: "Lifecycle", data: "Data Analyst", development: "Development" };
+var DISC = { acquisition: ["Paid Media", "lb-paid"], lifecycle: ["Organic", "lb-organic"],
+             data: ["Website", "lb-web"], development: ["Website", "lb-web"] };
+var PEOPLE = { Ehjay: "acquisition", Justine: "acquisition", Lance: "acquisition", Zhen: "acquisition",
+               Paulo: "lifecycle", Ian: "data", Nico: "development", Samuel: "development" };
+var CLIENTS = ["Riverdance RV", "Melo Yelo", "The Contract Shop", "Honey Tribe",
+               "Rooming House Expert", "ASL Logistics"];
+
+/* The recipe book (subset) + the F5 standalone entries built FROM the ad groups, never copied. */
+var AD = {
+  video: { qty_label: "How many videos?", def: 3, group: { t: "Video ad production", s: [
+    { t: "Script / concept per video approved", d: "Every video has an approved hook and script" },
+    { t: "Footage secured", d: "All required footage available to the editor" },
+    { t: "Video {n} — draft edit", u: 1, d: "First cut produced to the approved script" },
+    { t: "Video {n} — internal review", u: 1, d: "Brand colours, fonts, pacing and hook checked" },
+    { t: "Export + file", d: "Final exports filed; folder link on the card" }] } },
+  static: { qty_label: "How many statics?", def: 5, group: { t: "Static ad production", s: [
+    { t: "Batch brief approved (angles + copy direction)", d: "Brief signed off before any design" },
+    { t: "Static {n} — design", u: 1, d: "Designed to brand spec, copy matches the brief" },
+    { t: "Internal review of the batch", d: "All statics checked against brief + compliance" },
+    { t: "Export + file to campaign folder", d: "Exports filed; folder link on the card" }] } },
+  carousel: { qty_label: "How many carousels?", def: 1, group: { t: "Carousel ad production", s: [
+    { t: "Card structure + copy approved", d: "Card-by-card structure and copy signed off" },
+    { t: "Carousel {n} — design all cards", u: 1, d: "All cards designed; sequence reads in order" },
+    { t: "Internal review", d: "Sequence logic and brand checked" },
+    { t: "Export + file", d: "Exports filed; folder link on the card" }] } }
+};
+var T = {
+  google_meta_campaign: { label: "Google / Meta Campaign", dept: "acquisition", ct: "Campaign", camp: true,
+    params: [], mt: [
+      { t: "Campaign build", s: [
+        { t: "Audience, interest & budget research", d: "Research sheet linked on the card" },
+        { t: "Campaign structure plan", d: "Objective + conversion event approved by the lead" },
+        { t: "Audience build", d: "Audiences saved in Ads Manager" },
+        { t: "Load creatives + copy", d: "All approved creatives and CTAs loaded" },
+        { t: "Compliance check", d: "Client rules verified before launch" }] },
+      { t: "Launch & verify", s: [
+        { t: "Tracking confirmation", d: "Pixel / CAPI events verified before spend" },
+        { t: "Launch", d: "Campaign published; ID logged on the card" },
+        { t: "Post-launch QA (24h)", d: "Delivery, pacing and attribution confirmed" }] }] },
+  email_automation: { label: "Email Automation / Sequence Build", dept: "lifecycle", ct: "Email Automation",
+    camp: true, params: [{ k: "qty", label: "How many emails?", def: 5 }], mt: [
+      { t: "Plan", s: [{ t: "Automation map documented", d: "Flow in plain language, handover-ready" }] },
+      { t: "Email production", s: [
+        { t: "Email {n} — copy", u: 1, d: "Copy drafted to the approved angle" },
+        { t: "Email {n} — HTML build", u: 1, d: "Responsive, merge fields correct" }] },
+      { t: "Build & activate", s: [{ t: "End-to-end test", d: "A test contact travels the full flow" },
+                                   { t: "Activate", d: "Sequence live; logged on the card" }] }] },
+  organic_social: { label: "Organic Social Post Production", dept: "lifecycle", ct: "Social", camp: false,
+    params: [{ k: "qty", label: "How many posts?", def: 2 }], mt: [
+      { t: "Post batch", s: [
+        { t: "Post {n} — concept + caption", u: 1, d: "Concept and caption approved" },
+        { t: "Post {n} — design", u: 1, d: "Designed to brand spec" },
+        { t: "Scheduled", d: "Scheduled per cadence; logged" }] }] },
+  market_research: { label: "Market Research Package", dept: "data", ct: "Research", camp: false,
+    params: [], mt: [{ t: "Research package", s: [
+      { t: "Company profile", d: "What they do, offer and positioning" },
+      { t: "PESTEL analysis", d: "All six factors with client relevance" },
+      { t: "Competitor research", d: "Three or more competitors profiled" }] }] },
+  website_fix: { label: "Website Edit / Fix / Integration", dept: "development", ct: "Website", camp: false,
+    params: [], mt: [{ t: "Fix", s: [
+      { t: "Change implemented", d: "Edit made on staging or live" },
+      { t: "Verified in production", d: "Confirmed working on the live site" }] }] },
+  dashboard_build: { label: "Dashboard Build", dept: "data", ct: "Dashboard", camp: true, params: [], mt: [
+    { t: "Define & connect", s: [{ t: "Define metrics", d: "Metric list agreed with the requester" },
+                                 { t: "Data sources connected", d: "All sources pulling" }] },
+    { t: "Build & hand over", s: [{ t: "Build views", d: "All agreed views built" },
+                                  { t: "Share + walkthrough", d: "Access granted, walkthrough done" }] }] }
+};
+/* F5 — three dicts, the ad groups REFERENCED so a standalone recipe can never drift. */
+["video", "static", "carousel"].forEach(function (k) {
+  var nice = k.charAt(0).toUpperCase() + k.slice(1);
+  T["standalone_" + k] = { label: nice + " Ad — standalone", dept: "acquisition", ct: nice + " Ad",
+    camp: false, isNew: true,
+    params: [{ k: "qty", label: AD[k].qty_label, def: AD[k].def }], mt: [AD[k].group] };
+});
+var SVC_ORDER = ["google_meta_campaign", "standalone_video", "standalone_static", "standalone_carousel",
+                 "email_automation", "organic_social", "market_research", "dashboard_build", "website_fix"];
+
+/* --------------------------------------------------------------------------------------------------- */
+var S = null, sel = "", inspTab = "row", view = "both", role = "am", mode = "", page = "tasks", boardView = "board";
+
+function uid(p) { return p + Math.random().toString(36).slice(2, 7); }
+function esc(v) {
+  return String(v === undefined || v === null ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function el(id) { return document.getElementById(id); }
+function money(n) { return n ? "$" + Number(n).toLocaleString("en-US") : ""; }
+function dmy(s) {
+  if (!s) { return ""; }
+  var M = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var p = s.split("-");
+  return M[Number(p[1]) - 1] + " " + Number(p[2]);
+}
+var AVC = ["#4FA84A", "#6A6AEA", "#2F6BC2", "#B4700A", "#C2402F", "#0f9b8e", "#8d5fd6"];
+function avc(n) { var t = 0, i; for (i = 0; i < (n || "").length; i++) { t += n.charCodeAt(i); } return n ? AVC[t % AVC.length] : "#b8c2bc"; }
+function ini(n) { return n ? n.slice(0, 1).toUpperCase() : "?"; }
+function toast(m, bad) {
+  var d = document.createElement("div");
+  d.className = "toast" + (bad ? " err" : "");
+  d.textContent = m;
+  document.body.appendChild(d);
+  setTimeout(function () { if (d.parentNode) { d.parentNode.removeChild(d); } }, 3800);
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   Vocab. NOTE: Sentinel stores the status NAME on the task -- there is no key/label split yet. That
+   is exactly why a rename is a bulk row rewrite, and exactly what F7 would remove.
+   --------------------------------------------------------------------------------------------------- */
+function names() { return S.vocab.map(function (v) { return v.name; }); }
+function vocabHas(n) { return names().indexOf(n) !== -1; }
+function usage(n) { return S.tasks.filter(function (t) { return t.status === n; }).length; }
+/* A task whose stored status matches no vocab row renders in no column: the vanishing card. */
+function orphans() { return S.tasks.filter(function (t) { return !vocabHas(t.status); }); }
+function parkedName() {
+  var i;
+  for (i = 0; i < S.vocab.length; i++) { if (S.vocab[i].role === "blocked") { return S.vocab[i].name; } }
+  return "Blocked";
+}
+function clientLabel(n) { return n === parkedName() ? S.prefs.clientWord : n; }
+
+/* ---------------------------------------------------------------------------------------------------
+   Breakdown
+   --------------------------------------------------------------------------------------------------- */
+function build(svc, qty) {
+  var tpl = T[svc], out = [], n = Math.max(1, Math.min(50, Number(qty) || 1));
+  if (!tpl) { return []; }
+  tpl.mt.forEach(function (g) {
+    var subs = [];
+    g.s.forEach(function (st) {
+      if (st.u) {
+        var i;
+        for (i = 1; i <= n; i++) {
+          subs.push({ id: uid("s"), text: st.t.replace("{n}", String(i)), done: false, dod: st.d });
+        }
+      } else { subs.push({ id: uid("s"), text: st.t, done: false, dod: st.d }); }
+    });
+    out.push({ id: uid("m"), title: g.t, subs: subs });
+  });
+  return out;
+}
+function stats(t) {
+  var tot = 0, dn = 0;
+  (t.maintasks || []).forEach(function (m) {
+    (m.subs || []).forEach(function (s) { tot++; if (s.done) { dn++; } });
+  });
+  return { total: tot, done: dn, pct: tot ? Math.round(dn / tot * 100) : 0 };
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   Seed
+   --------------------------------------------------------------------------------------------------- */
+function mk(o) {
+  var t = { id: uid("T"), client: "", title: "", client_title: "", client_note: "",
+    status: "To Do", resume_to: "", hold_reason: "", ended_at: "", review_state: "none", reviewer: "",
+    shared: false, atrium_id: "", svc: "", qty: 1, campaign: "", ct: "", start_date: "", due_date: "",
+    deliverable_url: "", priority: "Medium", assignee: "", team: "", account_manager: "Charles",
+    created_by: "Charles", description: "", internal_notes: "", service_charge: 0,
+    maintasks: [], comments: [] };
+  var k;
+  for (k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) { t[k] = o[k]; } }
+  if (!t.maintasks.length && t.svc) { t.maintasks = build(t.svc, t.qty); }
+  if (t.svc && !t.ct) { t.ct = T[t.svc].ct; }
+  if (t.svc && !t.team) { t.team = DEPTS[T[t.svc].dept]; }
+  return t;
+}
+function tick(t, n) {
+  var left = n;
+  (t.maintasks || []).forEach(function (m) {
+    (m.subs || []).forEach(function (s) { if (left > 0) { s.done = true; left--; } });
+  });
+  return t;
+}
+function seed() {
+  var ts = [];
+  ts.push(tick(mk({ id: "T1", client: "Riverdance RV", title: "Park & Porch | Leads",
+    campaign: "Park & Porch | Leads", client_title: "Park & Porch lead campaign",
+    client_note: "Building and launching the Park & Porch lead campaign across Google and Meta.",
+    svc: "google_meta_campaign", status: "In Progress", shared: true, atrium_id: "atr-1041",
+    assignee: "Ehjay", priority: "Urgent", start_date: "2026-07-20", due_date: "2026-08-19",
+    service_charge: 4200, internal_notes: "Budget cap is soft — Charles negotiating a lift to 9k/mo.",
+    description: "Full-funnel lead campaign, Google Search + Meta prospecting.",
+    comments: [{ who: "client", text: "Can we push the caravan hook harder?" }] }), 5));
+
+  ts.push(tick(mk({ id: "T2", client: "The Contract Shop", title: "TCS Placement / Ads Manager",
+    campaign: "TCS Placement / Ads Manager", client_title: "Placement email sequence",
+    client_note: "Revision in progress — reworking emails 3–5 to your notes.",
+    svc: "email_automation", qty: 5, status: "Revision Needed", shared: true, atrium_id: "atr-1055",
+    assignee: "Paulo", priority: "Urgent", start_date: "2026-07-15", due_date: "2026-08-11",
+    service_charge: 2200, internal_notes: "Second revision round. Watch the hours.",
+    comments: [{ who: "client", text: "Emails 3–5 feel off-brand — can we redo the tone?", kind: "changes" }] }), 6));
+
+  ts.push(tick(mk({ id: "T3", client: "Rooming House Expert", title: "Rent to Rent",
+    campaign: "Rent to Rent", client_title: "Rent to Rent campaign",
+    client_note: "Paused while we wait on the landlord contract copy from your side.",
+    svc: "google_meta_campaign", status: "Blocked", resume_to: "In Progress",
+    hold_reason: "Waiting on the client's landlord contract copy — chased twice, Charles escalating.",
+    shared: true, atrium_id: "atr-1077", assignee: "Justine", priority: "Urgent",
+    start_date: "2026-07-10", due_date: "2026-08-08", service_charge: 2600 }), 4));
+
+  ts.push(tick(mk({ id: "T4", client: "Honey Tribe", title: "Organic social — August batch",
+    svc: "organic_social", qty: 4, client_title: "August social posts",
+    client_note: "Eight posts for August, scheduled once you approve the batch.",
+    status: "Blocked", resume_to: "In Progress", hold_reason: "Brand kit v2 not delivered.",
+    shared: true, atrium_id: "atr-1088", assignee: "Paulo", start_date: "2026-07-25",
+    due_date: "2026-08-12", service_charge: 900 }), 3));
+
+  ts.push(mk({ id: "T5", client: "Honey Tribe", title: "New Arrivals", campaign: "New Arrivals",
+    client_title: "New Arrivals launch campaign",
+    client_note: "Just kicked off — you'll see this move across the board as we build it.",
+    svc: "google_meta_campaign", status: "To Do", shared: true, atrium_id: "atr-1102",
+    assignee: "Ehjay", start_date: "2026-08-03", due_date: "2026-09-01", service_charge: 3400,
+    internal_notes: "Created with 'Share with the client now' ON — F1 in action." }));
+
+  ts.push(tick(mk({ id: "T6", client: "Melo Yelo", title: "Finance page rebuild", svc: "website_fix",
+    status: "In Progress", shared: false, assignee: "Nico", start_date: "2026-07-28",
+    due_date: "2026-08-15", service_charge: 1200,
+    internal_notes: "Speculative — client hasn't signed. Toggle stayed OFF on purpose.",
+    description: "Rebuild the finance page and reconnect the finance calculator." }), 1));
+
+  ts.push(mk({ id: "T7", client: "ASL Logistics", title: "Market research package",
+    svc: "market_research", status: "To Do", shared: false, assignee: "Ian",
+    start_date: "2026-08-04", due_date: "2026-08-22", service_charge: 1500,
+    internal_notes: "Pre-sales research. Not client-visible until the pitch." }));
+
+  ts.push(mk({ id: "T8", client: "Riverdance RV", title: "Summer walkthrough video",
+    svc: "standalone_video", qty: 2, client_title: "Summer walkthrough video",
+    client_note: "Two walkthrough videos, no campaign attached.", status: "To Do", shared: true,
+    atrium_id: "atr-1110", assignee: "Zhen", start_date: "2026-08-05", due_date: "2026-08-26",
+    service_charge: 1600, internal_notes: "F5: one video, no campaign — a service type now." }));
+
+  ts.push(tick(mk({ id: "T9", client: "Melo Yelo", title: "Finance Page — social support",
+    svc: "organic_social", qty: 3, client_title: "Finance page social posts",
+    client_note: "Three supporting posts for the finance page.", status: "In Progress",
+    review_state: "submitted", shared: true, atrium_id: "atr-1066", assignee: "Paulo",
+    start_date: "2026-07-29", due_date: "2026-08-13", service_charge: 700 }), 5));
+
+  ts.push(tick(mk({ id: "T10", client: "Rooming House Expert", title: "Negative Gearing",
+    campaign: "Negative Gearing", client_title: "Negative Gearing campaign",
+    client_note: "Live since Jul 2 and running.", svc: "google_meta_campaign", status: "Completed",
+    review_state: "approved", reviewer: "Lance", shared: true, atrium_id: "atr-0951",
+    assignee: "Justine", start_date: "2026-06-01", due_date: "2026-07-02", service_charge: 2900 }), 99));
+
+  ts.push(tick(mk({ id: "T11", client: "Honey Tribe", title: "Performance dashboard",
+    svc: "dashboard_build", campaign: "Q2 reporting", client_title: "Performance dashboard",
+    client_note: "Your Looker Studio dashboard — delivered and walked through in June.",
+    status: "Completed", review_state: "approved", reviewer: "Ian", ended_at: "2026-07-01",
+    shared: true, atrium_id: "atr-0902", assignee: "Ian", start_date: "2026-05-12",
+    due_date: "2026-06-06", service_charge: 1800,
+    deliverable_url: "https://lookerstudio.example.com/honeytribe" }), 99));
+
+  ts.push(tick(mk({ id: "T12", client: "ASL Logistics", title: "Tracking infrastructure",
+    svc: "website_fix", status: "Completed", review_state: "approved", reviewer: "Samuel",
+    ended_at: "2026-06-20", shared: false, assignee: "Samuel", start_date: "2026-05-04",
+    due_date: "2026-05-30", service_charge: 1400,
+    internal_notes: "Handed over. Client never had Atrium access for this one." }), 99));
+
+  /* One task still holding a RETIRED status. retire_statuses() moves it to CODE.TASK_BLOCKED on
+     every boot -- which is safe only while that literal names a status the vocab actually has. */
+  ts.push(tick(mk({ id: "T13", client: "The Contract Shop", title: "Get Clients (5 Unexpected Ways)",
+    campaign: "Get Clients (5 Unexpected Ways)", client_title: "Get Clients campaign",
+    client_note: "On hold pending your legal review of the claims in the ad copy.",
+    svc: "google_meta_campaign", status: "For Review", shared: true, atrium_id: "atr-0994",
+    assignee: "Lance", start_date: "2026-06-28", due_date: "2026-08-14", service_charge: 3100,
+    internal_notes: "Legal review with the client's counsel." }), 3));
+
+  return {
+    vocab: [{ name: "To Do", role: "todo" }, { name: "In Progress", role: "inprog" },
+            { name: "Revision Needed", role: "rev" }, { name: "Completed", role: "done" },
+            { name: "Blocked", role: "blocked" }],
+    tasks: ts, bridge: [], rowsRewritten: 0, renamedInUI: false,
+    prefs: { clientWord: "Paused", pastAsSection: true, clientSeesParked: true, tlCanShare: false,
+             navLabel: "Task Board", dashSummary: true }
+  };
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   retire_statuses() -- runs on every boot in the real app (task_config.py). Modelled because F2's
+   worst literal is the one that feeds it.
+   --------------------------------------------------------------------------------------------------- */
+var RETIRED = { "For Review": 1, "Waiting for Client": 1 };
+function retireStatuses() {
+  var moved = 0, target = CODE.TASK_BLOCKED;
+  S.tasks.forEach(function (t) {
+    if (RETIRED[t.status]) { t.status = target; moved++; }
+  });
+  return { moved: moved, target: target, safe: vocabHas(target) };
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   Bridge
+   --------------------------------------------------------------------------------------------------- */
+function bridge(route, id, payload, note) {
+  S.bridge.unshift({ at: new Date().toLocaleTimeString(), route: route, task: id,
+                     keys: Object.keys(payload || {}), note: note || "" });
+  if (S.bridge.length > 40) { S.bridge.length = 40; }
+}
+function createPayload(t) {
+  return { title: t.client_title || t.title, stage: CODE.STAGE_BY_STATUS[t.status] || "(unmapped)",
+           due_date: t.due_date, department: T[t.svc] ? T[t.svc].dept : "", client_facing: true,
+           client: t.client };
+}
+function patchPayload(t) {
+  return { client_note: t.client_note, deliverable_url: t.deliverable_url, campaign: t.campaign,
+           content_type: t.ct, start_date: t.start_date,
+           maintasks: (t.maintasks || []).map(function (m) {
+             return { title: m.title, steps: (m.subs || []).map(function (s) {
+               return { text: s.text, done: s.done }; }) };
+           }), ended: !!t.ended_at };
+}
+function publish(t, why) {
+  if (!t.atrium_id) { t.atrium_id = "atr-" + Math.floor(1200 + Math.random() * 700); }
+  t.shared = true;
+  bridge("POST /api/internal/task-add", t.atrium_id, createPayload(t), why || "");
+  bridge("POST /api/internal/task-update", t.atrium_id, patchPayload(t), "follow-up patch");
+}
+function pushMove(t) {
+  if (!t.shared) { return; }
+  var stage = CODE.STAGE_BY_STATUS[t.status];
+  bridge("POST /api/internal/task-move", t.atrium_id, { stage: stage || "(unmapped)" },
+         stage ? "hold_reason has no FIELD_MAP entry — it never crosses"
+               : "UNMAPPED STATUS — this is the 2026-07-29 failure (keep both spellings)");
+}
+function pushPatch(t, note) { if (t.shared) { bridge("POST /api/internal/task-update", t.atrium_id, patchPayload(t), note || ""); } }
+
+/* ---------------------------------------------------------------------------------------------------
+   Permissions (only what the open questions need)
+   --------------------------------------------------------------------------------------------------- */
+function canApprove() { return role === "lead" || role === "am"; }
+function canOverride() { return role === "am"; }
+function canShareOnCreate() { return role === "am" || (role === "lead" && S.prefs.tlCanShare); }
+function canEndOrDelete() { return role === "am"; }
+function canMonitor() { return role === "am" || role === "lead"; }
+
+/* ---------------------------------------------------------------------------------------------------
+   Actions
+   --------------------------------------------------------------------------------------------------- */
+function find(id) {
+  var i;
+  for (i = 0; i < S.tasks.length; i++) { if (S.tasks[i].id === id) { return S.tasks[i]; } }
+  return null;
+}
+function setStatus(t, name, override) {
+  if (name === "Completed" && t.review_state !== "approved" && !override) {
+    toast("Not completed: needs a Team Lead's approval first (review_state = " + t.review_state + ").", true);
+    return false;
+  }
+  if (t.status === parkedName() && name !== parkedName()) { t.resume_to = ""; t.hold_reason = ""; }
+  t.status = name;
+  pushMove(t);
+  return true;
+}
+function park(t, reason) {
+  if (t.status === parkedName()) { return; }
+  t.resume_to = t.status;                       /* F3 -- the field that makes parking safe */
+  t.status = parkedName();
+  t.hold_reason = reason || "";
+  pushMove(t);
+}
+function resume(t) {
+  t.status = t.resume_to || "In Progress";
+  t.resume_to = ""; t.hold_reason = "";
+  pushMove(t);
+}
+function markEnded(t) {
+  if (t.status !== "Completed") { toast("Only a Completed card can be marked ended.", true); return; }
+  t.ended_at = new Date().toISOString().slice(0, 10);
+  pushPatch(t, "ended flag set — the card moves to Past work on BOTH boards");
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   Render -- the Sentinel frame: rail (F10) + page
+   --------------------------------------------------------------------------------------------------- */
+var ICON = {
+  grid: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
+  board: "M4 4h16v16H4zM9 4v16M15 4v16",
+  spark: "M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z",
+  clock: "M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3 2",
+  compass: "M12 3a9 9 0 100 18 9 9 0 000-18zM15 9l-2 4-4 2 2-4z",
+  sliders: "M4 6h16M4 12h16M4 18h16"
+};
+function svg(d) {
+  return '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>';
+}
+function renderRail() {
+  var h = "";
+  h += '<div class="sec">Workspace</div>';
+  h += '<button class="nav" data-page="dashboard"' + (page === "dashboard" ? ' aria-current="page"' : "") + ">" +
+       svg(ICON.grid) + "Dashboard</button>";
+  /* F10.4 — no `min`, no `roles`: every role including intern sees it. Scoping is server-side. */
+  h += '<button class="nav" data-page="tasks"' + (page === "tasks" ? ' aria-current="page"' : "") + ">" +
+       svg(ICON.board) + esc(S.prefs.navLabel) + '<span class="new">F10</span></button>';
+  h += '<div class="sec">Growth</div>';
+  h += '<div class="grp">' + svg(ICON.spark) + 'Growth<span class="chev">▸</span></div>';
+  h += '<div class="grp">' + svg(ICON.clock) + 'Time &amp; Leave<span class="chev">▸</span></div>';
+  h += '<button class="nav" data-page="north">' + svg(ICON.compass) + "Our North Star</button>";
+  h += '<div class="sec">Admin</div>';
+  h += '<div class="grp">' + svg(ICON.sliders) + 'Admin<span class="chev">▸</span></div>';
+  el("rail").innerHTML = h;
+  el("sn-url").innerHTML = "<b>sentinel-585951669065.asia-southeast1.run.app</b>" +
+    (page === "tasks" ? "/tasks" : page === "dashboard" ? "/dashboard" : "/north-star");
+}
+
+function isPast(t) { return !!t.ended_at; }
+function snCard(t) {
+  var st = stats(t), h = "";
+  h += '<button class="card" data-open="' + t.id + '">';
+  h += '<div class="client">' + esc(t.client) + "</div>";
+  h += '<div class="ttl">' + esc(t.title) + "</div>";
+  h += '<div class="row">';
+  h += t.shared ? '<span class="chip g">&#128279; Shared</span>' : '<span class="chip">&#128274; Internal</span>';
+  if (t.status === parkedName() && t.resume_to) {
+    h += '<span class="chip a">&#9208; from ' + esc(t.resume_to) + "</span>";
+  }
+  if (t.review_state === "submitted") { h += '<span class="chip b">In review</span>'; }
+  if (t.review_state === "approved") { h += '<span class="chip g">&#10003; Approved</span>'; }
+  if (isPast(t)) { h += '<span class="chip q">Ended ' + esc(dmy(t.ended_at)) + "</span>"; }
+  if (T[t.svc] && T[t.svc].isNew) { h += '<span class="chip p">standalone</span>'; }
+  h += "</div>";
+  h += '<div class="meta"><span class="pdot pd-' + esc(t.priority) + '"></span>' + esc(t.priority);
+  if (t.due_date) { h += "<span>·</span><span>Launch " + esc(dmy(t.due_date)) + "</span>"; }
+  h += "</div>";
+  h += '<div class="meta"><span class="av" style="background:' + avc(t.assignee) + '">' + esc(ini(t.assignee)) +
+       "</span>" + esc(t.assignee || "Unassigned") +
+       '<span style="margin-left:auto">' + st.done + "/" + st.total + "</span></div>";
+  h += '<div class="bar"><i style="width:' + st.pct + '%"></i></div>';
+  h += "</button>";
+  return h;
+}
+/* Employees and interns see only their own work -- mirrors task_perms.can_view. */
+function visible(t) {
+  if (role === "am" || role === "lead") { return true; }
+  return t.assignee === "Paulo";   /* the prototype's "you" when acting as an employee/intern */
+}
+
+function renderTasksPage() {
+  var live = [], past = [], mine = S.tasks.filter(visible);
+  mine.forEach(function (t) {
+    if (!vocabHas(t.status)) { return; }                    /* orphaned -> renders nowhere */
+    if (isPast(t) && S.prefs.pastAsSection) { past.push(t); } else { live.push(t); }
+  });
+  var h = "";
+  h += '<div class="pagehead"><div><h2>' + esc(S.prefs.navLabel) + "</h2>" +
+    '<div class="lead">' + (canMonitor()
+      ? "Drag cards across columns. Client cards from Atrium are editable here too — every edit writes straight back."
+      : "Your tasks — the work assigned to you.") + "</div></div>" +
+    '<div class="spacer"></div><div style="display:flex;gap:8px;align-items:center">';
+  if (canMonitor()) {
+    h += '<div class="seg" id="bv-seg">' +
+      '<button data-bv="board" aria-pressed="' + (boardView === "board") + '">Board</button>' +
+      '<button data-bv="employee" aria-pressed="' + (boardView === "employee") + '">By Employee</button>' +
+      '<button data-bv="monitor" aria-pressed="' + (boardView === "monitor") + '">Monitor</button></div>';
+  }
+  h += '<button class="btn" id="new-task">+ New Task</button></div></div>';
+
+  h += '<div class="filters"><input type="search" placeholder="Search tasks…" id="f-search">' +
+    '<select><option>All Clients</option></select><select><option>All Departments</option></select>' +
+    '<select><option>All Priority</option></select></div>';
+
+  if (boardView === "monitor" && canMonitor()) {
+    h += renderMonitor(live);
+  } else {
+    h += '<div class="board">';
+    names().forEach(function (n) {
+      var cards = live.filter(function (t) { return t.status === n; });
+      h += '<div class="col"><div class="col-h"><span class="dot d-' + (STAGE_KEY[n] || "todo") + '"></span>' +
+        '<span class="nm">' + esc(n) + '</span><span class="n">' + cards.length + "</span></div>" +
+        '<div class="col-cards">' +
+        (cards.length ? cards.map(snCard).join("") : '<div class="empty">Nothing here.</div>') +
+        "</div></div>";
+    });
+    h += "</div>";
+    if (S.prefs.pastAsSection) {
+      h += '<div class="strip"><div class="strip-h"><h3>Past work</h3><span class="tag g">F4</span>' +
+        '<span class="mini">Ended — the flight is over. Still <strong>Completed</strong>, still a record.</span>' +
+        '<div class="spacer"></div><span class="mini">' + past.length + " filed</span></div>" +
+        '<div class="strip-cards">' +
+        (past.length ? past.map(snCard).join("")
+                     : '<div class="empty">Mark a Completed card ended to file it here.</div>') +
+        "</div></div>";
+    }
+  }
+  return h;
+}
+function renderMonitor(live) {
+  var by = {}, h = "";
+  live.forEach(function (t) {
+    var k = t.assignee || "Unassigned";
+    if (!by[k]) { by[k] = { open: 0, done: 0 }; }
+    if (t.status === "Completed") { by[k].done++; } else { by[k].open++; }
+  });
+  h += '<table class="tbl"><tr><th>Person</th><th>Open</th><th>Completed</th></tr>';
+  Object.keys(by).forEach(function (k) {
+    h += "<tr><td>" + esc(k) + "</td><td>" + by[k].open + "</td><td>" + by[k].done + "</td></tr>";
+  });
+  h += "</table>";
+  h += '<div class="mini" style="margin-top:9px">The workload bar in the rail is built from the same ' +
+    '<code>barSegs</code> literal — F2.4.</div>';
+  return h;
+}
+function renderDashboardPage() {
+  var mine = S.tasks.filter(visible).filter(function (t) { return vocabHas(t.status) && !isPast(t); });
+  var open = mine.filter(function (t) { return t.status !== "Completed"; }).length;
+  var rev = mine.filter(function (t) { return t.status === "Revision Needed"; }).length;
+  var soon = mine.filter(function (t) { return t.due_date && t.due_date < "2026-08-15"; }).length;
+  var h = '<div class="pagehead"><div><h2>Good afternoon, Paulo</h2>' +
+    '<div class="lead">Friday, 31 July 2026</div></div></div>';
+  h += '<div class="kpis">' +
+    '<div class="kpi"><div class="lb">Attendance</div><div class="v">8:59</div><div class="s">clocked in</div></div>' +
+    '<div class="kpi"><div class="lb">Leave balance</div><div class="v">7</div><div class="s">days</div></div>' +
+    '<div class="kpi"><div class="lb">Notifications</div><div class="v">3</div><div class="s">unread</div></div></div>';
+  if (S.prefs.dashSummary) {
+    h += '<div class="mywork"><div style="display:flex;align-items:center;gap:8px">' +
+      "<h3>My work</h3><span class=\"tag f\">Q6</span><div class='spacer'></div>" +
+      '<button class="btn-ghost btn-xs" data-page="tasks">Open the ' + esc(S.prefs.navLabel) + " →</button></div>" +
+      '<div class="grid">' +
+      '<div><div class="n">' + open + '</div><div class="mini">assigned, open</div></div>' +
+      '<div><div class="n warn">' + soon + '</div><div class="mini">due this week</div></div>' +
+      '<div><div class="n bad">' + rev + '</div><div class="mini">in Revision Needed</div></div></div>' +
+      '<div class="mini">The board itself lives at <code>/tasks</code> now. This card is what Q6 ' +
+      "recommends leaving behind, so the Dashboard doesn't feel emptied out.</div></div>";
+  } else {
+    h += '<div class="mywork"><div class="mini">Q6 is set to <strong>nothing</strong>: the board moved ' +
+      "out and left no trace. Compare how this page feels against the “My work” card.</div></div>";
+  }
+  return h;
+}
+function renderSentinel() {
+  renderRail();
+  el("sn-pane").innerHTML = page === "tasks" ? renderTasksPage()
+    : page === "dashboard" ? renderDashboardPage()
+    : '<div class="pagehead"><div><h2>Our North Star</h2><div class="lead">Not part of this prototype.</div></div></div>';
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   Render -- Atrium
+   --------------------------------------------------------------------------------------------------- */
+function clCard(t) {
+  var st = stats(t), d = DISC[T[t.svc] ? T[t.svc].dept : "data"], h = "";
+  h += '<button class="card" data-copen="' + t.id + '">';
+  h += '<div class="row"><span class="chip ' + d[1] + '">' + esc(d[0]) + "</span>";
+  if (t.status === parkedName()) { h += '<span class="chip a">&#9208; ' + esc(S.prefs.clientWord) + "</span>"; }
+  if (isPast(t)) { h += '<span class="chip q">Ended ' + esc(dmy(t.ended_at)) + "</span>"; }
+  h += "</div>";
+  h += '<div class="ttl">' + esc(t.client_title || t.title) + "</div>";
+  if (t.client_note) { h += '<div class="cl-note">' + esc(t.client_note) + "</div>"; }
+  if (t.due_date) {
+    h += '<div class="meta">' + (t.status === "Completed" ? "Live since " : "Launching ") + esc(dmy(t.due_date)) + "</div>";
+  }
+  h += '<div class="meta">' + st.done + " of " + st.total + " steps</div>";
+  h += '<div class="bar"><i style="width:' + st.pct + '%"></i></div></button>';
+  return h;
+}
+function renderClient() {
+  var who = el("cl-pick").value, live = [], past = [], h = "";
+  S.tasks.forEach(function (t) {
+    if (!t.shared || !vocabHas(t.status)) { return; }
+    if (who && t.client !== who) { return; }
+    if (isPast(t)) { past.push(t); } else { live.push(t); }
+  });
+  names().forEach(function (n) {
+    if (n === parkedName() && !S.prefs.clientSeesParked) { return; }
+    var cards = live.filter(function (t) { return t.status === n; });
+    h += '<div class="col"><div class="col-h"><span class="dot d-' + (STAGE_KEY[n] || "todo") + '"></span>' +
+      '<span class="nm">' + esc(clientLabel(n)) + '</span><span class="n">' + cards.length + "</span></div>" +
+      '<div class="col-cards">' +
+      (cards.length ? cards.map(clCard).join("") : '<div class="empty">Nothing here.</div>') + "</div></div>";
+  });
+  if (!S.prefs.clientSeesParked) {
+    var hid = live.filter(function (t) { return t.status === parkedName(); }).length;
+    if (hid) {
+      h += '<div class="col"><div class="col-h"><span class="nm" style="color:var(--faint)">not shown</span></div>' +
+        '<div class="col-cards"><div class="empty">' + hid + " parked card" + (hid === 1 ? "" : "s") +
+        " dropped off this board (Q4 off).</div></div></div>";
+    }
+  }
+  el("cl-board").innerHTML = h;
+  el("cl-past").innerHTML = past.length ? past.map(clCard).join("") : '<div class="empty">Nothing filed yet.</div>';
+  el("cl-past-n").textContent = past.length + " item" + (past.length === 1 ? "" : "s");
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   Leak assertion
+   --------------------------------------------------------------------------------------------------- */
+function hasWord(hay, needle) {
+  if (!needle) { return false; }
+  var n = String(needle).trim();
+  if (n.length < 3) { return false; }
+  var q = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp("(^|[^\\w])" + q + "([^\\w]|$)", "i").test(hay);
+}
+function renderLeak() {
+  var pane = el("frame-atrium");
+  var text = pane ? (pane.textContent || "") : "";
+  var shared = S.tasks.filter(function (t) { return t.shared; });
+  var checks = [];
+  function ck(field, vals) {
+    var hits = [], i;
+    for (i = 0; i < vals.length; i++) { if (vals[i] && hasWord(text, vals[i])) { hits.push(vals[i]); } }
+    checks.push({ field: field, n: vals.length, hits: hits });
+  }
+  ck("assignee", shared.map(function (t) { return t.assignee; }));
+  ck("team", shared.map(function (t) { return t.team; }));
+  ck("account_manager", shared.map(function (t) { return t.account_manager; }));
+  ck("description", shared.map(function (t) { return t.description; }));
+  ck("internal_notes", shared.map(function (t) { return t.internal_notes; }));
+  ck("service_charge", shared.map(function (t) { return money(t.service_charge); })
+      .concat(shared.map(function (t) { return t.service_charge ? String(t.service_charge) : ""; })));
+  ck("hold_reason", shared.map(function (t) { return t.hold_reason; }));
+  ck("priority", shared.map(function (t) { return t.priority === "Medium" ? "" : t.priority; }));
+  ck("review_state", shared.map(function (t) { return t.review_state === "none" ? "" : t.review_state; }));
+  ck("sub-task dod", shared.reduce(function (a, t) {
+    (t.maintasks || []).forEach(function (m) {
+      (m.subs || []).forEach(function (s) { if (s.dod) { a.push(s.dod); } });
+    });
+    return a;
+  }, []));
+
+  var bad = 0, h = "<tr><th>never published</th><th>values</th><th></th></tr>";
+  checks.forEach(function (c) {
+    if (c.hits.length) { bad++; }
+    h += "<tr><td><code>" + esc(c.field) + "</code></td><td class='mini'>" + c.n + "</td><td>" +
+      (c.hits.length ? '<span class="fail">LEAK</span>' : '<span class="pass">absent</span>') + "</td></tr>";
+  });
+  el("leak-tbl").innerHTML = h;
+  var v = el("leak-verdict");
+  v.className = "mini " + (bad ? "fail" : "pass");
+  v.textContent = bad ? bad + " leaking" : "all clear";
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   Inspector
+   --------------------------------------------------------------------------------------------------- */
+function j(v) {
+  if (typeof v === "string") { return '<span class="s">"' + esc(v) + '"</span>'; }
+  if (typeof v === "number" || typeof v === "boolean") { return '<span class="n">' + v + "</span>"; }
+  if (v === null || v === undefined) { return '<span class="c">null</span>'; }
+  return '<span class="c">' + esc(JSON.stringify(v)) + "</span>";
+}
+function block(title, obj, danger) {
+  var h = '<span class="c">// ' + esc(title) + "</span>\n{\n", k;
+  for (k in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, k)) {
+      h += "  " + (danger ? '<span class="x">' : '<span class="k">') + esc(k) + "</span>: " + j(obj[k]) + ",\n";
+    }
+  }
+  return h + "}\n\n";
+}
+function renderInspector() {
+  var box = el("insp"), t = find(sel);
+  el("insp-which").textContent = t ? (t.client + " · " + t.title) : "no card selected";
+  if (!t) {
+    box.innerHTML = '<span class="c">// Click any card on either board.\n' +
+      "// This shows the stored row, the publish payloads, and every bridge call made.</span>";
+    return;
+  }
+  var st = stats(t), h = "";
+  if (inspTab === "row") {
+    h += block("tasks row (Sentinel)", {
+      id: t.id, client: t.client, title: t.title,
+      status: t.status,
+      status_in_vocab: vocabHas(t.status),
+      resume_to: t.resume_to || null, ended_at: t.ended_at || null,
+      review_state: t.review_state, atrium_visible: t.shared, atrium_task_id: t.atrium_id || null,
+      service_key: t.svc || null, campaign: t.campaign || null, content_type: t.ct,
+      start_date: t.start_date || null, due_date: t.due_date || null,
+      client_facing_title: t.client_title || null, client_facing_notes: t.client_note || null,
+      progress: st.done + "/" + st.total
+    });
+    h += block("internal only — NEVER crosses", {
+      assignee: t.assignee, team: t.team, account_manager: t.account_manager, created_by: t.created_by,
+      priority: t.priority, service_charge: t.service_charge, description: t.description || null,
+      internal_notes: t.internal_notes || null, hold_reason: t.hold_reason || null
+    }, true);
+    if (!vocabHas(t.status)) {
+      h += '<span class="x">// This status matches no vocab row — the card renders in NO column.</span>\n';
+    }
+  } else if (inspTab === "wire") {
+    h += '<span class="c">// Publish is TWO calls, safely retryable.</span>\n\n';
+    h += block("PUBLISH_CREATE → POST task-add", createPayload(t));
+    h += block("PUBLISH_PATCH → POST task-update", patchPayload(t));
+    h += '<span class="c">// NEVER_PUBLISH — asserted absent by the leak test</span>\n';
+    h += NEVER_PUBLISH.map(function (f) { return '<span class="x">' + esc(f) + "</span>"; }).join("\n") + "\n\n";
+    h += '<span class="c">// F2.5 — STAGE_BY_STATUS, as the deployed code has it right now</span>\n';
+    Object.keys(CODE.STAGE_BY_STATUS).forEach(function (k) {
+      h += '  <span class="k">"' + esc(k) + '"</span> -> <span class="s">"' + esc(CODE.STAGE_BY_STATUS[k]) + '"</span>\n';
+    });
+    if (!CODE.STAGE_BY_STATUS[t.status]) {
+      h += '\n<span class="x">// "' + esc(t.status) + '" is UNMAPPED — a bridge write would land nowhere.</span>\n';
+    }
+  } else {
+    h = S.bridge.length ? S.bridge.map(function (b) {
+      return '<span class="c">' + esc(b.at) + '</span> <span class="k">' + esc(b.route) + "</span>\n  task " +
+        esc(b.task) + "  fields: " + '<span class="s">' + esc(b.keys.join(", ")) + "</span>" +
+        (b.note ? '\n  <span class="c">// ' + esc(b.note) + "</span>" : "");
+    }).join("\n\n") : '<span class="c">// No bridge calls yet. Move, park or share a card.</span>';
+  }
+  box.innerHTML = h;
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   Rail widgets
+   --------------------------------------------------------------------------------------------------- */
+function renderF2() {
+  var pk = parkedName();
+  var h = "";
+  h += '<div class="' + (CODE.deployed ? "okbox" : "warnbox") + '">' +
+    "<strong>Code:</strong> " + (CODE.deployed ? "deployed, reads “Parked”" : "not deployed, still reads “Blocked”") +
+    " &nbsp;·&nbsp; <strong>Vocab:</strong> “" + esc(pk) + "”" +
+    (S.rowsRewritten ? " &nbsp;·&nbsp; <strong>" + S.rowsRewritten + "</strong> task rows rewritten by the rename" : "") +
+    "</div>";
+  el("f2-state").innerHTML = h;
+
+  var lh = "<tr><th>#</th><th>literal</th><th>says</th></tr>";
+  LITERALS.forEach(function (L) {
+    var val = L[3] === "TASK_BLOCKED" ? CODE.TASK_BLOCKED
+      : L[3] === "TASK_STATUSES" ? CODE.TASK_STATUSES[4]
+      : L[3] === "STATUS_COLORS" ? Object.keys(CODE.STATUS_COLORS)[0]
+      : L[3] === "barSegs" ? CODE.barSegs[3]
+      : (CODE.STAGE_BY_STATUS["Parked"] ? "Parked+Blocked" : "Blocked only");
+    var ok = val.indexOf("Parked") !== -1;
+    lh += "<tr><td>" + L[0] + '</td><td><code>' + esc(L[1]) + "</code></td><td>" +
+      (ok ? '<span class="pass">' : '<span class="fail">') + esc(val) + "</span></td></tr>";
+  });
+  el("lit-tbl").innerHTML = lh;
+
+  /* The Monitor workload bar (literal 2.4). A segment naming a status nobody holds renders empty. */
+  var total = 0, segs = CODE.barSegs.map(function (n) {
+    var c = usage(n); total += c;
+    return { n: n, c: c };
+  });
+  var colors = { "To Do": "#b8c2bc", "In Progress": "#2F6BC2", "Revision Needed": "#B4700A",
+                 "Blocked": "#8d7fd6", "Parked": "#8d7fd6" };
+  var wh = "";
+  segs.forEach(function (s) {
+    if (!s.c) { return; }
+    wh += '<i style="width:' + (total ? (s.c / total * 100) : 0) + "%;background:" + (colors[s.n] || "#ccc") + '"></i>';
+  });
+  el("wbar").innerHTML = wh || "";
+  /* A segment naming a status the vocab no longer has is broken either way, and the two ways differ:
+     with nothing holding it the slice just vanishes; with something holding it the slice is showing
+     work that NO column on the board renders — which is worse, because the bar looks healthy. */
+  var broken = segs.filter(function (s) { return !vocabHas(s.n); });
+  if (broken.length) {
+    var b = broken[0];
+    el("wbar-out").innerHTML = '<span class="fail">Broken segment:</span> <code>barSegs</code> still names “' +
+      esc(b.n) + '”, which is in no vocab row. ' + (b.c
+        ? "It is holding <strong>" + b.c + " task</strong> that the board renders in no column — the bar " +
+          "looks fine while the card is invisible."
+        : "Nothing holds it, so the slice silently disappeared.") + " (F2.4)";
+  } else {
+    el("wbar-out").innerHTML = segs.map(function (s) { return esc(s.n) + " " + s.c; }).join(" · ");
+  }
+}
+function renderVocab() {
+  var h = "<tr><th>status (stored on the task)</th><th>tasks</th></tr>";
+  S.vocab.forEach(function (v) {
+    h += "<tr><td>" + esc(v.name) + "</td><td class='mini'>" + usage(v.name) + "</td></tr>";
+  });
+  var orph = orphans();
+  if (orph.length) {
+    h += '<tr><td colspan="2"><span class="fail">' + orph.length + " task row" +
+      (orph.length === 1 ? "" : "s") + " hold a status with no row: " +
+      orph.map(function (t) { return '“' + esc(t.status) + '”'; }).join(", ") +
+      " — those cards render in no column.</span></td></tr>";
+  }
+  el("vocab-tbl").innerHTML = h;
+  var s = el("ren-key"), cur = s.value;
+  s.innerHTML = S.vocab.map(function (v) {
+    return '<option value="' + esc(v.name) + '">' + esc(v.name) + "</option>";
+  }).join("");
+  if (cur && vocabHas(cur)) { s.value = cur; }
+}
+function renderDeep() {
+  var h = "<tr><th>minted</th><th>link in the DB</th><th>after F10</th></tr>";
+  h += '<tr><td class="mini">before 2026-07-26</td><td><code>/tasks?open=</code></td>' +
+       '<td><span class="pass">board</span></td></tr>';
+  h += '<tr><td class="mini">since 2026-07-26</td><td><code>/dashboard?open=</code></td>' +
+       '<td><span class="pass">forwarded</span></td></tr>';
+  el("dl-tbl").innerHTML = h;
+}
+function renderQ() {
+  var p = S.prefs;
+  var rows = [
+    ["Q1", "Can a Team Lead create client-visible work?",
+      '<label><input type="checkbox" data-pref="tlCanShare"' + (p.tlCanShare ? " checked" : "") +
+      "> Team Leads may share on create</label>"],
+    ["Q3", "Past work: own section or a filter?",
+      '<label><input type="checkbox" data-pref="pastAsSection"' + (p.pastAsSection ? " checked" : "") +
+      "> Own section</label>"],
+    ["Q4", "Does the client see a parked column?",
+      '<label><input type="checkbox" data-pref="clientSeesParked"' + (p.clientSeesParked ? " checked" : "") +
+      "> Show it</label>"],
+    ["Q9", "The client-facing word (was Q5)",
+      '<select data-pref="clientWord"><option>Paused</option><option>Parked</option><option>On hold</option></select>'],
+    ["Q6", "What stays on the Dashboard once the board moves out?",
+      '<label><input type="checkbox" data-pref="dashSummary"' + (p.dashSummary ? " checked" : "") +
+      '> A compact “My work” card <span class="mini">— open the Dashboard in the rail to compare</span></label>'],
+    ["Q7", "Sidebar label",
+      '<select data-pref="navLabel"><option>Task Board</option><option>Tasks</option></select>']
+  ];
+  el("q-panel").innerHTML = rows.map(function (r) {
+    return '<div class="rowck"><span class="q">' + r[0] + '</span><div><div style="font-weight:650">' +
+      r[1] + "</div><div style='margin-top:3px'>" + r[2] + "</div></div></div>";
+  }).join("");
+  var a = el("q-panel").querySelector('select[data-pref="clientWord"]');
+  if (a) { a.value = p.clientWord; }
+  var b = el("q-panel").querySelector('select[data-pref="navLabel"]');
+  if (b) { b.value = p.navLabel; }
+}
+function renderClientPicker() {
+  var s = el("cl-pick"), cur = s.value;
+  s.innerHTML = '<option value="">All clients (prototype only)</option>' +
+    CLIENTS.map(function (c) { return "<option>" + esc(c) + "</option>"; }).join("");
+  s.value = cur || "";
+}
+function render() {
+  el("frame-sentinel").hidden = (view === "atrium");
+  el("frame-atrium").hidden = (view === "sentinel");
+  renderSentinel();
+  renderClient();
+  renderInspector();
+  renderF2();
+  renderVocab();
+  renderDeep();
+  renderQ();
+  renderLeak();
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   Drawer
+   --------------------------------------------------------------------------------------------------- */
+function openDrawer() { el("veil").classList.add("on"); el("drawer").classList.add("on"); }
+function closeDrawer() { el("veil").classList.remove("on"); el("drawer").classList.remove("on"); mode = ""; }
+
+function drawerTask(id) {
+  var t = find(id);
+  if (!t) { return; }
+  sel = id; mode = "task";
+  var st = stats(t), pk = parkedName();
+  el("dr-eyebrow").textContent = "Service · " + t.client;
+  el("dr-title").textContent = t.title;
+  var h = "";
+  if (t.status === pk) {
+    h += '<div class="ctx a"><strong>' + esc(pk) + "</strong> — " +
+      (t.resume_to ? "will resume to <strong>" + esc(t.resume_to) + "</strong>."
+                   : "no resume column recorded (pre-F3 row).") +
+      (t.hold_reason ? '<div style="margin-top:5px">' + esc(t.hold_reason) + ' <span class="lock">internal</span></div>' : "") +
+      "</div>";
+  }
+  if (isPast(t)) {
+    h += '<div class="ctx g"><strong>Past work</strong> — ended ' + esc(dmy(t.ended_at)) +
+      ". Still Completed, still visible to the client. Not deleted.</div>";
+  } else if (t.status === "Completed") {
+    h += '<div class="ctx g"><strong>Completed</strong> — delivered and running. Mark it ended when the flight is over.</div>';
+  }
+  if (t.review_state === "submitted") { h += '<div class="ctx p"><strong>In review</strong> — waiting on a Team Lead.</div>'; }
+  if (t.review_state === "none" && t.status !== "Completed") {
+    h += '<div class="ctx r">Not approved. <strong>Completion is refused</strong> until a Team Lead approves (F1.3).</div>';
+  }
+  if (t.review_state === "approved") { h += '<div class="ctx g"><strong>Approved</strong> by ' + esc(t.reviewer) + ".</div>"; }
+  if (!vocabHas(t.status)) {
+    h += '<div class="ctx r">This card holds <code>' + esc(t.status) + '</code>, which is in no vocab row — ' +
+      "on the board it is <strong>invisible</strong>. You reached it from the inspector.</div>";
+  }
+
+  h += '<div class="sect"><h4>Client visibility</h4>';
+  if (t.shared) {
+    h += '<div class="switch"><div><div class="t">&#128279; Shared with the client</div>' +
+      '<div class="d">Published as <code>' + esc(t.atrium_id) + "</code>. Visibility was decided once, at creation.</div></div></div>";
+    h += '<div class="field" style="margin-top:10px"><label>Client-facing title</label>' +
+      '<input type="text" data-edit="client_title" value="' + esc(t.client_title) + '"></div>';
+    h += '<div class="field"><label>Client-facing note</label><textarea data-edit="client_note">' +
+      esc(t.client_note) + "</textarea><div class='hint'>Editable any time — F1's mitigation.</div></div>";
+  } else {
+    h += '<div class="switch off"><div><div class="t">&#128274; Internal only</div>' +
+      '<div class="d">Created with the toggle off. <code>/send-to-atrium</code> exists for exactly this.</div></div></div>';
+  }
+  h += "</div>";
+
+  h += '<div class="sect"><h4>The record</h4><dl class="kv">';
+  h += "<dt>Status</dt><dd>" + esc(t.status) + "</dd>";
+  h += "<dt>Service type</dt><dd>" + esc(T[t.svc] ? T[t.svc].label : "Custom") + "</dd>";
+  h += "<dt>Campaign</dt><dd>" + (t.campaign ? esc(t.campaign) : "<span class='mini'>none — standalone</span>") + "</dd>";
+  h += "<dt>Start → Launch</dt><dd>" + esc(dmy(t.start_date) || "—") + " → " + esc(dmy(t.due_date) || "—") + "</dd>";
+  h += "<dt>Lead</dt><dd>" + esc(t.assignee || "Unassigned") + " · " + esc(t.team) + ' <span class="lock">internal</span></dd>';
+  h += "<dt>Priority</dt><dd>" + esc(t.priority) + ' <span class="lock">internal</span></dd>';
+  h += "<dt>Charge</dt><dd>" + esc(money(t.service_charge) || "—") + ' <span class="lock">internal</span></dd>';
+  h += "</dl>";
+  if (t.internal_notes) {
+    h += '<div class="note" style="margin-top:9px">' + esc(t.internal_notes) + ' <span class="lock">internal</span></div>';
+  }
+  h += "</div>";
+
+  h += '<div class="sect"><h4>Work breakdown · ' + st.done + "/" + st.total + "</h4>";
+  (t.maintasks || []).forEach(function (m) {
+    var dn = m.subs.filter(function (s) { return s.done; }).length;
+    h += '<div class="mt"><div class="mt-h">' + esc(m.title) + '<span class="n">' + dn + "/" + m.subs.length + "</span></div>";
+    m.subs.forEach(function (s) {
+      h += '<div class="sub' + (s.done ? " done" : "") + '"><input type="checkbox" data-sub="' + esc(s.id) + '"' +
+        (s.done ? " checked" : "") + "><label>" + esc(s.text) +
+        (s.dod ? '<span class="dod">Done when: ' + esc(s.dod) + " &#128274;</span>" : "") + "</label></div>";
+    });
+    h += "</div>";
+  });
+  h += "</div>";
+
+  if (t.comments.length) {
+    h += '<div class="sect"><h4>Comments</h4>';
+    t.comments.forEach(function (c) {
+      h += '<div class="note" style="margin-bottom:6px"><strong>' +
+        (c.who === "client" ? "Client" : esc(c.who)) + "</strong>" +
+        (c.kind === "changes" ? ' <span class="tag a">revision requested</span>' : "") +
+        "<div>" + esc(c.text) + "</div></div>";
+    });
+    h += "</div>";
+  }
+
+  var f = '<select data-move style="padding:6px 9px;border:1px solid var(--line);border-radius:8px">' +
+    names().map(function (n) {
+      return '<option value="' + esc(n) + '"' + (n === t.status ? " selected" : "") + ">" + esc(n) + "</option>";
+    }).join("") + "</select>";
+  if (t.status === pk) {
+    f += '<button class="btn-ghost" data-act="resume">Resume &rarr; ' + esc(t.resume_to || "In Progress") + "</button>";
+  } else if (!isPast(t)) {
+    f += '<button class="btn-ghost" data-act="park">Park&hellip;</button>';
+  }
+  if (t.review_state === "none" && t.status !== "Completed") {
+    f += '<button class="btn-ghost" data-act="submit">Submit for review</button>';
+  }
+  if (t.review_state === "submitted" && canApprove()) {
+    f += '<button class="btn btn-xs" data-act="approve">Approve</button>' +
+      '<button class="btn-ghost" data-act="revise">Request revision</button>';
+  }
+  if (!t.shared) { f += '<button class="btn-v" data-act="sendnow">Send to Atrium</button>'; }
+  if (t.status === "Completed" && !isPast(t) && canEndOrDelete()) {
+    f += '<button class="btn-ghost" data-act="end">Mark ended &amp; file</button>';
+  }
+  if (isPast(t)) { f += '<button class="btn-ghost" data-act="reopen">Reopen</button>'; }
+  f += '<span style="flex:1"></span>';
+  if (canEndOrDelete()) { f += '<button class="btn-ghost dang" data-act="del">Delete</button>'; }
+
+  el("dr-body").innerHTML = h;
+  el("dr-foot").innerHTML = f;
+  openDrawer();
+  renderInspector();
+}
+
+function drawerClient(id) {
+  var t = find(id);
+  if (!t) { return; }
+  sel = id; mode = "client";
+  var st = stats(t);
+  el("dr-eyebrow").textContent = t.client + " · your board";
+  el("dr-title").textContent = t.client_title || t.title;
+  var h = '<div class="ctx p">The client can <strong>comment</strong> or <strong>request a revision</strong> — ' +
+    "there is no Approve route and never was.</div>";
+  if (t.status === parkedName()) {
+    h += '<div class="ctx a"><strong>' + esc(S.prefs.clientWord) +
+      "</strong> — we've paused this. The internal reason is not shown here.</div>";
+  }
+  if (isPast(t)) { h += '<div class="ctx g"><strong>Past work</strong> — ended ' + esc(dmy(t.ended_at)) + ".</div>"; }
+  if (t.client_note) { h += '<div class="note" style="margin-bottom:13px">' + esc(t.client_note) + "</div>"; }
+  h += '<div class="sect"><h4>Progress · ' + st.done + " of " + st.total + " steps</h4>";
+  (t.maintasks || []).forEach(function (m) {
+    var dn = m.subs.filter(function (s) { return s.done; }).length;
+    h += '<div class="mt"><div class="mt-h">' + esc(m.title) + '<span class="n">' + dn + "/" + m.subs.length + "</span></div>";
+    m.subs.forEach(function (s) {
+      h += '<div class="sub' + (s.done ? " done" : "") + '"><span>' + (s.done ? "&#10003;" : "&#9675;") +
+        "</span><label>" + esc(s.text) + "</label></div>";      /* owner-less, dod stripped */
+    });
+    h += "</div>";
+  });
+  h += "</div>";
+  h += '<div class="sect"><h4>Dates</h4><dl class="kv"><dt>Started</dt><dd>' + esc(dmy(t.start_date) || "—") +
+    "</dd><dt>" + (t.status === "Completed" ? "Live since" : "Launching") + "</dt><dd>" +
+    esc(dmy(t.due_date) || "—") + "</dd></dl></div>";
+  h += '<div class="sect"><h4>Say something</h4><div class="field">' +
+    '<textarea data-cmt placeholder="A comment, or what needs changing"></textarea></div></div>';
+  el("dr-body").innerHTML = h;
+  el("dr-foot").innerHTML = '<button class="btn-ghost" data-act="ccomment">Comment</button>' +
+    '<button class="btn-v" data-act="crevision">Request a revision</button>' +
+    '<span style="flex:1"></span><span class="mini">no approve · no edit · no move</span>';
+  openDrawer();
+  renderInspector();
+}
+
+function drawerNew() {
+  mode = "new";
+  el("dr-eyebrow").textContent = "Sentinel · " + S.prefs.navLabel;
+  el("dr-title").textContent = "New Task";
+  var h = '<div class="field"><label>Client</label><select id="n-client">' +
+    CLIENTS.map(function (c) { return "<option>" + esc(c) + "</option>"; }).join("") + "</select></div>";
+  h += '<div class="grid2"><div class="field"><label>Department</label><select id="n-dept">' +
+    Object.keys(DEPTS).map(function (d) { return '<option value="' + d + '">' + esc(DEPTS[d]) + "</option>"; }).join("") +
+    "</select></div><div class=\"field\"><label>Lead</label><select id=\"n-lead\"></select></div></div>";
+  h += '<div class="field"><label>Service type</label><select id="n-svc"></select><div class="hint" id="n-hint"></div></div>';
+  h += '<div class="field" id="n-qty-wrap"><label id="n-qty-lab">Quantity</label>' +
+    '<input type="number" id="n-qty" min="1" max="50" value="1"></div>';
+  h += '<div class="field" id="n-camp-wrap"><label>Campaign name</label><input type="text" id="n-camp"></div>';
+  h += '<div class="field"><label>Task name (internal)</label><input type="text" id="n-title"></div>';
+  h += '<div class="grid2"><div class="field"><label>Launch date</label><input type="date" id="n-due"></div>' +
+    '<div class="field"><label>Service charge</label><input type="number" id="n-charge" value="0" step="100"></div></div>';
+  h += '<div class="sect" style="margin-top:15px"><h4>Client visibility — decided once, here</h4>' +
+    '<div class="switch" id="n-share-wrap"><input type="checkbox" id="n-share" checked>' +
+    '<div><div class="t">Share with the client now</div><div class="d">Publishes immediately and lands in ' +
+    "<strong>To Do</strong>. Approval gates <em>completion</em>, not visibility.</div></div></div>" +
+    '<div class="hint" id="n-share-note" style="margin-top:6px"></div>' +
+    '<div id="n-cf"><div class="field" style="margin-top:10px"><label>Client-facing title</label>' +
+    '<input type="text" id="n-ctitle"></div><div class="field"><label>Client-facing note</label>' +
+    '<textarea id="n-cnote"></textarea></div></div></div>';
+  el("dr-body").innerHTML = h;
+  el("dr-foot").innerHTML = '<button class="btn-v" data-act="create">Create task</button>' +
+    '<button class="btn-ghost" data-act="cancel">Cancel</button>';
+  openDrawer();
+  el("n-dept").addEventListener("change", newDept);
+  el("n-svc").addEventListener("change", newSvc);
+  el("n-share").addEventListener("change", newShare);
+  newDept();
+  newShare();
+}
+function newDept() {
+  var d = el("n-dept").value;
+  el("n-lead").innerHTML = Object.keys(PEOPLE).filter(function (p) { return PEOPLE[p] === d; })
+    .map(function (p) { return "<option>" + esc(p) + "</option>"; }).join("") || "<option>Charles</option>";
+  el("n-svc").innerHTML = SVC_ORDER.filter(function (k) { return T[k].dept === d; })
+    .map(function (k) { return '<option value="' + k + '">' + esc(T[k].label) + (T[k].isNew ? "  (new)" : "") + "</option>"; }).join("");
+  newSvc();
+}
+function newSvc() {
+  var k = el("n-svc").value, tpl = T[k];
+  if (!tpl) { return; }
+  var p = (tpl.params && tpl.params.length) ? tpl.params[0] : null;
+  el("n-qty-wrap").hidden = !p;
+  if (p) { el("n-qty-lab").textContent = p.label; el("n-qty").value = p.def; }
+  el("n-camp-wrap").hidden = !tpl.camp;
+  var mt = build(k, p ? p.def : 1), n = 0;
+  mt.forEach(function (m) { n += m.subs.length; });
+  el("n-hint").innerHTML = esc(tpl.ct) + " · " + mt.length + " main tasks, " + n + " steps seeded" +
+    (tpl.camp ? "" : " · <strong>no campaign needed</strong>") +
+    (tpl.isNew ? ' · <span class="tag g">F5</span> reuses AD_PRODUCTION verbatim' : "");
+}
+function newShare() {
+  var on = el("n-share").checked, ok = canShareOnCreate();
+  el("n-share-wrap").classList.toggle("off", !on);
+  el("n-cf").hidden = !on;
+  el("n-share-note").innerHTML = (on && !ok)
+    ? '<span class="fail">Blocked (Q1):</span> creation of client-visible work is AM-only. Turn Q1 on to allow Team Leads.'
+    : on ? "Publishes on create: <code>task-add</code> → store the id → <code>task-update</code>."
+         : "Stays internal. <code>/send-to-atrium</code> is still there for later.";
+}
+function createFromForm() {
+  var svc = el("n-svc").value, tpl = T[svc], share = el("n-share").checked;
+  if (share && !canShareOnCreate()) { toast("Only an Account Manager can create client-visible work (Q1).", true); return; }
+  var camp = tpl.camp ? el("n-camp").value.trim() : "";
+  var title = el("n-title").value.trim() || camp || tpl.label;
+  var t = mk({ client: el("n-client").value, title: title, campaign: camp, svc: svc,
+    qty: Number(el("n-qty").value) || 1, team: DEPTS[el("n-dept").value], assignee: el("n-lead").value,
+    due_date: el("n-due").value, service_charge: Number(el("n-charge").value) || 0, status: "To Do",
+    created_by: role === "am" ? "Charles" : el("n-lead").value,
+    client_title: share ? (el("n-ctitle").value.trim() || title) : "",
+    client_note: share ? el("n-cnote").value.trim() : "" });
+  S.tasks.unshift(t);
+  if (share) { publish(t, "share_on_create = true (F1) — lands in To Do"); }
+  closeDrawer();
+  sel = t.id;
+  render();
+  toast(share ? "Created and shared — it's on the client's board in To Do." : "Created. Internal only.");
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   F2 rollout
+   --------------------------------------------------------------------------------------------------- */
+function deployCode() {
+  CODE.TASK_BLOCKED = "Parked";
+  CODE.TASK_STATUSES[4] = "Parked";
+  CODE.STATUS_COLORS = { "Parked": "#C2402F" };
+  CODE.barSegs[3] = "Parked";
+  CODE.STAGE_BY_STATUS["Parked"] = "blocked";      /* ADD Parked, KEEP Blocked -- both, forever */
+  CODE.deployed = true;
+  el("f2-out").innerHTML = '<span class="pass">Step 1 done.</span> All five literals read “Parked”, and ' +
+    "<code>STAGE_BY_STATUS</code> now accepts <strong>both</strong> spellings — so the window before the " +
+    "rename is harmless.";
+  render();
+}
+function renameStatus(oldName, newName, quiet) {
+  var n = 0, i;
+  S.tasks.forEach(function (t) { if (t.status === oldName) { t.status = newName; n++; } });  /* rows first */
+  for (i = 0; i < S.vocab.length; i++) { if (S.vocab[i].name === oldName) { S.vocab[i].name = newName; } }
+  S.rowsRewritten += n;
+  S.renamedInUI = true;
+  if (!quiet) {
+    el("f2-out").innerHTML = '<span class="pass">Renamed.</span> The editor cascaded onto <strong>' + n +
+      "</strong> task row" + (n === 1 ? "" : "s") + " and then the vocab row, in one transaction — " +
+      "exactly the ordering the old F2.4 tried to enforce by hand. " +
+      (CODE.deployed ? "" : '<span class="fail">But the code was not deployed first — see below.</span>');
+  }
+  return n;
+}
+function f2Rename() {
+  if (!vocabHas("Blocked")) { toast("Already renamed.", true); return; }
+  renameStatus("Blocked", "Parked");
+  var r = retireStatuses();     /* runs on every boot in the real app */
+  if (!r.safe && r.moved) {
+    el("f2-out").innerHTML += '<div class="warnbox" style="margin-top:8px">&#9888; <strong>retire_statuses() ' +
+      "just moved " + r.moved + " task to “" + esc(r.target) + "”</strong>, which no longer exists in " +
+      "<code>task_vocab</code> — the vanishing card, reintroduced by the machinery built to prevent it. " +
+      "That is literal 2.1.</div>";
+  }
+  render();
+}
+function f2Wrong() {
+  S = seed(); CODE = freshCode();               /* start clean, then do it in the wrong order */
+  renameStatus("Blocked", "Parked", true);
+  var r = retireStatuses();
+  var msg = '<span class="fail">Wrong order.</span> The status was renamed while the code still said ' +
+    "“Blocked”. Two things broke, neither with an error:";
+  msg += "<ul style='margin:6px 0 0 16px;padding:0'>";
+  if (!r.safe && r.moved) {
+    msg += "<li><strong>retire_statuses()</strong> moved " + r.moved + " task holding a retired status to “" +
+      esc(r.target) + "” — a status with no vocab row. The card is now invisible on the board.</li>";
+  }
+  msg += "<li>The Monitor <strong>workload bar</strong> lost its segment: <code>barSegs</code> still names " +
+    "“Blocked”, which nothing holds.</li>";
+  msg += "<li>A bridge write with “Parked” hits <code>STAGE_BY_STATUS</code> <strong>unmapped</strong> — " +
+    "the 2026-07-29 failure. Open a parked card and read the Publish contract tab.</li>";
+  msg += "</ul>";
+  el("f2-out").innerHTML = msg;
+  render();
+}
+
+/* ---------------------------------------------------------------------------------------------------
+   Wiring
+   --------------------------------------------------------------------------------------------------- */
+function segWire(id, attr, fn) {
+  var box = el(id);
+  if (!box) { return; }
+  box.addEventListener("click", function (e) {
+    var b = e.target.closest ? e.target.closest("button") : null;
+    if (!b || !b.getAttribute(attr)) { return; }
+    Array.prototype.forEach.call(box.querySelectorAll("button"), function (x) {
+      x.setAttribute("aria-pressed", x === b ? "true" : "false");
+    });
+    fn(b.getAttribute(attr));
+  });
+}
+
+function boot() {
+  S = seed();
+  CODE = freshCode();
+  renderClientPicker();
+
+  segWire("seg-view", "data-v", function (v) { view = v; render(); });
+  segWire("seg-insp", "data-i", function (i) { inspTab = i; renderInspector(); });
+  segWire("seg-role", "data-r", function (r) {
+    role = r;
+    if (!canMonitor()) { boardView = "board"; }
+    render();
+    if (mode === "task") { drawerTask(sel); }
+    if (mode === "new") { newShare(); }
+    toast("Acting as " + (r === "am" ? "Account Manager" : r === "lead" ? "Team Lead"
+      : r === "emp" ? "Employee" : "Intern") + ". The nav entry has no role gate (F10.4).");
+  });
+
+  el("btn-reset").addEventListener("click", function () {
+    S = seed(); CODE = freshCode(); sel = ""; page = "tasks"; boardView = "board";
+    closeDrawer(); render(); toast("Reset.");
+  });
+  el("cl-pick").addEventListener("change", function () { renderClient(); renderLeak(); });
+  el("dr-x").addEventListener("click", closeDrawer);
+  el("veil").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") { closeDrawer(); } });
+
+  /* the sidebar (F10) + board-view segment + cards + New Task */
+  document.addEventListener("click", function (e) {
+    var tgt = e.target.closest ? e.target.closest("[data-page],[data-bv],[data-open],[data-copen],[data-deep],#new-task") : null;
+    if (!tgt) { return; }
+    if (tgt.getAttribute("data-page")) { page = tgt.getAttribute("data-page"); render(); return; }
+    if (tgt.getAttribute("data-bv")) {
+      boardView = tgt.getAttribute("data-bv"); render(); return;
+    }
+    if (tgt.id === "new-task") { drawerNew(); return; }
+    if (tgt.getAttribute("data-open")) { drawerTask(tgt.getAttribute("data-open")); return; }
+    if (tgt.getAttribute("data-copen")) { drawerClient(tgt.getAttribute("data-copen")); return; }
+    if (tgt.getAttribute("data-deep")) {
+      /* F10's hazard: BOTH URL shapes must reach the board. */
+      var url = tgt.getAttribute("data-deep");
+      page = "tasks";
+      render();
+      drawerTask("T2");
+      el("dl-out").innerHTML = url.indexOf("/dashboard") === 0
+        ? '<span class="pass">Forwarded.</span> <code>' + esc(url) + "</code> → <code>/tasks?open=T2</code> " +
+          "— the Dashboard keeps this handler forever, because those rows are already in the DB."
+        : '<span class="pass">Direct.</span> <code>' + esc(url) + "</code> lands on the real board again.";
+      return;
+    }
+  });
+
+  el("drawer").addEventListener("click", function (e) {
+    var b = e.target.closest ? e.target.closest("[data-act]") : null;
+    if (!b) { return; }
+    var act = b.getAttribute("data-act"), t = find(sel);
+    if (act === "cancel") { closeDrawer(); return; }
+    if (act === "create") { createFromForm(); return; }
+    if (!t) { return; }
+    if (act === "park") {
+      var why = window.prompt("Why is this parked? (internal only — it never crosses the bridge)", "");
+      if (why === null) { return; }
+      park(t, why);
+      toast("Parked. It remembers " + t.resume_to + ".");
+    } else if (act === "resume") {
+      var back = t.resume_to || "In Progress";
+      resume(t);
+      toast("Resumed to " + back + " — the exact column it left.");
+    } else if (act === "submit") { t.review_state = "submitted"; toast("Submitted for review."); }
+    else if (act === "approve") { t.review_state = "approved"; t.reviewer = role === "am" ? "Charles" : "Lance"; toast("Approved."); }
+    else if (act === "revise") { t.review_state = "none"; t.status = "Revision Needed"; pushMove(t); toast("Revision requested."); }
+    else if (act === "sendnow") { publish(t, "/send-to-atrium (created with the toggle off)"); toast("Published to Atrium."); }
+    else if (act === "end") { markEnded(t); toast("Marked ended and filed under Past work — on both boards."); }
+    else if (act === "reopen") { t.ended_at = ""; pushPatch(t, "ended flag cleared"); toast("Reopened."); }
+    else if (act === "del") {
+      if (!window.confirm("Delete this task? Deleting is a separate act from ending.")) { return; }
+      S.tasks = S.tasks.filter(function (x) { return x.id !== t.id; });
+      bridge("POST /api/internal/task-delete", t.atrium_id || "-", {}, "soft delete → Atrium's Bin, 30 days");
+      closeDrawer(); sel = ""; render(); toast("Deleted to the Bin (30 days)."); return;
+    } else if (act === "ccomment" || act === "crevision") {
+      var box = el("drawer").querySelector("[data-cmt]");
+      var text = box ? box.value.trim() : "";
+      if (!text) { toast("Write something first.", true); return; }
+      t.comments.push({ who: "client", text: text, kind: act === "crevision" ? "changes" : "" });
+      if (act === "crevision") {
+        t.review_state = "none"; t.status = "Revision Needed";
+        bridge("POST /w/<c>/task-comment", t.atrium_id, { kind: "changes" }, "revision request RE-OPENS internal review");
+        toast("Revision requested — internal review re-opened.");
+      } else {
+        bridge("POST /w/<c>/task-comment", t.atrium_id, { kind: "comment" }, "client comment → Sentinel");
+        toast("Comment sent to the team.");
+      }
+      render(); drawerClient(t.id); return;
+    }
+    render();
+    if (mode === "task") { drawerTask(t.id); }
+  });
+
+  el("drawer").addEventListener("change", function (e) {
+    var t = find(sel);
+    if (!t) { return; }
+    var sub = e.target.getAttribute ? e.target.getAttribute("data-sub") : null;
+    if (sub) {
+      (t.maintasks || []).forEach(function (m) {
+        (m.subs || []).forEach(function (s) { if (s.id === sub) { s.done = e.target.checked; } });
+      });
+      pushPatch(t, "progress syncs automatically — nobody updates two systems");
+      render();
+      return;
+    }
+    if (e.target.hasAttribute && e.target.hasAttribute("data-move")) {
+      var ok = setStatus(t, e.target.value);
+      if (!ok && canOverride() &&
+          window.confirm("Completion is gated on a Team Lead's approval.\n\nOverride as Account Manager?")) {
+        setStatus(t, "Completed", true);
+        toast("Completed by AM override — logged.");
+      }
+      render(); drawerTask(t.id); return;
+    }
+    var ed = e.target.getAttribute ? e.target.getAttribute("data-edit") : null;
+    if (ed) { t[ed] = e.target.value; pushPatch(t, "client-facing copy refined after creation"); render(); }
+  });
+
+  el("q-panel").addEventListener("change", function (e) {
+    var p = e.target.getAttribute ? e.target.getAttribute("data-pref") : null;
+    if (!p) { return; }
+    S.prefs[p] = (e.target.type === "checkbox") ? e.target.checked : e.target.value;
+    render();
+    if (mode === "new") { newShare(); }
+  });
+
+  el("f2-deploy").addEventListener("click", deployCode);
+  el("f2-rename").addEventListener("click", f2Rename);
+  el("f2-wrong").addEventListener("click", f2Wrong);
+
+  el("ren-go").addEventListener("click", function () {
+    var from = el("ren-key").value, to = el("ren-val").value.trim();
+    if (!to) { toast("Type a new name.", true); return; }
+    var n = renameStatus(from, to, true);
+    el("ren-val").value = "";
+    el("ren-out").innerHTML = "Renamed “" + esc(from) + "” → “" + esc(to) + "”, cascading onto <strong>" + n +
+      "</strong> task row" + (n === 1 ? "" : "s") + ". The name IS the stored value — that bulk write is " +
+      "the residue <strong>F7</strong> would remove.";
+    render();
+  });
+  el("del-go").addEventListener("click", function () {
+    var n = el("ren-key").value, used = usage(n);
+    if (used) {
+      el("ren-out").innerHTML = '<span class="fail">409 refused.</span> “' + esc(n) + "” is still used by " +
+        used + " task" + (used === 1 ? "" : "s") + " — reassign them first. <strong>This guard is why F6 was " +
+        "reversed:</strong> the delete-a-live-status hazard is not reachable from this tab.";
+    } else {
+      S.vocab = S.vocab.filter(function (v) { return v.name !== n; });
+      el("ren-out").innerHTML = "Deleted “" + esc(n) + "” — it held no tasks, so nothing could be stranded.";
+      render();
+    }
+  });
+
+  render();
+}
+
+if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", boot); }
+else { boot(); }
+})();
+</script>
+</body>
+</html>

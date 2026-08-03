@@ -1,0 +1,1989 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sentinel × Atrium — real views + the data that crosses</title>
+<!-- Standalone prototype -- no build step, no external requests. Recreated 2026-07-31 from the
+     published artifact so it lives in the repo beside the other task-tracker prototypes.
+     Companion to ../../Taskboard_New_Features_Roadmap.md: this is the TARGET state (F1 share on
+     create, F2 Parked, F4 Past work, F5 standalone ad services), not what Sentinel ships today. -->
+<style>
+  :root { color-scheme: light dark; }
+  body { margin:0; padding:0; font:14px -apple-system,BlinkMacSystemFont,sans-serif;
+         background:#faf9f5; color:#141413; }
+  img { max-width:100%; }
+</style>
+</head>
+<body>
+<style>
+  /* ============ page shell ============ */
+  :root {
+    --pg:#EDEFF3; --pgink:#12161C; --pgsub:#69727F; --pgline:#DDE1E7; --pgcard:#fff;
+    --mono:ui-monospace,"Cascadia Mono","Cascadia Code",Consolas,"SF Mono",Menlo,monospace;
+    --ui:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --pg:#0A0D11; --pgink:#E9EDF2; --pgsub:#8B95A3; --pgline:#232932; --pgcard:#14181E; }
+  }
+  :root[data-theme="dark"] { --pg:#0A0D11; --pgink:#E9EDF2; --pgsub:#8B95A3; --pgline:#232932; --pgcard:#14181E; }
+  :root[data-theme="light"] { --pg:#EDEFF3; --pgink:#12161C; --pgsub:#69727F; --pgline:#DDE1E7; --pgcard:#fff; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--pg); color:var(--pgink); font-family:var(--ui);
+    font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+  button { font:inherit; cursor:pointer; }
+  .wrap { max-width:1560px; margin:0 auto; padding:18px 16px 48px; }
+  h1 { margin:0; font-size:19px; font-weight:700; letter-spacing:-.015em; }
+
+  .top { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:flex-end;
+    justify-content:space-between; margin-bottom:14px; }
+  .top p { margin:4px 0 0; font-size:12.5px; color:var(--pgsub); max-width:70ch; }
+  .ctl { display:flex; gap:7px; align-items:center; flex-wrap:wrap; }
+  .seats { display:flex; gap:3px; padding:3px; background:var(--pgcard); border:1px solid var(--pgline);
+    border-radius:9px; }
+  .seat { border:0; background:transparent; border-radius:6px; padding:5px 9px; font-size:11.5px;
+    font-weight:550; color:var(--pgsub); display:flex; align-items:center; gap:6px; }
+  .seat[aria-pressed="true"] { background:var(--pg); color:var(--pgink); font-weight:650; }
+  .seat:focus-visible { outline:2px solid #2575FC; outline-offset:1px; }
+  .seat i { width:18px; height:18px; border-radius:50%; display:grid; place-items:center;
+    font-size:8px; font-weight:700; color:#fff; font-style:normal; }
+  .gbtn { border:1px solid var(--pgline); background:var(--pgcard); border-radius:8px;
+    padding:7px 13px; font-size:12.5px; font-weight:600; color:var(--pgink); }
+  .gbtn:hover { border-color:var(--pgsub); }
+
+  .frame { border-radius:12px; overflow:hidden; border:1px solid var(--pgline);
+    box-shadow:0 12px 34px rgba(10,14,20,.14); margin-bottom:16px; background:#fff; }
+  .bar { display:flex; align-items:center; gap:9px; padding:8px 12px; background:#20242B; }
+  .bar .dots { display:flex; gap:5px; }
+  .bar .dots i { width:9px; height:9px; border-radius:50%; background:#454B55; }
+  .bar .u { flex:1; background:#2B3038; border-radius:20px; padding:4px 12px; font-family:var(--mono);
+    font-size:11px; color:#9AA3AE; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bar .u b { color:#E4E8ED; font-weight:600; }
+  .bar .who { font-size:10.5px; color:#9AA3AE; }
+
+  .cols2 { display:grid; grid-template-columns:1fr; gap:16px; align-items:start; }
+  .seclbl { display:flex; align-items:baseline; gap:9px; margin:22px 0 9px; }
+  .seclbl h2 { margin:0; font-size:15px; font-weight:700; }
+  .seclbl span { font-size:12px; color:var(--pgsub); }
+
+  /* ================================================================
+     SENTINEL — tokens copied from sentinel/frontend/static/css/styles.css
+     ================================================================ */
+  .sent {
+    --green:#54B948; --green-d:#3A9A2F; --green-bg:#E9F7E6; --green-strong:#2F8A2C;
+    --violet:#9484FB; --violet-d:#5C4BD0; --violet-bg:#F1EFFE;
+    --sentinel:#FF6B35; --sentinel-2:#F2820C;
+    --ink:#0D1117; --text:#2B333C; --sub:#5B6673; --muted:#8A939F;
+    --line:#E7EAEE; --line-soft:#EEF0F3; --line-strong:#D8DDE3;
+    --canvas:#F6F7F9; --card:#FFFFFF; --input:#F1F3F5; --hover:#F1F3F5;
+    --ok:#54B948; --warn:#F59E0B; --danger:#EF4444;
+    --label-design:#EC4899; --label-copy:#8B5CF6; --label-ads:#F97316;
+    --label-seo:#06B6D4; --label-dev:#3B82F6;
+    --radius:16px; --pill:999px;
+    --shadow:0 2px 4px rgba(16,24,40,.04), 0 10px 24px -12px rgba(16,24,40,.14);
+    --shadow-lg:0 2px 6px rgba(16,24,40,.05), 0 18px 40px -16px rgba(16,24,40,.18);
+    --grad-brand:linear-gradient(90deg,#6BCB4E 0%,#54B948 55%,#3A9A2F 100%);
+    display:grid; grid-template-columns:248px 1fr; background:var(--canvas);
+    color:var(--text); font-family:"Inter",system-ui,sans-serif; min-height:520px;
+  }
+  @media (max-width:840px) { .sent { grid-template-columns:1fr; } .sent .side { display:none; } }
+  .sent .side { background:#fff; border-right:1px solid var(--line); padding:16px 12px;
+    display:flex; flex-direction:column; }
+  .sent .logo { display:flex; align-items:center; gap:9px; padding:2px 8px 16px; }
+  .sent .logo .m { width:28px; height:28px; border-radius:9px;
+    background:linear-gradient(120deg,#FF7A45 0%,#F2820C 100%); display:grid; place-items:center;
+    color:#fff; font-weight:800; font-size:13px; }
+  .sent .logo .n { font-weight:800; font-size:15px; color:var(--ink); letter-spacing:-.02em; }
+  .sent .nav { display:flex; flex-direction:column; gap:2px; }
+  .sent .nav .it { display:flex; align-items:center; gap:10px; padding:9px 11px; border-radius:10px;
+    font-size:13.5px; font-weight:600; color:var(--sub); }
+  .sent .nav .it.on { background:var(--grad-brand); color:#fff; box-shadow:0 6px 14px -8px #3A9A2F; }
+  .sent .nav .it .ic { width:16px; text-align:center; font-size:13px; }
+  .sent .nav .sec { font-size:10px; font-weight:800; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); padding:14px 11px 5px; }
+  .sent .usercard { margin-top:auto; background:var(--canvas); border-radius:12px; padding:10px;
+    display:flex; align-items:center; gap:9px; }
+  .sent .usercard .av { width:32px; height:32px; border-radius:50%; display:grid; place-items:center;
+    color:#fff; font-size:11px; font-weight:800; }
+  .sent .usercard .n { font-size:13px; font-weight:700; color:var(--ink); }
+  .sent .usercard .r { font-size:11px; color:var(--sub); }
+
+  .sent .mainarea { min-width:0; display:flex; flex-direction:column; }
+  .sent .topbar { background:#fff; border-bottom:1px solid var(--line); padding:14px 20px 0;
+    position:relative; }
+  .sent .topbar::after { content:""; position:absolute; left:0; right:0; bottom:0; height:2px;
+    background:var(--grad-brand); }
+  .sent .topbar h2 { margin:0; font-size:20px; font-weight:800; color:var(--ink);
+    letter-spacing:-.02em; }
+  .sent .topbar .sb { font-size:13px; color:var(--sub); margin:3px 0 14px; }
+  .sent .content { padding:18px 20px; flex:1; }
+
+  .sent .seg { display:inline-flex; padding:3px; border-radius:var(--pill); border:1px solid var(--line);
+    background:var(--input); margin-bottom:14px; }
+  .sent .seg button { border:none; background:transparent; color:var(--sub); font:inherit;
+    font-size:12.5px; font-weight:700; padding:5px 13px; border-radius:var(--pill); }
+  .sent .seg button.on { background:var(--card); color:var(--green-d); box-shadow:var(--shadow); }
+
+  .sent .board { display:flex; gap:14px; overflow-x:auto; padding-bottom:12px; align-items:flex-start; }
+  .sent .col { flex:0 0 268px; background:var(--canvas); border:1px solid var(--line);
+    border-radius:var(--radius); display:flex; flex-direction:column; }
+  .sent .col-head { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; }
+  .sent .col-head .t { font-weight:800; font-size:13px; color:var(--ink); }
+  .sent .col-head .c { font-size:11px; font-weight:800; color:var(--sub); background:#fff;
+    border:1px solid var(--line); border-radius:var(--pill); padding:1px 8px; }
+  .sent .col-list { padding:4px 10px 12px; display:flex; flex-direction:column; gap:9px;
+    min-height:44px; }
+  .sent .tcard { background:#fff; border:1px solid var(--line); border-radius:11px; padding:12px;
+    box-shadow:var(--shadow); cursor:pointer; text-align:left; width:100%; font:inherit;
+    color:inherit; display:block; }
+  .sent .tcard:hover { box-shadow:var(--shadow-lg); }
+  .sent .tcard.flash { animation:sflash .9s ease-out; }
+  @keyframes sflash { 0% { box-shadow:0 0 0 2px #54B948, var(--shadow-lg); } }
+  .sent .labels { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:7px; }
+  .sent .lp { font-size:10px; font-weight:800; padding:2px 8px; border-radius:var(--pill);
+    letter-spacing:.02em; }
+  .sent .t-title { font-weight:700; font-size:13.5px; color:var(--ink); line-height:1.35; }
+  .sent .t-meta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:9px;
+    font-size:12px; color:var(--sub); }
+  .sent .pdot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .sent .t-foot { display:flex; align-items:center; justify-content:space-between; margin-top:10px; }
+  .sent .t-foot .row { display:flex; align-items:center; gap:6px; }
+  .sent .avatar { width:26px; height:26px; border-radius:50%; display:grid; place-items:center;
+    color:#fff; font-size:10px; font-weight:800; }
+  .sent .avatar.sm { width:22px; height:22px; font-size:9px; }
+  .sent .icons { display:flex; gap:9px; color:var(--muted); font-size:12px; align-items:center; }
+  .sent .empty { padding:22px; text-align:center; color:var(--muted); font-size:13px; }
+
+  .sent .btn { border:1px solid var(--line-strong); background:#fff; border-radius:10px;
+    padding:9px 15px; font-size:13px; font-weight:700; color:var(--text); }
+  .sent .btn:hover { background:var(--hover); }
+  .sent .btn.primary { background:var(--grad-brand); border-color:transparent; color:#fff; }
+  .sent .btn.orange { background:linear-gradient(120deg,#FF7A45,#F2820C); border-color:transparent;
+    color:#fff; }
+  .sent .btn.sm { padding:6px 11px; font-size:12px; }
+  .sent .btn:disabled { opacity:.45; cursor:not-allowed; }
+
+  /* sentinel drawer */
+  .sdraw { border:1px solid var(--line); border-radius:var(--radius); background:#fff;
+    box-shadow:var(--shadow); overflow:hidden; margin-top:16px; }
+  .sdraw .dh { padding:14px 16px; border-bottom:1px solid var(--line); display:flex;
+    align-items:center; gap:10px; flex-wrap:wrap; }
+  .sdraw .dh h3 { margin:0; font-size:15px; font-weight:800; color:var(--ink); }
+  .sdraw .db { padding:14px 16px; display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:760px) { .sdraw .db { grid-template-columns:1fr; } }
+  .sdraw .fld { margin-bottom:11px; }
+  .sdraw .fld .lb { font-size:10.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:4px; }
+  .sdraw .fld .vl { font-size:13px; color:var(--text); }
+  .sdraw select, .sdraw input { font:inherit; font-size:13px; background:var(--input);
+    border:1px solid var(--line); border-radius:10px; padding:7px 10px; color:var(--text); width:100%; }
+  .sdraw .mt { border:1px solid var(--line); border-radius:11px; overflow:hidden; margin-bottom:9px; }
+  .sdraw .mt .h { padding:8px 11px; background:var(--canvas); font-size:12px; font-weight:800;
+    color:var(--ink); display:flex; gap:7px; align-items:center; }
+  .sdraw .mt .h .n { margin-left:auto; font-size:11px; color:var(--sub); font-weight:700; }
+  .sdraw .sub { padding:7px 11px; display:flex; gap:8px; align-items:flex-start; font-size:12.5px; }
+  .sdraw .sub + .sub { border-top:1px solid var(--line-soft); }
+  .sdraw .sub .bx { width:15px; height:15px; border:1.5px solid var(--line-strong); border-radius:4px;
+    flex:none; margin-top:2px; display:grid; place-items:center; font-size:9px; color:#fff;
+    background:#fff; cursor:pointer; }
+  .sdraw .sub .bx.on { background:var(--green); border-color:var(--green); }
+  .sdraw .sub .bx.dis { opacity:.45; cursor:not-allowed; }
+  .sdraw .sub .tx { flex:1; color:var(--text); }
+  .sdraw .sub.done .tx { color:var(--muted); text-decoration:line-through; }
+  .sdraw .sub .dod { display:block; font-size:11px; color:var(--sentinel-2); margin-top:2px; }
+  .sdraw .sub .as { font-size:10px; font-weight:700; padding:1px 7px; border-radius:var(--pill);
+    background:var(--canvas); border:1px solid var(--line); color:var(--sub); white-space:nowrap; }
+  .sdraw .df { padding:12px 16px; border-top:1px solid var(--line); background:var(--canvas);
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .sbanner { border-radius:11px; padding:11px 13px; font-size:12.5px; line-height:1.5;
+    margin-bottom:11px; }
+  .sbanner.ok { background:var(--green-bg); color:var(--green-strong); }
+  .sbanner.no { background:#FEF2F2; color:#B4322E; }
+  .sbanner.wa { background:#FFFBEB; color:#92610B; }
+  .sbanner b { font-weight:800; }
+
+  /* ================================================================
+     ATRIUM — tokens copied from atrium/services/portal/dash/templates/atrium.html
+     ================================================================ */
+  .atr {
+    --ax-green:#4CAC4C; --ax-green-d:#3E8C3B; --ax-green-bg:#EAF6E9;
+    --ax-violet:#2575FC; --ax-violet-d:#1856C9; --ax-violet-bg:#E7F0FE;
+    --ax-ink:#0C1022; --ax-sub:#6B7280; --ax-line:#E9EAEE; --ax-canvas:#FFFFFF; --ax-white:#fff;
+    --ax-ok:#4CAC4C; --ax-warn:#F2820C; --ax-bad:#E5413E;
+    --ax-radius:5px; --ax-pill:999px;
+    --ax-shadow:0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.06);
+    --ax-shadow-lg:0 2px 6px rgba(16,24,40,.05), 0 18px 42px rgba(16,24,40,.12);
+    display:grid; grid-template-columns:216px 1fr; background:var(--ax-canvas); color:var(--ax-ink);
+    font-family:"Inter",system-ui,sans-serif; min-height:430px;
+  }
+  @media (max-width:840px) { .atr { grid-template-columns:1fr; } .atr .arail { display:none; } }
+  .atr .arail { border-right:1px solid var(--ax-line); padding:14px 10px; display:flex;
+    flex-direction:column; }
+  .atr .abrand { display:flex; align-items:center; gap:8px; padding:2px 8px 13px;
+    border-bottom:1px solid var(--ax-line); margin-bottom:12px; }
+  .atr .abrand .m { width:26px; height:26px; border-radius:6px; background:var(--ax-green);
+    display:grid; place-items:center; color:#fff; font-weight:800; font-size:12px; }
+  .atr .abrand .n { font-weight:700; font-size:14px; letter-spacing:-.01em; }
+  .atr .acrest { border:1px solid var(--ax-line); border-radius:8px; padding:11px 9px;
+    text-align:center; margin-bottom:13px; }
+  .atr .acrest .lg { width:32px; height:32px; border-radius:8px; display:grid; place-items:center;
+    color:#fff; font-weight:800; font-size:12px; margin:0 auto 6px; }
+  .atr .acrest .cn { font-size:12px; font-weight:700; }
+  .atr .acrest .ck { font-size:10px; color:var(--ax-sub); font-family:var(--mono); }
+  .atr .agrp { font-size:10px; font-weight:800; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--ax-sub); padding:11px 9px 4px; }
+  .atr .ait { display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:5px;
+    font-size:13.5px; font-weight:600; color:var(--ax-sub); }
+  .atr .ait.on { background:var(--ax-green-bg); color:var(--ax-green-d); font-weight:700; }
+  .atr .ait .ic { width:15px; text-align:center; font-size:12px; }
+  .atr .afoot { margin-top:auto; padding-top:12px; border-top:1px solid var(--ax-line);
+    display:flex; align-items:center; gap:9px; }
+  .atr .afoot .av { width:30px; height:30px; border-radius:50%; display:grid; place-items:center;
+    color:#fff; font-size:11px; font-weight:800; }
+  .atr .afoot .n { font-size:12.5px; font-weight:650; }
+  .atr .afoot .r { font-size:10.5px; color:var(--ax-sub); }
+
+  .atr .amain { padding:20px 22px; min-width:0; }
+  .atr .atop h2 { margin:0; font-size:21px; font-weight:700; letter-spacing:-.02em; }
+  .atr .atop .s { font-size:13.5px; color:var(--ax-sub); margin:6px 0 18px; line-height:1.55; }
+  .atr .apgcols { display:flex; gap:14px; overflow-x:auto; padding-bottom:8px; align-items:flex-start; }
+  .atr .apgcol { flex:0 0 268px; }
+  .atr .apgh { display:flex; align-items:center; gap:8px; padding:0 2px 9px; }
+  .atr .apgh .dot { width:8px; height:8px; border-radius:50%; }
+  .atr .apgh .t { font-size:12.5px; font-weight:800; }
+  .atr .apgh .c { font-size:11px; color:var(--ax-sub); font-weight:700; }
+  .atr .apglist { display:flex; flex-direction:column; gap:11px; min-height:40px; }
+  .ax-pg-card { background:var(--ax-white); border:1px solid var(--ax-line);
+    border-radius:var(--ax-radius); padding:14px; box-shadow:var(--ax-shadow); cursor:pointer;
+    text-align:left; width:100%; font:inherit; color:inherit; display:block; }
+  .ax-pg-card:hover { transform:translateY(-3px); box-shadow:var(--ax-shadow-lg); border-color:#d4d6df; }
+  .ax-pg-card.fresh { animation:aland .7s ease-out; }
+  @keyframes aland { 0% { transform:scale(.96); box-shadow:0 0 0 4px var(--ax-green-bg); } }
+  .ax-pg-stage { font-size:10px; font-weight:800; border-radius:var(--ax-pill); padding:3px 10px;
+    letter-spacing:.03em; text-transform:uppercase; display:inline-block; }
+  .ax-pg-stage.todo { background:#EEF0F3; color:#5B6472; }
+  .ax-pg-stage.in_progress { background:var(--ax-violet-bg); color:var(--ax-violet-d); }
+  .ax-pg-stage.blocked { background:#FDF0E1; color:#B4610A; }
+  .ax-pg-stage.revision { background:#FBEAE9; color:#B0413E; }
+  .ax-pg-stage.completed { background:var(--ax-green-bg); color:var(--ax-green-d); }
+  .ax-pg-chip { display:inline-flex; align-items:center; font-size:10px; font-weight:800;
+    border-radius:var(--ax-pill); padding:2px 9px; letter-spacing:.03em; text-transform:uppercase; }
+  .ax-pg-chip.lb-paid { background:#ECECFB; color:#5A54DD; }
+  .ax-pg-chip.lb-organic { background:var(--ax-green-bg); color:var(--ax-green-d); }
+  .ax-pg-chip.lb-web { background:var(--ax-violet-bg); color:var(--ax-violet-d); }
+  .atr .apgt { font-size:15px; font-weight:700; margin:9px 0 5px; line-height:1.35; }
+  .atr .apgn { font-size:13px; color:var(--ax-sub); line-height:1.55; }
+  .atr .apgrow { display:flex; gap:7px; flex-wrap:wrap; align-items:center; }
+  .atr .apgmeta { display:flex; gap:9px; flex-wrap:wrap; margin-top:11px; font-size:12px;
+    color:var(--ax-sub); }
+  .atr .apgbar { height:5px; background:#EEF0F3; border-radius:var(--ax-pill); margin-top:11px;
+    overflow:hidden; }
+  .atr .apgbar i { display:block; height:100%; background:var(--ax-green); border-radius:var(--ax-pill);
+    transition:width .35s; }
+  .atr .apgph { margin-top:11px; padding:10px 11px; background:#FAFBFC; border-radius:var(--ax-radius);
+    display:flex; flex-direction:column; gap:6px; }
+  .atr .apgphr { display:flex; align-items:center; gap:8px; font-size:12.5px; }
+  .atr .apgphr .k { width:14px; height:14px; border-radius:4px; border:1.5px solid #D8DDE3;
+    display:grid; place-items:center; font-size:8px; color:#fff; flex:none; }
+  .atr .apgphr .k.on { background:var(--ax-green); border-color:var(--ax-green); }
+  .atr .apgphr .n { margin-left:auto; font-size:11px; color:var(--ax-sub); font-weight:700; }
+  .atr .acta { display:flex; gap:8px; margin-top:13px; }
+  .atr .abtn { border:1px solid var(--ax-line); background:#fff; border-radius:var(--ax-radius);
+    padding:8px 14px; font-size:12.5px; font-weight:700; color:var(--ax-ink); }
+  .atr .abtn:hover { border-color:#d4d6df; }
+  .atr .abtn.g { background:var(--ax-green); border-color:var(--ax-green); color:#fff; }
+  .atr .amsg { margin-top:11px; padding:10px 12px; border-radius:var(--ax-radius); font-size:12.5px;
+    line-height:1.5; }
+  .atr .amsg.c { background:#F6F7F9; color:var(--ax-sub); }
+  .atr .amsg.x { background:#FBEAE9; color:#B0413E; }
+  .atr .amsg b { display:block; font-size:10px; font-weight:800; text-transform:uppercase;
+    letter-spacing:.05em; margin-bottom:3px; }
+  .atr .aempty { border:1px dashed var(--ax-line); border-radius:var(--ax-radius); padding:26px 20px;
+    text-align:center; color:var(--ax-sub); font-size:13px; }
+  .atr .ait { cursor:pointer; }
+  .atr .ait:hover { color:var(--ax-ink); }
+
+  /* client-side tab content */
+  .akpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px;
+    margin-bottom:18px; }
+  .akpi { border:1px solid var(--ax-line); border-radius:var(--ax-radius); padding:13px 15px; }
+  .akpi .l { font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--ax-sub); }
+  .akpi .v { font-size:24px; font-weight:800; letter-spacing:-.02em; margin-top:5px; }
+  .akpi .d { font-size:11.5px; font-weight:700; margin-top:3px; }
+  .akpi .d.up { color:var(--ax-green-d); }
+  .akpi .d.dn { color:var(--ax-bad); }
+  .achart { border:1px solid var(--ax-line); border-radius:var(--ax-radius); padding:14px 16px; }
+  .achart .h { font-size:13px; font-weight:700; margin-bottom:12px; }
+  .abars { display:flex; align-items:flex-end; gap:7px; height:110px; }
+  .abars i { flex:1; background:var(--ax-violet-bg); border-radius:3px 3px 0 0; position:relative;
+    display:block; }
+  .abars i.hi { background:var(--ax-violet); }
+  .axlab { display:flex; gap:7px; margin-top:7px; }
+  .axlab span { flex:1; text-align:center; font-size:10px; color:var(--ax-sub); }
+
+  .atl { display:flex; flex-direction:column; gap:11px; }
+  .atlc { border:1px solid var(--ax-line); border-radius:var(--ax-radius); padding:13px 15px; }
+  .atlc .top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .achan { font-size:10px; font-weight:800; padding:2px 9px; border-radius:var(--ax-pill);
+    text-transform:uppercase; letter-spacing:.04em; }
+  .achan.email { background:var(--ax-violet-bg); color:var(--ax-violet-d); }
+  .achan.meeting { background:var(--ax-green-bg); color:var(--ax-green-d); }
+  .achan.upwork { background:#EAF6E9; color:#3E8C3B; }
+  .achan.note { background:#F6F7F9; color:var(--ax-sub); }
+  .atlc .dt { margin-left:auto; font-size:11.5px; color:var(--ax-sub); }
+  .atlc .ti { font-size:14px; font-weight:700; margin-top:7px; }
+  .atlc .su { font-size:13px; color:var(--ax-sub); margin-top:4px; line-height:1.55; }
+
+  .aco { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:760px) { .aco { grid-template-columns:1fr; } }
+  .acob { border:1px solid var(--ax-line); border-radius:var(--ax-radius); padding:14px 16px; }
+  .acob h4 { margin:0 0 10px; font-size:13px; font-weight:800; letter-spacing:.04em;
+    text-transform:uppercase; color:var(--ax-sub); }
+  .acofacts { display:grid; grid-template-columns:auto 1fr; gap:7px 14px; font-size:13px; }
+  .acofacts dt { color:var(--ax-sub); }
+  .acofacts dd { margin:0; }
+  .acob p { margin:0 0 9px; font-size:13px; line-height:1.6; color:var(--ax-ink); }
+  .acob p:last-child { margin-bottom:0; }
+  .aswatch { display:flex; gap:7px; margin-top:4px; }
+  .aswatch i { width:26px; height:26px; border-radius:5px; display:block; }
+
+  .acont { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
+  .acard2 { border:1px solid var(--ax-line); border-radius:var(--ax-radius); overflow:hidden; }
+  .acard2 .im { height:104px; display:grid; place-items:center; font-size:11px; font-weight:700;
+    color:#fff; letter-spacing:.05em; }
+  .acard2 .bd { padding:12px 13px; }
+  .acard2 .t2 { font-size:13.5px; font-weight:700; }
+  .acard2 .m2 { font-size:11.5px; color:var(--ax-sub); margin-top:4px; }
+  .acard2 .ac { display:flex; gap:7px; margin-top:11px; }
+  .adecided { font-size:11px; font-weight:700; padding:5px 9px; border-radius:var(--ax-radius);
+    background:var(--ax-green-bg); color:var(--ax-green-d); margin-top:11px; display:block;
+    text-align:center; }
+
+  .aintel { display:flex; flex-direction:column; gap:13px; }
+  .aint { border:1px solid var(--ax-line); border-radius:var(--ax-radius); padding:13px 15px; }
+  .aint .hd { font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--ax-violet-d); }
+  .aint .ti { font-size:14px; font-weight:700; margin-top:5px; }
+  .aint .bo { font-size:13px; color:var(--ax-sub); margin-top:5px; line-height:1.6; }
+  .aint .src { font-size:11.5px; color:var(--ax-violet-d); margin-top:7px; }
+
+  .arep { display:flex; flex-direction:column; gap:10px; }
+  .arepr { display:flex; align-items:center; gap:12px; border:1px solid var(--ax-line);
+    border-radius:var(--ax-radius); padding:12px 14px; }
+  .arepr .ic2 { width:36px; height:36px; border-radius:var(--ax-radius); background:var(--ax-green-bg);
+    color:var(--ax-green-d); display:grid; place-items:center; font-size:15px; flex:none; }
+  .arepr .t3 { font-size:13.5px; font-weight:700; }
+  .arepr .d3 { font-size:11.5px; color:var(--ax-sub); }
+  .arepr .go { margin-left:auto; }
+
+  .acal { border:1px solid var(--ax-line); border-radius:var(--ax-radius); overflow:hidden; }
+  .acalh { display:grid; grid-template-columns:repeat(7,1fr); background:#FAFBFC;
+    border-bottom:1px solid var(--ax-line); }
+  .acalh span { padding:8px 4px; text-align:center; font-size:10.5px; font-weight:800;
+    color:var(--ax-sub); text-transform:uppercase; letter-spacing:.04em; }
+  .acalg { display:grid; grid-template-columns:repeat(7,1fr); }
+  .acald { min-height:66px; border-right:1px solid var(--ax-line); border-bottom:1px solid var(--ax-line);
+    padding:5px 6px; }
+  .acald .dn { font-size:11px; color:var(--ax-sub); font-weight:600; }
+  .acalev { font-size:10px; font-weight:700; padding:2px 5px; border-radius:3px; margin-top:3px;
+    background:var(--ax-violet-bg); color:var(--ax-violet-d); overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  .acalev.g { background:var(--ax-green-bg); color:var(--ax-green-d); }
+
+  .anotice { border:1px solid var(--ax-line); background:#FAFBFC; border-radius:var(--ax-radius);
+    padding:12px 14px; font-size:12.5px; color:var(--ax-sub); line-height:1.6; margin-top:16px; }
+  .anotice b { color:var(--ax-ink); }
+
+  /* ============ data inspector ============ */
+  .insp { position:sticky; top:14px; background:var(--pgcard); border:1px solid var(--pgline);
+    border-radius:12px; overflow:hidden; box-shadow:0 8px 22px rgba(10,14,20,.1); }
+  .insp .ih { padding:11px 13px; border-bottom:1px solid var(--pgline); }
+  .insp .ih h3 { margin:0; font-size:13.5px; font-weight:700; }
+  .insp .ih p { margin:3px 0 0; font-size:11.5px; color:var(--pgsub); }
+  .itabs { display:flex; gap:3px; padding:8px 10px 0; flex-wrap:wrap; }
+  .itab { border:0; background:transparent; border-bottom:2px solid transparent; padding:6px 9px;
+    font-size:11.5px; font-weight:650; color:var(--pgsub); }
+  .itab[aria-selected="true"] { color:var(--pgink); border-bottom-color:#2575FC; }
+  .itab:focus-visible { outline:2px solid #2575FC; outline-offset:-2px; }
+  .icode { padding:11px 13px; max-height:520px; overflow:auto; }
+  .icode pre { margin:0; font-family:var(--mono); font-size:11px; line-height:1.65;
+    white-space:pre-wrap; word-break:break-word; color:var(--pgink); }
+  .k { color:#2575FC; }
+  .s { color:#3E8C3B; }
+  .n2 { color:#B4610A; }
+  .b { color:#8B5CF6; }
+  .cmt { color:var(--pgsub); font-style:italic; }
+  .strike { color:#C0453F; text-decoration:line-through; }
+  .inote { padding:10px 13px; border-top:1px solid var(--pgline); font-size:11.5px;
+    color:var(--pgsub); line-height:1.55; background:var(--pg); }
+  .inote b { color:var(--pgink); }
+
+  /* modal */
+  .veil { position:fixed; inset:0; background:rgba(8,11,16,.6); z-index:60; display:none; }
+  .veil.on { display:block; }
+  .mod { position:fixed; z-index:61; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:min(900px,calc(100vw - 28px)); max-height:calc(100vh - 44px); background:#fff;
+    border-radius:14px; box-shadow:0 30px 70px rgba(8,11,16,.4); display:none;
+    flex-direction:column; overflow:hidden; color:#2B333C; font-family:"Inter",system-ui,sans-serif; }
+  .mod.on { display:flex; }
+  .mod .mh { padding:15px 18px; border-bottom:1px solid #E7EAEE; display:flex; align-items:flex-start;
+    gap:10px; }
+  .mod .mh h3 { margin:0; font-size:17px; font-weight:800; color:#0D1117; }
+  .mod .mh p { margin:2px 0 0; font-size:12.5px; color:#5B6673; }
+  .mod .mb { padding:16px 18px; overflow-y:auto; display:grid; grid-template-columns:1fr 330px;
+    gap:18px; align-items:start; }
+  @media (max-width:760px) { .mod .mb { grid-template-columns:1fr; } }
+  .mod .mf { padding:13px 18px; border-top:1px solid #E7EAEE; background:#F6F7F9; display:flex;
+    gap:9px; }
+  .mod .x { margin-left:auto; border:0; background:transparent; font-size:20px; color:#8A939F;
+    padding:2px 6px; border-radius:6px; }
+  .fgrp { display:flex; flex-direction:column; gap:11px; }
+  .fr2 { display:grid; grid-template-columns:1fr 1fr; gap:11px; }
+  @media (max-width:560px) { .fr2 { grid-template-columns:1fr; } }
+  .fl { display:flex; flex-direction:column; gap:4px; }
+  .fl .l { font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+    color:#8A939F; }
+  .fl .l em { font-style:normal; font-weight:600; text-transform:none; letter-spacing:0;
+    color:#B4BAC3; }
+  .fi { font:inherit; font-size:13px; background:#F1F3F5; border:1px solid #E7EAEE;
+    border-radius:10px; padding:8px 11px; color:#2B333C; width:100%; }
+  .fi:focus { outline:2px solid #54B948; outline-offset:-1px; }
+  .adr { display:flex; align-items:center; gap:10px; padding:9px 11px; border:1px solid #E7EAEE;
+    border-radius:10px; margin-bottom:7px; }
+  .adr.on { border-color:#54B948; background:#E9F7E6; }
+  .adr input[type=checkbox] { width:15px; height:15px; accent-color:#54B948; }
+  .adr .al { flex:1; font-size:13px; font-weight:700; color:#0D1117; }
+  .adr input[type=number] { width:56px; font-size:12.5px; padding:4px 7px; border:1px solid #E7EAEE;
+    border-radius:8px; text-align:center; background:#fff; }
+  .adr.off input[type=number] { opacity:.4; pointer-events:none; }
+  .prevbox { border:1px solid #E7EAEE; border-radius:11px; overflow:hidden; }
+  .prevbox .h { padding:8px 11px; background:#F6F7F9; font-size:11px; font-weight:800;
+    letter-spacing:.06em; text-transform:uppercase; color:#8A939F; }
+  .prevbox .b2 { padding:9px; max-height:340px; overflow-y:auto; }
+
+  .toasts { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); z-index:80;
+    display:flex; flex-direction:column; gap:6px; pointer-events:none; }
+  .toast { background:#0D1117; color:#fff; font-size:12.5px; font-weight:600; padding:9px 15px;
+    border-radius:9px; box-shadow:0 12px 30px rgba(0,0,0,.3); max-width:min(500px,92vw); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,*::before,*::after { animation-duration:.001ms !important; transition-duration:.001ms !important; }
+  }
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>The real views — and the data that crosses between them</h1>
+      <p>Both boards rendered with their own design tokens, straight from
+        <span style="font-family:var(--mono);font-size:.9em">styles.css</span> and
+        <span style="font-family:var(--mono);font-size:.9em">atrium.html</span>. Drive it yourself;
+        the inspector on the right shows the actual records and payloads at every step.</p>
+    </div>
+    <div class="ctl">
+      <div class="seats" id="seats" role="group" aria-label="Act as"></div>
+      <button class="gbtn" id="reset" type="button">Reset</button>
+    </div>
+  </div>
+
+  <!-- SENTINEL -->
+  <div class="frame">
+    <div class="bar">
+      <div class="dots"><i></i><i></i><i></i></div>
+      <div class="u"><b>sentinel-585951669065.asia-southeast1.run.app</b>/dashboard</div>
+      <span class="who">Sentinel · internal</span>
+    </div>
+    <div class="sent" id="sent"></div>
+  </div>
+
+  <!-- ATRIUM — the client's own screen, full width -->
+  <div class="seclbl">
+    <h2>The client side of Atrium</h2>
+    <span>Christina's whole workspace. Every tab here is what she actually sees — click through them.</span>
+  </div>
+  <div class="frame">
+    <div class="bar">
+      <div class="dots"><i></i><i></i><i></i></div>
+      <div class="u" id="aurl"></div>
+      <span class="who">Atrium · client</span>
+    </div>
+    <div class="atr" id="atr"></div>
+  </div>
+
+  <!-- INSPECTOR -->
+  <div class="insp">
+    <div class="ih">
+      <h3>Data inspector</h3>
+      <p>Live. Updates with every action you take.</p>
+    </div>
+    <div class="itabs" id="itabs" role="tablist"></div>
+    <div class="icode"><pre id="icode"></pre></div>
+    <div class="inote" id="inote"></div>
+  </div>
+</div>
+
+<div class="veil" id="veil"></div>
+<div class="mod" id="mod" role="dialog" aria-modal="true"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============ recipe book — service_templates.py ============ */
+  var DEPTS=[["acquisition","Acquisition"],["lifecycle","Lifecycle"],["data","Data Analyst"],
+             ["development","Development"]];
+  var DEPT_LABEL={acquisition:"Paid Media",lifecycle:"Organic",data:"Website",development:"Website"};
+  var DISC_CLASS={"Paid Media":"lb-paid",Organic:"lb-organic",Website:"lb-web"};
+
+  var T={
+    google_meta_campaign:{label:"Google / Meta Campaign",dept:"acquisition",ct:"Campaign",ad:true,params:[],
+      mt:[{t:"Campaign build",s:[
+        {t:"Audience, interest & budget research",d:"Research sheet completed and linked on the card"},
+        {t:"Campaign structure plan",d:"Objective + conversion event + CBO/ABO approved by the lead"},
+        {t:"Audience build",d:"Custom / lookalike / interest audiences saved in Ads Manager"},
+        {t:"Ad set configuration",d:"Placements, schedule and budget set per the plan"},
+        {t:"Load creatives + copy",d:"All approved creatives, headlines, primary text and CTAs loaded"},
+        {t:"Compliance check",d:"Client rules verified before launch"}]},
+      {t:"Launch & verify",s:[
+        {t:"Tracking confirmation with Systems & Dev",d:"Pixel / CAPI events verified firing before spend starts"},
+        {t:"Launch",d:"Campaign published; campaign ID logged on the card"},
+        {t:"Post-launch QA (24h)",d:"Delivery, spend pacing and attribution confirmed"}]}]},
+    email_automation:{label:"Email Automation / Sequence Build",dept:"lifecycle",ct:"Email Automation",ad:false,
+      params:[{k:"qty",kind:"qty",label:"How many emails?",def:5},
+              {k:"platform",kind:"choice",label:"Platform",opts:["ActiveCampaign","GHL","Other"],def:"ActiveCampaign"}],
+      mt:[{t:"Plan",s:[{t:"Automation map (trigger, waits, if/else, exit)",d:"Flow documented in plain language, handover-ready"}]},
+      {t:"Email production",s:[{t:"Email {n} — copy",u:"qty",d:"Copy drafted to the approved angle"},
+                               {t:"Email {n} — HTML build",u:"qty",d:"Built, responsive, merge fields correct"}]},
+      {t:"Build & activate",s:[{t:"Automation built in platform",d:"All steps, conditions and tags created"},
+        {t:"Entry points connected",d:"Forms / links / imports wired to the trigger"},
+        {t:"End-to-end test",d:"A test contact travels the full flow correctly"},
+        {t:"Activate",d:"Sequence live; logged on the card"}]}]},
+    content_cycle:{label:"Content Cycle (theme)",dept:"lifecycle",ct:"Content",ad:false,
+      params:[{k:"qty",kind:"qty",label:"Supporting blogs",def:5}],
+      mt:[{t:"Plan",s:[{t:"Topic ideation approved",d:"Theme and angle signed off"},
+                       {t:"Angle brief written",d:"Brief on the card"}]},
+      {t:"Write",s:[{t:"Anchor blog",d:"Anchor drafted and reviewed"},
+        {t:"Supporting blog {n}",u:"qty",d:"Drafted and reviewed against the angle brief"},
+        {t:"Newsletter from the theme",d:"Newsletter drafted"}]},
+      {t:"Produce & publish",s:[{t:"Blog graphics",d:"Graphics produced for every blog"},
+        {t:"Publish",d:"All pieces live; URLs logged on the card"}]}]},
+    organic_social:{label:"Organic Social Post Production",dept:"lifecycle",ct:"Social",ad:false,
+      params:[{k:"qty",kind:"qty",label:"How many posts?",def:2},
+              {k:"channel",kind:"text",label:"Channel",def:"Facebook"}],
+      mt:[{t:"Post batch",s:[{t:"Post {n} — concept + caption",u:"qty",d:"Concept and caption approved"},
+        {t:"Post {n} — design",u:"qty",d:"Designed to brand spec"},
+        {t:"Approver sign-off",d:"Named approver has signed off the batch"},
+        {t:"Scheduled",d:"Scheduled per cadence; logged"}]}]},
+    market_research:{label:"Market Research Package",dept:"data",ct:"Research",ad:false,params:[],
+      mt:[{t:"Research package",s:[
+        {t:"Company profile",d:"What they do, offer and positioning documented"},
+        {t:"Brand / business identity",d:"Voice, values and differentiators captured"},
+        {t:"PESTEL analysis",d:"All six factors documented with client relevance"},
+        {t:"Industry overview",d:"Market size, dynamics and key players summarised"},
+        {t:"Competitor research",d:"Three or more competitors profiled (offer, pricing, angle)"},
+        {t:"Trend research",d:"Current demand and content trends noted"},
+        {t:"Link in central sheet",d:"Research doc linked on the central sheet"}]}]},
+    dashboard_build:{label:"Dashboard Build",dept:"data",ct:"Dashboard",ad:false,
+      params:[{k:"tool",kind:"choice",label:"Tool",opts:["Looker Studio","Sheets","Custom"],def:"Looker Studio"}],
+      mt:[{t:"Define & connect",s:[{t:"Define metrics",d:"Metric list plus source per metric agreed with the requester"},
+        {t:"Data sources connected",d:"All sources connected and pulling"}]},
+      {t:"Build & hand over",s:[{t:"Build views",d:"All agreed views built"},
+        {t:"Validate numbers",d:"Figures match source-of-truth spot checks"},
+        {t:"Share + walkthrough",d:"Access granted and walkthrough done"}]}]},
+    tracking_setup:{label:"Tracking Infrastructure Setup",dept:"development",ct:"Tracking",ad:false,params:[],
+      mt:[{t:"Install",s:[{t:"GTM container",d:"Installed; publish access confirmed"},
+        {t:"GA4",d:"Connected and receiving data"},
+        {t:"Meta Pixel",d:"Installed in the correct native field and firing"},
+        {t:"Meta CAPI",d:"Server events configured and deduplicating"}]},
+      {t:"Configure & verify",s:[{t:"Conversion events / triggers",d:"Every key event built and named per convention"},
+        {t:"UTM scheme",d:"Naming convention documented for campaigns"},
+        {t:"QA / verify",d:"Events confirmed in GTM Preview and GA4 Realtime"}]}]},
+    website_fix:{label:"Website Edit / Fix / Integration",dept:"development",ct:"Website",ad:false,params:[],
+      mt:[{t:"Fix",s:[{t:"Change implemented",d:"Edit made on the live site or staging"},
+        {t:"Integration connected",d:"Payment / form / pixel connected where applicable"},
+        {t:"Verified in production",d:"Confirmed working on the live site"}]}]},
+
+    /* ---- PROPOSED, not in the codebase yet ----------------------------------------------
+       The Video / Static / Carousel recipes exist today ONLY inside the Google / Meta
+       Campaign template (ad_production: True is set on that one service and nowhere else).
+       So "just make me one video ad, no campaign" has no home: you either raise a campaign
+       shell you don't want, or pick Custom (blank) and lose the recipe.
+       These three reuse the EXISTING AD_PRODUCTION groups verbatim — no new content. ---- */
+    standalone_video:{label:"Video Ad — standalone",dept:"acquisition",ct:"Video",ad:false,
+      proposed:true,camp:false,params:[{k:"qty",kind:"qty",label:"How many videos?",def:1}],
+      mt:[{t:"Video ad production",s:[
+        {t:"Script / concept per video approved",d:"Every video has an approved hook and script before editing"},
+        {t:"Footage secured",d:"All required footage available to the editor"},
+        {t:"Video {n} — draft edit",u:"qty",d:"First cut produced to the approved script"},
+        {t:"Video {n} — internal review",u:"qty",d:"Brand colours, fonts, pacing and hook checked"},
+        {t:"Export + file",d:"Final exports filed; folder link on the card"}]}]},
+    standalone_static:{label:"Static Ad — standalone",dept:"acquisition",ct:"Static",ad:false,
+      proposed:true,camp:false,params:[{k:"qty",kind:"qty",label:"How many statics?",def:1}],
+      mt:[{t:"Static ad production",s:[
+        {t:"Batch brief approved (angles + copy direction)",d:"Brief signed off before any design starts"},
+        {t:"Static {n} — design",u:"qty",d:"Designed to brand spec, copy matches the approved brief"},
+        {t:"Internal review of the batch",d:"All statics checked against brief + compliance"},
+        {t:"Export + file to campaign folder",d:"Exports filed; folder link on the card"}]}]}
+  };
+  /* Which service types ask for a campaign at all. `camp:false` = standalone work, no campaign.
+     Four of the eight real templates are already like this. */
+  T.google_meta_campaign.camp=true; T.email_automation.camp=true;
+  T.content_cycle.camp=true; T.dashboard_build.camp=true;
+  T.organic_social.camp=false; T.market_research.camp=false;
+  T.tracking_setup.camp=false; T.website_fix.camp=false;
+  var AD={video:{label:"Video Ad Production",ql:"videos",def:3,g:{t:"Video ad production",s:[
+      {t:"Script / concept per video approved",d:"Every video has an approved hook and script before editing"},
+      {t:"Footage secured",d:"All required footage available to the editor"},
+      {t:"Video {n} — draft edit",u:"qty",d:"First cut produced to the approved script"},
+      {t:"Video {n} — internal review",u:"qty",d:"Brand colours, fonts, pacing and hook checked"},
+      {t:"Export + file",d:"Final exports filed; folder link on the card"}]}},
+    static:{label:"Static Ad Production",ql:"statics",def:5,g:{t:"Static ad production",s:[
+      {t:"Batch brief approved (angles + copy direction)",d:"Brief signed off before any design starts"},
+      {t:"Static {n} — design",u:"qty",d:"Designed to brand spec, copy matches the approved brief"},
+      {t:"Internal review of the batch",d:"All statics checked against brief + compliance"},
+      {t:"Export + file to campaign folder",d:"Exports filed; folder link on the card"}]}},
+    carousel:{label:"Carousel Ad Production",ql:"carousels",def:1,g:{t:"Carousel ad production",s:[
+      {t:"Card structure + copy approved",d:"Card-by-card structure and copy signed off"},
+      {t:"Carousel {n} — design all cards",u:"qty",d:"All cards designed; sequence reads in order"},
+      {t:"Internal review",d:"Sequence logic and brand checked"},
+      {t:"Export + file",d:"Exports filed; folder link on the card"}]}}};
+  var AD_ORDER=["video","static","carousel"];
+
+  /* 🔴 "Blocked" was renamed to "Parked" (a LABEL change).
+     Atrium's stage KEY stays `blocked` — keys are canonical and are never renamed. Only the
+     human-facing label moves. That asymmetry is the whole safety story:
+       Atrium   → key `blocked` + label from TASK_STAGE_META  ⇒ a label edit, trivial + safe
+       Sentinel → the status IS the stored string on every row ⇒ needs a data migration
+     The bridge map below is what keeps them in step. */
+  var STATUSES=["To Do","In Progress","Revision Needed","Parked","Completed"];
+  var STAGE_BY_STATUS={"To Do":"todo","In Progress":"in_progress","Revision Needed":"revision",
+                       "Completed":"completed","Parked":"blocked",
+                       "Blocked":"blocked"};   /* legacy rows keep resolving */
+  var STAGE_LABEL={todo:"To Do",in_progress:"In Progress",revision:"Revision Needed",
+                   blocked:"Parked",completed:"Completed"};
+  var STAGE_DOT={todo:"#8A939F",in_progress:"#2575FC",revision:"#E5413E",blocked:"#F2820C",
+                 completed:"#4CAC4C"};
+  var PRI_DOT={Urgent:"#EF4444",Medium:"#F59E0B",Low:"#8A939F"};
+
+  var CLIENTS={honeytribe:{id:3,name:"Honey Tribe",tint:"#C9A227"},
+               riverdance:{id:1,name:"Riverdance RV",tint:"#2F7D6B"},
+               rhe:{id:2,name:"Rooming House Expert",tint:"#3D6E96"},
+               tcs:{id:4,name:"The Contract Shop",tint:"#A15C2E"}};
+  var P={zhen:{id:9,name:"Zhen",role:"intern",dept:"Acquisition",c:"#7A5FA6"},
+         justine:{id:6,name:"Justine",role:"employee",dept:"Acquisition",c:"#2F7D6B"},
+         ehjay:{id:4,name:"Ehjay",role:"team_lead",dept:"Acquisition",c:"#37556F"},
+         charles:{id:2,name:"Charles",role:"account_manager",dept:"",c:"#6E5AA8"},
+         client:{id:null,name:"Christina",role:"client",dept:"",c:"#C9A227"}};
+  var RL={intern:"Intern",employee:"Employee",team_lead:"Team Lead",
+          account_manager:"Account Manager",client:"Client"};
+  var SEATS=["zhen","justine","ehjay","charles","client"];
+
+  var S,seat="charles",draft=null,itab=0,flash=false,atab="progress";
+
+  function fresh(){ return {exists:false,id:447,title:"",client:"honeytribe",dept:"acquisition",
+    service:"google_meta_campaign",params:{},ads:{video:{on:false,qty:3},static:{on:true,qty:5},
+    carousel:{on:false,qty:1}},priority:"Medium",status:"To Do",start:"2026-08-03",due:"2026-08-19",
+    charge:"980",team:null,lead:null,assignee:null,phases:[],review:"none",reviewedBy:null,
+    published:false,atriumId:"",clientTitle:"",clientNote:"",deliverable:"",internalNote:"",
+    thread:[],history:[],archived:false,completedAt:"",
+    campaign:"",onHold:false,holdReason:"",shareNow:true,resumeTo:""}; }
+
+  function $(i){return document.getElementById(i);}
+  function E(t,c,h){var n=document.createElement(t);if(c)n.className=c;
+    if(h!==undefined&&h!==null)n.innerHTML=h;return n;}
+  function esc(s){return String(s===undefined||s===null?"":s).replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+  function me(){return P[seat];}
+  function ini(k){return P[k]?P[k].name.slice(0,2).toUpperCase():"?";}
+  function fmt(iso){if(!iso)return"—";var m=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep",
+    "Oct","Nov","Dec"];var p=iso.split("-");
+    return m[Number.parseInt(p[1],10)-1]+" "+Number.parseInt(p[2],10);}
+  function toast(m){var t=E("div","toast",esc(m));$("toasts").appendChild(t);
+    setTimeout(function(){t.remove();},3400);}
+  function hist(f,o,n){S.history.unshift({field:f,old:o,neu:n,by:me().name});}
+
+  /* ---- build_maintasks ---- */
+  function q(d,k){var v=Number.parseInt(d.params[k],10);if(!v||v<1)v=1;if(v>50)v=50;return v;}
+  function exp(g,d,f){var out=[];g.s.forEach(function(s){
+    if(s.u){var n=f!==undefined?f:q(d,s.u);
+      for(var i=1;i<=n;i++)out.push({id:"s"+Math.random().toString(36).slice(2,7),
+        text:s.t.replace("{n}",i),dod:s.d,done:false,who:null});}
+    else out.push({id:"s"+Math.random().toString(36).slice(2,7),text:s.t,dod:s.d,done:false,who:null});
+  });return {id:"m"+Math.random().toString(36).slice(2,7),title:g.t,who:null,subs:out};}
+  function build(d){var t=T[d.service],o=[];if(!t)return o;
+    t.mt.forEach(function(g){o.push(exp(g,d));});
+    if(t.ad)AD_ORDER.forEach(function(k){if(d.ads[k].on)o.push(exp(AD[k].g,d,d.ads[k].qty));});
+    return o;}
+  function cnt(){var a=0,b=0;S.phases.forEach(function(p){p.subs.forEach(function(s){
+    b++;if(s.done)a++;});});return{done:a,total:b};}
+
+  /* ---- permissions (task_perms.py) ---- */
+  var FULL={account_manager:1,admin:1,super_admin:1};
+  function isFull(){return !!FULL[me().role];}
+  function leads(){return me().role==="team_lead"&&S.team===me().dept;}
+  function mine(){if(S.assignee===seat)return true;var h=false;
+    S.phases.forEach(function(p){p.subs.forEach(function(s){if(s.who===seat)h=true;});});return h;}
+  function canView(){if(me().role==="client")return false;if(isFull())return true;
+    if(me().role==="team_lead")return leads()||mine();return mine();}
+  function canMove(){return canView();}
+  function canPrio(){return isFull()||leads();}
+  function canReview(){return isFull()||leads();}
+  function canBridge(){return isFull();}
+
+  /* ================= SENTINEL VIEW ================= */
+  function renderSentinel(){
+    var host=$("sent");host.innerHTML="";
+    var side=E("div","side");
+    var lg=E("div","logo");lg.appendChild(E("div","m","S"));lg.appendChild(E("div","n","Sentinel"));
+    side.appendChild(lg);
+    var nav=E("div","nav");
+    [["Dashboard","▤",0],["Task Board","▦",1],["Attendance","◷",0],["People","◉",0]]
+      .forEach(function(i){var d=E("div","it"+(i[2]?" on":""));
+        d.appendChild(E("span","ic",i[1]));d.appendChild(E("span","",i[0]));nav.appendChild(d);});
+    nav.appendChild(E("div","sec","People ops"));
+    [["Leave","⊖"],["Payroll","₱"],["Reports","◍"],["Growth","△"]].forEach(function(i){
+      var d=E("div","it");d.appendChild(E("span","ic",i[1]));
+      d.appendChild(E("span","",i[0]));nav.appendChild(d);});
+    side.appendChild(nav);
+    var uc=E("div","usercard");
+    var av=E("div","av",ini(seat));av.style.background=me().c;uc.appendChild(av);
+    var ub=E("div");ub.appendChild(E("div","n",me().name));
+    ub.appendChild(E("div","r",RL[me().role]));uc.appendChild(ub);
+    side.appendChild(uc);
+    host.appendChild(side);
+
+    var ma=E("div","mainarea");
+    var tb=E("div","topbar");
+    tb.appendChild(E("h2","","Task Board"));
+    tb.appendChild(E("div","sb", me().role==="client"
+      ? "Clients have no account here."
+      : "What the team is working on."));
+    ma.appendChild(tb);
+
+    var ct=E("div","content");
+
+    if(me().role==="client"){
+      ct.appendChild(E("div","sbanner no",
+        "<b>A client cannot open Sentinel at all.</b> There is no client role in this application — "+
+        "the whole app is staff-only. Switch to a staff seat to work the board."));
+      ma.appendChild(ct);host.appendChild(ma);return;
+    }
+
+    var seg=E("div","seg");
+    ["Board","By employee","Monitor"].forEach(function(x,i){
+      var b=E("button","",x);b.type="button";if(!i)b.className="on";seg.appendChild(b);});
+    ct.appendChild(seg);
+
+    if(!S.exists){
+      var em=E("div","empty");
+      em.innerHTML = isFull()
+        ? "No services yet. <br><br>"
+        : "No tasks are assigned to you.";
+      ct.appendChild(em);
+      if(isFull()){
+        var nb=E("button","btn orange","+ New service");nb.type="button";
+        nb.onclick=openCreate;em.appendChild(nb);
+      }
+      ma.appendChild(ct);host.appendChild(ma);return;
+    }
+
+    var board=E("div","board");
+    STATUSES.forEach(function(st){
+      var col=E("div","col");
+      var ch=E("div","col-head");
+      ch.appendChild(E("span","t",st));
+      var here=canView()&&!S.archived&&S.status===st?1:0;
+      ch.appendChild(E("span","c",String(here)));
+      col.appendChild(ch);
+      var cl=E("div","col-list");
+      if(here)cl.appendChild(tcard());
+      col.appendChild(cl);
+      board.appendChild(col);
+    });
+    ct.appendChild(board);
+
+    /* ---- PAST WORK — ended and filed, still visible. Not the Bin. ---- */
+    if(S.archived&&canView()){
+      var pw=E("div","sdraw");pw.style.marginTop="16px";
+      var pwh=E("div","dh");
+      pwh.appendChild(E("h3","","Past work"));
+      var cn3=E("span","");
+      cn3.style.cssText="font-size:12px;color:#5B6673";
+      cn3.textContent="Ended campaigns and delivered services. Off the board, still on the record.";
+      pwh.appendChild(cn3);
+      pw.appendChild(pwh);
+      var pwb=E("div","df");pwb.style.borderTop="0";pwb.style.background="#fff";
+      var line=E("div","");
+      line.style.cssText="flex:1;font-size:13px;color:#2B333C";
+      line.innerHTML="<b>"+esc(S.title)+"</b> · "+esc(CLIENTS[S.client].name)+
+        " · ended "+esc(fmt(S.completedAt||S.due));
+      pwb.appendChild(line);
+      pwb.appendChild(btn("Reopen","",function(){
+        S.archived=false;hist("reopened","past work","board");
+        if(S.published)pushBridge("task-update",{stage:STAGE_BY_STATUS[S.status]});
+        toast("Reopened onto the active board");render();}));
+      pw.appendChild(pwb);
+      ct.appendChild(pw);
+    }
+
+    if(!canView()){
+      ct.appendChild(E("div","sbanner no",
+        "<b>Nothing on your board.</b> For an employee or intern, assignment is the whole rule — "+
+        "not your team's work, not work you created, only what someone handed you."));
+    } else {
+      ct.appendChild(drawer());
+    }
+    ma.appendChild(ct);host.appendChild(ma);
+  }
+
+  function tcard(){
+    var b=E("button","tcard"+(flash?" flash":""));b.type="button";
+    var lab=DEPT_LABEL[S.dept];
+    var labs=E("div","labels");
+    var lp=E("span","lp",lab);
+    var lc={ "Paid Media":["#F1EFFE","#5C4BD0"],Organic:["#E9F7E6","#2F8A2C"],
+             Website:["#EFF6FF","#3B82F6"] }[lab];
+    lp.style.background=lc[0];lp.style.color=lc[1];
+    labs.appendChild(lp);
+    if(S.review==="submitted"){var r=E("span","lp","In review");
+      r.style.background="#FFFBEB";r.style.color="#92610B";labs.appendChild(r);}
+    if(S.review==="approved"){var a=E("span","lp","Approved");
+      a.style.background="#E9F7E6";a.style.color="#2F8A2C";labs.appendChild(a);}
+    if(S.published){var p2=E("span","lp","In Atrium");
+      p2.style.background="#E7F0FE";p2.style.color="#1856C9";labs.appendChild(p2);}
+    if(S.onHold){var hd=E("span","lp","⏸ from "+(S.resumeTo||"In Progress"));
+      hd.style.background="#FDF0E1";hd.style.color="#B4610A";labs.appendChild(hd);}
+    b.appendChild(labs);
+    b.appendChild(E("div","t-title",esc(S.title)));
+    var m=E("div","t-meta");
+    var dot=E("span","pdot");dot.style.background=PRI_DOT[S.priority];m.appendChild(dot);
+    m.appendChild(E("span","",S.priority));
+    if(S.due)m.appendChild(E("span","","· "+fmt(S.due)));
+    m.appendChild(E("span","","· "+CLIENTS[S.client].name));
+    b.appendChild(m);
+    var f=E("div","t-foot");
+    var row=E("div","row");
+    if(S.assignee){var av=E("div","avatar sm",ini(S.assignee));
+      av.style.background=P[S.assignee].c;row.appendChild(av);
+      row.appendChild(E("span","",P[S.assignee].name));
+      row.style.fontSize="12px";row.style.color="#5B6673";}
+    else row.appendChild(E("span","","Unassigned")),row.style.color="#8A939F",
+      row.style.fontSize="12px";
+    f.appendChild(row);
+    var c=cnt();
+    f.appendChild(E("div","icons",c.total?(c.done+"/"+c.total):""));
+    b.appendChild(f);
+    flash=false;
+    return b;
+  }
+
+  function drawer(){
+    var d=E("div","sdraw");
+    var dh=E("div","dh");
+    dh.appendChild(E("h3","",esc(S.title)));
+    var idp=E("span","");idp.style.cssText="font-family:var(--mono);font-size:11px;color:#8A939F";
+    idp.textContent=S.published?("#"+S.id+"  ⇄  atrium:"+S.client+":"+S.atriumId):("#"+S.id);
+    dh.appendChild(idp);
+    d.appendChild(dh);
+
+    var db=E("div","db");
+
+    /* left: fields */
+    var L=E("div");
+    if(S.published)L.appendChild(E("div","sbanner ok",
+      "<b>Published.</b> Client-facing fields are edited on the Atrium card now — this row is the "+
+      "internal shadow. Internal fields stay editable here."));
+    if(S.review==="submitted")L.appendChild(E("div","sbanner wa",
+      "<b>Waiting on "+(S.lead?esc(P[S.lead].name):"the team lead")+".</b> Review is a field, not a "+
+      "sixth column — the card has not moved."));
+
+    if(S.onHold)L.appendChild(E("div","sbanner wa",
+      "<b>⏸ Parked.</b> Reason: “"+esc(S.holdReason)+"” — <b>internal.</b> The client sees a "+
+      "bare “Paused”, never the reason.<br><br>It came from <b>"+esc(S.resumeTo||"In Progress")+
+      "</b> and Resume puts it straight back — the column is stored, so nobody has to remember "+
+      "where the work had got to."));
+    L.appendChild(fld("Client",CLIENTS[S.client].name));
+    L.appendChild(fld("Campaign",S.campaign||"— none · standalone service —"));
+    L.appendChild(fld("Service",T[S.service]?T[S.service].label:"Custom (blank)"));
+    L.appendChild(fldSel("Status",STATUSES,S.status,!canMove(),function(v){
+      var o=S.status;S.status=v;hist("status",o,v);
+      if(S.published)pushBridge("task-move",{stage:STAGE_BY_STATUS[v]});
+      toast("Moved to "+v);render();}));
+    L.appendChild(fldSel("Assignee",[["","— unassigned —"]].concat(
+      ["justine","zhen","lance"].filter(function(k){return P[k];}).map(function(k){
+        return [k,P[k].name];})),S.assignee||"",!(isFull()||leads()),function(v){
+      S.assignee=v||null;hist("assignee","",v?P[v].name:"");render();}));
+    L.appendChild(fldSel("Priority",["Urgent","Medium","Low"],S.priority,!canPrio(),function(v){
+      var o=S.priority;S.priority=v;hist("priority",o,v);render();}));
+    L.appendChild(fld("Team / lead",S.lead?("Acquisition · "+P[S.lead].name):"— not assigned —"));
+    L.appendChild(fld("Service charge","$"+S.charge+"  🔒 internal"));
+    L.appendChild(fld("Launch date",fmt(S.due)));
+    db.appendChild(L);
+
+    /* right: breakdown */
+    var R=E("div");
+    R.appendChild(E("div","fld","<div class=\"lb\">Work breakdown</div>"));
+    S.phases.forEach(function(p){
+      var mt=E("div","mt");
+      var h=E("div","h");
+      h.appendChild(E("span","",esc(p.title)));
+      var dn=p.subs.filter(function(s){return s.done;}).length;
+      h.appendChild(E("span","n",dn+"/"+p.subs.length));
+      mt.appendChild(h);
+      p.subs.forEach(function(s){
+        var r=E("div","sub"+(s.done?" done":""));
+        var may=(s.who===seat||isFull()||leads())&&S.status!=="Completed";
+        var bx=E("span","bx"+(s.done?" on":"")+(may?"":" dis"),s.done?"✓":"");
+        if(may)bx.onclick=function(){s.done=!s.done;
+          if(S.published)pushBridge("task-update",{maintasks:"[…]"});
+          render();};
+        r.appendChild(bx);
+        var tx=E("span","tx",esc(s.text));
+        tx.appendChild(E("span","dod","done when · "+esc(s.dod)));
+        r.appendChild(tx);
+        if(s.who)r.appendChild(E("span","as",P[s.who].name));
+        mt.appendChild(r);
+      });
+      R.appendChild(mt);
+    });
+    db.appendChild(R);
+    d.appendChild(db);
+
+    /* footer actions */
+    var df=E("div","df");
+    if(!S.team&&isFull())df.appendChild(btn("Assign to Acquisition · Ehjay","primary",function(){
+      S.team="Acquisition";S.lead="ehjay";hist("team","","Acquisition");
+      toast("Assigned — now on Ehjay's board");render();}));
+    if(S.team&&!S.phases.some(function(p){return p.subs.some(function(s){return s.who;});})&&
+       (leads()||isFull()))
+      df.appendChild(btn("Delegate steps to Justine & Zhen","primary",function(){
+        var w=["justine","zhen"],i=0;
+        S.phases.forEach(function(p){p.subs.forEach(function(s){s.who=w[i%2];i++;});});
+        S.assignee="justine";hist("delegated","","Justine, Zhen");
+        toast("Delegated — the card is on their boards now");render();}));
+    var c=cnt();
+    if(S.review==="none"&&c.total&&c.done===c.total&&(mine()||canReview()))
+      df.appendChild(btn("Submit for review","",function(){
+        S.review="submitted";hist("review_state","none","submitted");
+        toast("Submitted to Ehjay");render();}));
+    if(S.review==="submitted"&&canReview()){
+      df.appendChild(btn("Approve","primary",function(){
+        S.review="approved";S.reviewedBy=seat;hist("review_state","submitted","approved");
+        toast("Approved — Charles can publish");render();}));
+      df.appendChild(btn("Request revision","",function(){
+        S.review="none";S.status="Revision Needed";hist("review_state","submitted","revision");
+        toast("Sent back");render();}));
+    }
+    if(S.review==="approved"&&!S.published&&canBridge())
+      df.appendChild(btn("Publish to Atrium…","orange",openPublish));
+    if(S.review==="approved"&&!S.published&&!canBridge())
+      df.appendChild(E("span","","Publishing is an Account Manager action."));
+
+    /* ---- PENDING: on hold. Not a status — a flag, so the card keeps its column ---- */
+    if(S.exists&&!S.archived&&S.status!=="Completed"&&(canReview()||isFull())){
+      if(!S.onHold)df.appendChild(btn("Park it","",function(){
+        S.onHold=true;S.holdReason="Waiting on the client's brand assets.";
+        /* Remember the column it came FROM, so resuming never needs a human to recall it. */
+        S.resumeTo=S.status;
+        S.status="Parked";
+        hist("status",S.resumeTo,"Parked");
+        if(S.published)pushBridge("task-move",{stage:"blocked",
+          "!hold_reason":"— internal, never sent —"});
+        itab=1;
+        toast("Parked — it'll come back to "+S.resumeTo+" when you resume");render();}));
+      else df.appendChild(btn("Resume → "+(S.resumeTo||"In Progress"),"primary",function(){
+        var back=S.resumeTo||"In Progress";
+        S.onHold=false;S.holdReason="";S.status=back;S.resumeTo="";
+        hist("status","Parked",back);
+        if(S.published)pushBridge("task-move",{stage:STAGE_BY_STATUS[back]});
+        itab=1;toast("Resumed into "+back+" — nothing had to be remembered");render();}));
+    }
+
+    /* ---- after publication: resolve → complete → archive ---- */
+    var openCh=S.thread.filter(function(t){return t.kind==="changes"&&!t.resolved;});
+    if(S.published&&openCh.length&&canReview())
+      df.appendChild(btn("Resolve the change request","",function(){
+        openCh.forEach(function(t){t.resolved=true;});
+        hist("change_request","open","resolved");
+        pushBridge("task-comment",{op:"resolve",comment_id:"c_"+S.atriumId});
+        itab=1;toast("Resolved — the flag clears on both boards");render();}));
+
+    if(S.published&&S.status!=="Completed"&&!S.archived&&canReview()){
+      var openSteps=c.total-c.done;
+      var mc=btn("Mark complete","primary",function(){
+        S.phases.forEach(function(p){p.subs.forEach(function(s){s.done=true;});});
+        S.status="Completed";S.completedAt=S.due;
+        hist("status","In Progress","Completed");
+        pushBridge("task-move",{stage:"completed"});
+        itab=1;toast("Completed — the client's card now reads Live");render();});
+      /* 🔴 THE GATE MOVED. Approval no longer decides whether the client can SEE the work —
+         it decides whether the work may be called DONE. */
+      if(S.review!=="approved"){
+        mc.disabled=true;
+        mc.textContent="Mark complete — needs internal approval";
+      }
+      df.appendChild(mc);
+      if(openSteps>0&&S.review==="approved"){
+        var w=E("span","");
+        w.style.cssText="font-size:12px;color:#92610B";
+        w.textContent=openSteps+" step"+(openSteps===1?"":"s")+" still open — surfaced, not enforced.";
+        df.appendChild(w);
+      }
+    }
+
+    if(S.status==="Completed"&&!S.archived&&canReview())
+      df.appendChild(btn("Mark ended & file","",function(){
+        S.archived=true;hist("ended","live","past work");
+        pushBridge("task-update",{ended:true,"_note":"stage stays completed — this is a FILE, "+
+          "not a delete"});
+        itab=1;toast("Ended and filed — still on the client's record under Past work");render();}));
+
+    if(!df.childNodes.length)df.appendChild(E("span","","Nothing for you to do on this card."));
+    d.appendChild(df);
+    return d;
+  }
+
+  function fld(l,v){var f=E("div","fld");f.appendChild(E("div","lb",l));
+    f.appendChild(E("div","vl",esc(v)));return f;}
+  function fldSel(l,opts,val,dis,on){
+    var f=E("div","fld");f.appendChild(E("div","lb",l));
+    var s=document.createElement("select");
+    opts.forEach(function(o){var k=Array.isArray(o)?o[0]:o,t=Array.isArray(o)?o[1]:o;
+      var op=document.createElement("option");op.value=k;op.textContent=t;
+      if(k===val)op.selected=true;s.appendChild(op);});
+    s.disabled=!!dis;s.onchange=function(){on(s.value);};
+    f.appendChild(s);
+    if(dis){var n=E("div","");n.style.cssText="font-size:11px;color:#8A939F;margin-top:3px";
+      n.textContent="Not yours to change.";f.appendChild(n);}
+    return f;
+  }
+  function btn(t,cls,on){var b=E("button","btn "+(cls||""),t);b.type="button";b.onclick=on;return b;}
+
+  /* ================= ATRIUM VIEW ================= */
+  function renderAtrium(){
+    var host=$("atr");host.innerHTML="";
+    $("aurl").innerHTML="<b>portal.agoradatadriven.com</b>/w/"+esc(S.client)+"/"+esc(atab);
+    var c=CLIENTS[S.client];
+
+    var rail=E("div","arail");
+    var br=E("div","abrand");br.appendChild(E("div","m","A"));
+    br.appendChild(E("div","n","Atrium"));rail.appendChild(br);
+    var cr=E("div","acrest");
+    var lg=E("div","lg",c.name.slice(0,2).toUpperCase());lg.style.background=c.tint;
+    cr.appendChild(lg);cr.appendChild(E("div","cn",c.name));
+    cr.appendChild(E("div","ck",S.client));rail.appendChild(cr);
+    function navItem(label,icon,key){
+      var d=E("div","ait"+(atab===key?" on":""));
+      d.appendChild(E("span","ic",icon));
+      d.appendChild(E("span","",label));
+      d.onclick=function(){atab=key;render();};
+      rail.appendChild(d);
+    }
+    rail.appendChild(E("div","agrp","Working together"));
+    navItem("Dashboard","▤","dashboard");
+    navItem("Communications","✉","conversations");
+    navItem("Tasks","▦","progress");
+    rail.appendChild(E("div","agrp","Company"));
+    navItem("Company","◈","company");
+    rail.appendChild(E("div","agrp","Campaigns"));
+    navItem("Paid Media","◐","leadgen");
+    navItem("Organic Content","◑","organic");
+    navItem("Content Calendar","▢","calendar");
+    rail.appendChild(E("div","agrp","Insights"));
+    navItem("Market Intelligence","◎","intel");
+    navItem("Reports","▧","reports");
+    var af=E("div","afoot");
+    var aav=E("div","av","CB");aav.style.background=c.tint;af.appendChild(aav);
+    var ab=E("div");ab.appendChild(E("div","n","Christina B."));
+    ab.appendChild(E("div","r",c.name));af.appendChild(ab);
+    rail.appendChild(af);
+    host.appendChild(rail);
+
+    var main=E("div","amain");
+    var TABS={
+      dashboard:["Dashboard","Your live performance, straight from the ad platforms."],
+      conversations:["Communications","Every conversation we've had — email, calls, meetings, notes."],
+      progress:["Tasks","What we're working on for you, and where each piece has got to."],
+      company:["Company","Who you are, in our words — so everything we make sounds like you."],
+      leadgen:["Paid Media","Ads going out. Approve, or tell us what to change."],
+      organic:["Organic Content","Posts and blogs in the pipeline."],
+      calendar:["Content Calendar","What lands, and when."],
+      intel:["Market Intelligence","What we're seeing in your market this week."],
+      reports:["Reports","Every deck we've walked you through."]
+    };
+    var top=E("div","atop");
+    top.appendChild(E("h2","",TABS[atab][0]));
+    top.appendChild(E("div","s",TABS[atab][1]));
+    main.appendChild(top);
+
+    if(atab==="progress") tabTasks(main);
+    else if(atab==="dashboard") tabDashboard(main);
+    else if(atab==="conversations") tabComms(main);
+    else if(atab==="company") tabCompany(main);
+    else if(atab==="leadgen"||atab==="organic") tabContent(main);
+    else if(atab==="calendar") tabCalendar(main);
+    else if(atab==="intel") tabIntel(main);
+    else if(atab==="reports") tabReports(main);
+
+    host.appendChild(main);
+  }
+
+  /* ---- the client's Tasks tab (the one the bridge feeds) ---- */
+  function tabTasks(main){
+    if(S.published&&S.archived){
+      main.appendChild(E("div","aempty","Nothing in flight right now."));
+      var pw=E("div","");pw.style.marginTop="18px";
+      var ph2=E("div","");
+      ph2.style.cssText="font-size:12px;font-weight:800;letter-spacing:.06em;"+
+        "text-transform:uppercase;color:#6B7280;margin-bottom:11px";
+      ph2.textContent="Past work";
+      pw.appendChild(ph2);
+      var pc=E("div","ax-pg-card");
+      var pr=E("div","apgrow");
+      pr.appendChild(E("span","ax-pg-stage completed","Ended"));
+      var lb2=DEPT_LABEL[S.dept];
+      pr.appendChild(E("span","ax-pg-chip "+DISC_CLASS[lb2],lb2));
+      pc.appendChild(pr);
+      pc.appendChild(E("div","apgt",esc(S.clientTitle||S.title)));
+      if(S.clientNote)pc.appendChild(E("div","apgn",esc(S.clientNote)));
+      var pm=E("div","apgmeta");
+      var pv2=E("span","");
+      pv2.style.cssText="color:#3E8C3B;font-weight:700";
+      pv2.textContent="✓ Delivered "+fmt(S.completedAt||S.due);
+      pm.appendChild(pv2);
+      pc.appendChild(pm);
+      pw.appendChild(pc);
+      main.appendChild(pw);
+      main.appendChild(E("div","anotice",
+        "<b>Ended ≠ deleted.</b> An ended campaign leaves the active columns but stays on the "+
+        "client's record — they can still see what you delivered and when. Only a real "+
+        "<span class=\"mono\">task-delete</span> removes it, and even that soft-deletes into "+
+        "Atrium's Bin for 30 days."));
+      return;
+    }
+    if(!S.published){
+      main.appendChild(E("div","aempty", S.exists
+        ? "Nothing here yet. Your team is working on things that haven't been shared with you."
+        : "Nothing here yet."));
+      main.appendChild(E("div","anotice",
+        "<b>Held back on purpose.</b> This service was created with “Share with the client now” "+
+        "switched off, so it is invisible here — not hidden by CSS, not filtered on render: "+
+        "<b>never built into the response.</b> An AM can publish it at any time.<br><br>"+
+        "Leave the toggle ON (the default) and the client instead sees it from day one, in "+
+        "<b>To Do</b>, and watches it cross the board."));
+      return;
+    }
+    var cols=E("div","apgcols");
+    ["todo","in_progress","revision","blocked","completed"].forEach(function(k){
+      var col=E("div","apgcol");
+      var h=E("div","apgh");
+      var dot=E("span","dot");dot.style.background=STAGE_DOT[k];h.appendChild(dot);
+      h.appendChild(E("span","t",STAGE_LABEL[k]));
+      var here=STAGE_BY_STATUS[S.status]===k?1:0;
+      h.appendChild(E("span","c",String(here)));
+      col.appendChild(h);
+      var lst=E("div","apglist");
+      if(here)lst.appendChild(pgcard());
+      col.appendChild(lst);
+      cols.appendChild(col);
+    });
+    main.appendChild(cols);
+    main.appendChild(E("div","anotice",
+      "<b>Two different gates, and they are not the same gate.</b> <b>Visibility</b> — whether the "+
+      "client can see the work at all — is decided once, when the service is created. "+
+      "<b>Approval</b> — whether the work may be called done — is decided by a Team Lead before "+
+      "it can reach Completed. Sharing early is what makes these four columns mean something; "+
+      "the client watches the card cross the board instead of finding it already finished."));
+    main.appendChild(E("div","anotice",
+      "<b>What is still not on this card:</b> who is working on it, which team, the internal "+
+      "priority, the service charge, the internal notes, and the “done when” criteria under every "+
+      "step. The phases show a name and a count — nothing else. Sharing earlier changes "+
+      "<em>when</em> they see it, never <em>what</em>."));
+  }
+
+  /* ---- Dashboard ---- */
+  function tabDashboard(main){
+    var k=E("div","akpis");
+    [["Spend","$4,182","+12%","up"],["Leads","318","+27%","up"],
+     ["Cost per lead","$13.15","−11%","up"],["Reach","96,420","−4%","dn"]]
+     .forEach(function(x){
+      var c=E("div","akpi");
+      c.appendChild(E("div","l",x[0]));
+      c.appendChild(E("div","v",x[1]));
+      c.appendChild(E("div","d "+x[3],x[2]+" vs last 14 days"));
+      k.appendChild(c);
+    });
+    main.appendChild(k);
+    var ch=E("div","achart");
+    ch.appendChild(E("div","h","Leads per week"));
+    var bars=E("div","abars");
+    var vals=[38,44,51,49,62,58,76];
+    vals.forEach(function(v,i){
+      var b=E("i",i===6?"hi":"");
+      b.style.height=Math.round(100*v/80)+"%";
+      bars.appendChild(b);
+    });
+    ch.appendChild(bars);
+    var lab=E("div","axlab");
+    ["Jun 8","Jun 15","Jun 22","Jun 29","Jul 6","Jul 13","Jul 20"].forEach(function(x){
+      lab.appendChild(E("span","",x));});
+    ch.appendChild(lab);
+    main.appendChild(ch);
+    main.appendChild(E("div","anotice",
+      "<b>This tab is the client's own dashboard</b>, reverse-proxied from their private data "+
+      "export. It has nothing to do with the task bridge — but it is why they log in, which is "+
+      "why the Tasks tab sits beside it."));
+  }
+
+  /* ---- Communications ---- */
+  function tabComms(main){
+    var tl=E("div","atl");
+    [["meeting","Strategy call — Spring drop","We agreed to lead with the honey-gift bundle and "+
+      "hold the subscriber push until September.","29 Jul"],
+     ["email","Re: Creative direction","Christina confirmed the warmer palette and sent three "+
+      "reference images.","27 Jul"],
+     ["upwork","Product shots handover","Photographer delivered 42 edited shots; filed to the "+
+      "shared drive.","24 Jul"],
+     ["note","Budget increase approved","Monthly ad budget raised from $3,500 to $4,500 from "+
+      "August.","21 Jul"]].forEach(function(x){
+      var c=E("div","atlc");
+      var t=E("div","top");
+      t.appendChild(E("span","achan "+x[0],x[0]==="upwork"?"Upwork":x[0]));
+      t.appendChild(E("span","dt",x[3]));
+      c.appendChild(t);
+      c.appendChild(E("div","ti",x[1]));
+      c.appendChild(E("div","su",x[2]));
+      tl.appendChild(c);
+    });
+    main.appendChild(tl);
+    main.appendChild(E("div","anotice",
+      "<b>Client-safe by the same rule as Tasks.</b> Every conversation carries an audience flag, "+
+      "and the server filters to <span class=\"mono\">audience == \"client\"</span> before the "+
+      "template runs — team-only threads never reach this HTML."));
+  }
+
+  /* ---- Company ---- */
+  function tabCompany(main){
+    var g=E("div","aco");
+    var b1=E("div","acob");
+    b1.appendChild(E("h4","","At a glance"));
+    var dl=E("dl","acofacts");
+    [["Industry","Artisan food & gifting"],["Founded","2019"],["HQ","Byron Bay, NSW"],
+     ["Website","honeytribe.com.au"],["Team size","11–50"],
+     ["Customers","Gift buyers, wellness retail"]].forEach(function(x){
+      dl.appendChild(E("dt","",x[0]));dl.appendChild(E("dd","",x[1]));});
+    b1.appendChild(dl);
+    g.appendChild(b1);
+
+    var b2=E("div","acob");
+    b2.appendChild(E("h4","","Brand"));
+    b2.appendChild(E("p","","<strong>Voice</strong> — warm, unhurried, never salesy. Speaks like a "+
+      "beekeeper, not a marketer."));
+    b2.appendChild(E("p","","<strong>Do</strong> — lead with provenance and season. "+
+      "<strong>Don't</strong> — discount language, urgency timers."));
+    var sw=E("div","aswatch");
+    ["#C9A227","#6B4E1E","#F4EDDC","#2F3B2C"].forEach(function(c){
+      var i=E("i");i.style.background=c;sw.appendChild(i);});
+    b2.appendChild(sw);
+    g.appendChild(b2);
+    main.appendChild(g);
+
+    var b3=E("div","acob");b3.style.marginTop="16px";
+    b3.appendChild(E("h4","","Our story"));
+    b3.appendChild(E("p","","Honey Tribe began with four hives behind a family home in the "+
+      "Byron hinterland, selling raw honey at weekend markets."));
+    b3.appendChild(E("p","","Today it supplies 140 independent retailers across Australia, and "+
+      "still bottles every batch by hand."));
+    main.appendChild(b3);
+
+    main.appendChild(E("div","anotice",
+      "<b>Fully client-visible, on purpose</b> — it is the client's own company. Only the edit "+
+      "controls are team-gated. It is also what every AI surface in Atrium knows them by, so what "+
+      "we present and what the assistant believes stay in agreement."));
+  }
+
+  /* ---- Paid Media / Organic ---- */
+  function tabContent(main){
+    var paid=atab==="leadgen";
+    var g=E("div","acont");
+    var items=paid
+      ? [["Spring drop — static A","Awaiting your approval","#C9A227",0],
+         ["Spring drop — static B","Awaiting your approval","#8A6D2F",0],
+         ["Gift bundle — carousel","Approved 26 Jul","#6B4E1E",1]]
+      : [["Blog — “How raw honey is graded”","Approved 24 Jul","#2F3B2C",1],
+         ["Instagram — hive tour reel","Awaiting your approval","#4A5B44",0]];
+    items.forEach(function(x){
+      var c=E("div","acard2");
+      var im=E("div","im","CREATIVE");im.style.background=x[2];c.appendChild(im);
+      var bd=E("div","bd");
+      bd.appendChild(E("div","t2",x[0]));
+      bd.appendChild(E("div","m2",x[1]));
+      if(x[3])bd.appendChild(E("span","adecided","✓ Approved"));
+      else{
+        var ac=E("div","ac");
+        ac.appendChild(abtn("Approve","g",function(){toast("Content approval — a separate flow from tasks");}));
+        ac.appendChild(abtn("Request changes","",function(){toast("Change request on a content piece");}));
+        bd.appendChild(ac);
+      }
+      c.appendChild(bd);
+      g.appendChild(c);
+    });
+    main.appendChild(g);
+    main.appendChild(E("div","anotice",
+      "<b>Careful — this is a different object.</b> Content pieces have their own approve / "+
+      "request-changes flow (<span class=\"mono\">workspace.decide_content</span>). "+
+      "<b>Tasks do not.</b> On a task the client can only comment or ask for a revision — that "+
+      "distinction is easy to miss and it is why the task board has no approve button."));
+  }
+
+  /* ---- Calendar ---- */
+  function tabCalendar(main){
+    var cal=E("div","acal");
+    var h=E("div","acalh");
+    ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].forEach(function(d){h.appendChild(E("span","",d));});
+    cal.appendChild(h);
+    var g=E("div","acalg");
+    for(var i=1;i<=28;i++){
+      var d=E("div","acald");
+      d.appendChild(E("div","dn",String(i)));
+      if(i===12)d.appendChild(E("div","acalev","Static A live"));
+      if(i===19){
+        var e=E("div","acalev g",esc(S.published?(S.clientTitle||S.title):"Spring drop"));
+        d.appendChild(e);
+      }
+      if(i===22)d.appendChild(E("div","acalev","Blog publish"));
+      g.appendChild(d);
+    }
+    cal.appendChild(g);
+    main.appendChild(cal);
+    main.appendChild(E("div","anotice",
+      "<b>A task with a launch date lands here automatically.</b> The service is the source of "+
+      "truth — changing its launch date in Sentinel moves the event."));
+  }
+
+  /* ---- Market Intelligence ---- */
+  function tabIntel(main){
+    var w=E("div","aintel");
+    [["Business research","Gifting spend up 9% into Q4",
+      "Australian gift-category spend is tracking ahead of last year, with premium food gifting "+
+      "the fastest-growing segment. Worth weighting the bundle SKUs earlier than last season.",
+      "Retail Insight Weekly"],
+     ["Media buying news","Meta expands Advantage+ to catalogue campaigns",
+      "Advantage+ placements now cover catalogue sales objectives. Early tests show lower CPMs "+
+      "but less placement control — we'll trial it on one ad set before moving budget.",
+      "Meta for Business"]].forEach(function(x){
+      var c=E("div","aint");
+      c.appendChild(E("div","hd",x[0]));
+      c.appendChild(E("div","ti",x[1]));
+      c.appendChild(E("div","bo",x[2]));
+      c.appendChild(E("div","src","Source · "+x[3]));
+      w.appendChild(c);
+    });
+    main.appendChild(w);
+    main.appendChild(E("div","anotice",
+      "<b>Client-visible, team-curated.</b> Written or AI-drafted by the team, read-only for the "+
+      "client — the same posture as the Company tab."));
+  }
+
+  /* ---- Reports ---- */
+  function tabReports(main){
+    var w=E("div","arep");
+    [["July performance review","Presented 28 Jul · 14 slides"],
+     ["Q2 wrap & Q3 plan","Presented 3 Jul · 22 slides"],
+     ["Creative testing readout","Presented 12 Jun · 9 slides"]].forEach(function(x){
+      var r=E("div","arepr");
+      r.appendChild(E("div","ic2","▧"));
+      var b=E("div");
+      b.appendChild(E("div","t3",x[0]));
+      b.appendChild(E("div","d3",x[1]));
+      r.appendChild(b);
+      var g=E("div","go");
+      g.appendChild(abtn("Open deck","",function(){toast("Opens the slide deck in the browser");}));
+      r.appendChild(g);
+      w.appendChild(r);
+    });
+    main.appendChild(w);
+    main.appendChild(E("div","anotice",
+      "<b>Decks are generated from the client's own numbers</b>, then reviewed by the team before "+
+      "they appear here."));
+  }
+
+  function pgcard(){
+    var b=E("button","ax-pg-card fresh");b.type="button";
+    var row=E("div","apgrow");
+    var st=STAGE_BY_STATUS[S.status];
+    row.appendChild(E("span","ax-pg-stage "+st,STAGE_LABEL[st]));
+    var lab=DEPT_LABEL[S.dept];
+    row.appendChild(E("span","ax-pg-chip "+DISC_CLASS[lab],lab));
+    /* No separate "Paused" chip: the card now SITS in the Parked column, and the stage pill
+       above already reads "Parked". One word, same word, both boards. The client still never
+       learns the reason or which column it came from — those stay in Sentinel. */
+    b.appendChild(row);
+    b.appendChild(E("div","apgt",esc(S.clientTitle||S.title)));
+    if(S.clientNote)b.appendChild(E("div","apgn",esc(S.clientNote)));
+
+    var c=cnt();
+    var bar=E("div","apgbar");var i=E("i");
+    i.style.width=(c.total?Math.round(100*c.done/c.total):0)+"%";
+    bar.appendChild(i);b.appendChild(bar);
+
+    var ph=E("div","apgph");
+    S.phases.forEach(function(p){
+      var dn=p.subs.filter(function(s){return s.done;}).length;
+      var r=E("div","apgphr");
+      var k=E("span","k"+(dn===p.subs.length&&p.subs.length?" on":""),
+        dn===p.subs.length&&p.subs.length?"✓":"");
+      r.appendChild(k);
+      r.appendChild(E("span","",esc(p.title)));
+      r.appendChild(E("span","n",dn+"/"+p.subs.length));
+      ph.appendChild(r);
+    });
+    b.appendChild(ph);
+
+    var m=E("div","apgmeta");
+    if(S.status==="Completed"){
+      var lv=E("span","");
+      lv.style.cssText="color:#3E8C3B;font-weight:700";
+      lv.textContent="✓ Live since "+fmt(S.completedAt||S.due);
+      m.appendChild(lv);
+    } else {
+      m.appendChild(E("span","","Launching "+fmt(S.due)));
+    }
+    b.appendChild(m);
+
+    S.thread.forEach(function(t){
+      var mm=E("div","amsg "+(t.kind==="changes"&&!t.resolved?"x":"c"));
+      mm.appendChild(E("b","",t.kind==="changes"
+        ? (t.resolved?"Revision — resolved":"Revision requested") : "Comment"));
+      mm.appendChild(document.createTextNode(t.body));
+      b.appendChild(mm);
+    });
+
+    if(me().role==="client"){
+      var acts=E("div","acta");
+      acts.appendChild(abtn("Comment","",function(e){e.stopPropagation();say("comment");}));
+      acts.appendChild(abtn("Request a revision","",function(e){e.stopPropagation();say("changes");}));
+      b.appendChild(acts);
+    } else {
+      /* The client's two buttons render only for a client session. Say so, or it looks missing. */
+      var hint=E("div","");
+      hint.style.cssText="margin-top:13px;padding:9px 11px;border:1px dashed #E9EAEE;"+
+        "border-radius:5px;font-size:11.5px;color:#6B7280;line-height:1.5";
+      hint.innerHTML="You're viewing as <b>"+esc(me().name)+"</b>. Switch the seat above to "+
+        "<b>Client</b> to see Christina's two buttons — <b>Comment</b> and "+
+        "<b>Request a revision</b>. They are the only writes she has.";
+      b.appendChild(hint);
+    }
+    return b;
+  }
+  function abtn(t,c,on){var b=E("button","abtn "+c,t);b.type="button";b.onclick=on;return b;}
+
+  function say(kind){
+    S.thread.push({kind:kind,resolved:false,body:kind==="changes"
+      ? "The colour on frame 2 is off-brand — can we warm it up?"
+      : "Looking good. Can we see it on mobile too?"});
+    if(kind==="changes"){S.status="Revision Needed";S.review="none";
+      hist("client","","requested a revision");}
+    else hist("client","","commented");
+    lastBridge={dir:"a2s",route:"POST /api/internal/task-response",
+      body:{sentinel_task_id:S.id,atrium_client_key:S.client,atrium_task_id:S.atriumId,
+            response:kind==="changes"?"changes":"comment",
+            notes:S.thread[S.thread.length-1].body,actor:"christina@honeytribe.com"}};
+    itab=2;
+    toast(kind==="changes"?"Revision request sent to Sentinel":"Comment sent to Sentinel");
+    render();
+  }
+
+  /* ================= bridge payload tracking ================= */
+  var lastBridge=null;
+  function pushBridge(route,extra){
+    lastBridge={dir:"s2a",route:"POST /api/internal/"+route,
+      body:Object.assign({client_key:S.client,task_id:S.atriumId,
+        actor:"charles@agoradatadriven.com"},extra||{})};
+  }
+
+  /* ================= INSPECTOR ================= */
+  var ITABS=[["Sentinel record","The full task row, as task_detail() serializes it."],
+             ["What crosses","The exact body Sentinel POSTs over the HMAC bridge."],
+             ["Client render","What _progress_tasks() builds for the client's page."]];
+
+  function renderInspector(){
+    var tb=$("itabs");tb.innerHTML="";
+    ITABS.forEach(function(t,i){
+      var b=E("button","itab",t[0]);b.type="button";b.setAttribute("role","tab");
+      b.setAttribute("aria-selected",i===itab?"true":"false");
+      b.onclick=function(){itab=i;renderInspector();};
+      tb.appendChild(b);
+    });
+    $("inote").innerHTML=noteFor(itab);
+    $("icode").innerHTML=codeFor(itab);
+  }
+
+  function j(o,ind){
+    ind=ind||"";
+    if(o===null)return "<span class=\"b\">null</span>";
+    if(typeof o==="boolean")return "<span class=\"b\">"+o+"</span>";
+    if(typeof o==="number")return "<span class=\"n2\">"+o+"</span>";
+    if(typeof o==="string")return "<span class=\"s\">\""+esc(o)+"\"</span>";
+    if(Array.isArray(o)){
+      if(!o.length)return "[]";
+      return "[\n"+o.map(function(v){return ind+"  "+j(v,ind+"  ");}).join(",\n")+"\n"+ind+"]";
+    }
+    var ks=Object.keys(o);
+    if(!ks.length)return "{}";
+    return "{\n"+ks.map(function(k){
+      var strike=k.charAt(0)==="!";
+      var kk=strike?k.slice(1):k;
+      return ind+"  "+(strike?"<span class=\"strike\">\""+esc(kk)+"\"</span>"
+                             :"<span class=\"k\">\""+esc(kk)+"\"</span>")+": "+j(o[k],ind+"  ");
+    }).join(",\n")+"\n"+ind+"}";
+  }
+
+  function codeFor(i){
+    if(!S.exists) return "<span class=\"cmt\">// No service yet.\n// Create one in Sentinel to see "+
+      "its data here.</span>";
+
+    if(i===0){
+      var mt=S.phases.map(function(p){
+        return {id:p.id,title:p.title,assignee_id:p.who?P[p.who].id:null,
+          subs:p.subs.slice(0,2).map(function(s){
+            return {id:s.id,text:s.text,done:s.done,assignee_id:s.who?P[s.who].id:null};
+          }).concat(p.subs.length>2?["…"+(p.subs.length-2)+" more"]:[])};
+      });
+      return j({
+        id:S.id,title:S.title,description:null,
+        client_id:CLIENTS[S.client].id,client_name:CLIENTS[S.client].name,
+        campaign:S.campaign||null,content_type:T[S.service]?T[S.service].ct:null,
+        status:S.status,priority:S.priority,
+        on_hold:S.onHold,hold_reason:S.holdReason||null,
+        due_date:S.due,start_date:S.start,
+        account_manager_id:P.charles.id,
+        assigned_team_id:S.team?1:null,
+        assigned_to_id:S.assignee?P[S.assignee].id:null,
+        created_by_id:P.charles.id,
+        service_charge:S.charge,
+        labels:[DEPT_LABEL[S.dept]],
+        internal_notes:S.internalNote||null,
+        client_facing_notes:S.clientNote||null,
+        deliverable_url:S.deliverable||null,
+        review_state:S.review,
+        reviewer_id:S.reviewedBy?P[S.reviewedBy].id:null,
+        completed_at:S.status==="Completed"?(S.completedAt||S.due):null,
+        archived:S.archived,
+        atrium_visible:S.published,
+        atrium_task_id:S.published?S.atriumId:null,
+        atrium_client_key:S.published?S.client:null,
+        maintasks:mt
+      });
+    }
+
+    if(i===1){
+      if(!lastBridge) return "<span class=\"cmt\">// Nothing has crossed yet.\n"+
+        "// The bridge fires when you publish, move a published card,\n"+
+        "// or when the client answers.</span>";
+      var head="<span class=\"cmt\">// "+lastBridge.route+"\n"+
+        "// HMAC-signed, server-to-server, no cookie\n"+
+        "// X-Academy-Ts / X-Academy-Sig  (shared platform-sso-key)</span>\n\n";
+      var blocked = lastBridge.dir==="s2a" ? {
+        "!assigned_to_id":"— no FIELD_MAP entry —",
+        "!assigned_team_id":"— no FIELD_MAP entry —",
+        "!account_manager_id":"— no FIELD_MAP entry —",
+        "!created_by_id":"— no FIELD_MAP entry —",
+        "!priority_internal":"— internal only —",
+        "!service_charge":"— internal only —",
+        "!internal_notes":"— internal only —",
+        "!review_state":"— internal only —",
+        "!sub_task_dod":"— internal only —"
+      } : null;
+      var out=head+j(lastBridge.body);
+      if(blocked) out+="\n\n<span class=\"cmt\">// never sent — there is no code path:</span>\n"+
+        j(blocked);
+      return out;
+    }
+
+    /* client render */
+    if(!S.published) return "<span class=\"cmt\">// Not published.\n"+
+      "// _progress_tasks() skips any task without client_facing,\n"+
+      "// so this service does not appear in the client's page at all.</span>";
+    if(S.archived) return "<span class=\"cmt\">// Ended and filed — NOT deleted.\n"+
+      "// The card leaves the active columns but still renders under\n"+
+      "// \"Past work\", so the client keeps the record of what you\n"+
+      "// delivered and when. A real task-delete is a different act.</span>\n\n"+
+      j({id:S.atriumId,title:S.clientTitle||S.title,stage:"completed",ended:true,
+         completed_at:S.completedAt||S.due,client_note:S.clientNote,
+         phases:"[…all complete…]"});
+    var c=cnt();
+    return "<span class=\"cmt\">// main._progress_tasks(ws) — the WHOLE object\n"+
+      "// the client's template receives. Built by REBUILDING a\n"+
+      "// safe dict, never by filtering the real one.</span>\n\n"+
+      j({
+        id:S.atriumId,
+        title:S.clientTitle||S.title,
+        stage:STAGE_BY_STATUS[S.status],
+        campaign:S.campaign||"",
+        content_type:T[S.service]?T[S.service].ct:"",
+        discipline:DEPT_LABEL[S.dept],
+        disc_class:DISC_CLASS[DEPT_LABEL[S.dept]],
+        on_hold:S.onHold,
+        reporter:"agora",
+        reporter_name:"",
+        start_date:S.start,
+        completed_at:S.status==="Completed"?(S.completedAt||S.due):"",
+        due_date:S.due,
+        due_soon:false,
+        client_note:S.clientNote,
+        deliverable_url:S.deliverable||"",
+        phases:S.phases.map(function(p){
+          return {name:p.title,
+                  steps:p.subs.slice(0,2).map(function(s){return {text:s.text,done:s.done};})
+                    .concat(p.subs.length>2?["…"+(p.subs.length-2)+" more"]:[]),
+                  done:p.subs.filter(function(s){return s.done;}).length,
+                  total:p.subs.length};
+        }),
+        subs_done:c.done,subs_total:c.total,
+        pct:c.total?Math.round(100*c.done/c.total):0,
+        open_changes:S.thread.filter(function(t){
+          return t.kind==="changes"&&!t.resolved;}).length,
+        comments:S.thread.map(function(t){
+          return {sender:"client",sender_name:"Christina B.",body:t.body,
+                  kind:t.kind==="changes"?"changes":"comment",resolved:!!t.resolved};
+        }),
+        comment_count:S.thread.length
+      });
+  }
+
+  function noteFor(i){
+    if(i===0) return "Every field on the Sentinel row. The ones with no counterpart on the right — "+
+      "<b>assignee, team, account manager, charge, internal notes, review state</b> — are the "+
+      "whole reason the two systems stay separate.";
+    if(i===1) return "The struck-through keys are not filtered out at send time — <b>there is no "+
+      "FIELD_MAP entry for them</b>, so no code path exists that could include them. Absence, not "+
+      "filtering.";
+    return "Compare this with the Sentinel record. Same work, <b>a different set of facts</b> — "+
+      "and the step-level “done when” criteria are gone entirely.";
+  }
+
+  /* ================= modals ================= */
+  function closeMod(){$("veil").classList.remove("on");$("mod").classList.remove("on");
+    $("mod").innerHTML="";draft=null;}
+  $("veil").onclick=closeMod;
+  document.addEventListener("keydown",function(e){if(e.key==="Escape")closeMod();});
+
+  function openCreate(){
+    draft=fresh();draft.title="New Arrivals — Spring drop";
+    rp(draft);drawCreate();$("veil").classList.add("on");$("mod").classList.add("on");
+  }
+  function rp(d){d.params={};var t=T[d.service];
+    if(t)(t.params||[]).forEach(function(p){d.params[p.k]=p.def;});}
+
+  function drawCreate(){
+    var m=$("mod");m.innerHTML="";
+    var t=T[draft.service],bd=build(draft);
+    var h=E("div","mh");var hb=E("div");
+    hb.appendChild(E("h3","","New service"));
+    hb.appendChild(E("p","","Sentinel · "+me().name+", "+RL[me().role]));
+    h.appendChild(hb);
+    var x=E("button","x","×");x.type="button";x.onclick=closeMod;h.appendChild(x);
+    m.appendChild(h);
+
+    var b=E("div","mb");
+    var g=E("div","fgrp");
+    var r1=E("div","fr2");
+    r1.appendChild(fl2("Campaign","stored as the title",
+      ip("text",draft.title,function(v){draft.title=v;},1)));
+    r1.appendChild(fl2("Client","",sl(Object.keys(CLIENTS).map(function(k){
+      return [k,CLIENTS[k].name];}),draft.client,function(v){draft.client=v;drawCreate();})));
+    g.appendChild(r1);
+    var r2=E("div","fr2");
+    r2.appendChild(fl2("Department","sets the client label",sl(DEPTS,draft.dept,function(v){
+      draft.dept=v;
+      var f=Object.keys(T).filter(function(k){return T[k].dept===v;})[0];
+      draft.service=f||"";rp(draft);drawCreate();})));
+    var so=Object.keys(T).filter(function(k){return T[k].dept===draft.dept;})
+      .map(function(k){return [k,T[k].label+(T[k].proposed?"  ⟨proposed⟩":"")];});
+    so.push(["","Custom (blank) — no recipe"]);
+    r2.appendChild(fl2("Service type","",sl(so,draft.service,function(v){
+      draft.service=v;rp(draft);drawCreate();})));
+    g.appendChild(r2);
+
+    /* Campaign is OPTIONAL and per-service. Four of the eight real templates set camp:false —
+       standalone work that belongs to no campaign at all. */
+    if(t&&t.camp){
+      g.appendChild(fl2("Campaign","this service rolls up under a campaign",
+        ip("text",draft.campaign||"Spring drop 2026",function(v){draft.campaign=v;})));
+    } else if(t){
+      var nc=E("div","");
+      nc.style.cssText="font-size:12px;color:#5B6673;background:#F6F7F9;border:1px solid #E7EAEE;border-radius:9px;padding:10px 12px";
+      nc.innerHTML="<b>No campaign.</b> This service type is standalone work — "+
+        "<span style=\"font-family:var(--mono);font-size:.9em\">camp: False</span> in the recipe "+
+        "book, so the form never asks for one and the card carries none.";
+      g.appendChild(nc);
+    }
+    if(t&&t.proposed){
+      var pw=E("div","");
+      pw.style.cssText="font-size:12px;color:#92610B;background:#FFFBEB;border:1px solid #F6E4B8;border-radius:9px;padding:10px 12px";
+      pw.innerHTML="<b>Proposed — not in the codebase yet.</b> The Video / Static / Carousel "+
+        "recipes exist today only <em>inside</em> the Google / Meta Campaign service. A standalone "+
+        "ad request has to borrow a campaign shell or fall back to Custom (blank). This reuses the "+
+        "existing recipe verbatim.";
+      g.appendChild(pw);
+    }
+
+    if(t&&(t.params||[]).length){
+      var pr=E("div","fr2");
+      t.params.forEach(function(p){
+        if(p.kind==="choice")pr.appendChild(fl2(p.label,"",sl(p.opts.map(function(o){
+          return [o,o];}),draft.params[p.k],function(v){draft.params[p.k]=v;drawCreate();})));
+        else if(p.kind==="qty")pr.appendChild(fl2(p.label,"multiplies per-item steps",
+          ip("number",draft.params[p.k],function(v){draft.params[p.k]=v;drawCreate();})));
+        else pr.appendChild(fl2(p.label,"",ip("text",draft.params[p.k],
+          function(v){draft.params[p.k]=v;})));
+      });
+      g.appendChild(pr);
+    }
+
+    if(t&&t.ad){
+      var w=E("div");
+      w.appendChild(E("div","l","Ad production")).style.cssText=
+        "font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8A939F;margin-bottom:7px";
+      AD_ORDER.forEach(function(k){
+        var a=AD[k],s=draft.ads[k];
+        var row=E("div","adr "+(s.on?"on":"off"));
+        var cb=document.createElement("input");cb.type="checkbox";cb.checked=s.on;
+        cb.onchange=function(){s.on=cb.checked;drawCreate();};
+        row.appendChild(cb);row.appendChild(E("span","al",a.label));
+        var qi=document.createElement("input");qi.type="number";qi.value=s.qty;qi.min=1;qi.max=50;
+        qi.oninput=function(){s.qty=Number.parseInt(qi.value,10)||1;drawCreate();};
+        row.appendChild(qi);
+        var ql=E("span","",a.ql);ql.style.cssText="font-size:11px;color:#8A939F";
+        row.appendChild(ql);
+        w.appendChild(row);
+      });
+      g.appendChild(w);
+    }
+
+    var r3=E("div","fr2");
+    r3.appendChild(fl2("Priority","internal",sl([["Urgent","Urgent"],["Medium","Medium"],
+      ["Low","Low"]],draft.priority,function(v){draft.priority=v;})));
+    r3.appendChild(fl2("Launch date","the client sees this",
+      ip("date",draft.due,function(v){draft.due=v;})));
+    g.appendChild(r3);
+    var r4=E("div","fr2");
+    r4.appendChild(fl2("Service charge","never leaves Sentinel",
+      ip("text",draft.charge,function(v){draft.charge=v;})));
+    r4.appendChild(fl2("Start date","internal",
+      ip("date",draft.start,function(v){draft.start=v;})));
+    g.appendChild(r4);
+
+    /* ---- share with the client from day one (VISIBILITY, not approval) ---- */
+    var shBox=E("div","");
+    shBox.style.cssText="border:1px solid "+(draft.shareNow?"#54B948":"#D8DDE3")+";background:"+
+      (draft.shareNow?"#E9F7E6":"#F6F7F9")+";border-radius:10px;padding:12px 13px";
+    var shRow=E("div","");
+    shRow.style.cssText="display:flex;align-items:flex-start;gap:10px";
+    var shCb=document.createElement("input");
+    shCb.type="checkbox";shCb.checked=draft.shareNow;
+    shCb.style.cssText="width:16px;height:16px;accent-color:#54B948;margin-top:2px;flex:none";
+    shCb.onchange=function(){draft.shareNow=shCb.checked;drawCreate();};
+    shRow.appendChild(shCb);
+    var shL=E("div","");
+    shL.innerHTML="<div style=\"font-size:13px;font-weight:800;color:#0D1117\">"+
+      "Share with the client now</div>"+
+      "<div style=\"font-size:11.5px;color:#5B6673;margin-top:2px;line-height:1.5\">"+
+      (draft.shareNow
+        ? "They see it in <b>To Do</b> from today and watch it move across the board. "+
+          "Completion still needs internal approval."
+        : "Held back — invisible until an Account Manager publishes it later.")+"</div>";
+    shRow.appendChild(shL);
+    shBox.appendChild(shRow);
+    if(draft.shareNow){
+      var cf=E("div","");
+      cf.style.cssText="margin-top:12px;display:flex;flex-direction:column;gap:10px";
+      cf.appendChild(fl2("Client-facing title","what they read — not the internal shorthand",
+        ip("text",draft.clientTitle||draft.title,function(v){draft.clientTitle=v;})));
+      var cn2=document.createElement("textarea");
+      cn2.className="fi";cn2.style.minHeight="52px";
+      cn2.value=draft.clientNote||"";
+      cn2.placeholder="One line, in their language. Editable any time afterwards.";
+      cn2.oninput=function(){draft.clientNote=cn2.value;};
+      cf.appendChild(fl2("Note for the client","optional",cn2));
+      shBox.appendChild(cf);
+    }
+    g.appendChild(shBox);
+    b.appendChild(g);
+
+    var pv=E("div","prevbox");
+    pv.appendChild(E("div","h",bd.length+" phases · "+
+      bd.reduce(function(n,p){return n+p.subs.length;},0)+" steps"));
+    var pb=E("div","b2");
+    if(!bd.length)pb.appendChild(E("div","","Custom — nothing seeded."));
+    bd.forEach(function(p){
+      var box=E("div","");box.style.cssText="border:1px solid #E7EAEE;border-radius:9px;margin-bottom:7px;overflow:hidden";
+      var hh=E("div","");hh.style.cssText="padding:6px 9px;background:#F6F7F9;font-size:11.5px;font-weight:800;color:#0D1117;display:flex";
+      hh.appendChild(E("span","",esc(p.title)));
+      var nn=E("span","",String(p.subs.length));nn.style.cssText="margin-left:auto;color:#5B6673;font-weight:700";
+      hh.appendChild(nn);box.appendChild(hh);
+      p.subs.forEach(function(s){
+        var rr=E("div","");rr.style.cssText="padding:5px 9px;font-size:11.5px;color:#2B333C;border-top:1px solid #EEF0F3";
+        rr.appendChild(E("div","",esc(s.text)));
+        var dd=E("div","",esc(s.dod));
+        dd.style.cssText="font-size:10.5px;color:#F2820C;margin-top:1px";
+        rr.appendChild(dd);box.appendChild(rr);
+      });
+      pb.appendChild(box);
+    });
+    pv.appendChild(pb);
+    b.appendChild(pv);
+    m.appendChild(b);
+
+    var f=E("div","mf");
+    var go=E("button","btn primary","Create service");
+    go.type="button";go.className="";
+    go.style.cssText="background:linear-gradient(90deg,#6BCB4E,#54B948 55%,#3A9A2F);color:#fff;border:0;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:700";
+    go.onclick=function(){
+      draft.exists=true;draft.phases=build(draft);
+      draft.history=[{field:"created",old:"",neu:draft.title,by:me().name}];
+      var shared=draft.shareNow;
+      if(shared){
+        draft.published=true;
+        draft.atriumId="t_"+(5100+Math.floor(Math.random()*800));
+        draft.clientTitle=draft.clientTitle||draft.title;
+      }
+      S=draft;draft=null;flash=true;itab=shared?1:0;atab="progress";
+      if(shared){
+        lastBridge={dir:"s2a",route:"POST /api/internal/task-add  →  then task-update",
+          body:{client_key:S.client,title:S.clientTitle,stage:"todo",client_facing:true,
+            priority:S.priority,department:S.dept,due_date:S.due,
+            actor:"charles@agoradatadriven.com",actor_name:"Charles",
+            "_then_task_update":{client_note:S.clientNote,start_date:S.start,
+              campaign:S.campaign||"",content_type:T[S.service]?T[S.service].ct:"",
+              maintasks:"[…"+cnt().total+" steps…]"}}};
+        hist("atrium","internal","shared on create");
+      } else lastBridge=null;
+      closeMod();
+      toast(shared ? "Created and shared — the client sees it in To Do from now"
+                   : "Created, held back — invisible to the client");
+      render();
+    };
+    f.appendChild(go);
+    var cn=E("button","","Cancel");cn.type="button";
+    cn.style.cssText="background:#fff;border:1px solid #D8DDE3;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:700;color:#2B333C";
+    cn.onclick=closeMod;f.appendChild(cn);
+    m.appendChild(f);
+  }
+
+  function openPublish(){
+    var m=$("mod");m.innerHTML="";
+    var h=E("div","mh");var hb=E("div");
+    hb.appendChild(E("h3","","Publish to Atrium"));
+    hb.appendChild(E("p","","Confirm exactly what "+CLIENTS[S.client].name+" will see"));
+    h.appendChild(hb);
+    var x=E("button","x","×");x.type="button";x.onclick=closeMod;h.appendChild(x);
+    m.appendChild(h);
+
+    var b=E("div","mb");
+    var g=E("div","fgrp");
+    var ti=ip("text",S.clientTitle||S.title,function(){});
+    g.appendChild(fl2("Client-facing title","not the internal shorthand",ti));
+    var dp=sl(DEPTS,S.dept,function(){});
+    g.appendChild(fl2("Department","",dp));
+    var no=document.createElement("textarea");no.className="fi";no.style.minHeight="66px";
+    no.value=S.clientNote||("Six new statics for the Spring drop, live "+fmt(S.due)+".");
+    g.appendChild(fl2("Note for the client","in their language",no));
+    b.appendChild(g);
+
+    var pv=E("div","prevbox");
+    pv.appendChild(E("div","h","Exactly what crosses"));
+    var pb=E("div","b2");
+    [["title","title",1],["status","stage",1],["due_date","due_date",1],
+     ["start_date","start_date",1],["client_facing_notes","client_note",1],
+     ["deliverable_url","deliverable_url",1],["campaign","campaign",1],
+     ["maintasks[]","maintasks[]",1],["assigned_to_id","",0],["assigned_team_id","",0],
+     ["account_manager_id","",0],["priority","",0],["service_charge","",0],
+     ["internal_notes","",0],["sub-task dod","",0]].forEach(function(r){
+      var row=E("div","");
+      row.style.cssText="display:flex;align-items:center;gap:7px;font-size:11.5px;padding:4px 2px;font-family:var(--mono)";
+      var a=E("span","",r[0]);
+      if(!r[2]){a.style.cssText="color:#8A939F;text-decoration:line-through;text-decoration-color:#EF4444";}
+      else a.style.color="#5B6673";
+      row.appendChild(a);
+      if(r[2]){var ar=E("span","","→");ar.style.color="#B4BAC3";row.appendChild(ar);
+        var tt=E("span","",r[1]);tt.style.cssText="color:#0D1117;font-weight:700";row.appendChild(tt);}
+      var tg=E("span","",r[2]?"sent":"never");
+      tg.style.cssText="margin-left:auto;font-size:9.5px;font-weight:800;text-transform:uppercase;color:"+
+        (r[2]?"#3A9A2F":"#C0453F")+";font-family:'Inter',sans-serif";
+      row.appendChild(tg);
+      pb.appendChild(row);
+    });
+    pv.appendChild(pb);
+    b.appendChild(pv);
+    m.appendChild(b);
+
+    var f=E("div","mf");
+    var go=E("button","","Publish");go.type="button";
+    go.style.cssText="background:linear-gradient(120deg,#FF7A45,#F2820C);color:#fff;border:0;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:700";
+    go.onclick=function(){
+      S.clientTitle=ti.value.trim()||S.title;
+      S.clientNote=no.value.trim();
+      S.published=true;S.atriumId="t_"+(5100+Math.floor(Math.random()*800));
+      if(S.status==="To Do")S.status="In Progress";
+      hist("atrium","internal","published");
+      lastBridge={dir:"s2a",route:"POST /api/internal/task-add  →  then task-update",
+        body:{client_key:S.client,title:S.clientTitle,stage:STAGE_BY_STATUS[S.status],
+          client_facing:true,priority:S.priority,department:S.dept,due_date:S.due,
+          actor:"charles@agoradatadriven.com",actor_name:"Charles",
+          "_then_task_update":{client_note:S.clientNote,start_date:S.start,
+            campaign:S.title,content_type:T[S.service]?T[S.service].ct:"",
+            deliverable_url:S.deliverable||"",maintasks:"[…"+cnt().total+" steps…]"}}};
+      itab=1;atab="progress";
+      closeMod();toast("Published — id stored, then the rest patched across");render();
+    };
+    f.appendChild(go);
+    var cn=E("button","","Cancel");cn.type="button";
+    cn.style.cssText="background:#fff;border:1px solid #D8DDE3;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:700;color:#2B333C";
+    cn.onclick=closeMod;f.appendChild(cn);
+    m.appendChild(f);
+    /* Actually SHOW it. The dialog is display:none until these land — building the content
+       without them is why the button appeared dead. */
+    $("veil").classList.add("on");
+    $("mod").classList.add("on");
+  }
+
+  function fl2(l,h,c){var w=E("label","fl");var lb=E("span","l");
+    lb.appendChild(document.createTextNode(l+" "));
+    if(h)lb.appendChild(E("em","","— "+h));
+    w.appendChild(lb);w.appendChild(c);return w;}
+  function ip(t,v,on,keep){var i=document.createElement("input");i.type=t;i.className="fi";
+    i.value=v===undefined?"":v;if(t==="number"){i.min=1;i.max=50;}
+    i.oninput=function(){on(i.value);};if(keep)i.setAttribute("data-keep","1");return i;}
+  function sl(o,v,on){var s=document.createElement("select");s.className="fi";
+    o.forEach(function(x){var op=document.createElement("option");
+      op.value=x[0];op.textContent=x[1];if(x[0]===v)op.selected=true;s.appendChild(op);});
+    s.onchange=function(){on(s.value);};return s;}
+
+  /* ================= boot ================= */
+  function renderSeats(){
+    var w=$("seats");w.innerHTML="";
+    SEATS.forEach(function(k){
+      var p=P[k];var b=E("button","seat");b.type="button";
+      b.setAttribute("aria-pressed",k===seat?"true":"false");
+      var i=E("i","",ini(k));i.style.background=p.c;b.appendChild(i);
+      b.appendChild(document.createTextNode(RL[p.role]));
+      b.onclick=function(){seat=k;render();};
+      w.appendChild(b);
+    });
+  }
+
+  function render(){renderSeats();renderSentinel();renderAtrium();renderInspector();}
+
+  $("reset").onclick=function(){S=fresh();seat="charles";lastBridge=null;itab=0;
+    render();toast("Reset");};
+
+  S=fresh();render();
+})();
+</script>
+</body>
+</html>
