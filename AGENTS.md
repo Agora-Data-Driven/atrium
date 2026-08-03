@@ -328,6 +328,27 @@ auto-refresh (see those bullets below). Product name is one constant:
     Entries appear everywhere automatically; the first **listing** of each shared source is still one
     "Check for new posts" click (it lists from an empty archive) — once per source for the whole
     estate, not once per client. Tests: `_run_template_checks` in `dash/_watcher_localtest.py`.
+  - **Internal WRITE leg — the Academy adds a source (2026-08-03):** `POST /api/internal/watcher/add`
+    (purpose `watcher-add`, same `_internal_gate` HMAC, fail-CLOSED, no session) lets
+    **mastery-engine's Academy Admin** add a watched source without anyone opening Atrium — the
+    same reasoning that made the task bridge two-way ("go somewhere else to do it" is a dead end).
+    JSON body `{client, op, url|channel, retry, actor}`; `op` is **only** `add` | `add_site` |
+    `add_video` | `fetch`. 🔴 **delete / meta / label / safe_pull are deliberately NOT exposed** —
+    removing and re-classifying a watched source is curation that belongs to the team who owns the
+    workspace, and safe_pull queues work onto an operator's laptop.
+    🔴 **Both callers run the SAME code**: the four ops live in `main._watcher_op_add` /
+    `_add_site` / `_add_video` / `_fetch` (plus `_watcher_add_post`), plain functions returning
+    plain dicts, and the team console's `POST /w/<c>/admin/watcher` branches are now thin wrappers
+    over them — so a source added from the Academy is indistinguishable from one pasted into the
+    tab (same registry shape, same archive object, same AI industry label, same duplicate guard).
+    ⚠️ Those helpers deliberately **do not audit**: `_audit` stamps the SESSION actor and a bridge
+    call has none, so each caller writes its own entry — the console via `_audit`, the bridge via
+    `_internal_audit(..., role="academy")` (which gained an optional `role`, default `sentinel`).
+    Auditing inside the helper would credit a bridge write to "system" AND log it twice.
+    An unknown client key is a **404**, never a silent no-op that reads as "added". Bodies are not
+    fetched by `add`/`add_site` — the caller loops `op=fetch` until `remaining` is 0, exactly as the
+    tab does. Covered in `dash/_watcher_localtest.py` (gating, the four ops, the duplicate guard,
+    the 404s, and registry-shape parity with the console path).
   - **Internal read bridge (Sentinel's Mentor Library, 2026-07-28):** three HMAC-gated,
     server-to-server, READ-ONLY routes let Sentinel's Growth hub import a transcript Watcher
     already archived instead of hand-pasting one: `GET /api/internal/watcher/channels?client=<c>`

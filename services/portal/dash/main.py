@@ -1576,13 +1576,14 @@ def internal_task_add():
 # path with one audit trail. Sentinel never learns Atrium's storage: the wire format here is
 # Atrium's own field names, and Sentinel translates on its side (services/atrium_tasks.py).
 
-def _internal_audit(client_key, actor, action, detail=""):
+def _internal_audit(client_key, actor, action, detail="", role="sentinel"):
     """Audit a mutation that arrived over the bridge. There is no session on an internal call, so
-    the actor is the Sentinel user's email carried in the payload (role 'sentinel' makes the origin
-    obvious in the Activity feed). Best-effort, exactly like `_audit`."""
-    who = (actor or "").strip() or "sentinel"
-    audit.log_activity(client_key, who, "sentinel", action, detail)
-    notify.activity_alert(who, "sentinel", client_key, action, detail)
+    the actor is the calling app's user email carried in the payload, and `role` names the app it
+    came from ('sentinel', 'academy') so the origin is obvious in the Activity feed. Best-effort,
+    exactly like `_audit`."""
+    who = (actor or "").strip() or role
+    audit.log_activity(client_key, who, role, action, detail)
+    notify.activity_alert(who, role, client_key, action, detail)
 
 
 def _internal_find_task(client_key, task_id):
@@ -1971,6 +1972,65 @@ def internal_watcher_transcripts():
                     "published": v.get("published", "")})
     return jsonify(ok=True, transcripts=out, next_offset=next_offset,
                    total=len([v for v in videos if v.get("transcript")]))
+
+
+# The ONE WRITE on the Watcher bridge -- everything above it is read-only.
+#
+# WHY: the Academy (mastery-engine) already pulls transcripts out of this archive to build its
+# question bank, but adding the source still meant leaving that app, opening the client's Atrium
+# workspace, and pasting the link there. "Go somewhere else to do it" is a dead end, not an answer
+# -- the same reasoning that made the task bridge two-way. So the Academy can now add a source and
+# fill it, while Atrium stays the SOURCE OF TRUTH: the scraping, the registry shape, the archive
+# objects, the AI industry label and the audit entry are all this app's, reached through the exact
+# `_watcher_op_*` helpers the team console's own form calls.
+#
+# NOT exposed here on purpose: delete, meta/label edits and safe_pull. Removing a watched source
+# and re-classifying it are curation decisions that belong with the team who owns the workspace,
+# and safe_pull queues work onto an operator's laptop.
+_INTERNAL_WATCHER_ADD_OPS = ("add", "add_site", "add_video", "fetch")
+
+
+@app.route("/api/internal/watcher/add", methods=["POST"])
+def internal_watcher_add():
+    """Add a watched source to a client's Watcher (or fetch its bodies). HMAC-gated, no session."""
+    gate = _internal_gate("watcher-add")
+    if gate:
+        return gate
+    payload = request.get_json(silent=True) or {}
+    client_key = (payload.get("client") or "").strip()
+    op = (payload.get("op") or "").strip()
+    if op not in _INTERNAL_WATCHER_ADD_OPS:
+        return Response('{"error":"bad_op"}', status=400, mimetype="application/json")
+    ws = workspace.load_workspace(client_key) if client_key else None
+    if ws is None:
+        # A typo'd or unregistered key must read as "no such workspace", never as a silent no-op
+        # that leaves the caller believing the source was added.
+        return Response('{"error":"no_workspace"}', status=404, mimetype="application/json")
+
+    if op == "fetch":
+        channel_id = (payload.get("channel") or "").strip()
+        channel = workspace.find_watcher_channel(ws, channel_id)
+        if channel is None:
+            return Response('{"error":"not_found"}', status=404, mimetype="application/json")
+        is_blog = (channel.get("platform") or "youtube") == "blog"
+        out = _watcher_op_fetch(client_key, channel_id, is_blog, retry=bool(payload.get("retry")))
+        _internal_audit(client_key, payload.get("actor"), "fetched watcher bodies (from the Academy)",
+                        channel.get("title", ""), role="academy")
+        return jsonify(**out)
+
+    url = (payload.get("url") or "").strip()
+    if not url:
+        return Response('{"error":"missing url"}', status=400, mimetype="application/json")
+    if op == "add":
+        out = _watcher_op_add(client_key, ws, url)
+    elif op == "add_site":
+        out = _watcher_op_add_site(client_key, ws, url)
+    else:
+        out = _watcher_op_add_video(client_key, url)
+    if out.get("ok"):
+        _internal_audit(client_key, payload.get("actor"), "added a watcher source (from the Academy)",
+                        out.get("title") or url, role="academy")
+    return jsonify(**out)
 
 
 @app.route("/w/<client>/task-comment", methods=["POST"])
@@ -3453,13 +3513,13 @@ def _watcher_video_entry(v):
 def _watcher_add_post(client, url):
     """Scrape ONE pasted blog-post URL into the per-client "Saved articles" pseudo-channel.
 
-    The blog twin of the `add_video` branch below, and deliberately identical in shape: same
+    The blog twin of `_watcher_op_add_video` below, and deliberately identical in shape: same
     de-dupe-by-id, same inline fetch, same JSON keys (`transcript`/`words`/`blocked`), so the page's
     single-item card handles a video and an article with the same code."""
     import watcher_blog  # lazy: only the blog ops need it
     page_url = watcher_blog.normalize_site_url(url)
     if not page_url:
-        return jsonify(ok=False, message="That doesn't look like a video or an article link.")
+        return {"ok": False, "message": "That doesn't look like a video or an article link."}
     channel = workspace.ensure_loose_channel(client, platform="blog")
     posts = workspace.read_watcher_videos(client, channel["id"])
     pid = watcher_blog.post_id(page_url)
@@ -3475,13 +3535,154 @@ def _watcher_add_post(client, url):
     blocked = watcher_blog._apply_post(entry, result, workspace.now_iso()) == "blocked"
     workspace.write_watcher_videos(client, channel["id"], posts)
     _watcher_counts(client, channel["id"], posts)
-    _audit(client, "scraped single article", (entry.get("title") or page_url)[:80])
-    return jsonify(ok=True, channel=channel["id"], video_id=entry["id"],
-                   title=entry.get("title", ""), url=entry.get("url", ""),
-                   transcript=entry.get("transcript", ""),
-                   words=len((entry.get("transcript") or "").split()),
-                   language="", error=entry.get("error", ""),
-                   blocked=blocked, already=already)
+    return {"ok": True, "channel": channel["id"], "video_id": entry["id"],
+            "title": entry.get("title", ""), "url": entry.get("url", ""),
+            "transcript": entry.get("transcript", ""),
+            "words": len((entry.get("transcript") or "").split()),
+            "language": "", "error": entry.get("error", ""), "platform": "blog",
+            "blocked": blocked, "already": already}
+
+
+# --- The four SOURCE-ADDING ops, as plain functions -----------------------------------------------
+# Two callers reach these now: the team console's session route below, and the HMAC-gated internal
+# bridge (`/api/internal/watcher/add`) that lets the Academy add a source without a browser session.
+# They take explicit arguments and return plain dicts (never a Response) precisely so neither caller
+# can drift from the other -- the same posture as the task bridge, which routes every foreign edit
+# through the workspace.py writer the console form already calls.
+#
+# They deliberately do NOT audit: `_audit` stamps the SESSION actor, and an internal call has no
+# session, so auditing in here would credit a bridge write to "system" -- and log it twice, once the
+# bridge adds the line naming its own origin. Each caller writes the one entry that describes where
+# the edit came from (the same reason the task bridge trashes via `audit.trash_put`, not `_trash`).
+
+
+def _watcher_op_add(client, ws, url):
+    """`add` -- resolve a pasted YouTube channel link and archive its whole (text-less) listing."""
+    import watcher
+    info = watcher.resolve_channel(url)
+    if not info["ok"]:
+        return {"ok": False, "message": info["error"]}
+    for ch in workspace.watcher_channels(ws):
+        if ch.get("channel_id") == info["channel_id"]:
+            return {"ok": False,
+                    "message": "Already watching %s." % (ch.get("title") or "that channel")}
+    listing = watcher.list_videos(info["channel_id"])
+    if not listing["ok"]:
+        return {"ok": False, "message": listing["error"]}
+    # Auto-label the industry from the channel name + video titles (best-effort; "" if no AI).
+    industry, _label_err = _watcher_autolabel(info["title"],
+                                              [v.get("title", "") for v in listing["videos"]])
+    entry = workspace.add_watcher_channel(client, {
+        "url": info["url"], "title": info["title"], "channel_id": info["channel_id"],
+        "platform": "youtube", "industry": industry, "kind": "creator",
+        "video_count": len(listing["videos"]),
+    })
+    workspace.write_watcher_videos(client, entry["id"],
+                                   [_watcher_video_entry(v) for v in listing["videos"]])
+    return {"ok": True, "channel": entry["id"], "title": info["title"],
+            "platform": "youtube", "videos": len(listing["videos"])}
+
+
+def _watcher_op_add_site(client, ws, url):
+    """`add_site` -- the WEBSITE twin of `add`: archive every post a site's blog lists."""
+    import watcher_blog  # lazy: only the blog ops need it
+    info = watcher_blog.resolve_site(url)
+    if not info["ok"]:
+        return {"ok": False, "message": info["error"]}
+    for ch in workspace.watcher_channels(ws):
+        if ch.get("channel_id") == info["site"]:
+            return {"ok": False,
+                    "message": "Already watching %s." % (ch.get("title") or "that site")}
+    listing = watcher_blog.list_posts(info["site"], start_url=info["url"])
+    if not listing["ok"]:
+        return {"ok": False, "message": listing["error"]}
+    industry, _label_err = _watcher_autolabel(info["title"],
+                                              [p.get("title", "") for p in listing["posts"]])
+    entry = workspace.add_watcher_channel(client, {
+        "url": info["url"] or info["site"], "title": info["title"], "channel_id": info["site"],
+        "platform": "blog", "industry": industry, "kind": "creator",
+        "video_count": len(listing["posts"]),
+    })
+    workspace.write_watcher_videos(client, entry["id"],
+                                   [watcher_blog.post_entry(p) for p in listing["posts"]])
+    return {"ok": True, "channel": entry["id"], "posts": len(listing["posts"]),
+            "videos": len(listing["posts"]), "source": listing["source"],
+            "platform": "blog", "title": info["title"]}
+
+
+def _watcher_op_add_video(client, url):
+    """`add_video` -- ONE box, both sources: a YouTube link goes down the video path, anything else
+    is treated as a blog-post URL (a website link has no 11-char video id to extract)."""
+    import watcher
+    if not watcher.extract_video_id(url):
+        return _watcher_add_post(client, url)
+    info = watcher.resolve_video(url)
+    if not info["ok"]:
+        return {"ok": False, "message": info["error"]}
+    channel = workspace.ensure_loose_channel(client)
+    videos = workspace.read_watcher_videos(client, channel["id"])
+    entry = next((v for v in videos if v.get("id") == info["video_id"]), None)
+    already = entry is not None
+    fallback_title = "Video " + info["video_id"]
+    if entry is None:
+        entry = {"id": info["video_id"], "title": info["title"], "url": info["url"],
+                 "transcript": "", "language": "", "generated": False,
+                 "error": "", "permanent": False, "fetched_at": "",
+                 "published_text": "", "published": ""}
+        videos.insert(0, entry)
+    elif info["title"] != fallback_title and (not entry.get("title")
+                                              or entry["title"] == fallback_title):
+        entry["title"] = info["title"]  # heal a video saved before oEmbed/page scrape got a title
+    # Fetch inline. A rate-limit is a session condition (not a fact about the video): leave the
+    # entry pending so Fetch missing / Safe pull can finish it later, exactly like a channel.
+    result = watcher.fetch_transcript(info["video_id"])
+    blocked = (not result["ok"]) and ("rate-limiting" in result["error"])
+    if not blocked:
+        entry["fetched_at"] = workspace.now_iso()
+        if result["ok"]:
+            entry.update(transcript=result["transcript"], language=result["language"],
+                         generated=result["generated"], error="", permanent=False)
+        else:
+            entry.update(error=result["error"], permanent=bool(result["permanent"]))
+    workspace.write_watcher_videos(client, channel["id"], videos)
+    _watcher_counts(client, channel["id"], videos)
+    return {"ok": True, "channel": channel["id"], "video_id": info["video_id"],
+            "title": entry.get("title", ""), "url": entry.get("url", ""),
+            "transcript": entry.get("transcript", ""),
+            "words": len((entry.get("transcript") or "").split()),
+            "language": entry.get("language", ""), "error": entry.get("error", ""),
+            "platform": "youtube", "blocked": blocked, "already": already}
+
+
+def _watcher_op_fetch(client, channel_id, is_blog, retry=False):
+    """`fetch` -- pull the next batch of MISSING bodies only, so each request stays short.
+
+    The caller loops it until `remaining` hits 0. A YouTube rate-limit reports `blocked` WITHOUT
+    marking any video failed, so the next call resumes over the exact same missing set."""
+    import watcher
+    videos = workspace.read_watcher_videos(client, channel_id)
+    if retry:
+        for v in videos:
+            if v.get("error") and not v.get("permanent"):
+                v["error"] = ""
+    if is_blog:
+        # Websites serve Cloud Run fine (no datacenter-IP block, so no proxy and no Safe pull):
+        # a modest paced concurrency is both quick and polite.
+        import watcher_blog
+        fetched, blocked = watcher_blog.fetch_posts_batch(videos)
+    elif watcher.proxied():
+        # Behind a rotating proxy each concurrent request is a different IP, so fetch the batch
+        # in parallel (fast, ~a couple minutes for a whole channel).
+        fetched, blocked = watcher.fetch_transcripts_batch(
+            videos, limit=watcher.FETCH_BATCH, workers=watcher.FETCH_WORKERS)
+    else:
+        # No proxy: the serial, politely-paced path a datacenter IP needs to avoid an instant
+        # YouTube block.
+        fetched, blocked = watcher.fetch_transcripts_batch(videos)
+    workspace.write_watcher_videos(client, channel_id, videos)
+    pending = _watcher_counts(client, channel_id, videos)
+    return {"ok": True, "fetched": fetched, "blocked": blocked, "remaining": pending,
+            "total": len(videos), "done": len(videos) - pending}
 
 
 @app.route("/w/<client>/admin/watcher", methods=["POST"])
@@ -3522,96 +3723,28 @@ def atrium_admin_watcher(client):
     import watcher  # lazy: only this route (and the GET below) needs it
     op = request.form.get("op", "")
 
+    # The three adding ops are shared verbatim with the internal bridge -- see _watcher_op_* above.
+    # They don't audit (no session on a bridge call), so the entry is written here.
     if op == "add":
-        info = watcher.resolve_channel(request.form.get("url", ""))
-        if not info["ok"]:
-            return jsonify(ok=False, message=info["error"])
-        for ch in workspace.watcher_channels(ws):
-            if ch.get("channel_id") == info["channel_id"]:
-                return jsonify(ok=False, message="Already watching %s." % (ch.get("title") or "that channel"))
-        listing = watcher.list_videos(info["channel_id"])
-        if not listing["ok"]:
-            return jsonify(ok=False, message=listing["error"])
-        # Auto-label the industry from the channel name + video titles (best-effort; "" if no AI).
-        industry, _label_err = _watcher_autolabel(info["title"], [v.get("title", "") for v in listing["videos"]])
-        entry = workspace.add_watcher_channel(client, {
-            "url": info["url"], "title": info["title"], "channel_id": info["channel_id"],
-            "platform": "youtube", "industry": industry, "kind": "creator",
-            "video_count": len(listing["videos"]),
-        })
-        workspace.write_watcher_videos(client, entry["id"],
-                                       [_watcher_video_entry(v) for v in listing["videos"]])
-        _audit(client, "added watcher channel", "%s (%d videos)" % (info["title"], len(listing["videos"])))
-        return jsonify(ok=True, channel=entry["id"])
+        out = _watcher_op_add(client, ws, request.form.get("url", ""))
+        if out.get("ok"):
+            _audit(client, "added watcher channel",
+                   "%s (%d videos)" % (out.get("title", ""), out.get("videos", 0)))
+        return jsonify(**out)
 
     if op == "add_site":
-        # A website's blog: same pipeline as a YouTube channel, different fetcher. The site's origin
-        # is the entry's `channel_id`, so the duplicate check below is the same one-liner.
-        import watcher_blog  # lazy: only the blog ops need it
-        info = watcher_blog.resolve_site(request.form.get("url", ""))
-        if not info["ok"]:
-            return jsonify(ok=False, message=info["error"])
-        for ch in workspace.watcher_channels(ws):
-            if ch.get("channel_id") == info["site"]:
-                return jsonify(ok=False, message="Already watching %s." % (ch.get("title") or "that site"))
-        listing = watcher_blog.list_posts(info["site"], start_url=info["url"])
-        if not listing["ok"]:
-            return jsonify(ok=False, message=listing["error"])
-        industry, _label_err = _watcher_autolabel(info["title"],
-                                                  [p.get("title", "") for p in listing["posts"]])
-        entry = workspace.add_watcher_channel(client, {
-            "url": info["url"] or info["site"], "title": info["title"], "channel_id": info["site"],
-            "platform": "blog", "industry": industry, "kind": "creator",
-            "video_count": len(listing["posts"]),
-        })
-        workspace.write_watcher_videos(client, entry["id"],
-                                       [watcher_blog.post_entry(p) for p in listing["posts"]])
-        _audit(client, "added watcher website", "%s (%d posts)" % (info["title"], len(listing["posts"])))
-        return jsonify(ok=True, channel=entry["id"], posts=len(listing["posts"]),
-                       source=listing["source"], title=info["title"])
+        out = _watcher_op_add_site(client, ws, request.form.get("url", ""))
+        if out.get("ok"):
+            _audit(client, "added watcher website",
+                   "%s (%d posts)" % (out.get("title", ""), out.get("posts", 0)))
+        return jsonify(**out)
 
     if op == "add_video":
-        # ONE box, both sources: a YouTube link goes down the video path, anything else is treated
-        # as a blog post URL (a website link has no 11-char video id to extract).
-        raw_url = request.form.get("url", "")
-        if not watcher.extract_video_id(raw_url):
-            return _watcher_add_post(client, raw_url)
-        info = watcher.resolve_video(raw_url)
-        if not info["ok"]:
-            return jsonify(ok=False, message=info["error"])
-        channel = workspace.ensure_loose_channel(client)
-        videos = workspace.read_watcher_videos(client, channel["id"])
-        entry = next((v for v in videos if v.get("id") == info["video_id"]), None)
-        already = entry is not None
-        fallback_title = "Video " + info["video_id"]
-        if entry is None:
-            entry = {"id": info["video_id"], "title": info["title"], "url": info["url"],
-                     "transcript": "", "language": "", "generated": False,
-                     "error": "", "permanent": False, "fetched_at": "",
-                     "published_text": "", "published": ""}
-            videos.insert(0, entry)
-        elif info["title"] != fallback_title and (not entry.get("title") or entry["title"] == fallback_title):
-            entry["title"] = info["title"]  # heal a video saved before oEmbed/page scrape got a title
-        # Fetch inline. A rate-limit is a session condition (not a fact about the video): leave the
-        # entry pending so Fetch missing / Safe pull can finish it later, exactly like a channel.
-        result = watcher.fetch_transcript(info["video_id"])
-        blocked = (not result["ok"]) and ("rate-limiting" in result["error"])
-        if not blocked:
-            entry["fetched_at"] = workspace.now_iso()
-            if result["ok"]:
-                entry.update(transcript=result["transcript"], language=result["language"],
-                             generated=result["generated"], error="", permanent=False)
-            else:
-                entry.update(error=result["error"], permanent=bool(result["permanent"]))
-        workspace.write_watcher_videos(client, channel["id"], videos)
-        _watcher_counts(client, channel["id"], videos)
-        _audit(client, "scraped single video", info["title"][:80])
-        return jsonify(ok=True, channel=channel["id"], video_id=info["video_id"],
-                       title=entry.get("title", ""), url=entry.get("url", ""),
-                       transcript=entry.get("transcript", ""),
-                       words=len((entry.get("transcript") or "").split()),
-                       language=entry.get("language", ""), error=entry.get("error", ""),
-                       blocked=blocked, already=already)
+        out = _watcher_op_add_video(client, request.form.get("url", ""))
+        if out.get("ok"):
+            kind = "article" if out.get("platform") == "blog" else "video"
+            _audit(client, "scraped single %s" % kind, (out.get("title") or "")[:80])
+        return jsonify(**out)
 
     channel_id = request.form.get("channel_id", "").strip()
     channel = workspace.find_watcher_channel(ws, channel_id)
@@ -3620,31 +3753,10 @@ def atrium_admin_watcher(client):
     is_blog = (channel.get("platform") or "youtube") == "blog"
 
     if op == "fetch":
-        videos = workspace.read_watcher_videos(client, channel_id)
-        if _bool_field("retry"):
-            for v in videos:
-                if v.get("error") and not v.get("permanent"):
-                    v["error"] = ""
-        if is_blog:
-            # Websites serve Cloud Run fine (no datacenter-IP block, so no proxy and no Safe pull):
-            # a modest paced concurrency is both quick and polite.
-            import watcher_blog
-            fetched, blocked = watcher_blog.fetch_posts_batch(videos)
-        elif watcher.proxied():
-            # Behind a rotating proxy each concurrent request is a different IP, so fetch the batch
-            # in parallel (fast, ~a couple minutes for a whole channel).
-            fetched, blocked = watcher.fetch_transcripts_batch(
-                videos, limit=watcher.FETCH_BATCH, workers=watcher.FETCH_WORKERS)
-        else:
-            # No proxy: the serial, politely-paced path a datacenter IP needs to avoid an instant
-            # YouTube block.
-            fetched, blocked = watcher.fetch_transcripts_batch(videos)
-        workspace.write_watcher_videos(client, channel_id, videos)
-        pending = _watcher_counts(client, channel_id, videos)
-        if fetched:
-            _audit(client, "fetched watcher transcripts", "%d videos" % fetched)
-        return jsonify(ok=True, fetched=fetched, blocked=blocked, remaining=pending,
-                       total=len(videos), done=len(videos) - pending)
+        out = _watcher_op_fetch(client, channel_id, is_blog, retry=_bool_field("retry"))
+        if out.get("fetched"):
+            _audit(client, "fetched watcher transcripts", "%d videos" % out["fetched"])
+        return jsonify(**out)
 
     if op == "safe_pull":
         if is_blog:

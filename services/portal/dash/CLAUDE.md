@@ -159,6 +159,21 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   once a channel clears the queue. ⚠️ `scrape_channel` **skips `platform=="blog"` channels** — their
   archives hold page URLs, not video ids, and the app fetches them itself. Test:
   `python _watcher_localtest.py`.
+  🔴 **The four adding ops are FUNCTIONS, not route branches** (2026-08-03): `_watcher_op_add`,
+  `_watcher_op_add_site`, `_watcher_op_add_video` (which delegates to `_watcher_add_post`) and
+  `_watcher_op_fetch` take explicit args and return plain dicts; the session route above and the
+  HMAC bridge below are both thin callers. Keep them that way — the whole point is that a source
+  added by the Academy is byte-identical to one the team pasted in. They do **not** call `_audit`
+  (it stamps the SESSION actor, which a bridge call doesn't have): each caller writes its own entry.
+  **The Academy WRITES to this archive** — `POST /api/internal/watcher/add` (purpose `watcher-add`,
+  `_internal_gate`, fail-CLOSED, no session), JSON `{client, op, url|channel, retry, actor}` with
+  `op` restricted to `add|add_site|add_video|fetch`. mastery-engine's Academy Admin uses it so
+  "pull a transcript in" no longer requires opening Atrium to add the source first (see
+  `mastery-engine/lib/watcher.js` `addSource`/`fetchBodies` — the caller). Deliberately NOT exposed:
+  delete / meta / label / safe_pull. An unknown client is a 404, never a silent no-op; `add` and
+  `add_site` register the listing only, and the caller loops `op=fetch` for the bodies just like
+  the tab's own JS. `_internal_audit` gained an optional `role` (default `sentinel`) so these land
+  in the Activity feed as **academy**, credited to the admin's email from `actor`.
   **Sentinel reads this archive over the internal bridge** (`GET /api/internal/watcher/{channels,
   videos,transcript}` in `main.py`, HMAC-gated by `_internal_gate` exactly like the task bridge):
   Sentinel's Growth hub → Mentor Library imports a transcript instead of making a worker paste one.

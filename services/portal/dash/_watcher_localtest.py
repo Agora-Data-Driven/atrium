@@ -937,6 +937,89 @@ def run():
     _check("a squeezed budget pages instead of truncating (same items, never an empty page)",
            [t["id"] for t in walked] == [t["id"] for t in bulk["transcripts"]] and hops > 1)
     main._INTERNAL_TRANSCRIPTS_BUDGET = real_budget
+
+    # --- The bridge's ONE write: the Academy adds a source without a browser session --------------
+    # Same HMAC gate as the reads, and it runs the EXACT `_watcher_op_*` helpers the team console's
+    # own form runs -- that shared path is the point, so a source added from the Academy is
+    # indistinguishable from one the team pasted into Atrium.
+    def _signed_post(purpose, path, payload):
+        ts = str(int(_time.time()))
+        sig = _hmac.new(main.SSO_SECRET.encode(), ("%s:%s" % (purpose, ts)).encode(),
+                        _hashlib.sha256).hexdigest()
+        return c.post(path, json=payload,
+                      headers={"X-Academy-Ts": ts, "X-Academy-Sig": sig})
+
+    _check("unsigned internal watcher ADD is refused",
+           c.post("/api/internal/watcher/add",
+                  json={"client": CLIENT, "op": "add", "url": "x"}).status_code == 401)
+    _check("a wrong signature on the write is refused",
+           c.post("/api/internal/watcher/add", json={"client": CLIENT, "op": "add", "url": "x"},
+                  headers={"X-Academy-Ts": str(int(_time.time())),
+                           "X-Academy-Sig": "0" * 64}).status_code == 401)
+    _check("an op the bridge does not expose (delete) is a 400, never a silent success",
+           _signed_post("watcher-add", "/api/internal/watcher/add",
+                        {"client": CLIENT, "op": "delete", "channel": chan}).status_code == 400)
+    _check("an unknown client is 404 (never a no-op that reads as 'added')",
+           _signed_post("watcher-add", "/api/internal/watcher/add",
+                        {"client": "nobody", "op": "add", "url": "@x"}).status_code == 404)
+    _check("op=add with no url is a 400",
+           _signed_post("watcher-add", "/api/internal/watcher/add",
+                        {"client": CLIENT, "op": "add"}).status_code == 400)
+
+    # Add a SECOND channel over the bridge and prove it lands in the same registry + archive.
+    _BRIDGE_CID = "UC" + "b" * 22
+    watcher.resolve_channel = lambda url, fetcher=None: {
+        "ok": True, "channel_id": _BRIDGE_CID, "title": "Academy Adds This",
+        "url": "https://www.youtube.com/channel/" + _BRIDGE_CID, "error": ""}
+    watcher.list_videos = lambda cid, poster=None: {"ok": True, "error": "", "videos": [
+        {"id": "vid00000009", "title": "Prompt engineering"}]}
+    added = _signed_post("watcher-add", "/api/internal/watcher/add",
+                         {"client": CLIENT, "op": "add", "url": "@academyadds",
+                          "actor": "info@agoradatadriven.com"}).get_json()
+    _check("op=add over the bridge reports the new channel + its listing size",
+           added["ok"] is True and added["channel"] and added["videos"] == 1
+           and added["title"] == "Academy Adds This")
+    bridged = workspace.find_watcher_channel(workspace.load_workspace(CLIENT), added["channel"])
+    _check("the bridged source is an ORDINARY registry entry (same shape the console writes)",
+           bridged is not None and bridged["channel_id"] == _BRIDGE_CID
+           and bridged["platform"] == "youtube" and bridged["kind"] == "creator")
+    _check("bodies are NOT fetched by the add (the caller loops op=fetch, same as the tab)",
+           workspace.read_watcher_videos(CLIENT, added["channel"])[0]["transcript"] == "")
+    _check("the duplicate guard applies to the bridge too",
+           _signed_post("watcher-add", "/api/internal/watcher/add",
+                        {"client": CLIENT, "op": "add", "url": "@academyadds"}).get_json()["ok"]
+           is False)
+
+    filled = _signed_post("watcher-add", "/api/internal/watcher/add",
+                          {"client": CLIENT, "op": "fetch", "channel": added["channel"]}).get_json()
+    _check("op=fetch over the bridge fills the bodies and reports the loop's progress",
+           filled["ok"] is True and filled["fetched"] == 1 and filled["remaining"] == 0
+           and filled["total"] == 1 and filled["blocked"] is False)
+    _check("the fetched transcript is in the archive object the Academy then reads",
+           workspace.read_watcher_videos(CLIENT, added["channel"])[0]["transcript"]
+           == "transcript for vid00000009")
+    _check("op=fetch on a channel this workspace doesn't hold is a 404",
+           _signed_post("watcher-add", "/api/internal/watcher/add",
+                        {"client": CLIENT, "op": "fetch", "channel": "wch_nope"}).status_code == 404)
+
+    # A single pasted link: the loose "Saved videos" channel, transcript fetched inline.
+    _saved_resolve_video = watcher.resolve_video
+    watcher.resolve_video = lambda url: {
+        "ok": True, "video_id": "brdg0000001", "title": "One pasted talk",
+        "url": "https://www.youtube.com/watch?v=brdg0000001", "author": "", "error": ""}
+    one = _signed_post("watcher-add", "/api/internal/watcher/add",
+                       {"client": CLIENT, "op": "add_video",
+                        "url": "https://youtu.be/brdg0000001"}).get_json()
+    _check("op=add_video over the bridge saves the video AND returns its text immediately",
+           one["ok"] is True and one["video_id"] == "brdg0000001"
+           and one["transcript"] == "transcript for brdg0000001" and one["blocked"] is False)
+    _check("it landed in the per-client loose pseudo-channel, like the tab's own single-add",
+           workspace.find_watcher_channel(workspace.load_workspace(CLIENT),
+                                          one["channel"]).get("loose") is True)
+    watcher.resolve_video = _saved_resolve_video
+    for _c in (added["channel"], one["channel"]):
+        workspace.delete_watcher_channel(CLIENT, _c)   # leave the registry as we found it
+
     main.SSO_SECRET = real_secret
 
     # --- Team-only gating: a client must never see or touch Watcher ------------------------------
