@@ -139,11 +139,14 @@ def main():
     # --- sentinel_directory: graceful gating (no network, no crash) -----------------------------
     import sentinel_directory as sd
 
+    sd._RETRY_PAUSE_SECONDS = 0          # keep the retry path instant in tests
+
     os.environ.pop("SSO_SECRET", None)
     os.environ["SENTINEL_URL"] = "https://sentinel.agoradatadriven.com/login"
     check("no SSO_SECRET -> lookup returns None (disabled, never crashes login)",
           sd.lookup_user("anyone@agora.ph") is None)
-    check("no SSO_SECRET -> is_active_user False", sd.is_active_user("anyone@agora.ph") is False)
+    check("no SSO_SECRET -> status unknown, never a denial",
+          sd.user_status("anyone@agora.ph") == "unknown")
 
     os.environ["SSO_SECRET"] = "test-shared-secret"
     os.environ.pop("SENTINEL_URL", None)
@@ -177,7 +180,7 @@ def main():
     _orig_get = sd.requests.get
     sd.requests.get = fake_get
     try:
-        check("active Sentinel user -> is_active_user True", sd.is_active_user("Staff@Agora.ph") is True)
+        check("active Sentinel user -> status active", sd.user_status("Staff@Agora.ph") == "active")
         check("lookup lowercases the email in the query",
               captured.get("params", {}).get("email") == "staff@agora.ph")
         check("lookup signs with the shared-secret HMAC headers",
@@ -186,7 +189,19 @@ def main():
         check("lookup targets the internal endpoint on the API base",
               captured.get("url") == "https://sentinel.example.com/api/internal/user-lookup")
 
-        # A non-200 (e.g. bad signature) degrades to "no answer", never an exception.
+        # A 200 saying the email is not a user IS a definitive denial -- the ONLY thing that may
+        # route a Google login to the request-access page.
+        class _RespMissing:
+            status_code = 200
+
+            def json(self):
+                return {"found": False, "active": False, "name": "", "role": ""}
+
+        sd.requests.get = lambda *a, **k: _RespMissing()
+        check("unknown email -> status denied", sd.user_status("nobody@agora.ph") == "denied")
+
+        # A non-200 (e.g. bad signature) is NO ANSWER, never a denial: we couldn't ask, so we must
+        # not conclude the person has no access.
         class _Resp401:
             status_code = 401
 
@@ -194,7 +209,7 @@ def main():
                 return {}
 
         sd.requests.get = lambda *a, **k: _Resp401()
-        check("non-200 -> is_active_user False (graceful)", sd.is_active_user("staff@agora.ph") is False)
+        check("non-200 -> status unknown (never a denial)", sd.user_status("staff@agora.ph") == "unknown")
 
         # A network error degrades to None, never breaking login.
         def boom_get(*a, **k):
@@ -202,6 +217,40 @@ def main():
 
         sd.requests.get = boom_get
         check("network error -> lookup None (login never breaks)", sd.lookup_user("staff@agora.ph") is None)
+
+        # 🔴 THE COLD-START FIX: Sentinel scales from zero and reconnects to Cloud SQL, so the first
+        # call routinely times out while a retry seconds later succeeds. Without this the staff-only
+        # login flapped to the request-access page and "just worked" on the second try.
+        calls = {"n": 0}
+
+        def cold_then_warm(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise sd.requests.RequestException("cold start timeout")
+            return _Resp()
+
+        sd.requests.get = cold_then_warm
+        check("a cold-start failure is retried -> status active",
+              sd.user_status("staff@agora.ph") == "active")
+        check("the retry was a second call, not a loop", calls["n"] == 2)
+
+        # A 5xx is retryable for the same reason; a definitive 4xx is not (one call only).
+        calls["n"] = 0
+
+        class _Resp503:
+            status_code = 503
+
+            def json(self):
+                return {}
+
+        sd.requests.get = lambda *a, **k: (calls.update(n=calls["n"] + 1), _Resp503())[1]
+        sd.user_status("staff@agora.ph")
+        check("a 5xx is retried once", calls["n"] == 2)
+
+        calls["n"] = 0
+        sd.requests.get = lambda *a, **k: (calls.update(n=calls["n"] + 1), _Resp401())[1]
+        sd.user_status("staff@agora.ph")
+        check("a definitive 4xx is NOT retried", calls["n"] == 1)
     finally:
         sd.requests.get = _orig_get
 

@@ -950,7 +950,9 @@ auto-refresh (see those bullets below). Product name is one constant:
   account, the callback defers to Sentinel (`sentinel_directory.py` → Sentinel's HMAC-gated
   `/api/internal/user-lookup`) and signs in any **active Sentinel user** with no client-dashboard keys
   — so adding someone in Sentinel (People → Add Employee) enables their Google login with no portal
-  record to maintain, and deactivating them there blocks it. An email authorized nowhere files a
+  record to maintain, and deactivating them there blocks it. That lookup is **tri-state** —
+  active/denied/**unknown** — because a Sentinel cold start is not a denial (see the Debugging entry
+  on "Request access" flapping). An email authorized nowhere files a
   **passwordless pending request** (`/auth/request-access`) an admin approves in the console's
   Access-requests tab via `POST /admin/accounts/grant-google` (assign to a new/existing client OR a role). `/admin/atrium` IS the admin landing (`/` redirects here; the legacy
   `/admin` + `/superadmin` pages now just redirect here too). THE super admin (`info@…` / role
@@ -1210,6 +1212,19 @@ These are the recurring ones. Each cost real hours; check here before reading co
   `deploy_RHE.ps1`) hardcode `CLIENT_KEY=$CLIENT` — the **stack** key — so running one silently
   reverts that client's SSO to the broken state (on top of rotating its `SESSION_SECRET`). Re-run
   `tools/enable_platform_sso.ps1 -Keys <stack>` after any such standup.
+- **🔴 Google sign-in shows "Request access" — then the SAME person gets in on the next try.**
+  Not OAuth, not cookies, not caching: the **staff directory lookup timed out**. Portal accounts
+  resolve locally, but a staff-only login defers to Sentinel's `/api/internal/user-lookup`, and
+  Sentinel is Cloud Run over Cloud SQL — a scale-from-zero cold start regularly outran the 3s
+  timeout. The lookup was a BOOLEAN, so "couldn't ask" and "this email is nobody" collapsed into the
+  same `False` and the callback filed the person at the request-access dead end. Fixed 2026-08-03 in
+  two places: `sentinel_directory.lookup_user` **retries a transport failure / 5xx once** at 12s
+  (never a definitive 4xx/200), and the answer is now the TRI-STATE `user_status`
+  active/denied/**unknown** → `_resolve_login_email` returns keys / `None` / **`AUTH_UNKNOWN`**.
+  Only `denied` may route to request-access; `AUTH_UNKNOWN` returns the login page with a retry
+  message and 503. **Any new caller of `_resolve_login_email` must handle `AUTH_UNKNOWN`** — treating
+  it as falsy re-creates the bug. Regression tests: `_google_oauth_localtest.py` (retry + the 4xx/5xx
+  split) and `_auth_smoketest.py` (the outage never reaches request-access).
 - **Mail (dwd) returns nothing.** Domain-wide delegation needs a **Workspace-admin grant** that is
   separate from any IAM you can set from here. Unset/ungranted degrades to empty, by design.
 - **`/go` reported success but a repo didn't ship.** `/go` **exits 0 on partial failure** — read the
