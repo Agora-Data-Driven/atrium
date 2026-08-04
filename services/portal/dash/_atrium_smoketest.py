@@ -968,12 +968,17 @@ def run():
            'method="post"' in pg2 and ('action="/w/%s/task-add"' % CLIENT) in pg2
            and 'name="title"' in pg2)
     # The 2026-07-29 stage trim: For Review + Waiting for Client are gone (both just meant
-    # "blocked on someone") and Blocked sits right after In Progress.
-    _check("Tasks board renders exactly the 5 stage columns, Blocked right after In Progress",
-           all(name in pg2 for name in ("To Do", "In Progress", "Blocked",
+    # "blocked on someone") and the blocked column sits right after In Progress.
+    # 🔴 `pg2` is the CLIENT render, so that column reads "Paused" -- Sentinel WP 1.2 relabelled the
+    # stage and TASK_CLIENT_STAGES deliberately picks a gentler word than the team's "Parked". The
+    # KEY is still `blocked` on both sides; only these display strings moved.
+    _check("Tasks board renders exactly the 5 stage columns, Paused right after In Progress",
+           all(name in pg2 for name in ("To Do", "In Progress", "Paused",
                                         "Revision Needed", "Completed"))
            and "For Review" not in pg2 and "Waiting for Client" not in pg2
-           and pg2.index("In Progress") < pg2.index("Blocked") < pg2.index("Revision Needed"))
+           and pg2.index("In Progress") < pg2.index("Paused") < pg2.index("Revision Needed"))
+    _check("the client is never shown the word 'Blocked' about their own work",
+           "Blocked" not in pg2)
     # 🔴 FLIPPED 2026-08-04 (D3 / WP 3.3): the per-column "+ Add card" is TEAM-ONLY now. A client
     # files a REQUEST, and a request has no column, so offering them the choice was offering a
     # control that could not do anything. `pg2` is a CLIENT render.
@@ -1235,12 +1240,15 @@ def run():
            moved["stage"] == "revision" and moved["status"] == "Revision Needed"
            and any(h["field"] == "stage" for h in moved["history"]))
     # A Sentinel that still speaks the retired keys (its board keeps For Review / Waiting for
-    # Client columns) must not error or invent a column: the write lands on Blocked.
+    # Client columns) must not error or invent a column: the write lands on the blocked stage.
+    # `status` is that stage's TEAM label -- "Parked" since WP 1.2 -- which is exactly why the
+    # assertion that matters is on the KEY. This is the team-facing detail shape, not the client's.
     aliased = _bridge("task-update", "/api/internal/task-update",
                       {"client_key": CLIENT, "task_id": btid, "actor": "leo@agora.ph",
                        "fields": {"stage": "for_review"}}).get_json()["task"]
-    _check("a retired stage key from the bridge lands on Blocked",
-           aliased["stage"] == "blocked" and aliased["status"] == "Blocked")
+    _check("a retired stage key from the bridge lands on the blocked stage",
+           aliased["stage"] == "blocked"
+           and aliased["status"] == dict(main.TASK_STAGE_META)["blocked"])
 
     cm = _bridge("task-comment", "/api/internal/task-comment",
                  {"client_key": CLIENT, "task_id": btid, "body": "Posted from Sentinel",

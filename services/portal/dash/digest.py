@@ -316,7 +316,10 @@ def tasks_snapshot(ws):
         "%d %s" % (len(v), k) for k, v in sorted(by_stage.items()))]
     blocked = by_stage.get("blocked") or []
     if blocked:
-        lines.append("Blocked right now: %s." % "; ".join(
+        # "Parked", not "Blocked": this text is what the Assistant quotes back to the team, and the
+        # team's board calls that column Parked since 2026-08-04 (Sentinel WP 1.2). The grouping
+        # above is by stage KEY, which is what actually has to be right; this is the wording.
+        lines.append("Parked right now: %s." % "; ".join(
             "%s (%s)" % (t.get("title") or "?", t.get("hold_reason") or
                          (t.get("client_note") or "no reason recorded")[:120])
             for t in blocked[:8]))
