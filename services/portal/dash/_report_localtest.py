@@ -215,6 +215,20 @@ def run():
     _check("week-over-week comparisons use the last COMPLETE week only",
            "complete week" in rich["pressure"]["subtitle"])
 
+    # --- The reporting window: month-to-date / last-full-week ------------------------------------
+    _check("report_window resolves both modes off the DATA's last day (2026-07-27, a Monday)",
+           report_ai.report_window(_dash_rich(), "mtd") == ("2026-07-01", "2026-07-27")
+           and report_ai.report_window(_dash_rich(), "last_week") == ("2026-07-20", "2026-07-26")
+           and report_ai.report_window(_dash_rich(), "") is None)
+    wf = report_ai.build_facts(_dash_rich(), window=("2026-07-20", "2026-07-26"))
+    _check("a windowed pack answers for the WINDOW, not the flight ($280 = 7 days x $40)",
+           "$280" in wf["totals"]["summary"]
+           and wf["totals"]["title"] == "The window in numbers")
+    _check("the windowed compare is THIS window against the equal days before it",
+           "recent_vs_prior" in wf
+           and "7 days" in wf["recent_vs_prior"]["before"]["subtitle"]
+           and "7 days" in wf["recent_vs_prior"]["after"]["subtitle"])
+
     # --- The TEMPLATE dashboard shape: every client except the Windsor-live ones -----------------
     tdaily = []
     day = datetime.date(2026, 5, 1)
@@ -247,22 +261,20 @@ def run():
     tdraft, _terr = report_ai.generate("Acme Co", "2026-07-29",
                                        report_ai.gather({}, [], {"kpis": {"revenue": 98000},
                                                                  "daily": tdaily}), None)
-    # The contract changed with the spine: a slot shows at most two slides, so "every fact appears"
-    # is no longer the invariant. What MUST hold is that no computed fact is homeless -- a fact the
-    # spine never names could never reach any deck, for any client.
+    # What MUST hold is that no computed fact is homeless -- a fact the spine never names could
+    # never reach any deck, for any client.
     import report_spec
     homeless = {k for k in tf if not report_spec.claims(k)}
     _check("every computed fact is claimed by a spine slot (none can be orphaned)",
            not homeless)
-    eyebrows = [sl["eyebrow"] for sl in tdraft["slides"] if sl["eyebrow"]]
     order = [sl["eyebrow"] for sl in report_spec.slots(("sales",))]
-    seen = [e for e in eyebrows if e in order]
-    _check("the no-AI deck follows the spine ORDER",
-           seen == sorted(seen, key=lambda e: order.index(e)))
-    _check("blockers moved to Delivery, so there is no closing asks slide",
+    _check("the no-AI deck IS the strict standard: cover + one slide per slot, in spine order",
+           len(tdraft["slides"]) == report_spec.DECK_SLIDES
+           and tdraft["slides"][0]["kind"] == "cover"
+           and [sl["eyebrow"] for sl in tdraft["slides"][1:]] == order
+           and [sl["slot"] for sl in tdraft["slides"][1:]] == list(report_spec.SLOT_KEYS))
+    _check("there is no closing asks slide (asks live on the Tasks board)",
            not any((sl["title"] or "").lower().startswith("what we need") for sl in tdraft["slides"]))
-    _check("a template-shape client gets a real deck, not four slides",
-           len(tdraft["slides"]) >= 8)
 
     inputs = report_ai.gather(ws, _archives(), _dash_rd())
     _check("gather assembles every source block, facts included",
@@ -272,19 +284,28 @@ def run():
            any("Fuel Your Wander" in v and "scenery" in v for v in inputs["voices"]))
     _check("the material handed to the model leads with the fact pack",
            "FACT PACK" in report_ai._material_text("Riverdance", "2026-07-29", inputs))
+    winputs = report_ai.gather({}, [], _dash_rich(), window_mode="mtd")
+    _check("gather stamps the chosen window on the period label",
+           winputs["period"].startswith("Month to date") and winputs["window_mode"] == "mtd")
 
     draft = report_ai.draft_payload(inputs, client_name="Riverdance", when="2026-07-29")
     draft_blocks = []
     for _sl in draft["slides"]:
         for _b in _sl["blocks"]:
             draft_blocks.extend((_b["left"] + _b["right"]) if _b["type"] == "split" else [_b])
-    _check("the no-AI deck is a REAL deck: cover + fact-backed visuals, walking the spine",
+    _check("the no-AI deck is a REAL deck: cover + fact-backed visuals, one slide per slot",
            draft["slides"][0]["kind"] == "cover"
+           and len(draft["slides"]) == report_spec.DECK_SLIDES
            and any(b["type"] in ("chart", "table", "kpis", "bullets") and b.get("fact")
                    for b in draft_blocks))
+    _check("the no-AI deck draws the funnel beside its computed notes",
+           any(b["type"] == "funnel" and b.get("fact") == "funnel" for b in draft_blocks))
     _check("the no-AI deck invents no analysis (no actions, no recommendations)",
            not any(b["type"] == "action" for b in draft_blocks))
 
+    # A model deck that drifts EVERY way at once: a mislabeled eyebrow on a slot-tagged slide, a
+    # slot recoverable only from its verbatim eyebrow, an off-spine section, missing slots, and
+    # bad blocks. enforce_spine must pin all of it back to the strict eight.
     model_payload = json.dumps({
         "meta": {"headline": "We doubled daily revenue", "period": "1 - 8 Jul 2026",
                  "sources": "Meta Ads via Windsor.ai"},
@@ -292,7 +313,8 @@ def run():
             {"kind": "cover", "title": "We doubled daily revenue in two weeks.",
              "subtitle": "The destination change did it.",
              "blocks": [{"type": "chips", "items": [{"label": "Window", "value": "Jul 2026"}]}]},
-            {"kind": "content", "eyebrow": "The result", "title": "ROAS reached 7.71x",
+            {"kind": "content", "slot": "what_happened", "eyebrow": "The result",
+             "title": "ROAS reached 7.71x",
              "tone": "good", "source": "Meta Ads via Windsor.ai",
              "blocks": [{"type": "text", "body": "Every dollar returned $7.71."},
                         {"type": "kpis", "fact": "totals"},
@@ -300,18 +322,34 @@ def run():
                         {"type": "chart", "fact": "invented_key"},
                         {"type": "table", "fact": "weekly_roas"},
                         {"type": "wormhole", "body": "nope"}]},
-            {"kind": "section", "eyebrow": "Part two", "title": "Where the next gains are."},
-            {"kind": "content", "title": "We overpay for the youngest band",
-             "blocks": [{"type": "table", "fact": "age"},
-                        {"type": "action", "body": "exclude 18-24, live this week"}]},
-            {"kind": "closing", "title": "What we need from you",
-             "blocks": [{"type": "bullets", "items": ["Approve the August plan"]}]},
+            {"kind": "content", "eyebrow": "Why it happened",
+             "title": "The 45+ bands carry the account",
+             "blocks": [{"type": "table", "fact": "age"}]},
+            {"kind": "content", "slot": "next_steps", "eyebrow": "What we'll do",
+             "title": "Three moves this week",
+             "blocks": [{"type": "action", "body": "exclude 18-24, live this week"}]},
+            {"kind": "section", "eyebrow": "Bonus thoughts", "title": "Off the spine."},
         ]})
     payload, err = report_ai.generate("Riverdance", "2026-07-29", inputs,
                                       lambda s, u: (model_payload, ""))
-    _check("generate parses the model deck", err == "" and len(payload["slides"]) == 5
-           and payload["slides"][0]["kind"] == "cover")
-    result_blocks = payload["slides"][1]["blocks"]
+    order = [sl["eyebrow"] for sl in report_spec.slots(("sales",))]
+    _check("generate pins the model deck to the strict eight, in spine order",
+           err == "" and len(payload["slides"]) == report_spec.DECK_SLIDES
+           and payload["slides"][0]["kind"] == "cover"
+           and payload["slides"][0]["title"] == "We doubled daily revenue in two weeks."
+           and [sl["eyebrow"] for sl in payload["slides"][1:]] == order)
+    by_slot = {sl["slot"]: sl for sl in payload["slides"][1:]}
+    _check("a slot-tagged slide keeps its argument but gets the CANONICAL eyebrow",
+           by_slot["what_happened"]["title"] == "ROAS reached 7.71x"
+           and by_slot["what_happened"]["eyebrow"] == "What happened")
+    _check("a slide with only the verbatim eyebrow still lands on its slot",
+           by_slot["why_happened"]["title"] == "The 45+ bands carry the account")
+    _check("an off-spine slide is dropped and a missing slot is backfilled from the draft",
+           not any("Bonus" in (sl["title"] or "") + (sl["eyebrow"] or "")
+                   for sl in payload["slides"])
+           and by_slot["tasks"]["eyebrow"] == "Tasks"
+           and by_slot["funnel"]["eyebrow"] == "The funnel")
+    result_blocks = by_slot["what_happened"]["blocks"]
     _check("a block referencing an UNKNOWN fact key is dropped, not rendered empty",
            not any(b.get("fact") == "invented_key" for b in result_blocks))
     _check("a fact used by the WRONG block type is dropped (a series is not a table)",
@@ -321,12 +359,13 @@ def run():
 
     # `split` is what lets one slide carry a figure AND its reading -- the density fix.
     dense, derr = report_ai.generate("Riverdance", "2026-07-29", inputs, lambda s, u: (json.dumps({
-        "slides": [{"kind": "content", "title": "Two things at once", "blocks": [
+        "slides": [{"kind": "content", "slot": "why_happened", "title": "Two things at once",
+                    "blocks": [
             {"type": "split",
              "left": [{"type": "table", "fact": "age"}, {"type": "split", "left": [], "right": []}],
              "right": [{"type": "panel", "title": "What it means", "body": "The 45+ bands deliver."},
                        {"type": "chart", "fact": "nope"}]}]}]}), ""))
-    split = dense["slides"][0]["blocks"][0]
+    split = next(sl for sl in dense["slides"] if sl["slot"] == "why_happened")["blocks"][0]
     _check("a split keeps a block per side and refuses to nest another split",
            derr == "" and split["type"] == "split" and len(split["left"]) == 1
            and len(split["right"]) == 1 and split["right"][0]["type"] == "panel")
@@ -347,54 +386,76 @@ def run():
                                       lambda s, u: ('{"slides": []}', ""))
     _check("a model deck with no usable slides degrades too", "slides" in err4)
 
-    revised, rerr = report_ai.revise(payload, "add a bullet",
-                                     lambda s, u: (model_payload.replace(
-                                         "Approve the August plan",
-                                         "Approve the August plan\", \"Send the Q4 dates"), ""))
-    _check("revise applies the instruction",
-           rerr == "" and "Send the Q4 dates" in revised["slides"][-1]["blocks"][0]["items"])
+    # Edit-with-AI: revise is deliberately NOT re-pinned to the spine (an instruction may add a
+    # slide), and a slide-scoped edit pins the instruction to that one slide.
+    def _edit_caller(store):
+        def caller(system, user):
+            store["user"] = user
+            return (json.dumps({"slides": [
+                {"kind": "content", "slot": "", "title": "Project X",
+                 "blocks": [{"type": "bullets", "items": ["Send the Q4 dates"]}]}]}), "")
+        return caller
+
+    seen = {}
+    revised, rerr = report_ai.revise(payload, "add a slide about project X", _edit_caller(seen))
+    _check("revise applies the instruction and an ADDED slide survives (no spine re-pin)",
+           rerr == "" and revised["slides"][0]["title"] == "Project X"
+           and "Send the Q4 dates" in revised["slides"][0]["blocks"][0]["items"])
     _check("revise never loses the fact pack",
            revised["facts"]["totals"]["summary"] == facts["totals"]["summary"])
+    scoped = {}
+    report_ai.revise(payload, "tighten the title", _edit_caller(scoped), slide_no=2)
+    _check("a slide-scoped revise pins the instruction to that slide",
+           "ONLY to slide 2" in scoped["user"])
+    _same, rerr_range = report_ai.revise(payload, "x", _edit_caller({}), slide_no=99)
+    _check("an out-of-range slide number refuses cleanly", "no slide" in rerr_range)
     same, rerr2 = report_ai.revise(payload, "x", lambda s, u: ("", "model down"))
     _check("a failing revise returns the ORIGINAL payload + the reason",
            rerr2 == "model down" and same == payload)
 
-    # --- The spine: Delivery, funnel, decomposition, targets -------------------------------------
+    # --- The spine: Tasks, funnel, decomposition, targets ----------------------------------------
     import report_spec
-    _check("the spine is nine slots and Delivery opens it",
-           [sl["key"] for sl in report_spec.slots(("sales",))][:2] == ["delivery", "landscape"]
-           and len(report_spec.SPINE) == 9)
-    _check("only the quality slot is worded per objective",
+    _check("the spine is seven slots and the deck is a strict eight, Tasks first",
+           [sl["key"] for sl in report_spec.slots(("sales",))]
+           == ["tasks", "research", "funnel", "what_happened", "why_happened",
+               "next_steps", "opportunities"]
+           and report_spec.DECK_SLIDES == 8)
+    _check("eyebrows are identical for every objective (only the FACTS change vocabulary)",
            [sl["eyebrow"] for sl in report_spec.slots(("sales",))]
-           != [sl["eyebrow"] for sl in report_spec.slots(("leadgen",))]
-           and sum(1 for a, b in zip(report_spec.slots(("sales",)),
-                                     report_spec.slots(("leadgen",)))
-                   if a["eyebrow"] != b["eyebrow"]) == 1)
+           == [sl["eyebrow"] for sl in report_spec.slots(("leadgen",))])
+    _check("slot_of maps both the key and the verbatim eyebrow",
+           report_spec.slot_of("tasks")["key"] == "tasks"
+           and report_spec.slot_of("What we'll do")["key"] == "next_steps"
+           and report_spec.slot_of("nonsense") is None)
     _check("the objective is inferred from the data when nothing is declared",
            report_ai.infer_objective(_dash_rd(), None) == "sales"
            and report_ai.infer_objective({"kpis": {"leads": 4}}, None) == "leadgen"
            and report_ai.infer_objective(_dash_rd(), {"primary": "leadgen"}) == "leadgen")
 
-    tv = [{"key": "in_progress", "tasks": [{"title": "Ad set build", "due_date": "2026-08-08",
-                                           "pct": 40, "subs_total": 5}]},
-          {"key": "todo", "tasks": [{"title": "Email sequence"}]},
-          {"key": "completed", "tasks": [{"title": "LP switch", "completed_at": "2026-07-24"},
-                                         {"title": "Old thing", "completed_at": "2026-06-02"}]},
-          {"key": "blocked", "tasks": [{"title": "Geo expansion", "on_hold": True,
-                                        "hold_reason": "INTERNAL waiting on Ian"}]}]
-    dfacts = {f["key"]: f for f in report_ai.delivery_facts(tv, awaiting=["Approve 3 pieces"],
-                                                            since="2026-07-20") if f}
-    _check("Delivery splits live / next / shipped / waiting",
-           {"delivery_live", "delivery_next", "delivery_shipped", "delivery_waiting"} <= set(dfacts))
-    _check("shipped work is windowed on the previous report date (nothing reported twice)",
-           "LP switch" in dfacts["delivery_shipped"]["summary"]
-           and "Old thing" not in dfacts["delivery_shipped"]["summary"])
-    # 🔴 The deck is CLIENT-VISIBLE. hold_reason is internal by design and must never cross.
-    _check("a paused task reaches the client as 'paused', never with the internal reason",
-           "paused" in dfacts["delivery_waiting"]["summary"]
-           and "INTERNAL" not in json.dumps(dfacts))
-    _check("the client's own asks lead the waiting list",
-           dfacts["delivery_waiting"]["items"][0] == "Approve 3 pieces")
+    # The Tasks slide: the client-safe board VERBATIM, under the Tasks tab's own column names.
+    tv = [{"key": "todo", "name": "To do", "tasks": [{"title": "Email sequence"}]},
+          {"key": "in_progress", "name": "In progress",
+           "tasks": [{"title": "Ad set build", "due_date": "2026-08-08"}]},
+          {"key": "blocked", "name": "Paused",
+           "tasks": [{"title": "Geo expansion", "on_hold": True,
+                      "hold_reason": "INTERNAL waiting on Ian"}]},
+          {"key": "revision", "name": "Revision", "tasks": []},
+          {"key": "completed", "name": "Completed",
+           "tasks": [{"title": "LP switch", "completed_at": "2026-07-24"}]}]
+    tfacts = {f["key"]: f for f in report_ai.tasks_facts(tv) if f}
+    _check("the Tasks slide carries a count per column and the board verbatim",
+           {"tasks_counts", "tasks_board"} <= set(tfacts)
+           and any(i["label"] == "Paused" and i["value"] == "1"
+                   for i in tfacts["tasks_counts"]["items"])
+           and any(r["task"] == "Ad set build" and r["status"] == "In progress"
+                   for r in tfacts["tasks_board"]["rows"]))
+    # 🔴 The deck is CLIENT-VISIBLE. hold_reason is internal by design and must never cross, and
+    # the column labels are the tab's own (a held card reads "Paused", never "Blocked").
+    _check("the board wears the tab's own labels and an internal reason never crosses",
+           "INTERNAL" not in json.dumps(tfacts)
+           and any(r["status"] == "Paused" for r in tfacts["tasks_board"]["rows"]))
+    _check("completed work is dated on the board",
+           any("shipped" in r["when"] for r in tfacts["tasks_board"]["rows"]))
 
     _check("no target on file -> no vs_target fact (never an unagreed judgement)",
            "vs_target" not in report_ai.build_facts(_dash_rich(), None))
@@ -406,8 +467,11 @@ def run():
     _check("the decomposition names WHICH factor moved",
            "moved on" in with_target["decomposition"]["title"])
     funnel = with_target.get("funnel")
-    _check("the funnel is ordered steps with a rate from the step above",
-           funnel and funnel["rows"][0]["rate"] == "-" and len(funnel["rows"]) >= 3)
+    _check("the funnel is a DRAWN fact: ordered steps with a rate from the step above",
+           funnel and funnel["kind"] == "funnel"
+           and funnel["rows"][0]["rate"] == "-" and len(funnel["rows"]) >= 3)
+    _check("the funnel notes name the constraint (computed, never invented)",
+           "constraint" in " ".join(with_target["funnel_notes"]["items"]))
 
     # --- Brand kit: the client's crest + a palette parsed from their own brand guide -------------
     kit = report_ai.brand_kit(ws)
@@ -426,12 +490,15 @@ def run():
 
     html_doc = report_ai.render_html("Riverdance", payload, "2026-07-29",
                                      title="July <script>alert(1)</script> Review", brand=kit)
-    _check("the deck renders one slide per payload slide, numbered",
-           html_doc.count("<section class=\"slide") == 5 and "01 / 05" in html_doc
-           and "05 / 05" in html_doc)
+    _check("the deck renders the strict eight, numbered",
+           html_doc.count("<section class=\"slide") == 8 and "01 / 08" in html_doc
+           and "08 / 08" in html_doc)
     _check("the model's claims and the computed numbers both reach the deck",
            "We doubled daily revenue in two weeks." in html_doc and "7.71x" in html_doc
-           and "Where the next gains are." in html_doc and "We'll action" in html_doc)
+           and "We'll action" in html_doc)
+    _check("the funnel draws as a graph (bars + step rates), not a table",
+           'class="funnel"' in html_doc and 'class="fstep"' in html_doc
+           and 'class="frate"' in html_doc)
     _check("the deck wears the client's crest and palette",
            "#21582B" in html_doc and "--crest:url(" in html_doc)
     # 🔴 The marks are declared ONCE as CSS custom properties. Inlining the markup into every
@@ -523,10 +590,20 @@ def run():
            and workspace.find_report(workspace.load_workspace(CLIENT),
                                      rid)["title"] == "Renamed deck")
 
+    r = c.post("/w/%s/admin/report" % CLIENT,
+               data={"op": "revise", "id": rid, "instruction": "add a slide about project X"})
+    _check("op=revise without an AI model refuses honestly and changes nothing",
+           r.get_json()["ok"] is False and "no AI model" in r.get_json()["message"])
+    r = c.post("/w/%s/admin/report" % CLIENT, data={"op": "revise", "id": rid})
+    _check("op=revise without an instruction asks for one",
+           r.get_json()["ok"] is False and "Describe" in r.get_json()["message"])
+
     body = c.get("/w/%s/reports" % CLIENT).get_data(as_text=True)
     _check("the Reports tab renders the deck card + team controls for the team",
            'data-pane="reports"' in body and "Renamed deck" in body
-           and "data-repgen>" in body and 'data-repdel="' in body)
+           and "data-repgen>" in body and 'data-repdel="' in body
+           and "data-repperiod" in body and 'data-repedit="' in body
+           and "data-repai" in body)
 
     # A deleted deck object re-renders lazily from the stored payload (the restore path).
     workspace._delete_object(workspace.report_object_name(CLIENT, rid))
@@ -540,9 +617,12 @@ def run():
     # The generate/delete BUTTONS must never reach a client's HTML (the JS selector literals do
     # ship to every viewer, like the other admin wiring -- the markup is what matters).
     body = c.get("/w/%s/reports" % CLIENT).get_data(as_text=True)
+    # (The JS selector literal `[data-repslides="` ships to every viewer like the rest of the
+    # admin wiring -- the MARKUP form `hidden data-repslides=` is what must never leak.)
     _check("the client sees the cards but NO team controls",
            "Renamed deck" in body and "data-repgen>" not in body
-           and 'data-repdel="' not in body)
+           and 'data-repdel="' not in body and 'data-repedit="' not in body
+           and "hidden data-repslides=" not in body)
     _check("the client can open the deck",
            c.get("/w/%s/report/%s" % (CLIENT, rid)).status_code == 200)
     _check("client POST to /admin/report is forbidden",

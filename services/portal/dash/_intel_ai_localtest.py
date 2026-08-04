@@ -268,6 +268,50 @@ def run():
     _check("hand-written entry still there after 2nd run",
            any(e.get("title") == "Hand-written note" for e in mb2))
 
+    # 6c. SAVED SEARCHES: a daily card joins the sweep with its OWN keywords and its stories land
+    #     in business_research tagged with the card's id; a manual card never joins the sweep;
+    #     refresh_search runs one card on demand and records the outcome ON the card.
+    workspace.save_workspace(CLIENT + "s", {"display_name": "Search Co", "intel": {},
+                                            "intel_ai": {"model": "gemini-2.5-flash"}})
+    daily = workspace.add_intel_search(CLIENT + "s", {"name": "Coaching demand",
+                                                      "keywords": "coaching demand", "schedule": "daily"})
+    manual = workspace.add_intel_search(CLIENT + "s", {"name": "Side angle",
+                                                       "keywords": "side quests", "schedule": "manual"})
+    cs = intel_refresh.refresh_client(CLIENT + "s", ai_fetcher=_grounded_fetcher, token_fetcher=_token)
+    _check("daily saved search researched in the sweep", cs["searches"] > 0 and cs["ai"] is True)
+    wss = workspace.load_workspace(CLIENT + "s")
+    tagged = [e for e in wss["intel"]["business_research"] if e.get("search") == daily["id"]]
+    _check("its stories land in business_research tagged with the card id", len(tagged) > 0)
+    cards = {c["id"]: c for c in workspace.get_intel_searches(wss)}
+    _check("daily card records its run", cards[daily["id"]]["last_run"] != "")
+    _check("manual card did NOT run in the sweep", cards[manual["id"]]["last_run"] == "")
+    # Run the manual card on demand (fresh client so nothing de-dupes away).
+    workspace.save_workspace(CLIENT + "s2", {"display_name": "Search2 Co", "intel": {},
+                                             "intel_ai": {"model": "gemini-2.5-flash"}})
+    card = workspace.add_intel_search(CLIENT + "s2", {"name": "On demand",
+                                                      "keywords": "one-off angle", "schedule": "manual"})
+    out = intel_refresh.refresh_search(CLIENT + "s2", card["id"],
+                                       ai_fetcher=_grounded_fetcher, token_fetcher=_token)
+    _check("refresh_search adds stories", out["error"] == "" and out["added"] > 0)
+    ws2s = workspace.load_workspace(CLIENT + "s2")
+    _check("refresh_search stories tagged",
+           any(e.get("search") == card["id"] for e in ws2s["intel"]["business_research"]))
+    _check("refresh_search never touches the panel's global status",
+           (ws2s.get("intel_ai") or {}).get("last_run", "") == "")
+    _check("unknown card -> friendly error",
+           "no longer exists" in intel_refresh.refresh_search(
+               CLIENT + "s2", "isearch_nope", ai_fetcher=_grounded_fetcher,
+               token_fetcher=_token)["error"])
+    # A model gate failure is recorded on the CARD, not the panel.
+    workspace.save_workspace(CLIENT + "s3", {"display_name": "Search3 Co", "intel": {},
+                                             "intel_ai": {"model": "deepseek-v4-pro"}})
+    c3 = workspace.add_intel_search(CLIENT + "s3", {"name": "x", "keywords": "y"})
+    out3 = intel_refresh.refresh_search(CLIENT + "s3", c3["id"],
+                                        ai_fetcher=_grounded_fetcher, token_fetcher=_token)
+    _check("non-grounding model refused for a card", "web research" in out3["error"].lower())
+    _check("card refusal recorded on the card", "web research" in
+           workspace.get_intel_searches(workspace.load_workspace(CLIENT + "s3"))[0]["last_error"].lower())
+
     # 7. NO grounding on a non-Gemini model -> nothing added, clear reason (no fallback).
     workspace.save_workspace(CLIENT + "d", {"display_name": "DeepSeek Co", "intel": {},
                                             "intel_topics": ["x"],
@@ -290,7 +334,8 @@ def run():
     # 8. No model selected -> refresh does nothing, records a helpful reason.
     workspace.save_workspace(CLIENT + "n", {"display_name": "NoModel Co", "intel": {}})
     cn = intel_refresh.refresh_client(CLIENT + "n", ai_fetcher=_grounded_fetcher, token_fetcher=_token)
-    _check("no model -> zeros + ai False", cn == {"media_buying": 0, "business_research": 0, "ai": False})
+    _check("no model -> zeros + ai False",
+           cn == {"media_buying": 0, "business_research": 0, "searches": 0, "ai": False})
     _check("no model -> reason recorded",
            "model" in workspace.load_workspace(CLIENT + "n")["intel_ai"]["last_error"].lower())
 

@@ -1201,6 +1201,33 @@
     @media (max-width: 620px) { .ax-co-grid2 { grid-template-columns: 1fr; } }
     .ax-co-bodybox { font-family: inherit; line-height: 1.6; }
     .ax-co-add { display: block; margin-top: 12px; }
+    /* Company tab -- Published content (the client's own archived blog) + the team-only
+       content-gap panel. New `ax-coc-` namespace: greppable, and no bare-class collision with the
+       older .ax-co- rules above (same-name rules in this one stylesheet override property by
+       property -- see the .ax-confirm/.ax-decided incident). */
+    .ax-coc-tools { display: inline-flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+    .ax-coc-msg { font-size: 12.5px; color: var(--ax-sub); margin: 6px 0 0; }
+    .ax-coc-msg:empty { display: none; }
+    .ax-coc-list { margin-top: 14px; max-height: 420px; overflow-y: auto; border: 1px solid var(--ax-line);
+      border-radius: 12px; }
+    .ax-coc-post { display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+      padding: 9px 14px; text-decoration: none; border-bottom: 1px solid var(--ax-line); }
+    .ax-coc-post:last-child { border-bottom: 0; }
+    .ax-coc-post:hover { background: #F4F5F7; }
+    .ax-coc-title { font-size: 13.5px; line-height: 1.45; color: var(--ax-ink); flex: 1 1 auto; }
+    .ax-coc-post:hover .ax-coc-title { color: var(--ax-violet-d); }
+    .ax-coc-date { font-size: 11.5px; color: var(--ax-sub); flex: 0 0 auto; white-space: nowrap; }
+    .ax-coc-teampill { font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--ax-sub); border: 1px solid var(--ax-line); border-radius: var(--ax-pill);
+      padding: 3px 9px; margin-left: 8px; vertical-align: 2px; }
+    .ax-coc-gaps .ax-co-blockhead { flex-wrap: wrap; }
+    .ax-coc-stamp { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; color: var(--ax-sub);
+      margin: 12px 0 0; }
+    .ax-coc-sum { font-size: 14px; line-height: 1.6; color: #2b2f38; margin: 10px 0 0; }
+    .ax-coc-gap { border-top: 1px solid var(--ax-line); margin-top: 14px; padding-top: 12px; }
+    .ax-coc-gap h4 { font-size: 14px; font-weight: 800; color: var(--ax-ink); margin: 0 0 6px; }
+    .ax-coc-gap p { font-size: 13px; line-height: 1.55; color: #2b2f38; margin: 0 0 5px; }
+    .ax-coc-src { font-size: 12px; color: var(--ax-sub); }
     /* Market Intelligence: two side-by-side, labelled sections of briefing cards (team-written, client-read). */
     .ax-intel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
     @media (max-width: 860px) { .ax-intel-grid { grid-template-columns: 1fr; } }
@@ -1290,6 +1317,46 @@
     .ax-intel-bulkactions { display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; }
     .ax-intel-bulktoggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 700; color: var(--ax-violet-d); cursor: pointer; user-select: none; }
     .ax-intel-selectall { margin: 0 0 12px; }
+    /* The AI Research Brain panel is a <details>: collapsed it is one summary row (title + status
+       pill + a one-line brief), so the tab leads with the briefing itself, not the machinery. */
+    .ax-intel-ai > summary { list-style: none; cursor: pointer; user-select: none; }
+    .ax-intel-ai > summary::-webkit-details-marker { display: none; }
+    .ax-intel-ai-headright { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+    .ax-intel-ai-brief { font-size: 12px; color: var(--ax-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ax-intel-ai[open] .ax-intel-ai-brief { display: none; }
+    .ax-intel-ai-headright::after { content: "\25B8"; color: var(--ax-sub); font-size: 12px; }
+    .ax-intel-ai[open] .ax-intel-ai-headright::after { content: "\25BE"; }
+    /* Saved searches: reusable research queries kept as cards, three across (team-only). */
+    .ax-intel-ss-wrap { margin-bottom: 24px; }
+    .ax-intel-ss-head h2 { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 800; margin: 0; }
+    .ax-intel-ss-head h2 .ax-ic { width: 18px; height: 18px; padding: 7px; border-radius: 10px; box-sizing: content-box; color: var(--ax-green-d); background: rgba(79,171,74,.12); }
+    .ax-intel-ss-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 12px; align-items: start; }
+    @media (max-width: 980px) { .ax-intel-ss-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 620px) { .ax-intel-ss-grid { grid-template-columns: 1fr; } }
+    .ax-intel-ss { padding: 14px 16px; }
+    .ax-intel-ss-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .ax-intel-ss-name { font-size: 14px; font-weight: 800; color: var(--ax-ink); }
+    .ax-intel-ss-sched { font-size: 10px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; padding: 3px 9px; border-radius: var(--ax-pill); color: var(--ax-sub); background: var(--ax-canvas); border: 1px solid var(--ax-line); white-space: nowrap; flex: 0 0 auto; }
+    .ax-intel-ss-sched.is-daily { color: var(--ax-green-d); background: rgba(79,171,74,.12); border-color: transparent; }
+    .ax-intel-ss-kw { font-size: 12.5px; color: var(--ax-sub); margin: 6px 0 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .ax-intel-ss-focus { font-size: 12px; color: #33383f; margin: 8px 0 0; padding: 6px 9px; background: var(--ax-violet-bg); border-radius: 6px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .ax-intel-ss-meta { font-size: 11.5px; color: var(--ax-sub); margin-top: 10px; }
+    .ax-intel-ss-err { color: #c0392b; font-weight: 700; }
+    .ax-intel-ss-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 11px; }
+    .ax-intel-ss-form { margin-top: 10px; }
+    .ax-intel-ss-daily { display: flex; align-items: center; gap: 7px; font-size: 12.5px; margin: 4px 0 8px; cursor: pointer; }
+    .ax-intel-ss-new { border-style: dashed; background: var(--ax-canvas); box-shadow: none; }
+    .ax-intel-ss-newbtn { border: 0; background: none; color: var(--ax-violet-d); font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; padding: 18px 6px; width: 100%; }
+    /* Filter chips: All / the two sections / one per saved search (visible to everyone). */
+    .ax-intel-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+    .ax-intel-filterlab { font-size: 11px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; color: var(--ax-sub); margin-right: 2px; }
+    .ax-intel-chip { border: 1px solid var(--ax-line); background: #fff; color: var(--ax-ink); font: inherit; font-size: 12.5px; font-weight: 700; border-radius: var(--ax-pill); padding: 6px 14px; cursor: pointer; }
+    .ax-intel-chip:hover { background: var(--ax-canvas); }
+    .ax-intel-chip.is-active { color: #fff; background: var(--ax-violet-d, #5C4BD0); border-color: transparent; }
+    .ax-intel-chip.is-active:hover { background: var(--ax-violet-d, #5C4BD0); }
+    .ax-intel-chip-n { font-weight: 800; opacity: .75; margin-left: 3px; }
+    .ax-intel-grid.is-single { grid-template-columns: 1fr; }
+    .ax-intel-item.is-filteredout { display: none; }
     .ax-thumb-upload { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 2; display: flex; gap: 6px; justify-content: center; }
     .ax-thumb-upload .ax-btn { background: rgba(0,0,0,.45); color: #fff; border-color: rgba(255,255,255,.4); }
     .ax-thumb-upload .ax-btn:hover { background: rgba(0,0,0,.62); }
@@ -1840,14 +1907,34 @@
       box-shadow: var(--ax-shadow); cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit;
       transition: transform .18s ease, box-shadow .18s, border-color .18s; }
     .ax-pg-card:hover { transform: translateY(-3px); box-shadow: var(--ax-shadow-lg); border-color: #d4d6df; }
-    {#- The card wrapper survives the team-write removal below (it is what the card sits in), but it
-       no longer carries `draggable` and no longer holds a ✕.
-       🔴 THIS BOARD IS READ-ONLY FOR EVERYONE NOW (2026-08-03, decision D2). The team's
-       drag-to-move + hover-✕ (added 2026-07-28) are GONE, along with their CSS and their wiring
-       IIFE: an Atrium task card is a PROJECTION of a Sentinel row, so editing it here would put two
-       writers on one record. Every edit happens in Sentinel and arrives over the internal bridge.
-       See sentinel/docs/TASKBOARD_REBUILD.md §4. -#}
+    {#- TEAM-ONLY card controls — drag-to-move + the hover ✕ (RESTORED 2026-08-04; D2 amended, see
+       the route comment in main.py). None of this is rendered for a client, so the client board
+       stays exactly as read-only as it was. The card itself is a <button>, so the ✕ can't be
+       nested inside it (invalid HTML): both sit in a positioned wrapper, and the WRAPPER is what
+       carries `draggable` (a div drags reliably in every browser). -#}
     .ax-pg-cardwrap { position: relative; }
+    .ax-pg-cardwrap[draggable="true"] { cursor: grab; }
+    .ax-pg-cardwrap.is-dragging { opacity: .45; }
+    .ax-pg-del { position: absolute; top: 8px; right: 8px; z-index: 2; width: 24px; height: 24px; padding: 0;
+      display: flex; align-items: center; justify-content: center; border: 0; border-radius: 7px;
+      background: transparent; color: var(--ax-sub); font: inherit; font-size: 13px; line-height: 1;
+      cursor: pointer; opacity: 0; transition: opacity .12s ease, background .12s, color .12s; }
+    .ax-pg-cardwrap:hover .ax-pg-del, .ax-pg-del:focus { opacity: 1; }
+    .ax-pg-del:hover { background: var(--ax-bad); color: #fff; }
+    @media (hover: none) { .ax-pg-del { opacity: .55; } }
+    {#- An empty column still has to be a drop target, so give the team's lists a floor. Keyed off
+       [data-pgcol], which is rendered for the TEAM only -- deliberately NOT `[data-admin="1"]`:
+       the stylesheet ships to every viewer, so that selector would put the literal string
+       data-admin="1" into a client's HTML and trip the no-leak assertion in _atrium_smoketest. -#}
+    .ax-pg-collist[data-pgcol] { min-height: 58px; }
+    .ax-pg-collist.is-over { outline: 2px dashed var(--ax-violet); outline-offset: 4px; border-radius: var(--ax-radius); }
+    {#- The modal's team-only ✎ Edit: a ghost button beside the ✕, and a collapsed edit form that
+       reuses the add-form field styling (.ax-pg-addform's open/closed classes). -#}
+    .ax-pg-medit { border: 1px solid var(--ax-line); border-radius: 8px; background: transparent;
+      color: var(--ax-sub); font: inherit; font-size: 13px; padding: 4px 10px; cursor: pointer;
+      transition: border-color .12s, color .12s; }
+    .ax-pg-medit:hover { border-color: var(--ax-violet); color: var(--ax-violet); }
+    .ax-pg-editform { margin: 0 0 14px; }
     .ax-pg-chip { display: inline-flex; align-items: center; font-size: 10px; font-weight: 800; border-radius: var(--ax-pill);
       padding: 2px 9px; letter-spacing: .03em; text-transform: uppercase; background: var(--ax-violet-bg); color: var(--ax-violet-d); }
     /* Discipline tint on the campaign chip, the SAME color language as the admin board
@@ -1975,6 +2062,31 @@
     .ax-rep-empty { background: var(--ax-white); border: 1px dashed var(--ax-line);
       border-radius: var(--ax-radius); padding: 44px 24px; text-align: center; color: var(--ax-sub);
       box-shadow: var(--ax-shadow); }
+    .ax-rep-edit { position: absolute; top: 8px; right: 36px; border: 0; border-radius: 7px;
+      background: transparent; color: var(--ax-sub); font-size: 11px; font-weight: 800;
+      padding: 4px 7px; line-height: 1.3; cursor: pointer; opacity: 0; transition: opacity .12s ease; }
+    .ax-rep-card:hover .ax-rep-edit { opacity: 1; }
+    .ax-rep-edit:hover { background: var(--ax-violet-bg); color: var(--ax-violet-d); }
+    /* Edit-with-AI dialog (NotebookLM-style: one instruction, scoped to the deck or ONE slide).
+       Full-screen overlay like .ax-confirm but its OWN class name on purpose -- .ax-confirm means
+       the branded confirm dialog and nothing else (see the hijack note on that rule). */
+    .ax-repai { position: fixed; inset: 0; z-index: 200; background: rgba(10,12,20,.55);
+      display: grid; place-items: center; padding: 24px; }
+    .ax-repai[hidden] { display: none; }
+    .ax-repai-card { background: var(--ax-white); border-radius: var(--ax-radius);
+      box-shadow: var(--ax-shadow-lg); padding: 24px 24px 20px; width: 100%; max-width: 520px; }
+    .ax-repai-card h3 { margin: 0 0 4px; font-size: 17px; font-weight: 800; color: var(--ax-ink); }
+    .ax-repai-sub { margin: 0 0 14px; font-size: 12.5px; line-height: 1.5; color: var(--ax-sub); }
+    .ax-repai-card label { display: block; font-size: 12px; font-weight: 700; color: var(--ax-sub);
+      margin: 0 0 10px; }
+    .ax-repai-card select, .ax-repai-card textarea { display: block; width: 100%; margin-top: 5px;
+      font: inherit; font-size: 13.5px; padding: 9px 11px; border: 1px solid var(--ax-line);
+      border-radius: 10px; outline: none; box-sizing: border-box; background: var(--ax-white);
+      color: var(--ax-ink); }
+    .ax-repai-card textarea { resize: vertical; min-height: 84px; }
+    .ax-repai-card textarea:focus, .ax-repai-card select:focus { border-color: var(--ax-violet); }
+    .ax-repai-msg { font-size: 12.5px; color: var(--ax-sub); margin: 8px 0 0; min-height: 16px; }
+    .ax-repai-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 
     /* ---- Assistant action proposals: the approval card (nothing runs until Approve) ---- */
     .ax-as-actions { margin-top: 10px; border: 1px solid var(--ax-line); border-radius: 12px;
@@ -2026,18 +2138,16 @@
       </div>
 
       {#- ================= SIDEBAR NAV =================
-         Regrouped 2026-07-29. Eleven surfaces would be an unreadable flat list, so the nav is
-         organised by the QUESTION each answers rather than by which feature shipped when:
-           Working Together -- how is it going?          (Dashboard / Communications / Tasks)
-           Company          -- who are we working for?   (flat: the client's own profile)
+         Regrouped 2026-07-29, and again 2026-08-04 (Reports + Company moved into Working
+         Together). Eleven surfaces would be an unreadable flat list, so the nav is organised by
+         the QUESTION each answers rather than by which feature shipped when:
+           Working Together -- who are we working for, and how is it going?
+                               (Dashboard / Communications / Tasks / Reports / Company)
            Campaigns        -- what is going out?        (Paid Media / Organic / Content Calendar)
-           Insights         -- what have we learned?     (Market Intelligence / Reports + team tools)
-         FOUR top-level rows, down from eleven flat surfaces. Three moves got it there: the Content
-         Calendar joined Campaigns (it IS the campaign content plotted by date -- a dated content
-         piece literally mirrors into it), Reports joined Insights (a deck is the synthesis of
-         everything that group holds), and Dashboard + Communications + Tasks became **Working
-         Together** -- the live state of the engagement (the results we are getting, the work in
-         flight, and the conversation) as opposed to the static who-you-are and the content pipeline.
+           Insights         -- what have we learned?     (Market Intelligence + team tools)
+         THREE top-level rows (all groups, no flat links). Working Together is the whole
+         engagement in one place: the live results, the work in flight, the conversation, the
+         decks we presented, and the client's own profile the rest is grounded in.
          🔴 Working Together is FIRST and holds `dashboard`, which is the LANDING tab (a bare
          /w/<c>/ resolves to it) -- so the landing stays at the top of the rail where it has always
          been, and its group auto-opens on arrival. Moving this group down the list would bury the
@@ -2046,9 +2156,9 @@
          when one of their children is the active tab. The collapsed icon rail and the phone strip
          flatten the groups away entirely (see the .nav-collapsed / mobile CSS). -#}
       <nav class="ax-nav" id="ax-nav">
-        {#- Working Together: the live state of the engagement. Holds the LANDING tab, so it is
-           first and it opens on arrival. -#}
-        {% set work_open = view.active_tab in ('dashboard','conversations','progress') %}
+        {#- Working Together: the engagement itself. Holds the LANDING tab, so it is first and it
+           opens on arrival. -#}
+        {% set work_open = view.active_tab in ('dashboard','conversations','progress','reports','company') %}
         <div class="ax-nav-group {{ 'is-open' if work_open else '' }}">
           <button class="ax-nav-ghead" type="button" title="Working Together" aria-expanded="{{ 'true' if work_open else 'false' }}">
             {{ ic('users') }}<span>Working Together</span>
@@ -2056,17 +2166,13 @@
           </button>
           <div class="ax-nav-sub">
             {#- Tasks keeps the canonical tab key `progress` -- label only, never rename the key. -#}
-            {% for key, label in [('dashboard','Dashboard'),('conversations','Communications'),('progress','Tasks')] %}
+            {% for key, label in [('dashboard','Dashboard'),('conversations','Communications'),('progress','Tasks'),('reports','Reports'),('company','Company')] %}
             <a href="{{ '/w/' ~ view.client ~ '/' ~ key }}" data-tab="{{ key }}" title="{{ label }}" class="{{ 'is-active' if view.active_tab == key else '' }}">
               {{ ic(key) }}<span>{{ label }}</span>
             </a>
             {% endfor %}
           </div>
         </div>
-
-        <a href="{{ '/w/' ~ view.client ~ '/company' }}" data-tab="company" title="Company" class="{{ 'is-active' if view.active_tab == 'company' else '' }}">
-          {{ ic('company') }}<span>Company</span>
-        </a>
 
         {#- Campaigns: the work going out the door -- the two campaign streams plus the calendar
            that plots them. The head badge is the COMBINED awaiting count (so nothing is missed
@@ -2093,11 +2199,11 @@
           </div>
         </div>
 
-        {#- Insights: what we have learned and what we have presented. Market Intelligence and
-           Reports are client-visible; Website Health + Watcher stay TEAM-ONLY (admins +
-           super-admins, hidden from clients entirely) -- the nav, the panes, AND the routes all
-           gate on is_superadmin. -#}
-        {% set tools_open = view.active_tab in ('intel', 'reports', 'website-health', 'watcher') %}
+        {#- Insights: what we have learned. Market Intelligence is client-visible; Website Health +
+           Watcher stay TEAM-ONLY (admins + super-admins, hidden from clients entirely) -- the nav,
+           the panes, AND the routes all gate on is_superadmin. (Reports moved to Working Together
+           2026-08-04 -- a deck is part of how the engagement is going, not a research tool.) -#}
+        {% set tools_open = view.active_tab in ('intel', 'website-health', 'watcher') %}
         <div class="ax-nav-group {{ 'is-open' if tools_open else '' }}">
           <button class="ax-nav-ghead" type="button" title="Insights" aria-expanded="{{ 'true' if tools_open else 'false' }}">
             {{ ic('insights') }}<span>Insights</span>
@@ -2106,9 +2212,6 @@
           <div class="ax-nav-sub">
             <a href="{{ '/w/' ~ view.client ~ '/intel' }}" data-tab="intel" title="Market Intelligence" class="{{ 'is-active' if view.active_tab == 'intel' else '' }}">
               {{ ic('intel') }}<span>Market Intelligence</span>
-            </a>
-            <a href="{{ '/w/' ~ view.client ~ '/reports' }}" data-tab="reports" title="Reports" class="{{ 'is-active' if view.active_tab == 'reports' else '' }}">
-              {{ ic('reports') }}<span>Reports</span>
             </a>
             {% if is_superadmin %}
             <a href="{{ '/w/' ~ view.client ~ '/website-health' }}" data-tab="website-health" title="Website Health" class="{{ 'is-active' if view.active_tab == 'website-health' else '' }}">
@@ -2657,6 +2760,84 @@
             </div>
             {% endif %}
           </div>
+
+          <!-- 5. Published content: everything the company has PUBLISHED (their own blog),
+               archived by the same machinery as Watcher (the entry just carries own=true). The
+               listing is client-visible like the rest of this tab; the archive/fetch controls and
+               the content-gap analysis are inside the is_superadmin guards below, because the
+               analysis names competitor sources from the team's watchlist. -->
+          {% if company_content or is_superadmin %}
+          <div class="ax-co-sec">
+            <div class="ax-co-sechead">
+              <h2>{{ ic('organic') }} Published content</h2>
+              <p class="ax-co-lede">Everything the company has published, archived in one place &mdash; what has been covered, and when.</p>
+            </div>
+
+            {% for src in company_content %}
+            <div class="ax-card ax-co-block" data-cocsrc="{{ src.id }}">
+              <div class="ax-co-blockhead">
+                <h3>{{ src.title }}</h3>
+                <span class="ax-co-pill">{{ src.total }} post{{ '' if src.total == 1 else 's' }}</span>
+                {% if is_superadmin %}
+                <span class="ax-coc-tools">
+                  {% if src.pending > 0 %}<button class="ax-btn admin small" type="button" data-cocfetch="{{ src.id }}">Fetch missing ({{ src.pending }})</button>{% endif %}
+                  <button class="ax-btn admin small" type="button" data-cocrefresh="{{ src.id }}">Check for new posts</button>
+                  <button class="ax-btn danger small" type="button" data-cocdelete="{{ src.id }}" data-cocname="{{ src.title }}">Remove</button>
+                </span>
+                {% endif %}
+              </div>
+              {% if src.url %}<a class="ax-co-prodlink" href="{{ src.url if '://' in src.url else 'https://' ~ src.url }}" target="_blank" rel="noopener noreferrer">{{ src.url }} {{ ic('arrow') }}</a>{% endif %}
+              {% if is_superadmin %}<div class="ax-coc-msg" data-cocmsg="{{ src.id }}"></div>{% endif %}
+              {% if src.posts %}
+              <div class="ax-coc-list">
+                {% for p in src.posts %}
+                <a class="ax-coc-post" href="{{ p.url }}" target="_blank" rel="noopener noreferrer">
+                  <span class="ax-coc-title">{{ p.title }}</span>
+                  <span class="ax-coc-date">{{ p.published[:10] or p.published_text }}</span>
+                </a>
+                {% endfor %}
+              </div>
+              {% else %}
+              <div class="ax-empty">Nothing archived from this source yet.</div>
+              {% endif %}
+            </div>
+            {% else %}
+            {% if not is_superadmin %}<div class="ax-empty">No published content archived yet.</div>{% endif %}
+            {% endfor %}
+
+            {% if is_superadmin %}
+            <div class="ax-admin-tools ax-co-add">
+              <span class="ax-doc-label" style="width:100%">Archive the company&rsquo;s own blog &mdash; paste the site ONCE and every post it has ever published is captured, article text and all</span>
+              <input class="ax-editbox" data-cocurl placeholder="https://www.theclient.com/blog">
+              <div class="ax-actions">
+                <button class="ax-btn green small" type="button" data-cocadd>＋ Archive their site</button>
+                <span class="ax-co-draftmsg" data-cocaddmsg></span>
+              </div>
+            </div>
+
+            <div class="ax-card ax-co-block ax-coc-gaps">
+              <div class="ax-co-blockhead">
+                <h3>{{ ic('intel') }} Content gaps <span class="ax-coc-teampill">Team only</span></h3>
+                <button class="ax-btn violet small" type="button" data-cogaps>{{ ic('sparkle') }} {{ 'Re-run the analysis' if company.content_gaps.date else 'Find content gaps' }}</button>
+                <span class="ax-co-draftmsg" data-cogapsmsg></span>
+              </div>
+              <p class="ax-co-lede">Compares the published content above with what the watched competitor sources publish, and names the topics this company has never covered.</p>
+              {% if company.content_gaps.date %}
+              <p class="ax-coc-stamp">Last run {{ company.content_gaps.date[:10] }} &middot; {{ company.content_gaps.own_posts }} of ours vs {{ company.content_gaps.competitor_posts }} competitor pieces &middot; {{ company.content_gaps['items']|length }} gap{{ '' if company.content_gaps['items']|length == 1 else 's' }}</p>
+              {% if company.content_gaps.summary %}<p class="ax-coc-sum">{{ company.content_gaps.summary }}</p>{% endif %}
+              {% for g in company.content_gaps['items'] %}
+              <div class="ax-coc-gap">
+                <h4>{{ loop.index }}. {{ g.topic }}</h4>
+                {% if g.why %}<p><strong>Why it matters:</strong> {{ g.why }}</p>{% endif %}
+                {% if g.angle %}<p><strong>The angle:</strong> {{ g.angle }}</p>{% endif %}
+                {% if g.inspired_by %}<p class="ax-coc-src">Covered by: {{ g.inspired_by }}</p>{% endif %}
+              </div>
+              {% endfor %}
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
         </section>
 
         <!-- ============ PAID MEDIA (paid, tab key `leadgen`) + ORGANIC (organic) ============ -->
@@ -3410,14 +3591,19 @@
 
           {% if is_superadmin %}
           {% set ai = view.intel_ai %}
-          <div class="ax-card ax-intel-ai">
-            <div class="ax-intel-ai-head">
+          {#- Collapsible: closed it is one row (title + brief + status pill), so the tab leads with
+              the briefing. It opens itself when it needs attention or is still being set up. -#}
+          <details class="ax-card ax-intel-ai"{{ ' open' if (not ai.selected or ai.last_error) else '' }}>
+            <summary class="ax-intel-ai-head">
               <div class="ax-intel-ai-title">{{ ic('intel') }} AI Research Brain</div>
-              {% if not ai.selected %}<span class="ax-intel-ai-pill is-off">Off</span>
-              {% elif ai.last_model and ai.last_error %}<span class="ax-intel-ai-pill is-warn">Partial</span>
-              {% elif ai.last_error %}<span class="ax-intel-ai-pill is-err">Needs attention</span>
-              {% else %}<span class="ax-intel-ai-pill is-on">Active</span>{% endif %}
-            </div>
+              <span class="ax-intel-ai-headright">
+                <span class="ax-intel-ai-brief">{% if not ai.selected %}Set up the daily research{% elif ai.last_run %}Runs daily &middot; last run {{ ai.last_run|atrium_date }}{% else %}Runs daily{% endif %}</span>
+                {% if not ai.selected %}<span class="ax-intel-ai-pill is-off">Off</span>
+                {% elif ai.last_model and ai.last_error %}<span class="ax-intel-ai-pill is-warn">Partial</span>
+                {% elif ai.last_error %}<span class="ax-intel-ai-pill is-err">Needs attention</span>
+                {% else %}<span class="ax-intel-ai-pill is-on">Active</span>{% endif %}
+              </span>
+            </summary>
             <p class="ax-intel-ai-sub">Choose the model, how far back to search, and how many stories to pull. It runs daily and <strong>adds</strong> new, de-duplicated stories. It never wipes the list. Entries you add, edit, or favourite always stay.</p>
 
             {% if not ai.any_available %}
@@ -3513,6 +3699,72 @@
               {% endfor %}
             </div>
             {% endif %}
+          </details>
+
+          {#- SAVED SEARCHES: reusable research queries the team keeps as cards. Each card re-runs
+              its query on demand (Refresh now) or joins the daily overnight sweep (Daily). Stories
+              land in Business Research tagged with the card's id; the chips below filter by it. -#}
+          <div class="ax-intel-ss-wrap">
+            <div class="ax-intel-ss-head">
+              <h2>{{ ic('target') }} Saved searches</h2>
+              <p class="ax-intel-lede">Keep a proven research angle running without retyping it. Daily cards join the overnight sweep; any card can refresh on demand. Their stories land in Business Research &mdash; use the filter chips below to see one card's stories.</p>
+            </div>
+            <div class="ax-intel-ss-grid">
+              {% for s in view.intel_searches %}
+              <div class="ax-card ax-intel-ss" data-ssid="{{ s.id }}">
+                <div class="ax-intel-ss-top">
+                  <span class="ax-intel-ss-name">{{ s.name }}</span>
+                  <span class="ax-intel-ss-sched{{ ' is-daily' if s.daily else '' }}">{{ 'Daily' if s.daily else 'Manual' }}</span>
+                </div>
+                <p class="ax-intel-ss-kw" title="{{ s.keywords }}">{{ s.keywords }}</p>
+                {% if s.focus %}<p class="ax-intel-ss-focus" title="{{ s.focus }}">{{ s.focus }}</p>{% endif %}
+                <div class="ax-intel-ss-meta">
+                  {{ s.stories }} stor{{ 'y' if s.stories == 1 else 'ies' }}{% if s.last_run %} &middot; last run {{ s.last_run|atrium_date }}{% if s.last_error %} &middot; <span class="ax-intel-ss-err">{{ s.last_error }}</span>{% else %} &middot; +{{ s.last_added or 0 }} new{% endif %}{% endif %}
+                </div>
+                <div class="ax-intel-ss-actions">
+                  <button class="ax-btn green small" type="button" data-ssrefresh="{{ s.id }}">Refresh now</button>
+                  <button class="ax-btn ghost small" type="button" data-ssedit="{{ s.id }}">Edit</button>
+                  <button class="ax-btn danger small" type="button" data-ssdelete="{{ s.id }}" data-ssname="{{ s.name }}">Delete</button>
+                </div>
+                <div class="ax-edit-hidden ax-intel-ss-form" data-ssform="{{ s.id }}">
+                  <input class="ax-editbox" data-ss="name" value="{{ s.name }}" placeholder="Name (e.g. Coaching demand)">
+                  <textarea class="ax-editbox" data-ss="keywords" rows="2" placeholder="Keywords, comma-separated (e.g. life coaching demand, coaching industry growth)">{{ s.keywords }}</textarea>
+                  <textarea class="ax-editbox" data-ss="focus" rows="2" placeholder="Optional focus: what should the AI look for? (blank = the Business Research focus)">{{ s.focus }}</textarea>
+                  <label class="ax-intel-ss-daily"><input type="checkbox" data-ss="daily"{{ ' checked' if s.daily else '' }}> Run daily in the overnight sweep</label>
+                  <div class="ax-actions">
+                    <button class="ax-btn violet small" type="button" data-sssave="{{ s.id }}">Save</button>
+                    <button class="ax-btn ghost small" type="button" data-sscancel="{{ s.id }}">Cancel</button>
+                  </div>
+                </div>
+              </div>
+              {% endfor %}
+              <div class="ax-card ax-intel-ss ax-intel-ss-new">
+                <button class="ax-intel-ss-newbtn" type="button" data-ssnew>+ Save a new search</button>
+                <div class="ax-edit-hidden ax-intel-ss-form" data-ssform="__new__">
+                  <input class="ax-editbox" data-ss="name" placeholder="Name (e.g. Coaching demand)">
+                  <textarea class="ax-editbox" data-ss="keywords" rows="2" placeholder="Keywords, comma-separated (e.g. life coaching demand, coaching industry growth)"></textarea>
+                  <textarea class="ax-editbox" data-ss="focus" rows="2" placeholder="Optional focus: what should the AI look for? (blank = the Business Research focus)"></textarea>
+                  <label class="ax-intel-ss-daily"><input type="checkbox" data-ss="daily" checked> Run daily in the overnight sweep</label>
+                  <div class="ax-actions">
+                    <button class="ax-btn green small" type="button" data-sssave="__new__">Save search</button>
+                    <button class="ax-btn ghost small" type="button" data-sscancel="__new__">Cancel</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          {#- Filter chips (everyone): All / the two sections / one chip per saved search. -#}
+          {% if view.intel_searches %}
+          <div class="ax-intel-filters" data-intelfilters>
+            <span class="ax-intel-filterlab">Show</span>
+            <button class="ax-intel-chip is-active" type="button" data-ifilter="all">All</button>
+            <button class="ax-intel-chip" type="button" data-ifilter="sec:business_research">Business Research</button>
+            <button class="ax-intel-chip" type="button" data-ifilter="sec:media_buying">Media Buying</button>
+            {% for s in view.intel_searches %}
+            <button class="ax-intel-chip" type="button" data-ifilter="ss:{{ s.id }}">{{ s.name }}{% if s.stories %}<span class="ax-intel-chip-n">{{ s.stories }}</span>{% endif %}</button>
+            {% endfor %}
           </div>
           {% endif %}
 
@@ -3542,7 +3794,7 @@
 
             {% if sec.entries %}
               {% for e in sec.entries %}
-              <div class="ax-card ax-intel-item{{ ' is-fav' if e.favourite else '' }}" data-intel="{{ e.id }}">
+              <div class="ax-card ax-intel-item{{ ' is-fav' if e.favourite else '' }}" data-intel="{{ e.id }}" data-isearch="{{ e.search or '' }}">
                 {% if is_superadmin %}
                 <label class="ax-intel-check" title="Select"><input type="checkbox" data-intelcheck data-intelsection="{{ sec.key }}" data-intelid="{{ e.id }}"></label>
                 {% endif %}
@@ -3589,6 +3841,7 @@
             {% else %}
               <div class="ax-empty">Nothing here yet{% if is_superadmin %}, add the first update below{% endif %}.</div>
             {% endif %}
+            <div class="ax-empty" data-ssempty hidden>No stories from this saved search yet{% if is_superadmin %} &mdash; run it from its card above{% endif %}.</div>
 
             {% if is_superadmin %}
             <div class="ax-admin-tools ax-intel-add" data-inteladd="{{ sec.key }}">
@@ -3622,6 +3875,13 @@
             <label class="ax-rep-lab">Presentation date
               <input class="ax-editbox" type="date" data-repdate>
             </label>
+            <label class="ax-rep-lab">Reporting window
+              <select class="ax-editbox" data-repperiod>
+                <option value="mtd">Month to date</option>
+                <option value="last_week">Last full week</option>
+                <option value="">Whole flight</option>
+              </select>
+            </label>
             <label class="ax-rep-lab">Title (optional)
               <input class="ax-editbox" type="text" data-reptitle placeholder="Performance Review" maxlength="80">
             </label>
@@ -3639,13 +3899,45 @@
                 <span class="ax-rep-date">{{ r.date|atrium_date }}</span>
                 <span class="ax-rep-title">{{ r.title }}</span>
               </a>
-              {% if is_superadmin %}<button class="ax-rep-del" type="button" data-repdel="{{ r.id }}" title="Delete this report">&times;</button>{% endif %}
+              {% if is_superadmin %}
+              <button class="ax-rep-edit" type="button" data-repedit="{{ r.id }}" title="Edit this deck with AI">✎ AI</button>
+              <button class="ax-rep-del" type="button" data-repdel="{{ r.id }}" title="Delete this report">&times;</button>
+              {#- The deck's slide list, for the edit dialog's scope picker (titles only). -#}
+              <div hidden data-repslides="{{ r.id }}">
+                {%- for s in r.payload.slides|default([], true) -%}
+                <span data-t="{{ loop.index }}. {{ s.eyebrow or s.kind|capitalize }}{% if s.title %} — {{ s.title|truncate(70) }}{% endif %}"></span>
+                {%- endfor -%}
+              </div>
+              {% endif %}
             </div>
             {% endfor %}
           </div>
           {% else %}
           <div class="ax-rep-empty">
             No decks here yet.{% if is_superadmin %} Generate the first one - it drafts itself from the dashboard, Market Intelligence, Watcher and the task board.{% endif %}
+          </div>
+          {% endif %}
+          {% if is_superadmin %}
+          {#- Edit-with-AI dialog (NotebookLM-style): one instruction, scoped to the whole deck or
+              ONE slide. POSTs op=revise; the server re-renders the deck on success. -#}
+          <div class="ax-repai" data-repai hidden>
+            <div class="ax-repai-card">
+              <h3>Edit with AI</h3>
+              <p class="ax-repai-sub">Describe the change you want. Scope it to one slide, or to the
+                whole deck - a whole-deck edit can also add things, e.g. "add a slide about the
+                website project".</p>
+              <label>Apply to
+                <select data-repai-scope></select>
+              </label>
+              <label>What should change?
+                <textarea data-repai-text placeholder="e.g. Rewrite the Research slide around the iOS update and why it matters for us"></textarea>
+              </label>
+              <p class="ax-repai-msg" data-repai-msg></p>
+              <div class="ax-repai-actions">
+                <button class="ax-btn ghost" type="button" data-repai-cancel>Cancel</button>
+                <button class="ax-btn violet" type="button" data-repai-apply>Apply edit</button>
+              </div>
+            </div>
           </div>
           {% endif %}
         </section>
@@ -3657,7 +3949,7 @@
            the comment composer (Comment / Request changes -> POST /w/<c>/task-comment). -#}
         <section class="ax-pane {{ 'is-active' if view.active_tab=='progress' else '' }}" data-pane="progress">
           <span class="ax-pg-ro"><svg class="ax-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            {% if is_superadmin %}Team view — read-only, exactly what the client sees. Every task is managed in Sentinel; moves and edits made there land here automatically.
+            {% if is_superadmin %}Team view — drag a card to any column to move it, hover a card and hit ✕ to delete it, open one to ✎ edit it. Clients see this board read-only; Sentinel reads the same board live.
             {% else %}Add requests and comment on any item — your Agora team handles the rest.{% endif %}</span>
 
           {#- Quick-add: a REAL form, so filing a request NEVER depends on JavaScript running.
@@ -3692,14 +3984,18 @@
             <div class="ax-pg-col">
               <div class="ax-pg-colhead"><span class="dot" style="background: {{ pg_dots[col.key] }}"></span>
                 <span class="t">{{ col.name }}</span><span class="c tnum">{{ col.tasks|length }}</span></div>
-              {#- 🔴 No drop targets, for anyone (2026-08-03, D2). The team's `data-pgcol` /
-                 `data-pgdrag` / `data-pgdel` affordances were removed with the rest of Atrium's
-                 write surfaces: this board RENDERS a projection of Sentinel's rows. -#}
-              <div class="ax-pg-collist">
+              {#- data-pgcol makes the list a drop target for the team's drag-to-move (RESTORED
+                 2026-08-04, D2 amended — see main.py's route comment). TEAM ONLY, so a client's
+                 board carries no drop targets at all (and the CSS can key off it). -#}
+              <div class="ax-pg-collist"{% if is_superadmin %} data-pgcol="{{ col.key }}" data-pgcolname="{{ col.name }}"{% endif %}>
                 {% for t in col.tasks %}
-                {#- The wrapper is structural (the card is a <button>). It used to be the draggable
-                   node and the ✕'s positioning context; both are gone. -#}
-                <div class="ax-pg-cardwrap">
+                {#- The wrapper exists so the ✕ can sit ON the card without being nested INSIDE the
+                   card's <button> (invalid HTML), and so the draggable node is a plain div. -#}
+                <div class="ax-pg-cardwrap"{% if is_superadmin %} draggable="true" data-pgdrag="{{ t.id }}"{% endif %}>
+                {% if is_superadmin %}
+                <button type="button" class="ax-pg-del" data-pgdel="{{ t.id }}"
+                        title="Delete this card" aria-label="Delete this card">&times;</button>
+                {% endif %}
                 <button type="button" class="ax-pg-card{{ ' paused' if t.on_hold else '' }}" data-pgopen="{{ t.id }}">
                   {% if t.discipline or t.campaign %}<span class="ax-pg-chip {{ t.disc_class }}">{{ t.discipline or t.campaign }}</span>{% endif %}
                   <div class="ax-pg-title">{{ t.title }}</div>
@@ -3782,9 +4078,32 @@
                     {% if t.reporter == 'client' %}<span class="ax-pg-tag req">Requested by {{ t.reporter_name or 'client' }}</span>{% endif %}</div>
                   <h2 class="ax-pg-mtitle">{{ t.title }}</h2>
                 </div>
+                {% if is_superadmin %}
+                <button type="button" class="ax-pg-medit" data-pgedit="{{ t.id }}"
+                        title="Edit this card" aria-label="Edit this card">✎ Edit</button>
+                {% endif %}
                 <button type="button" class="ax-pg-mx" data-pgclose aria-label="Close">&times;</button>
               </div>
               <div class="ax-pg-mbody">
+                {#- TEAM-ONLY edit form (collapsed; ✎ toggles it). Client-safe fields only — the
+                   modal is server-filtered by _progress_tasks, so priority/internal notes are not
+                   even available to prefill here; they stay on the add form and in Sentinel. -#}
+                {% if is_superadmin %}
+                <form class="ax-pg-addform ax-pg-editform" data-pgeditform="{{ t.id }}">
+                  <label class="ax-pg-fl">Task name</label>
+                  <input type="text" name="title" maxlength="200" required value="{{ t.title }}">
+                  <label class="ax-pg-fl">Update from your team</label>
+                  <textarea name="client_note" rows="2" maxlength="1000">{{ t.client_note }}</textarea>
+                  <label class="ax-pg-fl">Start date</label>
+                  <input type="date" name="start_date" value="{{ t.start_date }}">
+                  <label class="ax-pg-fl">Launch date</label>
+                  <input type="date" name="due_date" value="{{ t.due_date }}">
+                  <div class="row">
+                    <button type="submit" class="ax-btn violet">Save</button>
+                    <button type="button" class="ax-btn ghost" data-pgedit-cancel="{{ t.id }}">Cancel</button>
+                  </div>
+                </form>
+                {% endif %}
                 {% if t.on_hold %}<div class="ax-pg-paused"><span class="ax-pg-tag paused">⏸ Paused</span> This piece is on hold for now. We'll pick it back up and let you know.</div>{% endif %}
                 {#- Start → Launch timeline: when work began and when it goes (or went) live. -#}
                 <div class="ax-pg-timeline">
@@ -4040,6 +4359,9 @@
               </div>
               <div class="ax-wt-chips">
                 <span class="ax-wt-chip plat">{{ ch.labels.platform }}</span>
+                {#- The client's OWN published content, added from the Company tab's
+                    Published-content section (it manages this entry; here it is just labelled). -#}
+                {% if ch.own %}<span class="ax-wt-chip">Client&rsquo;s own</span>{% endif %}
                 {% if ch.loose %}
                 <span class="ax-wt-chip">Individually saved</span>
                 {% else %}
@@ -7344,6 +7666,46 @@
     apply();
   })();
 
+  // --- Market Intelligence: filter chips (everyone) -------------------------------------------
+  // All | Business Research | Media Buying | one chip per saved search. Section chips show one
+  // section full-width; a saved-search chip narrows Business Research to that card's stories
+  // (every auto story carries data-isearch = the saved search that found it).
+  (function () {
+    var bar = document.querySelector("[data-intelfilters]");
+    if (!bar) { return; }
+    var grid = document.querySelector(".ax-intel-grid");
+    var chips = qsa("[data-ifilter]", bar);
+    function apply(filter) {
+      var single = "";
+      var ss = "";
+      if (filter.indexOf("sec:") === 0) { single = filter.slice(4); }
+      if (filter.indexOf("ss:") === 0) { ss = filter.slice(3); single = "business_research"; }
+      qsa(".ax-intel-sec").forEach(function (sec) {
+        var mine = sec.getAttribute("data-intelsec");
+        sec.style.display = (single && mine !== single) ? "none" : "";
+        var shown = 0;
+        qsa(".ax-intel-item", sec).forEach(function (item) {
+          var tag = item.getAttribute("data-isearch") || "";
+          var out = !!ss && tag !== ss;
+          item.classList.toggle("is-filteredout", out);
+          if (!out) { shown += 1; }
+        });
+        var empty = sec.querySelector("[data-ssempty]");
+        if (empty) {
+          if (ss && mine === single && shown === 0) { empty.removeAttribute("hidden"); }
+          else { empty.setAttribute("hidden", "hidden"); }
+        }
+      });
+      if (grid) { grid.classList.toggle("is-single", !!single); }
+      chips.forEach(function (c) {
+        c.classList.toggle("is-active", c.getAttribute("data-ifilter") === filter);
+      });
+    }
+    chips.forEach(function (c) {
+      c.addEventListener("click", function () { apply(c.getAttribute("data-ifilter")); });
+    });
+  })();
+
   if (isAdmin) {
     function fieldsFrom(scope, attr, into) {
       var out = into || {};
@@ -7877,6 +8239,121 @@
       });
     });
 
+    // --- Company tab: Published content (the client's own blog) + the content-gap analysis ---
+    // The archive controls post to the WATCHER route (op add_site with own=1, then the same
+    // fetch/refresh/delete ops any watched source uses) -- one machinery, one archive shape. Only
+    // the gap analysis posts to /admin/company (op gaps).
+    (function () {
+      function cocMsg(id, text) {
+        var el = document.querySelector('[data-cocmsg="' + aq(id) + '"]');
+        if (el) { el.textContent = text; }
+      }
+      var cocAdd = document.querySelector("[data-cocadd]");
+      if (cocAdd) {
+        cocAdd.addEventListener("click", function () {
+          var input = document.querySelector("[data-cocurl]");
+          var msg = document.querySelector("[data-cocaddmsg]");
+          var url = input ? input.value.trim() : "";
+          if (!url) { if (msg) { msg.textContent = "Paste the site URL first."; } return; }
+          cocAdd.setAttribute("disabled", "disabled");
+          if (msg) { msg.textContent = "Listing every post on the site… this can take a minute."; }
+          post("/admin/watcher", { op: "add_site", url: url, own: "1" }).then(function (data) {
+            if (!data || data.ok === false) {
+              cocAdd.removeAttribute("disabled");
+              if (msg) { msg.textContent = (data && data.message) || "Couldn't archive that site."; }
+              return;
+            }
+            // One paste does the whole job: the listing is stored, so run the SAME fetch loop the
+            // per-source button uses until every article's text is in. If anything trips mid-loop
+            // we just reload -- the card's Fetch missing button picks up exactly where this stopped.
+            if (msg) { msg.textContent = "Found " + (data.posts || 0) + " posts - fetching the article text…"; }
+            function pull() {
+              post("/admin/watcher", { op: "fetch", channel_id: data.channel }).then(function (f) {
+                if (!f || f.ok === false) { window.location.reload(); return; }
+                if (msg) { msg.textContent = "Fetching article text… " + f.done + " of " + f.total + "."; }
+                if (f.remaining > 0 && !f.blocked) { pull(); return; }
+                window.location.reload();
+              }).catch(function () { window.location.reload(); });
+            }
+            pull();
+          }).catch(function () {
+            cocAdd.removeAttribute("disabled");
+            if (msg) { msg.textContent = "Couldn't reach the server."; }
+          });
+        });
+      }
+      // Fetch missing bodies in short batches until none remain (websites never rate-limit us the
+      // way YouTube does, so a plain loop with no backoff is enough here).
+      qsa("[data-cocfetch]").forEach(function (btn) {
+        var id = btn.getAttribute("data-cocfetch");
+        btn.addEventListener("click", function () {
+          btn.setAttribute("disabled", "disabled");
+          cocMsg(id, "Fetching article text…");
+          function step() {
+            post("/admin/watcher", { op: "fetch", channel_id: id }).then(function (data) {
+              if (!data || data.ok === false) {
+                btn.removeAttribute("disabled");
+                cocMsg(id, (data && data.message) || "Fetch failed - try again.");
+                return;
+              }
+              cocMsg(id, "Fetched " + data.done + " of " + data.total + "…");
+              if (data.remaining > 0 && !data.blocked) { step(); return; }
+              window.location.reload();
+            }).catch(function () {
+              btn.removeAttribute("disabled");
+              cocMsg(id, "Couldn't reach the server.");
+            });
+          }
+          step();
+        });
+      });
+      qsa("[data-cocrefresh]").forEach(function (btn) {
+        var id = btn.getAttribute("data-cocrefresh");
+        btn.addEventListener("click", function () {
+          btn.setAttribute("disabled", "disabled");
+          cocMsg(id, "Checking the site for new posts…");
+          post("/admin/watcher", { op: "refresh", channel_id: id }).then(function (data) {
+            if (!data || data.ok === false) {
+              btn.removeAttribute("disabled");
+              cocMsg(id, (data && data.message) || "Couldn't check the site.");
+              return;
+            }
+            window.location.reload();
+          }).catch(function () {
+            btn.removeAttribute("disabled");
+            cocMsg(id, "Couldn't reach the server.");
+          });
+        });
+      });
+      qsa("[data-cocdelete]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var name = btn.getAttribute("data-cocname") || "this source";
+          axConfirm({ title: "Remove archive?", message: "Remove " + name + " and its whole post archive?" }, function () {
+            adminAction("/admin/watcher", { op: "delete", channel_id: btn.getAttribute("data-cocdelete") }, btn);
+          });
+        });
+      });
+      var gapsBtn = document.querySelector("[data-cogaps]");
+      if (gapsBtn) {
+        gapsBtn.addEventListener("click", function () {
+          var msg = document.querySelector("[data-cogapsmsg]");
+          gapsBtn.setAttribute("disabled", "disabled");
+          if (msg) { msg.textContent = "Comparing against the competitor archives… this can take a minute."; }
+          post("/admin/company", { op: "gaps" }).then(function (data) {
+            if (!data || data.ok === false) {
+              gapsBtn.removeAttribute("disabled");
+              if (msg) { msg.textContent = (data && data.message) || "The analysis failed."; }
+              return;
+            }
+            window.location.reload();
+          }).catch(function () {
+            gapsBtn.removeAttribute("disabled");
+            if (msg) { msg.textContent = "Couldn't reach the server."; }
+          });
+        });
+      }
+    })();
+
     // --- Market Intelligence: add / edit / delete briefing entries (super-admin) ---
     qsa("[data-inteledit]").forEach(function (btn) {
       var form = document.querySelector('[data-intelform="' + aq(btn.getAttribute("data-inteledit")) + '"]');
@@ -7914,6 +8391,83 @@
         adminAction("/admin/intel", fields, btn);
       });
     });
+    // --- Market Intelligence: saved searches (the reusable query cards) ---
+    (function () {
+      function ssFields(form) {
+        var out = {};
+        qsa("[data-ss]", form).forEach(function (el) {
+          var k = el.getAttribute("data-ss");
+          if (k === "daily") { out.schedule = el.checked ? "daily" : "manual"; }
+          else { out[k] = el.value; }
+        });
+        return out;
+      }
+      var newBtn = document.querySelector("[data-ssnew]");
+      var newForm = document.querySelector('[data-ssform="__new__"]');
+      if (newBtn && newForm) {
+        newBtn.addEventListener("click", function () {
+          newForm.classList.remove("ax-edit-hidden");
+          newBtn.style.display = "none";
+        });
+      }
+      qsa("[data-ssedit]").forEach(function (btn) {
+        var form = document.querySelector('[data-ssform="' + aq(btn.getAttribute("data-ssedit")) + '"]');
+        btn.addEventListener("click", function () { toggleHidden(form); });
+      });
+      qsa("[data-sscancel]").forEach(function (btn) {
+        var id = btn.getAttribute("data-sscancel");
+        var form = document.querySelector('[data-ssform="' + aq(id) + '"]');
+        btn.addEventListener("click", function () {
+          if (form) { form.classList.add("ax-edit-hidden"); }
+          if (id === "__new__" && newBtn) { newBtn.style.display = ""; }
+        });
+      });
+      qsa("[data-sssave]").forEach(function (btn) {
+        var id = btn.getAttribute("data-sssave");
+        var form = document.querySelector('[data-ssform="' + aq(id) + '"]');
+        if (!form) { return; }
+        btn.addEventListener("click", function () {
+          var fields = ssFields(form);
+          if (!fields.name || !fields.keywords) {
+            adminMsg("A saved search needs a name and keywords.", false);
+            return;
+          }
+          fields.op = (id === "__new__") ? "search_add" : "search_edit";
+          if (id !== "__new__") { fields.search_id = id; }
+          adminAction("/admin/intel", fields, btn);
+        });
+      });
+      qsa("[data-ssdelete]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          axConfirm({ title: "Delete this saved search?",
+                      message: "Its auto-pulled stories go with it. Favourited or hand-added entries always stay.",
+                      danger: true }, function () {
+            adminAction("/admin/intel", { op: "search_delete",
+              search_id: btn.getAttribute("data-ssdelete") }, btn);
+          });
+        });
+      });
+      qsa("[data-ssrefresh]").forEach(function (btn) {
+        var label = btn.innerHTML;
+        btn.addEventListener("click", function () {
+          btn.setAttribute("disabled", "disabled");
+          btn.textContent = "Researching…";
+          var fail = function (msg) {
+            btn.removeAttribute("disabled");
+            btn.innerHTML = label;
+            adminMsg(msg || "Refresh failed.", false);
+          };
+          post("/admin/intel", { op: "search_refresh",
+                                 search_id: btn.getAttribute("data-ssrefresh") })
+            .then(function (r) {
+              if (!r || r.ok === false) { fail(r && r.message); return; }
+              window.location.reload();
+            })
+            .catch(function () { fail("Refresh failed (network error)."); });
+        });
+      });
+    })();
+
     // Favourite / unfavourite a SINGLE entry (star + pin, or clear the star).
     qsa("[data-intelfav]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -7999,14 +8553,23 @@
         gen.addEventListener("click", function () {
           var d = pane.querySelector("[data-repdate]");
           var t = pane.querySelector("[data-reptitle]");
+          var p = pane.querySelector("[data-repperiod]");
           gen.setAttribute("disabled", "disabled");
           say("Drafting the deck from everything in this workspace. This can take a minute…");
           post("/admin/report", { op: "generate", date: (d && d.value) || "",
-                                  title: (t && t.value) || "" })
+                                  title: (t && t.value) || "",
+                                  period: p ? p.value : "mtd" })
             .then(function (r) {
               if (!r.ok) {
                 gen.removeAttribute("disabled");
                 say(r.message || "Could not generate the report.", true);
+                return;
+              }
+              // A degraded run still stores a deck, but the team must SEE that it drafted
+              // without AI before the reload hides the message (this used to be swallowed).
+              if (r.note) {
+                say(r.note + " Reloading…", true);
+                setTimeout(function () { window.location.reload(); }, 2500);
                 return;
               }
               window.location.reload();
@@ -8030,6 +8593,66 @@
           });
         });
       });
+
+      // --- Edit with AI: whole-deck or one-slide instruction -> op=revise -----------------------
+      var modal = pane.querySelector("[data-repai]");
+      if (modal) {
+        var scopeSel = modal.querySelector("[data-repai-scope]");
+        var editTxt = modal.querySelector("[data-repai-text]");
+        var editMsg = modal.querySelector("[data-repai-msg]");
+        var applyBtn = modal.querySelector("[data-repai-apply]");
+        var cancelBtn = modal.querySelector("[data-repai-cancel]");
+        var editId = "";
+        function repaiOpen(id) {
+          editId = id;
+          scopeSel.innerHTML = "";
+          var all = document.createElement("option");
+          all.value = "";
+          all.textContent = "The whole deck";
+          scopeSel.appendChild(all);
+          qsa('[data-repslides="' + id + '"] span').forEach(function (sp, n) {
+            var o = document.createElement("option");
+            o.value = String(n + 1);
+            o.textContent = sp.getAttribute("data-t") || ("Slide " + (n + 1));
+            scopeSel.appendChild(o);
+          });
+          editTxt.value = "";
+          editMsg.textContent = "";
+          applyBtn.removeAttribute("disabled");
+          modal.hidden = false;
+          editTxt.focus();
+        }
+        function repaiClose() { modal.hidden = true; }
+        qsa("[data-repedit]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            repaiOpen(btn.getAttribute("data-repedit"));
+          });
+        });
+        cancelBtn.addEventListener("click", repaiClose);
+        modal.addEventListener("click", function (e) {
+          if (e.target === modal) { repaiClose(); }
+        });
+        applyBtn.addEventListener("click", function () {
+          var body = { op: "revise", id: editId, instruction: (editTxt.value || "").trim() };
+          if (!body.instruction) { editMsg.textContent = "Describe the change first."; return; }
+          if (scopeSel.value) { body.slide = scopeSel.value; }
+          applyBtn.setAttribute("disabled", "disabled");
+          editMsg.textContent = "Applying the edit. This can take a minute…";
+          post("/admin/report", body)
+            .then(function (r) {
+              if (!r.ok) {
+                applyBtn.removeAttribute("disabled");
+                editMsg.textContent = r.message || "Could not apply the edit.";
+                return;
+              }
+              window.location.reload();
+            })
+            .catch(function () {
+              applyBtn.removeAttribute("disabled");
+              editMsg.textContent = "Could not apply the edit (network error).";
+            });
+        });
+      }
     })();
 
     // --- Market Intelligence: AI research brain (model + tunable prompts + refresh-now) ---
@@ -8775,14 +9398,187 @@
 
 })();
 
-// (2026-08-03, decision D2) The team's drag-to-move + delete-✕ wiring for this board USED TO LIVE
-// HERE, in its own IIFE. It is gone: the client Tasks board is a READ-ONLY projection of Sentinel's
-// task rows, so nothing on this page may write one. Tasks are created, assigned, moved, parked,
-// reviewed and filed in Sentinel; the internal bridge (/api/internal/task*) pushes the client-safe
-// subset here. If you are about to re-add a write control to this pane, read
-// sentinel/docs/TASKBOARD_REBUILD.md §4 first — two writers on one record is the model this
-// replaced. The two CLIENT powers stay: the comment/request-changes thread and the quick-add
-// composer (which files a REQUEST, not a task).
+// Progress board, TEAM ONLY: drag a card between columns + delete a card + edit a card's basics.
+// (Added 2026-07-28, removed by D2 on 2026-08-03, RESTORED 2026-08-04 — D2 amended; see the route
+// comment in main.py. ws["tasks"] is the STORE, and Sentinel's board reads it live over the
+// internal bridge, so a move made here is the same record both boards render.)
+// DELIBERATELY its own IIFE — the same lesson the quick-add composer above records: sharing the
+// board IIFE's `if (!root || !veil || !storeBox) return;` guard means a missing piece of detail-
+// overlay furniture kills dragging SILENTLY. This block needs neither the veil nor the store.
+// A client never reaches it twice over: data-admin is absent from their HTML, and the draggable
+// wrappers / ✕ buttons / ✎ forms it wires are not rendered for them at all.
+(function () {
+  var root = document.querySelector(".atrium");
+  if (!root || root.getAttribute("data-admin") !== "1") { return; }
+  var board = document.querySelector(".ax-pg-board");
+  if (!board) { return; }
+  var base = root.getAttribute("data-base") || "";
+  var qsa = function (sel, r) { return Array.prototype.slice.call((r || board).querySelectorAll(sel)); };
+  var dragEl = null;
+
+  // Re-derive every column's count pill from the DOM after an optimistic move or a delete.
+  function recount() {
+    qsa(".ax-pg-col").forEach(function (col) {
+      var pill = col.querySelector(".ax-pg-colhead .c");
+      var list = col.querySelector(".ax-pg-collist");
+      if (pill && list) { pill.textContent = String(list.querySelectorAll(".ax-pg-cardwrap").length); }
+    });
+  }
+
+  // POST a task route and reject with the server's own message (the routes answer {ok:false,error}).
+  function post(path, fd) {
+    return fetch(base + path, { method: "POST", body: fd, credentials: "same-origin" })
+      .then(function (resp) {
+        if (!resp || !resp.ok) { throw new Error("That didn't save. Please try again."); }
+        return resp.json();
+      })
+      .then(function (data) {
+        if (!data || data.ok === false) {
+          throw new Error((data && data.error) || "That didn't save. Please try again.");
+        }
+        return data;
+      });
+  }
+
+  // The detail overlay is server-rendered, so keep its stage pill honest after a move.
+  function syncPill(id, stage, label) {
+    var pill = document.querySelector('[data-pgd="' + id + '"] .ax-pg-stage');
+    if (!pill) { return; }
+    pill.className = "ax-pg-stage " + stage;
+    pill.textContent = label;
+  }
+
+  // ---- Drag to move. Every stage accepts every card: the server stopped guarding the move to
+  // Completed (see workspace.move_task_stage), so a drop never bounces back for a "rule".
+  qsa("[data-pgdrag]").forEach(function (wrap) {
+    wrap.addEventListener("dragstart", function (e) {
+      dragEl = wrap;
+      wrap.className = "ax-pg-cardwrap is-dragging";
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = "move";
+        // Firefox refuses to start a drag unless the payload carries something.
+        try { e.dataTransfer.setData("text/plain", wrap.getAttribute("data-pgdrag") || ""); } catch (err) {}
+      }
+    });
+    wrap.addEventListener("dragend", function () {
+      wrap.className = "ax-pg-cardwrap";
+      qsa(".ax-pg-collist.is-over").forEach(function (l) { l.className = "ax-pg-collist"; });
+      dragEl = null;
+      // Some browsers still dispatch a click on the dragged node right after the drop — swallow
+      // exactly one, or the card just moved would also pop its detail overlay open.
+      wrap.setAttribute("data-justdragged", "1");
+      window.setTimeout(function () { wrap.removeAttribute("data-justdragged"); }, 120);
+    });
+    // Capture phase: this runs BEFORE the card button's own click handler in the board IIFE.
+    wrap.addEventListener("click", function (e) {
+      if (wrap.getAttribute("data-justdragged")) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
+  });
+
+  qsa("[data-pgcol]").forEach(function (list) {
+    list.addEventListener("dragover", function (e) {
+      if (!dragEl) { return; }
+      e.preventDefault();
+      if (e.dataTransfer) { e.dataTransfer.dropEffect = "move"; }
+      list.className = "ax-pg-collist is-over";
+    });
+    list.addEventListener("dragleave", function (e) {
+      if (!list.contains(e.relatedTarget)) { list.className = "ax-pg-collist"; }
+    });
+    list.addEventListener("drop", function (e) {
+      e.preventDefault();
+      list.className = "ax-pg-collist";
+      var wrap = dragEl;
+      if (!wrap) { return; }
+      var from = wrap.parentNode;
+      if (from === list) { return; }
+      var id = wrap.getAttribute("data-pgdrag") || "";
+      var stage = list.getAttribute("data-pgcol") || "";
+      var label = list.getAttribute("data-pgcolname") || stage;
+      list.appendChild(wrap);          // optimistic: the card lands the moment you let go
+      recount();
+      syncPill(id, stage, label);
+      var fd = new FormData();
+      fd.append("task_id", id);
+      fd.append("stage", stage);
+      post("/admin/task/move", fd).catch(function (err) {
+        from.appendChild(wrap);        // roll back to the column it came from
+        recount();
+        syncPill(id, from.getAttribute("data-pgcol") || "", from.getAttribute("data-pgcolname") || "");
+        window.alert(err && err.message ? err.message : "That move didn't save.");
+      });
+    });
+  });
+
+  // ---- Delete a card. Soft-delete: the task lands in the console Bin, restorable for 30 days.
+  qsa("[data-pgdel]").forEach(function (btn) {
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var id = btn.getAttribute("data-pgdel") || "";
+      var wrap = btn.parentNode;
+      var titleEl = wrap ? wrap.querySelector(".ax-pg-title") : null;
+      var title = titleEl ? (titleEl.textContent || "").replace(/^\s+|\s+$/g, "") : "";
+      if (!window.confirm("Delete " + (title ? '"' + title + '"' : "this card") +
+                          "?\n\nIt moves to the console Bin and can be restored for 30 days.")) { return; }
+      btn.disabled = true;
+      var fd = new FormData();
+      fd.append("task_id", id);
+      post("/admin/task/delete", fd)
+        .then(function () {
+          if (wrap && wrap.parentNode) { wrap.parentNode.removeChild(wrap); }
+          var node = document.querySelector('[data-pgd="' + id + '"]');   // its detail overlay too
+          if (node && node.parentNode) { node.parentNode.removeChild(node); }
+          recount();
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          window.alert(err && err.message ? err.message : "That didn't delete.");
+        });
+    });
+  });
+
+  // ---- Edit a card's basics from its detail overlay: ✎ toggles the collapsed form, Save posts
+  // op=edit and reloads (the modal store is server-rendered, so a reload is what refreshes it).
+  // The edit nodes live in #ax-pg-store / the veil, NOT inside .ax-pg-board — hence qsa(…, document).
+  // The form reuses .ax-pg-addform's open/closed classes for its styling and disclosure.
+  qsa("[data-pgedit]", document).forEach(function (btn) {
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var id = btn.getAttribute("data-pgedit") || "";
+      var form = document.querySelector('[data-pgeditform="' + id + '"]');
+      if (!form) { return; }
+      var opening = form.className.indexOf("open") === -1;
+      form.className = opening ? "ax-pg-addform ax-pg-editform open" : "ax-pg-addform ax-pg-editform";
+      if (opening) {
+        var first = form.querySelector("input");
+        if (first) { first.focus(); }
+      }
+    });
+  });
+  qsa("[data-pgedit-cancel]", document).forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var id = btn.getAttribute("data-pgedit-cancel") || "";
+      var form = document.querySelector('[data-pgeditform="' + id + '"]');
+      if (form) { form.className = "ax-pg-addform ax-pg-editform"; }
+    });
+  });
+  qsa("[data-pgeditform]", document).forEach(function (form) {
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var id = form.getAttribute("data-pgeditform") || "";
+      var fd = new FormData(form);
+      fd.append("op", "edit");
+      fd.append("task_id", id);
+      post("/admin/task", fd)
+        .then(function () { window.location.reload(); })
+        .catch(function (err) {
+          window.alert(err && err.message ? err.message : "That didn't save.");
+        });
+    });
+  });
+})();
 </script>
 </body>
 </html>

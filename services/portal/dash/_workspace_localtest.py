@@ -450,9 +450,22 @@ def run():
     # are hand-ordered, so add APPENDS and move_company_item is a first-class writer.
     blank = workspace.company_profile(workspace.load_workspace(CLIENT))
     _check("a workspace with no company key still reads a fully-shaped profile",
-           set(blank) == {"profile", "brand", "sections", "products"}
-           and blank["profile"]["one_liner"] == "" and blank["sections"] == [])
+           set(blank) == {"profile", "brand", "sections", "products", "content_gaps"}
+           and blank["profile"]["one_liner"] == "" and blank["sections"] == []
+           and blank["content_gaps"]["items"] == [])
     _check("company_is_empty is true before anything is written",
+           workspace.company_is_empty(workspace.load_workspace(CLIENT)))
+    workspace.set_company_content_gaps(CLIENT, {
+        "date": "2026-08-04T00:00:00Z", "model": "stub", "summary": "Thin on winter content.",
+        "own_posts": 12, "competitor_posts": 40,
+        "items": [{"topic": "Winter camping", "why": "rivals own it", "junk": "dropped"},
+                  {"topic": "", "why": "no topic, dropped"}, "not-a-dict"]})
+    gaps = workspace.company_profile(workspace.load_workspace(CLIENT))["content_gaps"]
+    _check("set_company_content_gaps stores a shaped snapshot (topic-less/junk items dropped)",
+           gaps["summary"] == "Thin on winter content." and gaps["own_posts"] == 12
+           and len(gaps["items"]) == 1 and gaps["items"][0]["topic"] == "Winter camping"
+           and set(gaps["items"][0]) == set(workspace.CONTENT_GAP_ITEM_FIELDS))
+    _check("a stored gap snapshot does not make the company profile non-empty",
            workspace.company_is_empty(workspace.load_workspace(CLIENT)))
 
     workspace.set_company_profile(CLIENT, {"one_liner": "Boutique RV rentals in the Rockies",

@@ -857,15 +857,48 @@ def run():
            "Open in Sentinel" in console and "/dashboard?open=atrium:%s:%s" % (CLIENT, task_id) in console)
     _check("no draggable cards on the console board", 'class="tk-card' in console
            and 'draggable="true"' not in console)
-    # Every retired route answers 410 with the reason — never a 404, which would read as a routing
-    # bug to whoever still has a stale tab open.
-    for path in ("task", "task/move", "task/delete", "task/subtask", "task/maintask",
-                 "task/comment", "task/hold"):
+    # The STILL-retired routes (breakdown / hold / team comment — D2) answer 410 with the reason —
+    # never a 404, which would read as a routing bug to whoever still has a stale tab open.
+    # (move / edit / delete came OFF this list 2026-08-04 — D2 amended; they're exercised below.)
+    for path in ("task/subtask", "task/maintask", "task/comment", "task/hold"):
         r410 = c.post("/w/%s/admin/%s" % (CLIENT, path), data={"task_id": task_id})
         _check("retired route /%s answers 410 for the team" % path,
                r410.status_code == 410 and "Sentinel" in (r410.get_json() or {}).get("error", ""))
     _check("a retired route did NOT change the task",
            workspace._find_task(workspace.load_workspace(CLIENT), task_id)["stage"] == "revision")
+    # A stale tab posting the retired op=add shape to /admin/task gets the same 410 story.
+    _check("op=add on /admin/task answers 410 (creation stays with /task-add)",
+           c.post("/w/%s/admin/task" % CLIENT,
+                  data={"op": "add", "title": "STALE-TAB-ADD"}).status_code == 410)
+
+    # 🔴 RESTORED 2026-08-04 (D2 amended — see main.py's route comment): the team moves, edits and
+    # deletes cards from the client Tasks pane again. Same workspace.py writers as the internal
+    # bridge, so the stored shape/history/Bin are identical whichever surface wrote it.
+    rmv = c.post("/w/%s/admin/task/move" % CLIENT,
+                 data={"task_id": task_id, "stage": "in_progress"})
+    _check("team move route moves the card",
+           rmv.get_json().get("ok") is True
+           and workspace._find_task(workspace.load_workspace(CLIENT),
+                                    task_id)["stage"] == "in_progress")
+    red = c.post("/w/%s/admin/task" % CLIENT,
+                 data={"op": "edit", "task_id": task_id, "client_note": "EDITED-VIA-ROUTE"})
+    _edited = workspace._find_task(workspace.load_workspace(CLIENT), task_id)
+    _check("team edit route patches only the fields the form carried",
+           red.get_json().get("ok") is True and _edited["client_note"] == "EDITED-VIA-ROUTE"
+           and _edited["title"] == "Park & Porch funnel"      # untouched: the form didn't carry it
+           and _edited["service_charge"] == "4200")           # internal fields survive a partial post
+    _check("edit refuses a blank title rather than wiping it",
+           c.post("/w/%s/admin/task" % CLIENT,
+                  data={"op": "edit", "task_id": task_id, "title": "  "}
+                  ).get_json().get("ok") is False)
+    tmp = workspace.add_task(CLIENT, {"title": "DELETE-ME-VIA-ROUTE", "client_facing": True},
+                             actor="info@agoradatadriven.com")
+    rdel = c.post("/w/%s/admin/task/delete" % CLIENT, data={"task_id": tmp["id"]})
+    _check("team delete route soft-deletes the card (Bin-bound)",
+           rdel.get_json().get("ok") is True
+           and workspace._find_task(workspace.load_workspace(CLIENT), tmp["id"]) is None)
+    # Put the fixture back where the surrounding checks expect it.
+    workspace.move_task_stage(CLIENT, task_id, "revision", actor="info@agoradatadriven.com")
 
     # The CLIENT sees the Progress tab: their client-facing task, client-safe fields ONLY.
     with c.session_transaction() as s:
@@ -1024,9 +1057,14 @@ def run():
            '<details class="ax-pg-more"' not in pg2
            and 'name="internal_notes"' not in pg2 and 'name="priority"' not in pg2)
     # The team's board controls are markup, not just hidden CSS: a client's HTML must not carry the
-    # draggable wrappers or the delete buttons at all (same no-leak posture as the internal fields).
-    _check("drag + delete affordances are NOT in the client's HTML",
-           "data-pgdrag=" not in pg2 and "data-pgdel=" not in pg2)
+    # draggable wrappers, the delete buttons or the edit form at all (same no-leak posture as the
+    # internal fields). NB: the edit-FORM check matches the RENDERED attribute (with the task id) —
+    # the wiring script builds '[data-pgeditform="' as a string literal and ships to every viewer,
+    # so the bare substring is in a client's HTML whatever the template does (the data-pgcol-form
+    # trap, again).
+    _check("drag + delete + edit affordances are NOT in the client's HTML",
+           "data-pgdrag=" not in pg2 and "data-pgdel=" not in pg2 and "data-pgedit=" not in pg2
+           and ('data-pgeditform="%s"' % task_id) not in pg2)
     _check("the duplicated per-stage count tiles are gone from the board",
            "ax-pg-summary" not in pg2)
     # Forging internal fields is now impossible by CONSTRUCTION rather than by filtering: a client
@@ -1070,15 +1108,17 @@ def run():
     _check("the team's add form carries the collapsed 'More options' block",
            '<details class="ax-pg-more"' in pg_team and 'name="internal_notes"' in pg_team
            and 'name="priority"' in pg_team)
-    # 🔴 REVERSED 2026-08-03 (decision D2). This used to assert the OPPOSITE — that the team's cards
-    # were draggable and deletable here. The client Tasks board is now a READ-ONLY projection of
-    # Sentinel's task rows for EVERYONE: a card is created, assigned, moved, parked, reviewed and
-    # filed in Sentinel, and the internal bridge pushes the client-safe subset over. Two writers on
-    # one record is exactly the model this replaced (sentinel/docs/TASKBOARD_REBUILD.md §4), so the
-    # affordances must be absent from the TEAM's HTML too, not merely hidden from the client's.
-    _check("the team's board carries NO write affordances either (read-only for everyone)",
-           "data-pgdrag=" not in pg_team and "data-pgdel=" not in pg_team
-           and 'data-pgcol="' not in pg_team)
+    # 🔴 RESTORED 2026-08-04 (D2 amended; this check flipped twice in two days — read the history
+    # before flipping it again). The team's cards are draggable / deletable / editable on the
+    # client Tasks pane once more: `ws["tasks"]` is the STORE (D1), Sentinel's board lists it live
+    # over the internal bridge, and both surfaces write through the same workspace.py helpers — one
+    # record, whichever side edited it. What D2 was protecting is still protected: the affordances
+    # are absent from the CLIENT's HTML (asserted above), and a card CLAIMED by a Sentinel row is
+    # re-projected on Sentinel's next edit, so Sentinel stays authoritative for those.
+    _check("the team's board carries the drag / delete / edit affordances again",
+           "data-pgdrag=" in pg_team and "data-pgdel=" in pg_team
+           and 'data-pgcol="' in pg_team and "data-pgedit=" in pg_team
+           and ('data-pgeditform="%s"' % task_id) in pg_team)
     rteam = c.post("/w/%s/task-add" % CLIENT,
                    data={"title": "TEAM-WITH-EXTRAS", "priority": "Urgent",
                          "internal_notes": "keep this internal", "note": "client sees this",
@@ -1384,25 +1424,99 @@ def run():
     _check("the story section is its own chunk, titled by its heading",
            any("COMPANYSTORY" in ch["title"] for ch in company_chunks))
 
-    # The regrouped nav (2026-07-29): FOUR top-level rows -- Working Together / Company /
-    # Campaigns / Insights -- with every other surface a child. Assert each tab sits in the group
-    # it belongs to, and that the top level really is four rows (one flat link + three groups).
+    # --- Published content + content gaps (2026-08-04) ------------------------------------------
+    # The client's OWN blog is archived through the SAME watcher machinery (registry entry with
+    # own=True, same archive object, same fetch ops) and rendered on the Company tab: the listing
+    # is client-visible, the archive controls + the content-gap analysis are team-only, and the
+    # analysis compares own titles against competitor titles only.
+    own_entry = workspace.add_watcher_channel(CLIENT, {
+        "url": "https://riverdanceresort.com/blog", "title": "Riverdance Journal",
+        "channel_id": "https://riverdanceresort.com", "platform": "blog", "own": True})
+    workspace.write_watcher_videos(CLIENT, own_entry["id"], [
+        {"id": "bp1", "title": "OWNPOSTGLAMPING", "transcript": "Full text.",
+         "url": "https://riverdanceresort.com/blog/glamping", "published": "2026-07-01"},
+        {"id": "bp2", "title": "OWNPOSTPENDING", "transcript": "",
+         "url": "https://riverdanceresort.com/blog/two", "published": "2026-07-02"},
+    ])
+    comp_entry = workspace.add_watcher_channel(CLIENT, {
+        "url": "https://rivalresort.com/blog", "title": "RIVALRESORT",
+        "channel_id": "https://rivalresort.com", "platform": "blog", "kind": "competitor"})
+    workspace.write_watcher_videos(CLIENT, comp_entry["id"], [
+        {"id": "bp3", "title": "RIVALPOSTWINTER", "transcript": "Rival text.",
+         "url": "https://rivalresort.com/blog/winter", "published": "2026-07-03"},
+    ])
+    _check("own_content_channels returns only the own-flagged source",
+           [e["id"] for e in workspace.own_content_channels(workspace.load_workspace(CLIENT))]
+           == [own_entry["id"]])
+    body = c.get("/w/%s/company" % CLIENT).get_data(as_text=True)
+    _check("the admin render lists the archived posts + the team-only gap panel",
+           "OWNPOSTGLAMPING" in body and "Riverdance Journal" in body
+           and "Find content gaps" in body and "Archive their site" in body)
+    with c.session_transaction() as s:
+        s.update({"ok": True, "user": "owner@riverdanceresort.com", "clients": [CLIENT]})
+    cbody = c.get("/w/%s/company" % CLIENT).get_data(as_text=True)
+    _check("the client sees their own published content in full",
+           "OWNPOSTGLAMPING" in cbody and "Riverdance Journal" in cbody)
+    # Rendered-markup markers only (the JS selector literals ship to every viewer -- see above).
+    _check("the archive controls, the gap panel and competitor names never reach the client HTML",
+           "Find content gaps" not in cbody and "Team only" not in cbody
+           and "Archive their site" not in cbody and "RIVALPOSTWINTER" not in cbody
+           and "RIVALRESORT" not in cbody)
+    _check("a client cannot run the gap analysis",
+           c.post("/w/%s/admin/company" % CLIENT, data={"op": "gaps"}).status_code == 403)
+    with c.session_transaction() as s:
+        s.update(SUPER)
+    gap_calls = {}
+    real_gaps_fn = main.intel_ai.content_gaps
+
+    def _fake_gaps(name, context, own_lines, comp_blocks, model=None):
+        gap_calls["own"] = list(own_lines)
+        gap_calls["comp"] = list(comp_blocks)
+        return {"summary": "GAPSUMMARY", "model": "stub",
+                "items": [{"topic": "GAPTOPICWINTER", "why": "rivals own it",
+                           "angle": "our take", "inspired_by": "RIVALRESORT"}]}, ""
+    main.intel_ai.content_gaps = _fake_gaps
+    try:
+        gaps_res = c.post("/w/%s/admin/company" % CLIENT, data={"op": "gaps"}).get_json()
+    finally:
+        main.intel_ai.content_gaps = real_gaps_fn
+    _check("op=gaps compares own titles against competitor titles and stores the snapshot",
+           gaps_res["ok"] is True
+           and any("OWNPOSTGLAMPING" in ln for ln in gap_calls["own"])
+           and any("RIVALPOSTWINTER" in b for b in gap_calls["comp"])
+           and not any("OWNPOSTGLAMPING" in b for b in gap_calls["comp"])
+           and workspace.company_profile(workspace.load_workspace(CLIENT))
+           ["content_gaps"]["items"][0]["topic"] == "GAPTOPICWINTER")
+    body = c.get("/w/%s/company" % CLIENT).get_data(as_text=True)
+    _check("the stored gap analysis renders for the team",
+           "GAPTOPICWINTER" in body and "GAPSUMMARY" in body)
+    import digest as _digest
+    chunks = _assistant_ai.build_chunks(workspace.load_workspace(CLIENT), [])
+    _check("the gap analysis is indexed for the Assistant but stays OUT of the deck brief",
+           any(ch["kind"] == "company" and "GAPTOPICWINTER" in ch["text"] for ch in chunks)
+           and "GAPTOPICWINTER" not in _digest.company_brief(workspace.load_workspace(CLIENT)))
+
+    # The regrouped nav (2026-07-29, re-cut 2026-08-04): THREE top-level rows -- Working Together /
+    # Campaigns / Insights -- all groups, no flat links. Reports and Company moved into Working
+    # Together (the whole engagement in one place); Insights keeps Market Intelligence + the
+    # team-only tools. Assert each tab sits in the group it belongs to.
     nav = c.get("/w/%s/company" % CLIENT).get_data(as_text=True)
     nav = nav[nav.index('<nav class="ax-nav"'):nav.index("</nav>")]
-    _check("the nav has exactly 4 top-level rows (Company + 3 groups)",
+    _check("the nav has exactly 3 top-level rows (all groups, no flat links)",
            nav.count("ax-nav-group") == 3 and nav.count('class="ax-nav-ghead"') == 3
            and nav.count('data-tab="company"') == 1)
-    _check("Dashboard, Communications and Tasks moved under Working Together",
+    _check("Dashboard, Communications, Tasks, Reports and Company sit under Working Together",
            nav.index("Working Together") < nav.index('data-tab="dashboard"')
            < nav.index('data-tab="conversations"') < nav.index('data-tab="progress"')
-           < nav.index('data-tab="company"'))
+           < nav.index('data-tab="reports"') < nav.index('data-tab="company"')
+           < nav.index("Campaigns"))
     _check("Working Together is FIRST -- it holds the landing tab",
            nav.index("Working Together") < nav.index("Campaigns")
            and nav.index("Working Together") < nav.index("Insights"))
-    _check("the Content Calendar moved under the Campaigns group",
+    _check("the Content Calendar sits under the Campaigns group",
            nav.index("Campaigns") < nav.index('data-tab="calendar"') < nav.index("Insights"))
-    _check("Reports moved under the Insights group",
-           nav.index('data-tab="reports"') > nav.index("Insights"))
+    _check("Reports is OUT of Insights -- it lives in Working Together now",
+           nav.index('data-tab="reports"') < nav.index("Insights"))
     # The landing tab lives inside a group now, so its group MUST render already open -- otherwise
     # a client arriving at /w/<c>/ sees a rail with no active item anywhere on it.
     land = c.get("/w/%s/" % CLIENT).get_data(as_text=True)

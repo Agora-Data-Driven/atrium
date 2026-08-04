@@ -15,6 +15,14 @@ prose):
 
   kind   = cover | section | content | closing        (one layout each, same block list)
   blocks = text | bullets | cards | callout | action | chips | kpis | chart | table | compare
+           | funnel (the drawn funnel graph) -- and each slide carries `slot`, the report_spec
+           spine slot it fills ("" = off-spine, e.g. a slide an AI edit added on purpose)
+
+🔴 **A generated deck is EXACTLY EIGHT SLIDES** (2026-08-04): cover + one slide per report_spec
+slot (tasks, research, funnel, what_happened, why_happened, next_steps, opportunities). The model
+is told the contract AND `enforce_spine` pins the result to it in code -- off-spine slides drop,
+missing slots backfill from the deterministic draft. `revise` deliberately does NOT re-enforce, so
+an explicit edit ("add a slide about project X") can grow a stored deck past eight.
 
 🔴 **Numbers in a visual are never model-written.** `build_facts` derives every series, table,
 before/after and KPI tile from the dashboard export in plain Python; a `chart`/`table`/`compare`
@@ -43,6 +51,7 @@ import base64
 import datetime
 import html
 import json
+import math
 import re
 
 import digest
@@ -134,7 +143,7 @@ def _div(a, b):
 #   {"key", "kind": series|table|compare|tiles, "title", "subtitle", "summary", ...payload}
 # `summary` is the one-line form the MODEL reads (so it can quote the numbers in prose); the rest is
 # what the RENDERER draws. Nothing here is ever asked of the model.
-_FACT_KINDS = ("series", "table", "compare", "tiles", "list")
+_FACT_KINDS = ("series", "table", "compare", "tiles", "list", "funnel")
 
 
 def _roll(rows, key=None):
@@ -289,12 +298,18 @@ def _tone_rows(rows, tone_key, direction="low_good"):
 
 
 def _window_compare(rows, dates, span=14):
-    """The last `span` days against the `span` before them -- the like-for-like slide's numbers."""
+    """The last `span` days against the `span` before them -- the like-for-like default."""
     if len(dates) < span + 2:
         return None
     after_days, before_days = set(dates[-span:]), set(dates[-2 * span:-span])
     if not before_days:
         return None
+    return _compare_days(rows, before_days, after_days)
+
+
+def _compare_days(rows, before_days, after_days):
+    """The before/after compare fact over two EXPLICIT day sets (the windowed report path derives
+    its own: this window against the equal days before it)."""
     after = _derive(_roll([r for r in rows if (r.get("date") or "")[:10] in after_days]))
     before = _derive(_roll([r for r in rows if (r.get("date") or "")[:10] in before_days]))
     n_before, n_after = len(before_days), len(after_days)
@@ -331,59 +346,61 @@ def _window_compare(rows, dates, span=14):
                           _money(after["spend"], cents=False), _money(before["spend"], cents=False))}
 
 
-_LIVE_STAGES = ("in_progress", "revision")
-
-
-def delivery_facts(tasks_view, awaiting=(), since=""):
-    """The Delivery slide's facts, built from `main._progress_tasks`'s CLIENT-SAFE columns.
+def tasks_facts(tasks_view):
+    """The Tasks slide's facts: the client-safe board VERBATIM -- a count per column plus every
+    card under the column name the Tasks tab itself shows (To do / In progress / Paused /
+    Revision / Completed for a client viewer). Nothing renamed, nothing editorialized.
 
     🔴 Never from `ws["tasks"]` directly. The raw task carries owners, `service_charge`,
     `internal_notes` and `hold_reason`, all of which are deliberately stripped before reaching a
-    client's HTML -- and this deck IS client-visible. A held task shows the client "Paused" and the
-    internal reason never crosses, exactly as on the Tasks tab.
-
-    `since` windows the shipped list (the previous report's date, so nothing is reported twice);
-    `awaiting` is the content-approval asks, which ARE client-safe by construction."""
-    cols = {c.get("key"): (c.get("tasks") or []) for c in (tasks_view or [])}
-    live, nxt, shipped, waiting = [], [], [], []
-    for stage, bucket in cols.items():
+    client's HTML -- and this deck IS client-visible. `main._progress_tasks(ws)` is the one
+    client-safe projection, and its column `name` labels are the Tasks tab's own."""
+    counts, rows, dropped = [], [], 0
+    for col in tasks_view or []:
+        label = (col.get("name") or col.get("key") or "").strip() or "?"
+        bucket = col.get("tasks") or []
+        counts.append({"key": col.get("key") or label, "label": label,
+                       "value": str(len(bucket)), "note": "",
+                       "tier": "primary" if bucket else "secondary"})
+        if (col.get("key") == "completed") and len(bucket) > _TASKS_DONE_CAP:
+            # A board accumulates finished work forever; the slide shows the freshest few and
+            # says so, the count tile above still carries the true total.
+            bucket = sorted(bucket, key=lambda t: t.get("completed_at") or "",
+                            reverse=True)[:_TASKS_DONE_CAP]
+            dropped += 1
         for t in bucket:
             title = (t.get("title") or "").strip() or "(untitled)"
-            launch = t.get("due_date") or ""
-            if t.get("on_hold") or stage == "blocked":
-                waiting.append("%s - paused" % title)
-                continue
-            if stage in _LIVE_STAGES:
-                pct = t.get("pct")
-                bits = [title]
-                if launch:
-                    bits.append("launching %s" % short_date(launch))
-                if isinstance(pct, int) and t.get("subs_total"):
-                    bits.append("%d%% of steps done" % pct)
-                live.append(", ".join(bits))
-            elif stage == "todo":
-                nxt.append("%s%s" % (title, (", launching %s" % short_date(launch)) if launch else ""))
-            elif stage == "completed":
-                done = (t.get("completed_at") or "")[:10]
-                if since and done and done < since[:10]:
-                    continue        # already reported last time
-                shipped.append("%s%s" % (title, (" - shipped %s" % short_date(done)) if done else ""))
-    waiting = list(awaiting or []) + waiting
-    window = ("Shipped since the last report (%s)" % short_date(since)) if since \
-        else "Shipped recently"
-    return [_list_fact("delivery_live", "Live now", "In progress on your account", live),
-            _list_fact("delivery_next", "Next up", "Queued, not started", nxt),
-            _list_fact("delivery_shipped", "Shipped", window, shipped),
-            _list_fact("delivery_waiting", "Waiting on you",
-                       "The deck raises these here rather than at the end", waiting)]
+            status = label
+            if t.get("on_hold") and col.get("key") != "blocked":
+                status += ", paused"
+            when = ""
+            if col.get("key") == "completed" and t.get("completed_at"):
+                when = "shipped %s" % short_date((t.get("completed_at") or "")[:10])
+            elif t.get("due_date"):
+                when = "launching %s" % short_date(t.get("due_date"))
+            rows.append({"task": title, "status": status, "when": when})
+    board = _table("tasks_board", "The board, as it stands",
+                   "Straight from the Tasks tab",
+                   [{"key": "task", "label": "Task"},
+                    {"key": "status", "label": "Status"},
+                    {"key": "when", "label": "Timing", "align": "right"}], rows[:_TASKS_ROW_CAP],
+                   note=("Completed work shows the %d most recent items." % _TASKS_DONE_CAP)
+                        if dropped else "")
+    tiles = _tiles("tasks_counts", "Where the work stands", counts,
+                   subtitle="One tile per Tasks-tab column")
+    return [tiles, board]
+
+
+_TASKS_DONE_CAP = 6
+_TASKS_ROW_CAP = 14
 
 
 def _funnel_fact(total, objective, engagement_label=""):
-    """Every step from impression to conversion, with the rate between each pair.
+    """Every step from impression to conversion, as a DRAWN funnel (kind `funnel`).
 
     No best/worst tone: step rates are not comparable to each other (impression-to-click is always
-    ~1%, click-to-purchase always lower), so crowning one would be meaningless. The model is asked
-    to name the constraint instead."""
+    ~1%, click-to-purchase always lower), so crowning one would be meaningless. The companion
+    `funnel_notes` fact carries the computed observations for the bullets beside the graph."""
     spec = report_spec.CONVERSION.get(objective) or {}
     # The last step is a COUNT of conversions, so it wears the unit ("purchases"/"leads") or the
     # client's own word for it -- never the value label ("Revenue"), which is not a funnel step.
@@ -404,18 +421,46 @@ def _funnel_fact(total, objective, engagement_label=""):
         if prev and value > prev:
             rate = "n/a"
             inconsistent = True
-        rows.append({"step": name, "volume": _int_fmt(value), "rate": rate})
+        rows.append({"step": name, "volume": _int_fmt(value), "rate": rate,
+                     "_value": float(value)})
         prev = value
     if len(rows) < 3:
         return None
     note = ("One step counts higher than the step above it, so those two are measured differently "
             "and their rate is left out.") if inconsistent else ""
-    return _table("funnel", "The path from impression to %s" % conv_label.lower(),
-                  "Each rate is the share of the step above it",
-                  [{"key": "step", "label": "Step"},
-                   {"key": "volume", "label": "Volume", "align": "right"},
-                   {"key": "rate", "label": "From the step above", "align": "right"}], rows,
-                  note=note)
+    head = " | ".join(("Step", "Volume", "From the step above"))
+    lines = [" | ".join((r["step"], r["volume"], r["rate"])) for r in rows]
+    return {"key": "funnel", "kind": "funnel",
+            "title": "The path from impression to %s" % conv_label.lower(),
+            "subtitle": "Each rate is the share of the step above it",
+            "rows": rows, "note": note,
+            "summary": "%s: %s -- %s" % ("The path from impression to %s" % conv_label.lower(),
+                                         head, "; ".join(lines))}
+
+
+def _funnel_notes(funnel_fact):
+    """Computed observations beside the funnel graph -- arithmetic over the fact, never invention.
+
+    The no-AI deck uses these verbatim; a model may write sharper ones from the same numbers."""
+    if not funnel_fact:
+        return None
+    rows = funnel_fact.get("rows") or []
+    notes = []
+    pairs = []
+    for above, below in zip(rows, rows[1:]):
+        if below.get("rate") not in ("-", "n/a", ""):
+            pairs.append((above["step"], below["step"], below["rate"],
+                          float(str(below["rate"]).rstrip("%") or 0)))
+    for above, below, rate, _v in pairs:
+        notes.append("%s to %s converts at %s." % (above, below, rate))
+    if len(pairs) > 1:
+        weakest = min(pairs, key=lambda p: p[3])
+        notes.append("The steepest drop is %s to %s (%s) - that step is the constraint."
+                     % (weakest[0], weakest[1], weakest[2]))
+    if funnel_fact.get("note"):
+        notes.append(funnel_fact["note"])
+    return _list_fact("funnel_notes", "What the funnel says",
+                      "Computed from the steps beside it", notes)
 
 
 def _decomposition_fact(rows, dates, objective, span=14):
@@ -609,8 +654,10 @@ def _facts_windsor(data, objective="sales", engagement=None):
                             cols, trows))
 
     facts.append(_vs_target_fact(total, engagement, objective))
-    facts.append(_funnel_fact(total, objective, ((engagement or {}).get("conversion") or {})
-                              .get(objective, {}).get("label", "")))
+    fun = _funnel_fact(total, objective, ((engagement or {}).get("conversion") or {})
+                       .get(objective, {}).get("label", ""))
+    facts.append(fun)
+    facts.append(_funnel_notes(fun))
     facts.append(_decomposition_fact(rows, dates, objective))
     facts.append(_pressure_tiles(weeks))
     if ads:
@@ -878,6 +925,13 @@ def _daily_compare(daily, dates, columns, span=14):
     after_days, before_days = set(dates[-span:]), set(dates[-2 * span:-span])
     if not before_days:
         return None
+    return _daily_compare_days(daily, before_days, after_days, columns)
+
+
+def _daily_compare_days(daily, before_days, after_days, columns):
+    """The template-shape compare fact over two EXPLICIT day sets."""
+    if not columns:
+        return None
     sums = {"before": {}, "after": {}}
     for row in daily:
         day = str(row.get("date") or "")[:10]
@@ -991,16 +1045,139 @@ def infer_objective(dash_data, engagement=None):
     return "sales" if ("revenue" in keys or "roas" in keys) else "leadgen"
 
 
-def build_facts(dash_data, engagement=None, objective=""):
+def build_facts(dash_data, engagement=None, objective="", window=None):
     """The deck's computed datasets, keyed: {key: fact}. Handles BOTH dashboard shapes (the
     Windsor-live per-ad/day export and the template `kpis`/`daily` contract); unknown/empty -> {}.
 
-    `engagement` supplies the objective and the targets (workspace.engagement_of)."""
+    `engagement` supplies the objective and the targets (workspace.engagement_of). `window` is an
+    optional (first_iso, last_iso) pair (see `report_window`): dated rows outside it are dropped
+    before any fact is computed, so every total, table and funnel answers for THE WINDOW -- and
+    `recent_vs_prior` is recomputed as the window against the equal days before it (from the full
+    export), because inside a 7-day window the default 14-vs-14 compare cannot exist."""
     data = dash_data if isinstance(dash_data, dict) else {}
     objective = objective or infer_objective(data, engagement)
-    facts = (_facts_windsor(data, objective, engagement) if data.get("rows")
-             else _facts_template(data))
-    return {f["key"]: f for f in facts if f}
+    wdata = _window_data(data, window)
+    facts = (_facts_windsor(wdata, objective, engagement) if data.get("rows")
+             else _facts_template(wdata))
+    out = {f["key"]: f for f in facts if f}
+    if window:
+        vs_prior = _window_vs_prior(data, window)
+        if vs_prior:
+            out["recent_vs_prior"] = vs_prior
+        elif "recent_vs_prior" in out:
+            # The windowed rows can't support their own default compare AND no prior period
+            # exists -- an unwindowed leftover would silently answer a different question.
+            del out["recent_vs_prior"]
+        if data.get("rows"):
+            # The Windsor totals were computed over the windowed rows -- only the wording lies.
+            if "totals" in out:
+                out["totals"]["title"] = "The window in numbers"
+                out["totals"]["summary"] = out["totals"]["summary"].replace(
+                    "The campaign to date", "The window in numbers", 1)
+        else:
+            # 🔴 The template shape's `kpis` block is a WHOLE-FLIGHT aggregate baked into the
+            # export -- inside a window those tiles would lie. Recompute the totals from the
+            # windowed daily rows instead (or drop them when there are none).
+            out.pop("totals", None)
+            sums = {}
+            for row in (wdata.get("daily") or []):
+                if not isinstance(row, dict):
+                    continue
+                for k, v in row.items():
+                    if k != "date" and isinstance(v, (int, float)):
+                        sums[k] = sums.get(k, 0) + v
+            if sums:
+                cols = sorted(sums, key=lambda k: -abs(sums[k]))[:8]
+                items = [{"key": c, "label": _col_label(c), "value": _fmt_col(c, _num(sums[c])),
+                          "note": "", "tier": "primary" if i < 5 else "secondary"}
+                         for i, c in enumerate(cols)]
+                tot = _tiles("totals", "The window in numbers", items)
+                if tot:
+                    out["totals"] = tot
+    return out
+
+
+# The Reports tab's reporting-window choices (the form's `period` field).
+WINDOW_MODES = {"mtd": "Month to date", "last_week": "Last full week"}
+
+
+def report_window(dash_data, mode, when=""):
+    """The (first_iso, last_iso) calendar window `mode` resolves to, or None for the whole flight.
+
+    'mtd' = the 1st of the month through the anchor day; 'last_week' = the most recent COMPLETE
+    Monday-Sunday week. Anchored on the LAST date in the export (exports lag, so anchoring on
+    today could window onto days with no data yet), falling back to `when`, then today."""
+    if mode not in WINDOW_MODES:
+        return None
+    _first, last = _period_of(dash_data)
+    anchor = last or (when or "")[:10] or datetime.date.today().isoformat()
+    try:
+        d = datetime.date.fromisoformat(anchor[:10])
+    except ValueError:
+        return None
+    if mode == "mtd":
+        return (d.replace(day=1).isoformat(), d.isoformat())
+    end = d if d.weekday() == 6 else d - datetime.timedelta(days=d.weekday() + 1)
+    return ((end - datetime.timedelta(days=6)).isoformat(), end.isoformat())
+
+
+def _window_data(data, window):
+    """A copy of the export filtered to `window`. Dated rows outside it are dropped from
+    rows/daily/demographics/activecampaign; an UNDATED row is kept (a breakdown that carries no
+    date column must not vanish from a windowed report)."""
+    if not window:
+        return data
+    lo, hi = window
+
+    def keep(r):
+        d = (r.get("date") or "")[:10] if isinstance(r, dict) else ""
+        return (not d) or (lo <= d <= hi)
+
+    out = dict(data)
+    for k in ("rows", "daily"):
+        if isinstance(data.get(k), list):
+            out[k] = [r for r in data[k] if keep(r)]
+    demo = data.get("demographics")
+    if isinstance(demo, dict):
+        out["demographics"] = {k: ([r for r in v if keep(r)] if isinstance(v, list) else v)
+                               for k, v in demo.items()}
+    ac = data.get("activecampaign")
+    if isinstance(ac, dict) and isinstance(ac.get("campaigns"), list):
+        out["activecampaign"] = dict(ac, campaigns=[c for c in ac["campaigns"] if keep(c)])
+    return out
+
+
+def _window_vs_prior(data, window):
+    """`recent_vs_prior` recomputed as THIS WINDOW against the equal days before it, from the FULL
+    export. None when either side has under 2 data days (no fake compare, ever)."""
+    lo, hi = window
+    rows = data.get("rows") or []
+    if rows:
+        dates = sorted({(r.get("date") or "")[:10] for r in rows if r.get("date")})
+        after = [d for d in dates if lo <= d <= hi]
+        if len(after) < 2:
+            return None
+        before = [d for d in dates if d < lo][-len(after):]
+        if len(before) < 2:
+            return None
+        return _compare_days(rows, set(before), set(after))
+    daily = [r for r in (data.get("daily") or []) if isinstance(r, dict)]
+    if daily:
+        dates = sorted({str(r.get("date") or "")[:10] for r in daily if r.get("date")})
+        after = [d for d in dates if lo <= d <= hi]
+        if len(after) < 2:
+            return None
+        before = [d for d in dates if d < lo][-len(after):]
+        if len(before) < 2:
+            return None
+        sums = {}
+        for row in daily:
+            for k, v in row.items():
+                if k != "date" and isinstance(v, (int, float)):
+                    sums[k] = sums.get(k, 0) + abs(v)
+        columns = sorted(sums, key=lambda k: -sums[k])[:6]
+        return _daily_compare_days(daily, set(before), set(after), columns)
+    return None
 
 
 def facts_catalogue(facts, cap=700):
@@ -1120,29 +1297,35 @@ def _engagement_of(ws):
             "conversion": eng.get("conversion") if isinstance(eng.get("conversion"), dict) else {}}
 
 
-def gather(ws, archives, dash_data, tasks_view=None, since=""):
+def gather(ws, archives, dash_data, tasks_view=None, window_mode=""):
     """The report's source material: the computed fact pack + text blocks from the distilled layer.
 
     Pure -- the caller loads archives/dash_data and passes `tasks_view`
-    (`main._progress_tasks(ws)`, the CLIENT-SAFE task projection) plus `since` (the previous
-    report's date, so the Delivery slide never reports the same shipped work twice)."""
+    (`main._progress_tasks(ws)`, the CLIENT-SAFE task projection) plus `window_mode` (the Reports
+    tab's period choice: 'mtd' / 'last_week' / '' for the whole flight -- see report_window).
+    Every numeric fact answers for that window; the Tasks board is always current-state."""
     intel = ws.get("intel") or {}
     needed, blocked = _asks(ws)
     first, last = _period_of(dash_data)
     engagement = _engagement_of(ws)
     objective = infer_objective(dash_data, engagement)
     objectives = engagement["objectives"] or [objective]
-    facts = build_facts(dash_data, engagement, objective)
-    for fact in delivery_facts(tasks_view, awaiting=needed, since=since):
+    window = report_window(dash_data, window_mode)
+    facts = build_facts(dash_data, engagement, objective, window=window)
+    for fact in tasks_facts(tasks_view):
         if fact:
             facts[fact["key"]] = fact
+    period = period_label(*(window or (first, last)))
+    if window:
+        period = "%s%s" % (WINDOW_MODES[window_mode], (", " + period) if period else "")
     return {
         # The numbers, computed. Every chart/table/before-after in the deck is drawn from these.
         "facts": facts,
         "objective": objective,
         "objectives": objectives,
         "engagement": engagement,
-        "period": period_label(first, last),
+        "period": period,
+        "window_mode": window_mode if window else "",
         # Who the client is (Company tab) -- so the deck speaks in their language about their
         # actual products, instead of generic agency prose. Same distilled layer the Assistant reads.
         "company": digest.company_brief(ws),
@@ -1167,7 +1350,8 @@ _SHAPE = (
     '{"kind": "cover", "eyebrow": "Performance review", "title": "One sentence claim.", '
     '"subtitle": "...", "blocks": [{"type": "chips", "items": [{"label": "Window", '
     '"value": "..."}]}]}, '
-    '{"kind": "content", "eyebrow": "...", "title": "A claim with the number in it", '
+    '{"kind": "content", "slot": "what_happened", "eyebrow": "What happened", '
+    '"title": "A claim with the number in it", '
     '"subtitle": "...", "tone": "good", "source": "Meta Ads via Windsor.ai, 13 May - 27 Jul 2026", '
     '"blocks": [{"type": "text", "body": "..."}, {"type": "kpis", "fact": "totals"}, '
     '{"type": "chart", "fact": "weekly_roas", "caption": "..."}, '
@@ -1176,21 +1360,19 @@ _SHAPE = (
     '{"type": "cards", "items": [{"eyebrow": "Decision one", "title": "...", "body": "..."}]}, '
     '{"type": "bullets", "items": ["..."], "ordered": false}, '
     '{"type": "panel", "title": "What we think is happening", "body": "..."}, '
-    '{"type": "split", "left": [{"type": "table", "fact": "age"}], '
-    '"right": [{"type": "chart", "fact": "reallocation"}, '
+    '{"type": "split", "left": [{"type": "funnel", "fact": "funnel"}], '
+    '"right": [{"type": "bullets", "items": ["..."]}, '
     '{"type": "panel", "title": "The cheapest lever we have", "body": "..."}]}, '
     '{"type": "callout", "tone": "warn", "body": "..."}, '
-    '{"type": "action", "body": "exclude 18-34 and skew delivery female, live this week"}]}, '
-    '{"kind": "section", "eyebrow": "Part two", "title": "Where the next gains are.", '
-    '"subtitle": "...", "blocks": [{"type": "kpis", "items": [{"value": "+63%", '
-    '"label": "more clicks", "note": "from the same budget"}]}]}, '
-    '{"kind": "closing", "title": "...", "subtitle": "..."} ]}')
+    '{"type": "action", "body": "exclude 18-34 and skew delivery female, live this week"}]} ]}')
 
 def _gen_system(objectives=("sales",)):
     """The system prompt for a deck, with the SPINE injected as a contract.
 
     The running order is not a suggestion the model may improve on -- it is the standard every
-    client's deck follows, so it is stated as numbered slots and asserted in the tests."""
+    client's deck follows. It is stated here as numbered slots AND enforced in code afterwards
+    (`enforce_spine`), so a drifting model changes the wording of a slide, never the shape of
+    the deck."""
     return _GEN_SYSTEM_HEAD + report_spec.brief(objectives) + _GEN_SYSTEM_TAIL
 
 
@@ -1202,31 +1384,31 @@ _GEN_SYSTEM_HEAD = (
     "'Performance summary'. Put the number in the title when there is one. The cover title is the "
     "single most important thing you learned from the material. The `eyebrow` is the slot's fixed "
     "label, given below -- use it VERBATIM so every report this client receives looks the same.\n"
-    "2. FOLLOW THE RUNNING ORDER EXACTLY. These slots, in this order, one or more slides each:\n")
+    "2. THE DECK IS EXACTLY EIGHT SLIDES: one cover, then ONE `content` slide per slot below, in "
+    "this order. Every non-cover slide carries its slot key in `slot`. This is enforced in code "
+    "after you answer -- an off-spine slide is dropped and a missing slot is backfilled with an "
+    "unwritten data-only slide, so deviating never shortens the deck, it only makes it worse:\n")
 
 _GEN_SYSTEM_TAIL = ("\n"
     "3. FILL THE SLIDE. This is a 16:9 presentation slide, not a bullet. Give each content slide "
     "4 to 6 blocks and roughly 120 to 180 words, and make it carry ONE argument end to end: the "
     "evidence, what it MEANS, and the consequence. A figure alone is half a slide -- pair every "
     "chart or table with a `panel` (a short titled reading of it) or a `text`, and when two pieces "
-    "of evidence belong to the same argument, put them side by side with `split` (table left, the "
-    "reallocation chart and its panel right). A slide holding one figure and one sentence is a "
-    "wasted slide; either fill it or fold it into its neighbour.\n"
-    "4. 12 to 18 slides. Spend them on the argument, not on ceremony.\n"
-    "5. THE NUMBERS ARE GIVEN TO YOU. The FACT PACK below lists computed datasets by key. To show "
+    "of evidence belong to the same argument, put them side by side with `split`. A slide holding "
+    "one figure and one sentence is a wasted slide.\n"
+    "4. THE NUMBERS ARE GIVEN TO YOU. The FACT PACK below lists computed datasets by key. To show "
     "one, emit a block with its `fact` key ({\"type\": \"chart\", \"fact\": \"weekly_roas\"}) and "
     "write the interpretation in a nearby `panel`/`text` block or the `caption`. NEVER retype a "
     "fact's numbers into a table or chart of your own, and never use a key that is not in the "
-    "pack. Use as many of the pack's keys as the argument can carry -- an unused fact is an "
-    "unmade point, and the pack already contains the reallocation math, the best audience cell, "
-    "the cost pressure and the creative bench.\n"
-    "6. Any number in your PROSE must appear in the source material verbatim. Invent nothing. If "
+    "pack. The funnel fact draws as a graph via {\"type\": \"funnel\", \"fact\": \"funnel\"}.\n"
+    "5. Any number in your PROSE must appear in the source material verbatim. Invent nothing. If "
     "the material does not support a claim, drop the claim.\n"
-    "7. `source` on a content slide names where its numbers came from, in the client's words.\n"
-    "8. Say what we will DO, not what could be considered. Imperative, specific, owned by us.\n"
-    "9. No jargon, no em dashes (use commas or hyphens), no filler slides. A slot marked "
-    "'include only if its facts exist' is dropped silently when they do not.\n"
-    "10. NEVER name a slide after a deficiency. 'Where we are overpaying' is not a slide -- the "
+    "6. `source` on a content slide names where its numbers came from, in the client's words.\n"
+    "7. Say what we will DO, not what could be considered. Imperative, specific, owned by us. "
+    "What-we'll-do actions and Opportunities never overlap: the first is work on the current "
+    "account, the second is NEW headroom.\n"
+    "8. No jargon, no em dashes (use commas or hyphens), no filler.\n"
+    "9. NEVER name a slide after a deficiency. 'Where we are overpaying' is not a slide -- the "
     "same finding belongs under Opportunities as the gain it unlocks ('+377 clicks from the same "
     "budget'), with the shortfall as evidence underneath.")
 
@@ -1234,9 +1416,13 @@ _REVISE_SYSTEM = (
     "You edit a marketing agency's client deck. You get the deck's current JSON payload and the "
     "team's edit instruction. Apply the instruction and return the FULL updated payload as JSON "
     "ONLY, keeping exactly this shape: " + _SHAPE + " Change only what the instruction asks for; "
-    "keep every other slide and block verbatim. Fact keys in chart/table/compare blocks refer to "
-    "computed datasets you cannot see - keep them as they are unless the instruction is about "
-    "them, and never invent a new key. No em dashes in any text.")
+    "keep every other slide and block verbatim, in the same order. The deck normally follows a "
+    "fixed eight-slide spine, but an edit MAY add a slide when the instruction asks for one "
+    "(give it \"slot\": \"\" and place it where the instruction says, or before the last slide); "
+    "an edit scoped to one slide must leave every other slide untouched. Fact keys in "
+    "chart/table/compare/funnel blocks refer to computed datasets you cannot see - keep them as "
+    "they are unless the instruction is about them, and never invent a new key. No em dashes in "
+    "any text.")
 
 
 def _material_text(client_name, when, inputs):
@@ -1291,10 +1477,10 @@ def _parse_json(raw):
 # --- Normalization: coerce anything into the canonical payload the renderer trusts ----------------
 _SLIDE_KINDS = ("cover", "section", "content", "closing")
 _TONES = ("good", "warn", "bad", "neutral")
-# `bullets` is fact-backed too: the Delivery slide's blockers and shipped work must reach the
-# client VERBATIM out of the client-safe task projection, never paraphrased by a model.
+# `bullets` is fact-backed too: the Tasks slide's board lines must reach the client VERBATIM out
+# of the client-safe task projection, never paraphrased by a model. `funnel` is the drawn funnel.
 _FACT_BLOCKS = {"chart": ("series",), "table": ("table",), "compare": ("compare",),
-                "kpis": ("tiles",), "bullets": ("list",)}
+                "kpis": ("tiles",), "bullets": ("list",), "funnel": ("funnel",)}
 
 
 def _s(v, cap=400):
@@ -1401,7 +1587,11 @@ def _norm_slide(s, facts):
         nb = _norm_block(b, facts)
         if nb:
             blocks.append(nb)
-    slide = {"kind": kind, "eyebrow": _s(s.get("eyebrow"), 80), "title": _s(s.get("title"), 200),
+    # The spine slot this slide fills (enforce_spine maps on it; "" = off-spine, e.g. a slide an
+    # edit added on purpose). Normalized to the slot KEY whether the model wrote key or eyebrow.
+    slot = report_spec.slot_of(_s(s.get("slot"), 40))
+    slide = {"kind": kind, "slot": slot["key"] if slot else "",
+             "eyebrow": _s(s.get("eyebrow"), 80), "title": _s(s.get("title"), 200),
              "subtitle": _s(s.get("subtitle"), 300),
              "tone": tone if tone in _TONES else "neutral",
              "source": _s(s.get("source"), 200), "blocks": blocks}
@@ -1492,7 +1682,7 @@ def normalize_payload(p, facts=None):
 
 # --- The no-AI deck: honest, and now a real one --------------------------------------------------
 _BLOCK_FOR_KIND = {"series": "chart", "table": "table", "compare": "compare",
-                   "tiles": "kpis", "list": "bullets"}
+                   "tiles": "kpis", "list": "bullets", "funnel": "funnel"}
 
 
 def _fact_blocks(facts, keys):
@@ -1518,24 +1708,37 @@ def _fact_slide(facts, eyebrow, title, left, right=()):
             "tone": "neutral", "source": "", "blocks": blocks}
 
 
-def draft_payload(inputs, client_name="", when=""):
-    """The deterministic no-AI deck: it WALKS THE SPINE, slot by slot, filling each from the facts
-    that slot declares.
+def _gap_slide(slot, body):
+    """The honest empty-slot slide: the eight-slide standard never silently skips a chapter."""
+    return {"kind": "content", "slot": slot["key"], "eyebrow": slot["eyebrow"],
+            "title": "Nothing to show here yet", "subtitle": slot["purpose"],
+            "tone": "warn", "source": "",
+            "blocks": [{"type": "callout", "tone": "warn", "body": body}]}
 
-    This is the reference implementation of the standard -- the same running order the model is held
-    to, with no written analysis (nothing here is invented). A required slot whose data is not wired
-    up yet renders an honest "not measured" slide rather than being skipped silently, because that
-    gap is a finding in itself."""
-    facts = (inputs or {}).get("facts") or {}
-    period = (inputs or {}).get("period") or ""
-    objectives = (inputs or {}).get("objectives") or ("sales",)
+
+_NOT_WIRED = ("No data source is wired up for this yet, so this report cannot answer it "
+              "honestly. Naming the gap is the finding: wiring it is on the list.")
+
+
+def draft_payload(inputs, client_name="", when=""):
+    """The deterministic no-AI deck: cover + ONE slide per spine slot, filled from the facts each
+    slot declares.
+
+    This is the reference implementation of the strict eight-slide standard, and the backfill
+    source `enforce_spine` reaches for when a model skips a slot. No written analysis -- nothing
+    here is invented -- so the two prose slots (Research's why-it-matters lines, What-we'll-do's
+    actions) state plainly that a strategist has not written them, rather than pretending."""
+    inputs = inputs or {}
+    facts = inputs.get("facts") or {}
+    period = inputs.get("period") or ""
+    client = client_name or ""
     slides = [{
         "kind": "cover", "eyebrow": "Performance review",
-        "title": client_name or "Performance review",
+        "title": client or "Performance review",
         "subtitle": "What the numbers say for %s" % (period or date_label(when) or "this period"),
         "tone": "neutral", "source": "",
         "blocks": [{"type": "chips", "items": [c for c in (
-            {"label": "Client", "value": _s(client_name, 120)} if client_name else None,
+            {"label": "Client", "value": _s(client, 120)} if client else None,
             {"label": "Window", "value": _s(period, 120)} if period else None,
             {"label": "Prepared", "value": date_label(when)} if when else None) if c]}],
     }]
@@ -1548,48 +1751,100 @@ def draft_payload(inputs, client_name="", when=""):
                         "subtitle": "", "body": _s(tail or head, 400)})
         return out
 
-    for slot in report_spec.slots(objectives):
+    for slot in report_spec.SPINE:
         key = slot["key"]
-        if key == "landscape":
+        slide = None
+        if key == "tasks":
+            blocks = _fact_blocks(facts, [k for k in ("tasks_counts", "tasks_board")
+                                          if k in facts])
+            if blocks:
+                slide = {"kind": "content", "eyebrow": slot["eyebrow"],
+                         "title": "The board, exactly as it stands", "subtitle": "",
+                         "tone": "neutral", "source": "", "blocks": blocks}
+            else:
+                slide = _gap_slide(slot, "No tasks are on the board yet.")
+        elif key == "research":
             items = (cards(inputs.get("conditions"), "Conditions")
                      + cards(inputs.get("business"), "Industry")
                      + cards(inputs.get("media"), "Platforms")
                      + cards(inputs.get("competitors"), "Competitors"))
             if items:
-                slides.append({"kind": "content", "eyebrow": slot["eyebrow"],
-                               "title": "What is happening around you", "subtitle": "",
-                               "tone": "neutral", "source": "",
-                               "blocks": [{"type": "cards", "items": items[:4]}]})
-            continue
-        have = report_spec.expand(slot, facts)
-        if not have:
-            if slot["required"]:
-                slides.append({
-                    "kind": "content", "eyebrow": slot["eyebrow"], "title": "Not measured yet",
-                    "subtitle": slot["purpose"], "tone": "warn", "source": "",
-                    "blocks": [{"type": "callout", "tone": "warn",
-                                "body": "No data source is wired up for this yet, so this report "
-                                        "cannot answer it honestly. Naming the gap is the finding: "
-                                        "wiring it is on the list."}]})
-            continue
-        # Up to two slides per slot, two facts each -- the rest stay available to the model by key.
-        for i in range(0, min(len(have), 4), 2):
-            pair = have[i:i + 2]
-            slide = _fact_slide(facts, slot["eyebrow"], "", (pair[0],), tuple(pair[1:]))
+                slide = {"kind": "content", "eyebrow": slot["eyebrow"],
+                         "title": "What is happening around you", "subtitle":
+                         "Drafted without AI: the why-this-matters readings are not written yet.",
+                         "tone": "neutral", "source": "",
+                         "blocks": [{"type": "cards", "items": items[:4]}]}
+            else:
+                slide = _gap_slide(slot, "No research is on file for this client yet.")
+        elif key == "funnel":
+            left = _fact_blocks(facts, ["funnel"])
+            right = _fact_blocks(facts, ["funnel_notes"])
+            if left:
+                blocks = ([{"type": "split", "left": left, "right": right}] if right else left)
+                slide = {"kind": "content", "eyebrow": slot["eyebrow"],
+                         "title": (facts.get("funnel") or {}).get("title") or "The funnel",
+                         "subtitle": "", "tone": "neutral", "source": "", "blocks": blocks}
+            else:
+                slide = _gap_slide(slot, _NOT_WIRED)
+        elif key == "next_steps":
+            slide = {"kind": "content", "slot": key, "eyebrow": slot["eyebrow"],
+                     "title": "To be written by the strategist", "subtitle": slot["purpose"],
+                     "tone": "neutral", "source": "",
+                     "blocks": [{"type": "callout", "tone": "neutral",
+                                 "body": "This draft was produced without AI, so it lists no "
+                                         "actions -- the evidence slides carry the numbers, and "
+                                         "the actions are agreed on the call."}]}
+        else:
+            have = report_spec.expand(slot, facts)
+            if have:
+                pair = have[:2]
+                slide = _fact_slide(facts, slot["eyebrow"], "", (pair[0],), tuple(pair[1:]))
+                if slide and len(pair) == 2:
+                    slide["title"] = "%s, and %s" % (facts[pair[0]].get("title") or pair[0],
+                                                     (facts[pair[1]].get("title")
+                                                      or pair[1]).lower())
             if not slide:
-                continue
-            if len(pair) == 2:
-                slide["title"] = "%s, and %s" % (facts[pair[0]].get("title") or pair[0],
-                                                 (facts[pair[1]].get("title")
-                                                  or pair[1]).lower())
-            slides.append(slide)
+                slide = _gap_slide(slot, _NOT_WIRED)
+        slide["slot"] = key
+        slides.append(slide)
     return normalize_payload({"meta": {"period": period}, "slides": slides}, facts)
+
+
+def enforce_spine(payload, inputs, client_name="", when=""):
+    """The strict eight-slide standard, enforced in CODE -- the prompt asks, this guarantees.
+
+    Maps the model's slides onto the spine (by their `slot` field, else by a verbatim eyebrow),
+    keeps the first cover, stamps every slide with its slot's canonical eyebrow and key, DROPS
+    anything off-spine, and backfills a missing slot from the deterministic draft. Out: exactly
+    `report_spec.DECK_SLIDES` slides where slide N is slot N-1 -- every client, every run."""
+    ref = draft_payload(inputs, client_name=client_name, when=when)
+    facts = payload.get("facts") or ref.get("facts") or {}
+    ref_by_slot = {s.get("slot"): s for s in ref["slides"] if s.get("slot")}
+    cover, by_slot = None, {}
+    for s in payload.get("slides") or []:
+        if s.get("kind") == "cover":
+            if cover is None:
+                cover = s
+            continue
+        slot = report_spec.slot_of(s.get("slot")) or report_spec.slot_of(s.get("eyebrow"))
+        if slot and slot["key"] not in by_slot:
+            by_slot[slot["key"]] = s
+    slides = [cover or ref["slides"][0]]
+    for slot in report_spec.SPINE:
+        s = dict(by_slot.get(slot["key"]) or ref_by_slot[slot["key"]])
+        s["kind"] = "content"           # a slot slide is always a content slide, never a divider
+        s["slot"] = slot["key"]
+        s["eyebrow"] = slot["eyebrow"]  # canonical, whatever the model wrote
+        slides.append(s)
+    return {"meta": payload.get("meta") or ref.get("meta") or {}, "facts": facts,
+            "slides": slides}
 
 
 def generate(client_name, when, inputs, caller):
     """The slide payload for `inputs`. Returns (payload, error): with a working `caller(system,
-    user) -> (text, err)` the model writes it; on any failure (or caller None) the deterministic
-    deck comes back with the reason -- a deck ALWAYS renders."""
+    user) -> (text, err)` the model writes it -- then `enforce_spine` pins the result to the
+    eight-slide standard; on any failure (or caller None) the deterministic deck comes back with
+    the reason -- a deck ALWAYS renders."""
     facts = (inputs or {}).get("facts") or {}
     if caller is not None:
         try:
@@ -1602,7 +1857,7 @@ def generate(client_name, when, inputs, caller):
             if parsed is not None:
                 payload = normalize_payload(parsed, facts)
                 if payload["slides"]:
-                    return payload, ""
+                    return enforce_spine(payload, inputs, client_name, when), ""
                 err = "the model returned no usable slides"
             else:
                 err = "the model did not return usable JSON"
@@ -1611,9 +1866,14 @@ def generate(client_name, when, inputs, caller):
     return draft_payload(inputs, client_name=client_name, when=when), err
 
 
-def revise(payload, instruction, caller):
+def revise(payload, instruction, caller, slide_no=None):
     """Apply a team edit instruction to an existing payload. Returns (new_payload, error);
     on any failure the ORIGINAL payload comes back with the reason (never a broken deck).
+
+    `slide_no` (1-based, the deck's own numbering, cover = 1) scopes the instruction to ONE slide
+    -- the per-slide path of the Reports tab's Edit-with-AI control. An edit is deliberately NOT
+    re-run through enforce_spine: "add a slide about project X" is a legitimate instruction, and
+    the extra slide (slot "") must survive.
 
     The fact pack is stripped from what the model sees (it is data, often large, and editing it is
     never the instruction) and re-attached to the result, so a revise can never lose the numbers."""
@@ -1621,10 +1881,20 @@ def revise(payload, instruction, caller):
         return payload, "no AI model configured"
     current = normalize_payload(payload)
     facts = current["facts"]
+    instruction = (instruction or "").strip()
+    if slide_no:
+        try:
+            target = current["slides"][int(slide_no) - 1]
+        except (IndexError, ValueError, TypeError):
+            return payload, "no slide %s in this deck" % slide_no
+        instruction = ("Apply this edit ONLY to slide %s (%s: %s). Keep every other slide "
+                       "exactly as it is.\n%s"
+                       % (slide_no, target.get("eyebrow") or target.get("kind"),
+                          target.get("title") or "untitled", instruction))
     visible = {"meta": current["meta"], "slides": current["slides"],
                "available_fact_keys": sorted(facts)}
     user = "Current deck JSON:\n%s\n\nEdit instruction:\n%s" % (
-        json.dumps(visible, indent=1), (instruction or "").strip())
+        json.dumps(visible, indent=1), instruction)
     try:
         raw, err = caller(_REVISE_SYSTEM, user)
     except Exception as e:
@@ -1895,6 +2165,21 @@ ol.list li::marker{color:var(--accent2);font-weight:800}
 .cols .cl{font-size:10.5px;color:var(--muted);letter-spacing:.02em}
 .cols .cn{font-size:9.5px;color:var(--accent);font-weight:800;text-transform:uppercase;
   letter-spacing:.08em}
+/* The drawn funnel: centered bars tapering on a log scale, the step-to-step rate between them.
+   Server-computed widths -- CSS only paints. */
+.funnel{flex:1;min-height:150px;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:4px}
+.funnel .fstep{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  min-width:150px;padding:9px 14px;border-radius:9px;background:var(--accent);color:var(--on_accent)}
+.funnel .fstep .fl{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  opacity:.85;white-space:nowrap}
+.funnel .fstep .fv{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;
+  white-space:nowrap}
+.funnel .fstep:nth-child(n+3){opacity:.88}
+.funnel .fstep:nth-child(n+5){opacity:.76}
+.funnel .frate{font-size:10.5px;font-weight:800;color:var(--accent2);
+  font-variant-numeric:tabular-nums;padding:1px 0}
+.funnel .frate:empty{display:none}
 .rows{display:flex;flex-direction:column;gap:8px}
 .rows .row{display:grid;grid-template-columns:minmax(0,0.9fr) 1.5fr auto;
   align-items:center;gap:12px}
@@ -2061,6 +2346,33 @@ def _table_html(fact, caption="", slide_title=""):
     return "".join(out)
 
 
+def _funnel_html(fact, caption="", slide_title=""):
+    """The drawn funnel: one centered bar per step, width on a log scale (linear width would make
+    every step below Impressions invisible -- the volumes span orders of magnitude), the rate from
+    the step above written between the bars. Values are always written out too, so the graph reads
+    in grayscale and the widths never have to be trusted."""
+    rows = fact.get("rows") or []
+    vols = [max(1.0, _num(r.get("_value"))) for r in rows]
+    if not vols:
+        return ""
+    logs = [math.log10(v) for v in vols]
+    lo, hi = min(logs), max(logs)
+    spread = (hi - lo) or 1.0
+    parts = []
+    for i, r in enumerate(rows):
+        width = 34.0 + 66.0 * ((logs[i] - lo) / spread)
+        if i:
+            parts.append("<div class=\"frate\">%s</div>"
+                         % _esc("" if r.get("rate") in ("-", "") else r.get("rate")))
+        parts.append(
+            "<div class=\"fstep\" style=\"width:%.1f%%\">"
+            "<span class=\"fl\">%s</span><span class=\"fv\">%s</span></div>"
+            % (width, _esc(r.get("step")), _esc(r.get("volume"))))
+    note = ("<div class=\"fsub\">%s</div>" % _esc(fact["note"])) if fact.get("note") else ""
+    return ("<div class=\"figure fill\">%s<div class=\"funnel\">%s</div>%s%s</div>"
+            % (_fig_head(fact, slide_title), "".join(parts), note, caption))
+
+
 def _compare_html(fact, caption="", slide_title=""):
     def side(d, cls):
         rows = "".join("<div class=\"r\"><span class=\"k\">%s</span><span class=\"v\">%s</span></div>"
@@ -2107,6 +2419,8 @@ def _block_html(b, facts, slide_title=""):
             return ""
         if kind == "chart":
             return _chart_html(fact, caption, slide_title)
+        if kind == "funnel":
+            return _funnel_html(fact, caption, slide_title)
         if kind == "table":
             return _table_html(fact, caption, slide_title)
         if kind == "compare":
@@ -2153,8 +2467,9 @@ def _block_html(b, facts, slide_title=""):
         # chart. Two panels side by side must stay their own size and centre, not stretch into a
         # half-empty slide.
         inner = (b.get("left") or []) + (b.get("right") or [])
-        grow = any(x.get("type") == "chart"
-                   and ((facts or {}).get(x.get("fact")) or {}).get("orient") != "rows"
+        grow = any(x.get("type") == "funnel"
+                   or (x.get("type") == "chart"
+                       and ((facts or {}).get(x.get("fact")) or {}).get("orient") != "rows")
                    for x in inner)
         return ("<div class=\"split%s\"><div class=\"scol\">%s</div>"
                 "<div class=\"scol\">%s</div></div>"

@@ -1474,3 +1474,67 @@ def draft_company(client_name, context="", model=None, fetcher=None, token_fetch
     if not any(out.values()):
         return None, "the model returned nothing usable"
     return out, ""
+
+
+# The content-gap analysis (Company tab). Caps mirror _COMPANY_FIELD_MAX's posture: hard limits so
+# a rambling model can never blow the workspace JSON up.
+_GAP_ITEM_FIELDS = {"topic": 160, "why": 500, "angle": 500, "inspired_by": 240}
+_GAP_MAX_ITEMS = 12
+
+
+def content_gaps(client_name, context, own_titles, competitor_blocks, model=None, fetcher=None,
+                 token_fetcher=None, max_tokens=4096):
+    """Compare the client's OWN published content against the watched competitor sources and name
+    the gaps -- topics the competition covers (or the audience plainly needs) that the client has
+    never published on. Returns (payload, error): `payload` is {"summary", "items":[{topic, why,
+    angle, inspired_by}], "model"} or None with a short human reason. Titles carry the topic
+    signal, so the caller sends title lines, never bodies. Gated + graceful; writes nothing."""
+    mid = model if model_available(model) else default_model()
+    if not mid:
+        return None, "no AI model is configured on the server"
+    meta = model_meta(mid)
+    system = (
+        "You are a content strategist for AGORA, a marketing agency. You are given (a) every piece "
+        "of content the client \"%s\" has published, and (b) what their competitors publish. Find "
+        "the CONTENT GAPS: concrete topics the competition covers -- or the client's audience "
+        "clearly needs -- that the client has never published on. Judge topics, not phrasing: a "
+        "differently-worded title on the same subject is NOT a gap. Prefer gaps with commercial "
+        "intent for this client over trivia, and never propose a topic the client's list already "
+        "covers.\n\n"
+        "Return STRICT JSON and nothing else:\n"
+        "{\"summary\": \"2-3 sentences on where the client's content stands vs the competition\", "
+        "\"items\": [{\"topic\": \"the missing topic as a working title\", "
+        "\"why\": \"why this gap matters for THIS client\", "
+        "\"angle\": \"the take that fits the client's own positioning\", "
+        "\"inspired_by\": \"which competitor source(s) cover it, or 'audience need'\"}]}\n"
+        "At most %d items, strongest first. An empty items list is a legal answer when the client "
+        "already covers the field." % (client_name or "the client", _GAP_MAX_ITEMS)
+    )
+    user = (
+        "About the client:\n%s\n\nTHE CLIENT'S OWN PUBLISHED CONTENT:\n%s\n\n"
+        "WHAT THE COMPETITORS PUBLISH:\n%s\n\nFind the content gaps and return the JSON."
+        % ((context or "").strip() or "(no profile on file)",
+           "\n".join(own_titles) or "(nothing archived)",
+           "\n\n".join(competitor_blocks) or "(nothing archived)"))
+    raw, err, _thinking = _call(meta, system, user, fetcher, max_tokens, token_fetcher)
+    if err:
+        return None, err
+    obj = _parse_json(raw)
+    if not isinstance(obj, dict):
+        return None, "the model returned nothing usable"
+    items = []
+    for it in (obj.get("items") if isinstance(obj.get("items"), list) else [])[:_GAP_MAX_ITEMS]:
+        if not isinstance(it, dict):
+            continue
+        row = {}
+        for field, cap in _GAP_ITEM_FIELDS.items():
+            v = (str(it.get(field)) if it.get(field) is not None else "").strip()
+            if len(v) > cap:
+                v = v[:cap].rsplit(" ", 1)[0] + "…"
+            row[field] = v
+        if row.get("topic"):
+            items.append(row)
+    summary = (str(obj.get("summary")) if obj.get("summary") is not None else "").strip()
+    if not summary and not items:
+        return None, "the model returned nothing usable"
+    return {"summary": summary, "items": items, "model": mid}, ""

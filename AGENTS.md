@@ -649,6 +649,30 @@ auto-refresh (see those bullets below). Product name is one constant:
   `section`, gated `is_superadmin()`); clients read only. `atrium_view.intel_sections(ws)` decorates
   the two lists with their display label/lede/icon for the template. No new infra (one more workspace
   JSON key, mirrors Client Communications).
+  - **SAVED SEARCHES (2026-08-04): reusable research queries kept as cards.** When a research angle
+    proves out ("demand for coaches correlates with our coaching-contract sales"), the team saves it
+    once instead of retyping keywords: `ws["intel_searches"]` = a list of
+    `{id, name, keywords, focus, schedule, created, last_run, last_error, last_added}` (writers
+    `workspace.add/update/delete_intel_search` + `mark_intel_search_run`, cap
+    `_MAX_INTEL_SEARCHES`=12). Each card renders in a 3-across team-only grid on the tab with
+    per-card **Refresh now** / Edit / Delete; `schedule` is `daily` (the card joins the
+    `intel-refresh` job's overnight sweep as one more concurrent grounded-research pass) or `manual`
+    (only its button runs it, via `intel_refresh.refresh_search` → `op=search_refresh`). A card's
+    stories land in **business_research** (the default home for extra research) with the entry's
+    **`search`** field = the card id (`search` is now in `workspace._INTEL_FIELDS`), its name as the
+    heading, and its `focus` (blank → the Business Research focus) as the prompt; card outcomes are
+    recorded ON the card (`last_run`/`last_error`/`last_added`), never on the panel's global status.
+    Deleting a card also deletes its plain-auto stories (favourited/hand-added ones stay). The
+    section's plain-auto cap grows `+40` per card (`_SEARCH_CAP_BONUS`) so streams don't evict each
+    other. Route ops: `search_add|search_edit|search_delete|search_refresh` on the same
+    `POST /w/<c>/admin/intel`. **Filter chips** (client-visible too) sit above the feed — All / the
+    two sections / one chip per card (entries carry `data-isearch`; chips filter client-side, and a
+    saved-search chip narrows the grid to Business Research full-width). The **AI Research Brain
+    panel is now a collapsed `<details>`** (opens itself when the model is Off or the last run
+    errored) so the tab leads with the briefing. View context: `atrium_view.intel_search_cards(ws)`
+    (adds per-card story counts). Tests: `_intel_feed_localtest.py` §10 (CRUD + delete purge) and
+    `_intel_ai_localtest.py` §6c (sweep inclusion, tagging, refresh_search, per-card error posture).
+    Shipping this touches BOTH deploys (web + the image-pinned `intel-refresh` job — see below).
   - **Daily AI auto-refresh — GROUNDED web research (an AI 'brain', LIVE):** a Cloud Run job
     `intel-refresh` (`dash/intel_refresh.py`, Cloud Scheduler `intel-refresh-daily` 07:00 SGT) runs
     **grounded research** (`intel_ai.research`): the selected **Vertex Gemini** model, with the live
@@ -703,11 +727,41 @@ auto-refresh (see those bullets below). Product name is one constant:
   so a Trash restore never 404s).
   - **The payload is slides of BLOCKS (rebuilt 2026-07-29 — the old fixed six-slide shape could
     only hold `{title, body}` bullets, so every chart, table and before/after collapsed into
-    prose):** `{meta, facts, slides:[{kind, eyebrow, title, subtitle, tone, source, blocks}]}`.
+    prose):** `{meta, facts, slides:[{kind, slot, eyebrow, title, subtitle, tone, source, blocks}]}`.
     `kind` = cover | section | content | closing; `blocks` = text | bullets | cards | callout |
     **action** ("We'll action: …") | **panel** (a titled reading of the figure next to it) |
     **split** (two evidence objects side by side, one level deep) | chips | kpis | chart | table |
-    compare.
+    compare | **funnel** (the DRAWN funnel graph — log-scaled centered bars with the step-to-step
+    rate between them, widths computed server-side). `slot` = the report_spec spine slot the slide
+    fills ("" = off-spine, e.g. a slide an AI edit added on purpose).
+  - 🔴 **A generated deck is EXACTLY EIGHT SLIDES (2026-08-04 redesign):** cover + one slide per
+    `report_spec.SPINE` slot — **Tasks** (the Tasks tab's board VERBATIM under its own column
+    names, via `tasks_facts` over the client-safe `_progress_tasks` projection — never renamed,
+    never editorialized, internal reasons never cross) · **Research** (per item: a brief summary of
+    what the source says + a "Why this matters for <client>" line) · **The funnel** (funnel graph
+    left, insight bullets right, one `split`; `funnel_notes` carries the computed observations) ·
+    **What happened** · **Why it happened** · **What we'll do** · **Opportunities** (headroom
+    OUTSIDE the what-we'll-do work). Campaign-to-date, Week-by-week, Quality and
+    The-conversion-step slots are retired — their facts feed What-happened/Why. The spine is
+    stated in the prompt AND **enforced in code**: `enforce_spine` maps slides onto slots (by
+    `slot`, else verbatim eyebrow), stamps canonical eyebrows, drops off-spine slides and
+    backfills a missing slot from the deterministic draft — so slide N IS slot N-1, every client,
+    every run. `revise` (Edit-with-AI) deliberately does NOT re-pin, so an explicit edit can add
+    slides.
+  - **The team picks the reporting WINDOW** (generate form field `period`: `mtd` month-to-date,
+    the default | `last_week` the last complete Mon-Sun week | `''` whole flight).
+    `report_ai.report_window` resolves it against the export's LAST data day (exports lag) and
+    `build_facts(window=)` filters every dated row before computing, so totals/funnel/tables
+    answer for the window; `recent_vs_prior` becomes THIS window vs the equal days before it
+    (from the full export). 🔴 The template shape's `kpis` block is a whole-flight aggregate baked
+    into the export — inside a window it would LIE, so windowed template totals are recomputed
+    from the daily rows instead.
+  - **Edit with AI (NotebookLM-style, 2026-08-04):** each deck card has a team-only "✎ AI" button
+    → a dialog scoped to the whole deck or ONE slide (the scope list renders from the stored
+    payload's slide titles) → `op=revise` (`id` + `instruction` + optional `slide` 1-based) →
+    `report_ai.revise(..., slide_no=)` → payload updated + deck re-rendered. A failed edit leaves
+    the deck untouched and reports why. The generate bar also now SHOWS the "Drafted without AI:
+    …" note before reloading (it used to be silently swallowed by the reload).
   - **Density is the point.** A hand-built deck runs ~160 words and ~19 numbers per slide because
     every figure is paired with what it MEANS; the first rebuild averaged 94 because the prompt
     capped a slide at "one idea, at most 4 blocks" and the renderer could only stack blocks
@@ -770,19 +824,21 @@ auto-refresh (see those bullets below). Product name is one constant:
     self-contained `<svg>`/`data:` `<img>`.
   - `report_ai.py` owns all of it: `gather` pulls the fact pack + the SAME distilled layer the
     Assistant reads (digest sections, company brief, intel entries, watcher summaries, board asks),
-    `generate` has the configured model write the slides (it is told to make every title a CLAIM,
-    one opportunity per slide, each with its own `action`), `revise` applies an edit instruction
-    (the Assistant's edit-report action; the fact pack is stripped from what the model sees and
-    re-attached, so an edit can never lose the numbers), `render_html(…, brand=)` renders any
-    payload. **No model ⇒ a real deterministic deck** (the facts alone carry the numeric story),
-    with no invented analysis — and it PAIRS facts into `split` slides, then sweeps up every fact
-    its running order does not name, so a metric that is computed always reaches the deck (the
-    first version's hardcoded Windsor key list silently dropped every template-shape series). A deck stored under the pre-rebuild payload still renders
+    `generate` has the configured model write the slides (every title a CLAIM with the number in
+    it) then pins them with `enforce_spine`, `revise` applies an edit instruction (the Reports
+    tab's Edit-with-AI dialog AND the Assistant's edit-report action; the fact pack is stripped
+    from what the model sees and re-attached, so an edit can never lose the numbers),
+    `render_html(…, brand=)` renders any payload. **No model ⇒ a real deterministic deck** — the
+    same strict eight, fact-backed, with no invented analysis (its Research and What-we'll-do
+    slides say plainly that a strategist has not written them). A fact no spine slot claims can
+    never reach any deck, so `report_spec.claims` guards against orphaned facts (asserted in the
+    test). A deck stored under the pre-rebuild payload still renders
     (`_legacy_slides`). State: `ws["reports"]` index entries (payload included, so decks re-render
     and the Assistant indexes what we told the client) + per-deck HTML objects
     `workspace/reports/<c>/<id>.html` (`workspace.add/update/delete/insert_report`,
-    `read/write_report_html`). Team ops `POST /w/<c>/admin/report` (op generate|rename|delete —
-    delete soft-deletes to the Bin, kind `report`); clients read only. Off-cloud test:
+    `read/write_report_html`). Team ops `POST /w/<c>/admin/report` (op
+    generate|revise|rename|delete — delete soft-deletes to the Bin, kind `report`); clients read
+    only. Off-cloud test:
     `dash/_report_localtest.py` (in CI, also covers `digest.py`; it parses the deck's navigator
     with esprima too).
 - **Task tracker = the internal Delivery board + the client Tasks tab, ONE data source**
@@ -838,14 +894,25 @@ auto-refresh (see those bullets below). Product name is one constant:
   start / launch / charge / progress) above **Details | Tasks | Comments** panels (`data-tktab`
   buttons, wired in the console script); the New/Edit form tucks optional fields into a
   collapsible **"Additional details"** `<details>` (auto-open when an edited task uses them).
-  🔴 **The seven team routes `POST /w/<c>/admin/task{,/hold,/move,/delete,/maintask,/subtask,
-  /comment}` are RETIRED (2026-08-03, decision D2).** One handler answers them all with **410 Gone**
-  and the reason — 410 not 404, so a stale open tab reports "managed in Sentinel", never a routing
-  bug. The console pane is a **read-only monitor** now (see below) and the Assistant's `add_task` /
-  `move_task` / `complete_task` proposals went with them (`comment_task` stays — a comment is a
-  message on a shared thread, not a field on the record). What still writes `ws["tasks"]`, by
-  decision: the **internal bridge** (Sentinel, HMAC) and the **client's two powers** (`task-add`
-  files a request, `task-comment`). `workspace.py` remains the only writer either way, so the stored
+  🔴 **D2 AMENDED 2026-08-04 (owner decision): the team manages this board from Atrium again.**
+  D2 (2026-08-03) retired all seven team routes `POST /w/<c>/admin/task{,/hold,/move,/delete,
+  /maintask,/subtask,/comment}`; three are now RESTORED — **`/move`, `/delete`, and `/task` itself
+  as a narrow `op=edit`** (title / client note / dates / priority / internal notes, each patched
+  only when the form carried it). The other four (**hold, subtask, maintask, comment**) stay
+  retired behind one catch-all handler answering **410 Gone** with the reason — 410 not 404, so a
+  stale open tab reports "managed in Sentinel", never a routing bug (`op=add` on `/task` gets the
+  same 410; creation stays with `/task-add`). The model holds because `ws["tasks"]` never stopped
+  being the STORE (D1): Sentinel's board lists these cards live over the bridge and writes through
+  the same `workspace.py` helpers, so an edit on either surface is one record, not a fork. ⚠️ The
+  one divergence risk: a card **CLAIMED by a Sentinel row** (`tasks.atrium_task_id` set) is
+  re-projected on Sentinel's next edit — Sentinel stays authoritative for those. The Assistant's
+  `add_task` / `move_task` / `complete_task` proposals are restored in the same amendment
+  (`assistant_actions.py`): `add_task` takes a `stage`, so "here's what I completed this week"
+  files straight into Completed, and `client_facing` defaults TRUE there. The console pane remains
+  a **read-only monitor** (see below). What writes `ws["tasks"]` now: the **internal bridge**
+  (Sentinel, HMAC), the **team on the Progress pane** (per-column add via `task-add`, the three
+  restored routes, approved Assistant actions), and the **client's two powers** (`task-add` files
+  a request, `task-comment`). `workspace.py` remains the only writer either way, so the stored
   shape, the derived label, the history and the Bin are unchanged. The **client Tasks tab** (nav LABEL "Tasks" since 2026-07-29; the tab key
   stays `progress` in ATRIUM_TABS/routes — canonical, never rename, same posture as `leadgen`;
   pane in `atrium.html`) renders `main._progress_tasks(ws)` — SERVER-FILTERED to `client_facing` tasks and
@@ -853,15 +920,18 @@ auto-refresh (see those bullets below). Product name is one constant:
   `internal_notes`, and the account manager NEVER reach the client's HTML); the two-level
   breakdown reaches the client as **phases** (name + steps, no owners), the detail modal shows a
   **Started → Going live timeline**, cards say **"Launching <date>"** ("Live" once launched), and
-  columns sort by soonest launch. 🔴 **This board is READ-ONLY for EVERYONE since 2026-08-03
-  (decision D2).** The team's drag-to-move + per-card delete ✕ (added 2026-07-28) are GONE — markup,
-  CSS and their whole wiring IIFE — because an Atrium task card is now a **PROJECTION of a Sentinel
-  row**: it is created, assigned, moved, parked, reviewed and filed in Sentinel, and the internal
-  bridge pushes the client-safe subset here. Two writers on one record is the model that replaced.
-  `_atrium_smoketest.py` asserts the affordances are absent from the **team's** HTML too, not merely
-  the client's — the assertion used to say the opposite, so read its comment before "restoring"
-  anything. Plan: `sentinel/docs/TASKBOARD_REBUILD.md` §4. The row of
-  per-stage count TILES above the board was removed in the same change — the column heads already
+  columns sort by soonest launch. 🔴 **The board is read-only for the CLIENT; the TEAM's controls
+  are back (2026-08-04, D2 amended — read-only-for-everyone lasted one day).** The team's
+  drag-to-move + per-card delete ✕ (2026-07-28) are RESTORED — markup (`data-pgcol` /
+  `data-pgdrag` / `data-pgdel`), CSS and wiring IIFE — plus a NEW team-only **✎ Edit** in the
+  detail modal (`data-pgedit` / `data-pgeditform`, a collapsed form reusing `.ax-pg-addform`
+  styling → `POST /admin/task op=edit`, then reload). All of it renders `{% if is_superadmin %}`
+  only, so a client's HTML carries none of it (`_atrium_smoketest.py` asserts presence in the
+  team's HTML AND absence in the client's — that assertion has flipped twice, read its comment
+  before touching it; the edit-form no-leak check matches the RENDERED id because the wiring
+  script's `'[data-pgeditform="'` string literal ships to every viewer). Plan + amendment context:
+  `sentinel/docs/TASKBOARD_REBUILD.md` §4. The row of
+  per-stage count TILES above the board was removed in the D2 change — the column heads already
   showed the same numbers. ⚠️ Don't style team affordances with an `[data-admin="1"]` selector: the
   stylesheet ships to every viewer, so that literal string then appears in a client's HTML and trips
   the no-leak check. TWO client-surface writes: `POST /w/<c>/task-comment`
@@ -915,6 +985,23 @@ auto-refresh (see those bullets below). Product name is one constant:
   drafts that the panel writes INTO the on-screen fields, **saving nothing**; the team reviews and
   hits Save per block. A field it cannot establish comes back empty ON PURPOSE (a plausible guess is
   a lie the team would act on).
+  **Published content + content gaps (2026-08-04):** the tab's fifth section archives the client's
+  OWN blog **through the Watcher machinery** — the add form posts the existing
+  `POST /w/<c>/admin/watcher` `op=add_site` with `own=1`, which flags the registry entry
+  (`_watcher_entry`'s `own` field, read back by `workspace.own_content_channels`); the same
+  fetch/refresh/delete ops fill and maintain the archive, **and the add form auto-runs the fetch
+  loop** — one paste captures the whole blog, article text included (websites serve Cloud Run fine,
+  so no proxy/Safe-pull is ever involved). The Watcher tab shows the source with
+  a "Client's own" chip. The post LISTING is client-visible (titles/dates/links only, built by
+  `main._company_content_view` on every render — bodies stay in the archive object); the archive
+  controls and the **content-gap panel** are team-only. `op=gaps` on `/w/<c>/admin/company` gathers
+  own titles vs the titles of every `kind=competitor` Watcher source (`_content_gap_corpus`, titles
+  only, capped per side), asks `intel_ai.content_gaps` for the topics the client has never covered,
+  and stores the snapshot in `ws["company"]["content_gaps"]`
+  (`workspace.set_company_content_gaps` — each run replaces the last). The snapshot is indexed for
+  the Assistant (`digest.company_sections` chunk `content_gaps`) but **excluded from
+  `digest.company_brief`** — a report deck is client-facing and the analysis names competitor
+  sources.
   🔴 **This tab is what the AI knows the client BY.** `digest.company_sections` derives it into
   titled chunks (facts / brand / each story section / the catalogue) consumed by BOTH the Assistant
   index (kind `company`, `INDEX_VERSION` 5) and `report_ai.gather`, so "what the AI knows" and "what
@@ -923,23 +1010,23 @@ auto-refresh (see those bullets below). Product name is one constant:
   `add_company_section` / `add_company_product` / `set_company_facts` (approval-gated like every
   other action). Tests: `_workspace_localtest.py` (writers, patch semantics, ordering, Bin round
   trip) + `_atrium_smoketest.py` (routes, the client no-leak render, indexing, the nav grouping).
-- **Nav labels vs tab keys:** the sidebar was regrouped 2026-07-13 and again **2026-07-29** — the
-  `leadgen` tab is LABELED **"Paid Media"** and the `progress` tab is LABELED **"Tasks"** (the keys
-  `leadgen` / `progress` stay in every route/data shape, never rename them). The top level is
-  **FOUR** rows, organised by the question each answers — one flat link plus three groups:
+- **Nav labels vs tab keys:** the sidebar was regrouped 2026-07-13, **2026-07-29** and again
+  **2026-08-04** — the `leadgen` tab is LABELED **"Paid Media"** and the `progress` tab is LABELED
+  **"Tasks"** (the keys `leadgen` / `progress` stay in every route/data shape, never rename them).
+  The top level is **THREE** rows, all groups, organised by the question each answers:
 
   | Row | Answers | Holds |
   |---|---|---|
-  | **Working Together** | how is it going? | Dashboard · Communications · Tasks |
-  | **Company** | who are we working for? | (flat) |
+  | **Working Together** | who are we working for, and how is it going? | Dashboard · Communications · Tasks · Reports · Company |
   | **Campaigns** | what is going out? | Paid Media · Organic Content · Content Calendar |
-  | **Insights** | what have we learned? | Market Intelligence · Reports · team-only Website Health + Watcher |
+  | **Insights** | what have we learned? | Market Intelligence · team-only Website Health + Watcher |
 
-  Three moves got it from eleven flat surfaces to four rows: the Content Calendar joined Campaigns
-  (it IS the campaign content plotted by date — a dated content piece literally mirrors into it),
-  Reports joined Insights (a deck is the synthesis of what that group holds), and Dashboard +
-  Communications + Tasks became **Working Together** — the live state of the engagement (results,
-  work in flight, the conversation) as against the static who-you-are and the content pipeline.
+  The 2026-08-04 re-cut moved Reports and Company (previously a flat link) into Working Together —
+  the whole engagement in one place: the live results, the work in flight, the conversation, the
+  decks we presented, and the client's own profile the rest is grounded in. Earlier moves: the
+  Content Calendar joined Campaigns (it IS the campaign content plotted by date — a dated content
+  piece literally mirrors into it), and Dashboard + Communications + Tasks became **Working
+  Together** — the live state of the engagement as against the content pipeline.
   🔴 **Working Together is FIRST because it holds `dashboard`, the LANDING tab** (a bare `/w/<c>/`
   resolves to it): moving the group down the list would bury the landing tab inside a collapsed
   group, and the rail would open with no active item on it. Campaigns' head badge is the combined
