@@ -268,7 +268,8 @@ def run():
     _check("hand-written entry still there after 2nd run",
            any(e.get("title") == "Hand-written note" for e in mb2))
 
-    # 6c. SAVED SEARCHES: a daily card joins the sweep with its OWN keywords and its stories land
+    # 6c. SAVED SEARCHES: a daily card joins the sweep with its OWN intent (these cards use the
+    #     LEGACY keywords field on purpose -- proving old cards keep running) and its stories land
     #     in business_research tagged with the card's id; a manual card never joins the sweep;
     #     refresh_search runs one card on demand and records the outcome ON the card.
     workspace.save_workspace(CLIENT + "s", {"display_name": "Search Co", "intel": {},
@@ -311,6 +312,53 @@ def run():
     _check("non-grounding model refused for a card", "web research" in out3["error"].lower())
     _check("card refusal recorded on the card", "web research" in
            workspace.get_intel_searches(workspace.load_workspace(CLIENT + "s3"))[0]["last_error"].lower())
+
+    # 6d. INTENT (2026-08-04): cards and the panel take plain-words intent, not keywords; the
+    #     model's ACTUAL searches are recorded per card; "Write with AI" drafts a card.
+    _check("daily card recorded the searches the model ran",
+           cards[daily["id"]].get("last_queries") == ["freelancer contract law 2026",
+                                                      "gig economy regulation"])
+    _check("refresh_search recorded the searches too",
+           {c["id"]: c for c in workspace.get_intel_searches(ws2s)}[card["id"]].get("last_queries"))
+    workspace.save_workspace(CLIENT + "i", {"display_name": "Intent Co", "intel": {},
+                                            "intel_ai": {"model": "gemini-2.5-flash"}})
+    ic = workspace.add_intel_search(CLIENT + "i", {
+        "name": "Coach demand",
+        "intent": "Demand for coaches tracks our coaching-contract sales — watch coach demand "
+                  "and whatever news coaches actually care about."})
+    _check("intent card stores intent (no keywords needed)",
+           ic["intent"].startswith("Demand for coaches") and ic["keywords"] == "")
+    _check("intel_search_intent prefers intent", workspace.intel_search_intent(ic).startswith("Demand"))
+    _check("legacy card folds keywords+focus into an intent",
+           workspace.intel_search_intent({"keywords": "a, b", "focus": "watch c"}) == "a, b. watch c")
+    oi = intel_refresh.refresh_search(CLIENT + "i", ic["id"],
+                                      ai_fetcher=_grounded_fetcher, token_fetcher=_token)
+    _check("an intent-only card researches fine", oi["error"] == "" and oi["added"] > 0)
+    # The panel-level intent: its own key, falling back to the legacy topics list.
+    _check("get_intel_intent falls back to joined legacy topics",
+           workspace.get_intel_intent({"intel_topics": ["a", "b"]}) == "a, b")
+    workspace.set_intel_intent(CLIENT + "i", "  watch the coaching market  ")
+    _check("set_intel_intent trims + persists",
+           workspace.get_intel_intent(workspace.load_workspace(CLIENT + "i"))
+           == "watch the coaching market")
+    # A client with NO intent (and no topics): business section stays empty with the new reason.
+    workspace.save_workspace(CLIENT + "i2", {"display_name": "NoIntent Co", "intel": {},
+                                             "intel_ai": {"model": "gemini-2.5-flash"}})
+    intel_refresh.refresh_client(CLIENT + "i2", ai_fetcher=_grounded_fetcher, token_fetcher=_token)
+    _check("no intent -> 'monitoring intent' reason recorded", "monitoring intent" in
+           workspace.load_workspace(CLIENT + "i2")["intel_ai"]["last_error"])
+    # suggest_search: the card form's "Write with AI" (grounded fake -> {name, intent}).
+    _SS_DRAFT = json.dumps({"name": "Coaching demand",
+                            "intent": "Watch demand for coaches and the news coaches care about."})
+
+    def _ss_suggest_fetcher(url, headers, payload, timeout):
+        return _Resp({"candidates": [{"content": {"parts": [{"text": _SS_DRAFT}]}}]})
+
+    fields, err = intel_ai.suggest_search("Intent Co", "sells coaching contracts",
+                                          rough="coaches??", model="gemini-2.5-flash",
+                                          fetcher=_ss_suggest_fetcher, token_fetcher=_token)
+    _check("suggest_search drafts name + intent", err == "" and
+           fields["name"] == "Coaching demand" and fields["intent"].startswith("Watch demand"))
 
     # 7. NO grounding on a non-Gemini model -> nothing added, clear reason (no fallback).
     workspace.save_workspace(CLIENT + "d", {"display_name": "DeepSeek Co", "intel": {},

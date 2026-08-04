@@ -2960,6 +2960,31 @@ def set_intel_topics(client, topics):
     return _mutate(client, fn)
 
 
+# The panel's keyword box became a MONITORING INTENT box (2026-08-04): plain words on what to
+# watch and why, because the team usually does NOT know what the client's audience searches for --
+# the research model derives the real queries from the intent. Stored as its own string key;
+# a client that only has the legacy intel_topics list keeps working via the joined fallback.
+_MAX_INTEL_INTENT = 600
+
+
+def get_intel_intent(ws):
+    """The client's monitoring intent: ws["intel_intent"], else the legacy topics list joined."""
+    intent = ((ws or {}).get("intel_intent") or "").strip()
+    if intent:
+        return intent
+    return ", ".join(get_intel_topics(ws))
+
+
+def set_intel_intent(client, text):
+    """Replace the client's monitoring intent (trimmed, capped). Returns the stored string."""
+    cleaned = (text or "").strip()[:_MAX_INTEL_INTENT]
+
+    def fn(ws):
+        ws["intel_intent"] = cleaned
+        return cleaned
+    return _mutate(client, fn)
+
+
 def replace_auto_intel(client, section, entries):
     """Swap the AUTO entries of a section for `entries`, preserving hand-added/pinned ones.
 
@@ -3210,18 +3235,23 @@ def intel_backfilled(ws):
     return bool((ws or {}).get("intel_ai", {}).get("backfilled"))
 
 
-# --- Market Intelligence: SAVED SEARCHES (reusable research queries, shown as cards) -------------
+# --- Market Intelligence: SAVED SEARCHES (reusable research angles, shown as cards) --------------
 # ws["intel_searches"] -- named searches the team saves so a proven angle ("coaching demand") keeps
-# getting monitored without retyping keywords. Each is {id, name, keywords, focus, schedule,
-# created, last_run, last_error, last_added}:
-#   * keywords -- comma/newline-separated seed keywords (same contract as intel_topics).
-#   * focus    -- optional editorial guidance (blank -> the Business Research focus / default).
+# getting monitored without retyping anything. Each is {id, name, intent, schedule, created,
+# last_run, last_error, last_added, last_queries} (+ legacy keywords/focus, see below):
+#   * intent   -- the MONITORING INTENT in plain words: what to watch and why. Deliberately NOT
+#                 keywords -- the team usually doesn't know what the audience actually searches
+#                 for; the research model derives the real queries from this (2026-08-04).
 #   * schedule -- "daily" (the intel-refresh job sweeps it every run) or "manual" (only its card's
 #                 Refresh button runs it).
+#   * last_queries -- the Google searches the model actually ran on the card's last run (shows the
+#                 team HOW the intent was interpreted).
+#   * keywords/focus -- LEGACY (pre-intent cards): intel_search_intent() folds them into an intent
+#                 so old cards keep running unchanged; new cards store "".
 # Results land in the business_research section (the default home for extra research) with the
 # entry's `search` field set to the card's id -- the filter chips on the tab key off that, and
 # deleting a card takes its plain-auto stories with it (favourited/hand-added ones always stay).
-_INTEL_SEARCH_FIELDS = ("name", "keywords", "focus", "schedule")
+_INTEL_SEARCH_FIELDS = ("name", "intent", "keywords", "focus", "schedule")
 _MAX_INTEL_SEARCHES = 12
 
 
@@ -3229,6 +3259,19 @@ def get_intel_searches(ws):
     """The client's saved-search list from an already-loaded workspace dict (never None)."""
     return [s for s in ((ws or {}).get("intel_searches") or [])
             if isinstance(s, dict) and s.get("id")]
+
+
+def intel_search_intent(search):
+    """A card's effective monitoring intent: its `intent`, else its legacy keyword/focus fields."""
+    s = search or {}
+    intent = (s.get("intent") or "").strip()
+    if intent:
+        return intent
+    legacy = (s.get("keywords") or "").strip()
+    focus = (s.get("focus") or "").strip()
+    if legacy and focus:
+        return "%s. %s" % (legacy, focus)
+    return legacy or focus
 
 
 def _clean_search_fields(fields):
@@ -3244,23 +3287,23 @@ def _clean_search_fields(fields):
 
 
 def add_intel_search(client, fields):
-    """Save a new search card (name + keywords required). Returns the stored dict.
+    """Save a new search card (name + an intent -- or legacy keywords -- required). Returns it.
 
-    Raises ValueError with a user-facing message when the name/keywords are missing or the
+    Raises ValueError with a user-facing message when the name/intent are missing or the
     per-client cap is hit (the route surfaces it verbatim)."""
     cleaned = _clean_search_fields(fields)
     if not cleaned.get("name"):
         raise ValueError("Give the search a name first.")
-    if not cleaned.get("keywords"):
-        raise ValueError("Give the search its keywords first.")
+    if not (cleaned.get("intent") or cleaned.get("keywords")):
+        raise ValueError("Describe what this search should watch first.")
 
     def fn(ws):
         lst = ws.setdefault("intel_searches", [])
         if len(lst) >= _MAX_INTEL_SEARCHES:
             raise ValueError("Limit of %d saved searches reached — delete one first." % _MAX_INTEL_SEARCHES)
-        item = {"id": _new_id("isearch"), "name": "", "keywords": "", "focus": "",
+        item = {"id": _new_id("isearch"), "name": "", "intent": "", "keywords": "", "focus": "",
                 "schedule": "daily", "created": now_iso(),
-                "last_run": "", "last_error": "", "last_added": 0}
+                "last_run": "", "last_error": "", "last_added": 0, "last_queries": []}
         item.update(cleaned)
         lst.append(item)
         return dict(item)
@@ -3268,10 +3311,10 @@ def add_intel_search(client, fields):
 
 
 def update_intel_search(client, search_id, fields):
-    """Patch a saved search in place (recognised fields only; a blank name/keywords never wipes the
-    stored value). Returns the updated dict, or None if the id is unknown."""
+    """Patch a saved search in place (recognised fields only; a blank name/intent/keywords never
+    wipes the stored value). Returns the updated dict, or None if the id is unknown."""
     cleaned = _clean_search_fields(fields)
-    for required in ("name", "keywords"):
+    for required in ("name", "intent", "keywords"):
         if cleaned.get(required) == "":
             cleaned.pop(required)
 
@@ -3304,14 +3347,20 @@ def delete_intel_search(client, search_id):
     return _mutate(client, fn)
 
 
-def mark_intel_search_run(client, search_id, added=0, error=""):
-    """Record a saved search's last run on its card (best-effort; mirrors mark_intel_run)."""
+def mark_intel_search_run(client, search_id, added=0, error="", queries=None):
+    """Record a saved search's last run on its card (best-effort; mirrors mark_intel_run).
+
+    `queries` -- the Google searches the model actually ran (from the grounding metadata): stored
+    as `last_queries` so the card can SHOW how the intent was interpreted. None leaves the stored
+    list alone (a gate failure never wipes the last good plan)."""
     def fn(ws):
         for s in ws.get("intel_searches") or []:
             if s.get("id") == search_id:
                 s["last_run"] = now_iso()
                 s["last_error"] = (error or "")[:300]
                 s["last_added"] = int(added or 0)
+                if queries is not None:
+                    s["last_queries"] = [str(q).strip()[:120] for q in queries if str(q).strip()][:8]
                 return dict(s)
         return None
     try:

@@ -78,21 +78,23 @@ def _slot(key, eyebrow, purpose, facts=(), guidance=""):
 SPINE = (
     _slot("tasks", "Tasks",
           "the task board exactly as the Tasks tab shows it",
-          facts=("tasks_counts", "tasks_board"),
-          guidance="ONE slide, the board VERBATIM. Show the `tasks_counts` and `tasks_board` "
-                   "facts and nothing else invented: the column names are the Tasks tab's own "
-                   "(To do, In progress, Paused, Revision, Completed as the fact spells them) -- "
-                   "never rename a column, never editorialize a task, never add or drop one. The "
-                   "title may summarize the board's state ('Two launches in progress, one waiting "
-                   "on review')."),
+          facts=("tasks_board",),
+          guidance="ONE slide, the board VERBATIM as Trello-style columns: one `board` block "
+                   "({\"type\": \"board\", \"fact\": \"tasks_board\"}) and nothing else "
+                   "invented. The column names are the Tasks tab's own (To do, In progress, "
+                   "Paused, Revision, Completed as the fact spells them) -- never rename a "
+                   "column, never editorialize a task, never add or drop one. The title may "
+                   "summarize the board's state ('Two launches in progress, one waiting on "
+                   "review')."),
     _slot("research", "Research",
           "what is happening around the client, and why each item matters to THEM",
           facts=(),
           guidance="ONE slide of cards from the research material (market intelligence, platform "
                    "news, operating conditions, competitor publishing). Each card: a VERY brief "
-                   "summary of what the source is saying, then one line beginning 'Why this "
-                   "matters for <client name>:' that ties it to their account specifically. An "
-                   "item you cannot tie to the client does not make the slide."),
+                   "`body` summarizing what the source is saying, and the card's `why` field "
+                   "carrying one sentence on why it matters for THIS client specifically -- the "
+                   "`why` renders emphasized, it is the point of the slide. An item you cannot "
+                   "tie to the client does not make the slide."),
     _slot("funnel", "The funnel",
           "every step from impression to conversion, drawn, with the insights beside it",
           facts=("funnel", "funnel_notes"),

@@ -143,7 +143,7 @@ def _div(a, b):
 #   {"key", "kind": series|table|compare|tiles, "title", "subtitle", "summary", ...payload}
 # `summary` is the one-line form the MODEL reads (so it can quote the numbers in prose); the rest is
 # what the RENDERER draws. Nothing here is ever asked of the model.
-_FACT_KINDS = ("series", "table", "compare", "tiles", "list", "funnel")
+_FACT_KINDS = ("series", "table", "compare", "tiles", "list", "funnel", "board")
 
 
 def _roll(rows, key=None):
@@ -347,52 +347,49 @@ def _compare_days(rows, before_days, after_days):
 
 
 def tasks_facts(tasks_view):
-    """The Tasks slide's facts: the client-safe board VERBATIM -- a count per column plus every
-    card under the column name the Tasks tab itself shows (To do / In progress / Paused /
-    Revision / Completed for a client viewer). Nothing renamed, nothing editorialized.
+    """The Tasks slide's ONE fact: the client-safe board VERBATIM, as a Trello-style BOARD (kind
+    `board`) -- one column per Tasks-tab stage under the column name the tab itself shows (To do /
+    In progress / Paused / Revision / Completed for a client viewer), cards inside. Nothing
+    renamed, nothing editorialized -- the slide looks like the Tasks tab, on paper.
 
     🔴 Never from `ws["tasks"]` directly. The raw task carries owners, `service_charge`,
     `internal_notes` and `hold_reason`, all of which are deliberately stripped before reaching a
     client's HTML -- and this deck IS client-visible. `main._progress_tasks(ws)` is the one
     client-safe projection, and its column `name` labels are the Tasks tab's own."""
-    counts, rows, dropped = [], [], 0
+    columns, summary_bits, total = [], [], 0
     for col in tasks_view or []:
         label = (col.get("name") or col.get("key") or "").strip() or "?"
         bucket = col.get("tasks") or []
-        counts.append({"key": col.get("key") or label, "label": label,
-                       "value": str(len(bucket)), "note": "",
-                       "tier": "primary" if bucket else "secondary"})
+        count = len(bucket)
+        total += count
         if (col.get("key") == "completed") and len(bucket) > _TASKS_DONE_CAP:
-            # A board accumulates finished work forever; the slide shows the freshest few and
-            # says so, the count tile above still carries the true total.
+            # A board accumulates finished work forever; the column shows the freshest few and
+            # says so, its header count still carries the true total.
             bucket = sorted(bucket, key=lambda t: t.get("completed_at") or "",
                             reverse=True)[:_TASKS_DONE_CAP]
-            dropped += 1
+        cards = []
         for t in bucket:
             title = (t.get("title") or "").strip() or "(untitled)"
-            status = label
-            if t.get("on_hold") and col.get("key") != "blocked":
-                status += ", paused"
             when = ""
             if col.get("key") == "completed" and t.get("completed_at"):
                 when = "shipped %s" % short_date((t.get("completed_at") or "")[:10])
             elif t.get("due_date"):
                 when = "launching %s" % short_date(t.get("due_date"))
-            rows.append({"task": title, "status": status, "when": when})
-    board = _table("tasks_board", "The board, as it stands",
-                   "Straight from the Tasks tab",
-                   [{"key": "task", "label": "Task"},
-                    {"key": "status", "label": "Status"},
-                    {"key": "when", "label": "Timing", "align": "right"}], rows[:_TASKS_ROW_CAP],
-                   note=("Completed work shows the %d most recent items." % _TASKS_DONE_CAP)
-                        if dropped else "")
-    tiles = _tiles("tasks_counts", "Where the work stands", counts,
-                   subtitle="One tile per Tasks-tab column")
-    return [tiles, board]
+            if t.get("on_hold") and col.get("key") != "blocked":
+                when = (when + ", paused").strip(", ")
+            cards.append({"title": title, "when": when})
+        columns.append({"key": col.get("key") or label, "label": label, "count": count,
+                        "tasks": cards})
+        summary_bits.append("%s (%d): %s" % (label, count,
+                                             "; ".join(c["title"] for c in cards) or "-"))
+    if not any(c["count"] for c in columns):
+        return [None]
+    return [{"key": "tasks_board", "kind": "board", "title": "The board, as it stands",
+             "subtitle": "Straight from the Tasks tab", "columns": columns,
+             "summary": "The board, as it stands -- %s" % " | ".join(summary_bits)}]
 
 
 _TASKS_DONE_CAP = 6
-_TASKS_ROW_CAP = 14
 
 
 def _funnel_fact(total, objective, engagement_label=""):
@@ -1357,7 +1354,9 @@ _SHAPE = (
     '{"type": "chart", "fact": "weekly_roas", "caption": "..."}, '
     '{"type": "table", "fact": "age", "caption": "..."}, '
     '{"type": "compare", "fact": "recent_vs_prior", "caption": "..."}, '
-    '{"type": "cards", "items": [{"eyebrow": "Decision one", "title": "...", "body": "..."}]}, '
+    '{"type": "board", "fact": "tasks_board"}, '
+    '{"type": "cards", "items": [{"eyebrow": "Market shift", "title": "...", "body": "...", '
+    '"why": "why this matters for THIS client, one sentence"}]}, '
     '{"type": "bullets", "items": ["..."], "ordered": false}, '
     '{"type": "panel", "title": "What we think is happening", "body": "..."}, '
     '{"type": "split", "left": [{"type": "funnel", "fact": "funnel"}], '
@@ -1380,9 +1379,10 @@ _GEN_SYSTEM_HEAD = (
     "You are the strategist presenting a marketing agency's performance review to the client. "
     "Write the deck. Return JSON ONLY, exactly this shape: " + _SHAPE + "\n"
     "HOW TO WRITE IT:\n"
-    "1. Every slide title is a CLAIM, not a label. 'We doubled daily revenue in two weeks', not "
-    "'Performance summary'. Put the number in the title when there is one. The cover title is the "
-    "single most important thing you learned from the material. The `eyebrow` is the slot's fixed "
+    "1. Every content-slide title is a CLAIM, not a label. 'We doubled daily revenue in two "
+    "weeks', not 'Performance summary'. Put the number in the title when there is one. The COVER "
+    "is standardized by the system (company name + date) -- anything you write on it is replaced, "
+    "so spend no effort there. The `eyebrow` is the slot's fixed "
     "label, given below -- use it VERBATIM so every report this client receives looks the same.\n"
     "2. THE DECK IS EXACTLY EIGHT SLIDES: one cover, then ONE `content` slide per slot below, in "
     "this order. Every non-cover slide carries its slot key in `slot`. This is enforced in code "
@@ -1400,7 +1400,9 @@ _GEN_SYSTEM_TAIL = ("\n"
     "one, emit a block with its `fact` key ({\"type\": \"chart\", \"fact\": \"weekly_roas\"}) and "
     "write the interpretation in a nearby `panel`/`text` block or the `caption`. NEVER retype a "
     "fact's numbers into a table or chart of your own, and never use a key that is not in the "
-    "pack. The funnel fact draws as a graph via {\"type\": \"funnel\", \"fact\": \"funnel\"}.\n"
+    "pack. The funnel fact draws as a graph via {\"type\": \"funnel\", \"fact\": \"funnel\"}; "
+    "the task board draws as Trello-style columns via {\"type\": \"board\", \"fact\": "
+    "\"tasks_board\"}.\n"
     "5. Any number in your PROSE must appear in the source material verbatim. Invent nothing. If "
     "the material does not support a claim, drop the claim.\n"
     "6. `source` on a content slide names where its numbers came from, in the client's words.\n"
@@ -1477,10 +1479,13 @@ def _parse_json(raw):
 # --- Normalization: coerce anything into the canonical payload the renderer trusts ----------------
 _SLIDE_KINDS = ("cover", "section", "content", "closing")
 _TONES = ("good", "warn", "bad", "neutral")
+# "Why this matters (for The Contract Shop):" embedded in a card body -> its own emphasized field.
+_WHY_RE = re.compile(r"\s*\bWhy (?:this|it) matters(?: for [^:]{0,80})?\s*:\s*", re.I)
 # `bullets` is fact-backed too: the Tasks slide's board lines must reach the client VERBATIM out
 # of the client-safe task projection, never paraphrased by a model. `funnel` is the drawn funnel.
 _FACT_BLOCKS = {"chart": ("series",), "table": ("table",), "compare": ("compare",),
-                "kpis": ("tiles",), "bullets": ("list",), "funnel": ("funnel",)}
+                "kpis": ("tiles",), "bullets": ("list",), "funnel": ("funnel",),
+                "board": ("board",)}
 
 
 def _s(v, cap=400):
@@ -1544,8 +1549,16 @@ def _norm_block(b, facts):
             if not isinstance(it, dict):
                 continue
             card = {"eyebrow": _s(it.get("eyebrow"), 40), "title": _s(it.get("title"), 120),
-                    "subtitle": _s(it.get("subtitle"), 120), "body": _s(it.get("body"), 500)}
-            if card["title"] or card["body"]:
+                    "subtitle": _s(it.get("subtitle"), 120), "body": _s(it.get("body"), 500),
+                    "why": _s(it.get("why"), 400)}
+            # The Research slide's whole point is the why-this-matters reading, so it renders
+            # EMPHASIZED -- and a model that buries it inside `body` ("... Why this matters for
+            # X: ...") still gets the emphasis, because we split it out here.
+            if not card["why"] and card["body"]:
+                parts = _WHY_RE.split(card["body"], maxsplit=1)
+                if len(parts) == 2:
+                    card["body"], card["why"] = parts[0].strip(), _s(parts[1], 400)
+            if card["title"] or card["body"] or card["why"]:
                 items.append(card)
         return {"type": "cards", "items": items} if items else None
     if kind == "panel":
@@ -1682,7 +1695,7 @@ def normalize_payload(p, facts=None):
 
 # --- The no-AI deck: honest, and now a real one --------------------------------------------------
 _BLOCK_FOR_KIND = {"series": "chart", "table": "table", "compare": "compare",
-                   "tiles": "kpis", "list": "bullets", "funnel": "funnel"}
+                   "tiles": "kpis", "list": "bullets", "funnel": "funnel", "board": "board"}
 
 
 def _fact_blocks(facts, keys):
@@ -1732,15 +1745,13 @@ def draft_payload(inputs, client_name="", when=""):
     facts = inputs.get("facts") or {}
     period = inputs.get("period") or ""
     client = client_name or ""
+    # The cover is deliberately BARE: company name + date, nothing else (Ian's spec, 2026-08-04).
+    # The reporting window still reaches the deck via meta.period and the numbers slides.
     slides = [{
         "kind": "cover", "eyebrow": "Performance review",
         "title": client or "Performance review",
-        "subtitle": "What the numbers say for %s" % (period or date_label(when) or "this period"),
-        "tone": "neutral", "source": "",
-        "blocks": [{"type": "chips", "items": [c for c in (
-            {"label": "Client", "value": _s(client, 120)} if client else None,
-            {"label": "Window", "value": _s(period, 120)} if period else None,
-            {"label": "Prepared", "value": date_label(when)} if when else None) if c]}],
+        "subtitle": date_label(when) or period or "",
+        "tone": "neutral", "source": "", "blocks": [],
     }]
 
     def cards(rows, eyebrow, cap=2):
@@ -1755,12 +1766,11 @@ def draft_payload(inputs, client_name="", when=""):
         key = slot["key"]
         slide = None
         if key == "tasks":
-            blocks = _fact_blocks(facts, [k for k in ("tasks_counts", "tasks_board")
-                                          if k in facts])
-            if blocks:
+            if "tasks_board" in facts:
                 slide = {"kind": "content", "eyebrow": slot["eyebrow"],
                          "title": "The board, exactly as it stands", "subtitle": "",
-                         "tone": "neutral", "source": "", "blocks": blocks}
+                         "tone": "neutral", "source": "",
+                         "blocks": [{"type": "board", "fact": "tasks_board"}]}
             else:
                 slide = _gap_slide(slot, "No tasks are on the board yet.")
         elif key == "research":
@@ -1814,22 +1824,22 @@ def enforce_spine(payload, inputs, client_name="", when=""):
     """The strict eight-slide standard, enforced in CODE -- the prompt asks, this guarantees.
 
     Maps the model's slides onto the spine (by their `slot` field, else by a verbatim eyebrow),
-    keeps the first cover, stamps every slide with its slot's canonical eyebrow and key, DROPS
-    anything off-spine, and backfills a missing slot from the deterministic draft. Out: exactly
-    `report_spec.DECK_SLIDES` slides where slide N is slot N-1 -- every client, every run."""
+    stamps every slide with its slot's canonical eyebrow and key, DROPS anything off-spine, and
+    backfills a missing slot from the deterministic draft. The COVER is always the standardized
+    one (company name + date) -- a model-written cover claim is discarded, whatever it says. Out:
+    exactly `report_spec.DECK_SLIDES` slides where slide N is slot N-1 -- every client, every
+    run."""
     ref = draft_payload(inputs, client_name=client_name, when=when)
     facts = payload.get("facts") or ref.get("facts") or {}
     ref_by_slot = {s.get("slot"): s for s in ref["slides"] if s.get("slot")}
-    cover, by_slot = None, {}
+    by_slot = {}
     for s in payload.get("slides") or []:
         if s.get("kind") == "cover":
-            if cover is None:
-                cover = s
             continue
         slot = report_spec.slot_of(s.get("slot")) or report_spec.slot_of(s.get("eyebrow"))
         if slot and slot["key"] not in by_slot:
             by_slot[slot["key"]] = s
-    slides = [cover or ref["slides"][0]]
+    slides = [ref["slides"][0]]
     for slot in report_spec.SPINE:
         s = dict(by_slot.get(slot["key"]) or ref_by_slot[slot["key"]])
         s["kind"] = "content"           # a slot slide is always a content slide, never a divider
@@ -2040,9 +2050,11 @@ h1,h2,h3{color:var(--ink);letter-spacing:-.02em;line-height:1.1;font-weight:800}
 .foot .no{font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;flex:none}
 
 .shead{flex:none;border-bottom:1px solid var(--line);padding-bottom:11px}
-.shead .eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:800;
-  color:var(--accent);margin-bottom:7px}
-.shead h2{font-size:29px;display:flex;align-items:flex-start;gap:13px}
+/* The eyebrow is the chapter label (Tasks / Research / ...) -- the reader must always know where
+   in the deck they are, so it reads BIG (Ian's spec, 2026-08-04), never as fine print. */
+.shead .eyebrow{font-size:17px;letter-spacing:.2em;text-transform:uppercase;font-weight:800;
+  color:var(--accent);margin-bottom:9px}
+.shead h2{font-size:31px;display:flex;align-items:flex-start;gap:13px}
 .shead h2::before{content:'';flex:none;width:4px;align-self:stretch;min-height:26px;
   background:var(--accent);border-radius:2px}
 .shead.good h2::before{background:var(--good)}
@@ -2108,6 +2120,13 @@ ol.list li::marker{color:var(--accent2);font-weight:800}
 .card h3{font-size:15px;margin-bottom:4px}
 .card .s{font-size:11.5px;color:var(--muted);margin-bottom:7px}
 .card .b{font-size:13px;line-height:1.55;color:var(--body)}
+/* The Research card's why-this-matters reading: the point of the slide, so it is EMPHASIZED --
+   accent bar + label, never buried in the body prose. */
+.card .why{margin-top:10px;border-left:3px solid var(--accent);background:rgba(0,0,0,.025);
+  padding:8px 11px;border-radius:0 8px 8px 0;font-size:13px;line-height:1.5;color:var(--ink);
+  font-weight:600}
+.card .why b{display:block;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:4px}
 .callout{display:flex;gap:11px;align-items:flex-start;border-radius:11px;padding:12px 15px;
   font-size:13.5px;line-height:1.5;border:1px solid var(--line);background:var(--panel);color:var(--body)}
 .callout .tag{flex:none;font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;
@@ -2165,6 +2184,21 @@ ol.list li::marker{color:var(--accent2);font-weight:800}
 .cols .cl{font-size:10.5px;color:var(--muted);letter-spacing:.02em}
 .cols .cn{font-size:9.5px;color:var(--accent);font-weight:800;text-transform:uppercase;
   letter-spacing:.08em}
+/* Trello-style task board: one column per Tasks-tab stage, cards inside -- the slide looks like
+   the Tasks tab itself. */
+.board{flex:1;min-height:0;display:flex;gap:12px;align-items:stretch}
+.bcol{flex:1 1 0;min-width:0;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+.bcol .bhead{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;font-weight:800;
+  color:var(--muted);padding:2px 2px 7px;border-bottom:1px solid var(--line)}
+.bcol .bn{background:var(--line);border-radius:9px;padding:0 8px;font-size:11px;
+  color:var(--ink);font-variant-numeric:tabular-nums}
+.bcard{background:var(--paper);border:1px solid var(--line);border-radius:9px;
+  box-shadow:0 1px 2px rgba(0,0,0,.06);padding:9px 11px}
+.bcard .bt{font-size:12.5px;font-weight:700;color:var(--ink);line-height:1.35}
+.bcard .bw{font-size:10.5px;color:var(--muted);margin-top:3px}
+
 /* The drawn funnel: centered bars tapering on a log scale, the step-to-step rate between them.
    Server-computed widths -- CSS only paints. */
 .funnel{flex:1;min-height:150px;display:flex;flex-direction:column;align-items:center;
@@ -2373,6 +2407,24 @@ def _funnel_html(fact, caption="", slide_title=""):
             % (_fig_head(fact, slide_title), "".join(parts), note, caption))
 
 
+def _board_html(fact, caption="", slide_title=""):
+    """The Trello-style task board: one column per Tasks-tab stage, cards inside -- the slide
+    looks like the Tasks tab itself, which is the whole spec. Header counts carry the TRUE
+    totals even when a long Completed column is trimmed to its freshest cards."""
+    cols = []
+    for col in fact.get("columns") or []:
+        cards = "".join(
+            "<div class=\"bcard\"><div class=\"bt\">%s</div>%s</div>"
+            % (_esc(t.get("title")),
+               ("<div class=\"bw\">%s</div>" % _esc(t["when"])) if t.get("when") else "")
+            for t in col.get("tasks") or [])
+        cols.append("<div class=\"bcol\"><div class=\"bhead\"><span>%s</span>"
+                    "<span class=\"bn\">%d</span></div>%s</div>"
+                    % (_esc(col.get("label")), int(col.get("count") or 0), cards))
+    return ("<div class=\"figure fill\">%s<div class=\"board\">%s</div>%s</div>"
+            % (_fig_head(fact, slide_title), "".join(cols), caption))
+
+
 def _compare_html(fact, caption="", slide_title=""):
     def side(d, cls):
         rows = "".join("<div class=\"r\"><span class=\"k\">%s</span><span class=\"v\">%s</span></div>"
@@ -2421,6 +2473,8 @@ def _block_html(b, facts, slide_title=""):
             return _chart_html(fact, caption, slide_title)
         if kind == "funnel":
             return _funnel_html(fact, caption, slide_title)
+        if kind == "board":
+            return _board_html(fact, caption, slide_title)
         if kind == "table":
             return _table_html(fact, caption, slide_title)
         if kind == "compare":
@@ -2456,6 +2510,9 @@ def _block_html(b, facts, slide_title=""):
                 bits.append("<div class=\"s\">%s</div>" % _esc(it["subtitle"]))
             if it.get("body"):
                 bits.append("<div class=\"b\">%s</div>" % _esc(it["body"]))
+            if it.get("why"):
+                bits.append("<div class=\"why\"><b>Why this matters</b>%s</div>"
+                            % _esc(it["why"]))
             cards.append("<div class=\"card\">%s</div>" % "".join(bits))
         return "<div class=\"cards\">%s</div>" % "".join(cards)
     if kind == "panel":

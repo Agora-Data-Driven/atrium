@@ -649,30 +649,53 @@ auto-refresh (see those bullets below). Product name is one constant:
   `section`, gated `is_superadmin()`); clients read only. `atrium_view.intel_sections(ws)` decorates
   the two lists with their display label/lede/icon for the template. No new infra (one more workspace
   JSON key, mirrors Client Communications).
-  - **SAVED SEARCHES (2026-08-04): reusable research queries kept as cards.** When a research angle
+  - **SAVED SEARCHES (2026-08-04): reusable research angles kept as cards.** When a research angle
     proves out ("demand for coaches correlates with our coaching-contract sales"), the team saves it
-    once instead of retyping keywords: `ws["intel_searches"]` = a list of
-    `{id, name, keywords, focus, schedule, created, last_run, last_error, last_added}` (writers
+    once instead of retyping it: `ws["intel_searches"]` = a list of
+    `{id, name, intent, schedule, created, last_run, last_error, last_added, last_queries}` (+
+    legacy `keywords`/`focus`, see INTENT below; writers
     `workspace.add/update/delete_intel_search` + `mark_intel_search_run`, cap
     `_MAX_INTEL_SEARCHES`=12). Each card renders in a 3-across team-only grid on the tab with
-    per-card **Refresh now** / Edit / Delete; `schedule` is `daily` (the card joins the
-    `intel-refresh` job's overnight sweep as one more concurrent grounded-research pass) or `manual`
+    per-card **Refresh now** / Edit / Delete + a **"Write with AI"** drafter; `schedule` is `daily`
+    (the card joins the `intel-refresh` job's overnight sweep as one more concurrent
+    grounded-research pass) or `manual`
     (only its button runs it, via `intel_refresh.refresh_search` → `op=search_refresh`). A card's
     stories land in **business_research** (the default home for extra research) with the entry's
     **`search`** field = the card id (`search` is now in `workspace._INTEL_FIELDS`), its name as the
-    heading, and its `focus` (blank → the Business Research focus) as the prompt; card outcomes are
-    recorded ON the card (`last_run`/`last_error`/`last_added`), never on the panel's global status.
+    heading, and its legacy `focus` (blank → the Business Research focus) as the prompt; card
+    outcomes are
+    recorded ON the card (`last_run`/`last_error`/`last_added`/`last_queries`), never on the panel's
+    global status.
     Deleting a card also deletes its plain-auto stories (favourited/hand-added ones stay). The
     section's plain-auto cap grows `+40` per card (`_SEARCH_CAP_BONUS`) so streams don't evict each
-    other. Route ops: `search_add|search_edit|search_delete|search_refresh` on the same
+    other. Route ops: `search_add|search_edit|search_delete|search_refresh|search_suggest` on the
+    same
     `POST /w/<c>/admin/intel`. **Filter chips** (client-visible too) sit above the feed — All / the
     two sections / one chip per card (entries carry `data-isearch`; chips filter client-side, and a
     saved-search chip narrows the grid to Business Research full-width). The **AI Research Brain
     panel is now a collapsed `<details>`** (opens itself when the model is Off or the last run
     errored) so the tab leads with the briefing. View context: `atrium_view.intel_search_cards(ws)`
-    (adds per-card story counts). Tests: `_intel_feed_localtest.py` §10 (CRUD + delete purge) and
-    `_intel_ai_localtest.py` §6c (sweep inclusion, tagging, refresh_search, per-card error posture).
+    (adds per-card story counts + the effective intent). Tests: `_intel_feed_localtest.py` §10
+    (CRUD + delete purge) and
+    `_intel_ai_localtest.py` §6c–6d (sweep inclusion, tagging, refresh_search, per-card error
+    posture, intent + suggest_search).
     Shipping this touches BOTH deploys (web + the image-pinned `intel-refresh` job — see below).
+  - **INTENT, not keywords (2026-08-04) — the whole tab reads plain-language monitoring intent.**
+    The team usually does NOT know what a client's audience searches for or reads — that is the
+    point of the feature — so nothing here asks for keywords anymore. The panel's box is **"What
+    should we monitor?"** → `ws["intel_intent"]` (one prose string, `workspace.get/set_intel_intent`,
+    route `op=intent`; `get_intel_intent` falls back to the joined legacy `intel_topics` list so old
+    clients keep working, and the legacy `op=topics` still exists). A card stores `intent` the same
+    way (`workspace.intel_search_intent(s)` folds legacy `keywords`/`focus` cards into an effective
+    intent, so pre-intent cards run unchanged). `intel_ai._grounded_system_prompt` hands the intent
+    to the model VERBATIM with an explicit instruction to work out who the audience is, what they
+    actually search/read, and to derive the concrete queries itself — and the queries it ACTUALLY
+    ran (grounding `webSearchQueries`) are stored per card as `last_queries` and rendered on the
+    card face ("Last sweep searched: …"), so the team sees how their words were interpreted.
+    **"Write with AI" on a card** (`op=search_suggest` → `intel_ai.suggest_search`, mirroring
+    `suggest_config`) drafts `{name, intent}` from the admin's rough hint + `_intel_client_context`,
+    grounded on live Google when the model is Gemini; fills the form, saves nothing. The panel's
+    "Write these for me" now drafts the intent (same `topics` JSON key on the wire).
   - **Daily AI auto-refresh — GROUNDED web research (an AI 'brain', LIVE):** a Cloud Run job
     `intel-refresh` (`dash/intel_refresh.py`, Cloud Scheduler `intel-refresh-daily` 07:00 SGT) runs
     **grounded research** (`intel_ai.research`): the selected **Vertex Gemini** model, with the live
@@ -691,10 +714,13 @@ auto-refresh (see those bullets below). Product name is one constant:
     we prompt for JSON and parse leniently). Per-client config `ws["intel_ai"]` = `{model,
     business_prompt, media_prompt, window, count, show_thinking}` (admin-set in the **AI Research
     Brain** panel; `intel_ai.window_of`/`count_of`/`window_label` validate the recency `7d…12m` +
-    target 1–25; keywords `ws["intel_topics"]` are SEEDS the model expands, not literal queries).
-    **Business Research is keyed ENTIRELY off `ws["intel_topics"]` with NO fallback** — no keywords ⇒
-    empty section + "set keywords" reason, never filler. **Media Buying News** is universal (runs for
-    every client). The two sections research **concurrently** (writes stay serial). Intel entries gain
+    target 1–25; the input is the MONITORING INTENT `ws["intel_intent"]` — plain words the model
+    interprets, deriving the queries itself; legacy `ws["intel_topics"]` folds in via
+    `get_intel_intent`).
+    **Business Research is keyed ENTIRELY off the intent with NO fallback** — no intent ⇒
+    empty section + "describe what to watch" reason, never filler. **Media Buying News** is universal
+    (runs for
+    every client). The sections research **concurrently** (writes stay serial). Intel entries gain
     a `relevance` field (`workspace._INTEL_FIELDS`), rendered as "Why this matters for <client>" under
     each summary. **`show_thinking`** (admin toggle, default off) captures the model's reasoning + the
     **search plan** (`groundingMetadata.webSearchQueries`) + grounded **sources** + Google **Search
@@ -732,16 +758,23 @@ auto-refresh (see those bullets below). Product name is one constant:
     **action** ("We'll action: …") | **panel** (a titled reading of the figure next to it) |
     **split** (two evidence objects side by side, one level deep) | chips | kpis | chart | table |
     compare | **funnel** (the DRAWN funnel graph — log-scaled centered bars with the step-to-step
-    rate between them, widths computed server-side). `slot` = the report_spec spine slot the slide
+    rate between them, widths computed server-side) | **board** (the Trello-style task board —
+    one column per Tasks-tab stage, cards inside). A `cards` item may carry a **`why`** field
+    ("why this matters for this client"), rendered as an EMPHASIZED accent strip — and a why-line
+    a model buries inside `body` is split out by normalization, so the emphasis survives either
+    way. `slot` = the report_spec spine slot the slide
     fills ("" = off-spine, e.g. a slide an AI edit added on purpose).
-  - 🔴 **A generated deck is EXACTLY EIGHT SLIDES (2026-08-04 redesign):** cover + one slide per
-    `report_spec.SPINE` slot — **Tasks** (the Tasks tab's board VERBATIM under its own column
-    names, via `tasks_facts` over the client-safe `_progress_tasks` projection — never renamed,
-    never editorialized, internal reasons never cross) · **Research** (per item: a brief summary of
-    what the source says + a "Why this matters for <client>" line) · **The funnel** (funnel graph
-    left, insight bullets right, one `split`; `funnel_notes` carries the computed observations) ·
+  - 🔴 **A generated deck is EXACTLY EIGHT SLIDES (2026-08-04 redesign):** a BARE cover (company
+    name + date, nothing else — `enforce_spine` discards a model-written cover claim) + one slide
+    per `report_spec.SPINE` slot — **Tasks** (the Tasks tab's board VERBATIM as Trello-style
+    columns, the `board` fact/block via `tasks_facts` over the client-safe `_progress_tasks`
+    projection — never renamed, never editorialized, internal reasons never cross) · **Research**
+    (per card: a brief summary of what the source says + the emphasized `why` reading) · **The
+    funnel** (funnel graph left, insight bullets right, one `split`; `funnel_notes` carries the
+    computed observations) ·
     **What happened** · **Why it happened** · **What we'll do** · **Opportunities** (headroom
-    OUTSIDE the what-we'll-do work). Campaign-to-date, Week-by-week, Quality and
+    OUTSIDE the what-we'll-do work). Section eyebrows render BIG on the slide (the reader must
+    always know which chapter they are in). Campaign-to-date, Week-by-week, Quality and
     The-conversion-step slots are retired — their facts feed What-happened/Why. The spine is
     stated in the prompt AND **enforced in code**: `enforce_spine` maps slides onto slots (by
     `slot`, else verbatim eyebrow), stamps canonical eyebrows, drops off-spine slides and

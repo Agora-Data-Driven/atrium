@@ -3234,9 +3234,9 @@ def _intel_client_context(ws):
                          for ch in workspace.watcher_channels(ws)} - {""})
     if industries:
         lines.append("Industries of the creators/competitors the team watches: %s" % ", ".join(industries))
-    topics = workspace.get_intel_topics(ws)
-    if topics:
-        lines.append("Current research keywords (improve on these): %s" % ", ".join(topics))
+    intent = workspace.get_intel_intent(ws)
+    if intent:
+        lines.append("Current monitoring intent (improve on this): %s" % intent)
     return "\n".join(lines)[:4000]
 
 
@@ -3252,10 +3252,14 @@ def atrium_admin_intel(client):
                                      workspace knows about this client (returned, NOT saved --
                                      the panel fills the fields for the admin to review + Save).
       * 'refresh-now'             -- run the daily refresh for THIS client right now (test the brain).
-      * 'search_add' | 'search_edit' | 'search_delete' -- a SAVED SEARCH card (name + keywords +
-                                     optional focus + schedule daily|manual). Its stories land in
-                                     business_research tagged with the card's id.
+      * 'intent'                  -- save the client's MONITORING INTENT (plain words; the AI
+                                     derives the actual searches). op 'topics' is the legacy twin.
+      * 'search_add' | 'search_edit' | 'search_delete' -- a SAVED SEARCH card (name + intent +
+                                     schedule daily|manual). Its stories land in business_research
+                                     tagged with the card's id.
       * 'search_refresh'          -- run ONE saved search right now (the card's Refresh button).
+      * 'search_suggest'          -- the card form's "Write with AI": draft {name, intent} from a
+                                     rough hint + client context (returned, NOT saved).
     """
     gate = _atrium_admin_json_gate(client)
     if gate:
@@ -3289,11 +3293,17 @@ def atrium_admin_intel(client):
         _audit(client, "set intel AI settings", model or "(off)")
         return jsonify(ok=True)
 
-    # --- Per-client Business-Research keywords ----------------------------------------------------
+    # --- Per-client Business-Research keywords (LEGACY -- the panel posts op=intent now) ----------
     if op == "topics":
         topics = workspace.set_intel_topics(client, request.form.get("topics", ""))
         _audit(client, "set intel topics", ", ".join(topics))
         return jsonify(ok=True, topics=topics)
+
+    # --- The monitoring INTENT: plain words on what to watch (the AI derives the searches) --------
+    if op == "intent":
+        intent = workspace.set_intel_intent(client, request.form.get("intent", ""))
+        _audit(client, "set intel monitoring intent", intent[:80])
+        return jsonify(ok=True, intent=intent)
 
     # --- AI-draft the keywords + both focus prompts from what we know about this client -----------
     if op == "suggest":
@@ -3359,6 +3369,23 @@ def atrium_admin_intel(client):
             return jsonify(ok=False, message=out["error"]), 200
         _audit(client, "ran a saved intel search", "%d item(s)" % out.get("added", 0))
         return jsonify(ok=True, added=out.get("added", 0))
+
+    # --- The card form's "Write with AI": draft {name, intent} for review (nothing saved) ---------
+    if op == "search_suggest":
+        ws = workspace.load_workspace(client) or {}
+        try:
+            fields, err = intel_ai.suggest_search(
+                ws.get("display_name") or client,
+                _intel_client_context(ws),
+                rough=request.form.get("rough", ""),
+                model=workspace.get_intel_ai(ws).get("model"),
+            )
+        except Exception as exc:  # never 500 the console; report it
+            return jsonify(ok=False, message="Drafting failed: %s" % str(exc)[:200]), 200
+        if fields is None:
+            return jsonify(ok=False, message="Couldn't draft the search: %s" % err), 200
+        _audit(client, "AI-drafted a saved intel search", fields.get("name", ""))
+        return jsonify(ok=True, name=fields.get("name", ""), intent=fields.get("intent", ""))
 
     # --- Bulk action on selected entries: mass delete / mass favourite (star + pin) ---------------
     if op == "bulk":

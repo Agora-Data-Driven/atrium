@@ -28,7 +28,6 @@ network in tests.
 """
 
 import os
-import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -63,16 +62,14 @@ def _empty_trace():
             "candidate_count": 0, "added": 0, "seconds": 0}
 
 
-def _search_topics(search):
-    """A saved search's keyword string split into a topics list (same contract as intel_topics)."""
-    raw = (search or {}).get("keywords") or ""
-    out, seen = [], set()
-    for t in re.split(r"[,\n]", raw):
-        t = t.strip()
-        if t and t.lower() not in seen:
-            seen.add(t.lower())
-            out.append(t)
-    return out
+def _search_intent(search):
+    """A saved search's monitoring intent as the topics list research() expects (one prose item).
+
+    The intent is handed to the model VERBATIM -- it derives the actual search queries itself
+    (the team deliberately does not supply keywords). Legacy keyword/focus cards fold in via
+    workspace.intel_search_intent."""
+    intent = workspace.intel_search_intent(search)
+    return [intent] if intent else []
 
 
 def _model_error(model):
@@ -98,10 +95,13 @@ def _research_section(client, ws, section, model, heading, count, prompt, recenc
     time. `topics` overrides the client's own keyword list (a saved search passes its own)."""
     t0 = time.time()
     trace = _empty_trace()
+    if topics is None:
+        intent = workspace.get_intel_intent(ws)
+        topics = [intent] if intent else []
     entries, err = intel_ai.research(
         section,
         ws.get("display_name") or client,
-        workspace.get_intel_topics(ws) if topics is None else topics,
+        topics,
         prompt=prompt,
         model=model,
         limit=count,
@@ -147,28 +147,28 @@ def refresh_client(client, ws=None, ai_fetcher=None, token_fetcher=None, fetcher
     recency = intel_ai.window_label(intel_ai.window_of(cfg)).lower()
     capture = str(cfg.get("show_thinking") or "").strip() in ("1", "true", "True")
 
-    # Media Buying is universal; Business Research runs only when the client has keywords (NO
-    # fallback -- with none it stays empty and says why, never off-topic filler). Each DAILY saved
-    # search is one more concurrent research pass with its own keywords/focus, landing tagged in
-    # business_research. specs: (key, section, heading, prompt, topics, search_id).
-    topics = workspace.get_intel_topics(ws)
+    # Media Buying is universal; Business Research runs only when the client has a monitoring
+    # intent (NO fallback -- with none it stays empty and says why, never off-topic filler). Each
+    # DAILY saved search is one more concurrent research pass with its own intent, landing tagged
+    # in business_research. specs: (key, section, heading, prompt, topics, search_id).
+    intent = workspace.get_intel_intent(ws)
     searches = [s for s in workspace.get_intel_searches(ws)
                 if (s.get("schedule") or "daily") == "daily"]
     all_searches = workspace.get_intel_searches(ws)
     specs = [("media_buying", "media_buying", _MEDIA_HEADING, cfg.get("media_prompt"), None, "")]
     results = {}
-    if topics:
+    if intent:
         specs.append(("business_research", "business_research", _BUSINESS_HEADING,
                       cfg.get("business_prompt"), None, ""))
     else:
         t = _empty_trace()
         results["business_research"] = (
-            None, "no research keywords set — add this client's industry keywords above", t)
+            None, "no monitoring intent set — describe what to watch in AI Research Brain above", t)
     for s in searches:
         specs.append(("search:%s" % s.get("id"), "business_research",
                       s.get("name") or _BUSINESS_HEADING,
                       s.get("focus") or cfg.get("business_prompt"),
-                      _search_topics(s), s.get("id")))
+                      _search_intent(s), s.get("id")))
 
     # RESEARCH every spec CONCURRENTLY (the slow part -- the grounded LLM calls overlap instead of
     # running back-to-back). WRITES happen afterwards in THIS thread, one spec at a time (the
@@ -209,16 +209,17 @@ def refresh_client(client, ws=None, ai_fetcher=None, token_fetcher=None, fetcher
     searches_added = 0
     for s in searches:
         sid = s.get("id")
-        entries, err, _trace = results.get("search:%s" % sid, (None, "did not run", _empty_trace()))
+        entries, err, strace = results.get("search:%s" % sid, (None, "did not run", _empty_trace()))
+        queries = strace.get("queries") or None    # the searches the model ACTUALLY ran, for the card
         if entries:
             for e in entries:
                 e["search"] = sid
             workspace.add_auto_intel(client, "business_research", entries, cap=cap)
-            workspace.mark_intel_search_run(client, sid, added=len(entries), error="")
+            workspace.mark_intel_search_run(client, sid, added=len(entries), error="", queries=queries)
             searches_added += len(entries)
             used_ai = True
         else:
-            workspace.mark_intel_search_run(client, sid, added=0, error=err or "")
+            workspace.mark_intel_search_run(client, sid, added=0, error=err or "", queries=queries)
 
     err = "; ".join(dict.fromkeys(errs))        # surface each distinct reason a section couldn't fill
     workspace.mark_intel_run(client, model if used_ai else "", error=err, traces=traces)
@@ -254,21 +255,22 @@ def refresh_search(client, search_id, ws=None, ai_fetcher=None, token_fetcher=No
     count = intel_ai.count_of(cfg)
     recency = intel_ai.window_label(intel_ai.window_of(cfg)).lower()
     capture = str(cfg.get("show_thinking") or "").strip() in ("1", "true", "True")
-    entries, err, _trace = _research_section(
+    entries, err, strace = _research_section(
         client, ws, "business_research", model,
         search.get("name") or _BUSINESS_HEADING,
         count, search.get("focus") or cfg.get("business_prompt"),
         recency, capture, ai_fetcher, token_fetcher,
-        topics=_search_topics(search))
+        topics=_search_intent(search))
+    queries = strace.get("queries") or None
     if not entries:
-        workspace.mark_intel_search_run(client, search_id, added=0, error=err or "")
+        workspace.mark_intel_search_run(client, search_id, added=0, error=err or "", queries=queries)
         return {"added": 0, "error": err or "the model returned nothing"}
     for e in entries:
         e["search"] = search_id
     cap = (workspace._MAX_AUTO_PER_SECTION
            + _SEARCH_CAP_BONUS * len(workspace.get_intel_searches(ws)))
     workspace.add_auto_intel(client, "business_research", entries, cap=cap)
-    workspace.mark_intel_search_run(client, search_id, added=len(entries), error="")
+    workspace.mark_intel_search_run(client, search_id, added=len(entries), error="", queries=queries)
     return {"added": len(entries), "error": ""}
 
 
