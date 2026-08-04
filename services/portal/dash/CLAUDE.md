@@ -589,11 +589,15 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   which is why `_weeks`/`_daily_weeks` return day counts; a 1-day tail against a 7-day mean read
   "-80%" on every metric), and a FLAT series (a fixed weekly budget) has every point tied for max,
   which marked all thirteen weeks "BEST" until `_series` started requiring a real spread and a
-  single winner. 🔴 **A generated deck is EXACTLY EIGHT SLIDES (2026-08-04):** cover + one slide
+  single winner. 🔴 **A generated deck is EXACTLY EIGHT SLIDES (2026-08-04):** a BARE cover
+  (company name + date — `enforce_spine` discards any model-written cover) + one slide
   per `report_spec.SPINE` slot (Tasks · Research · The funnel · What happened · Why it happened ·
   What we'll do · Opportunities), enforced in code by `report_ai.enforce_spine` (slides map onto
   slots via their `slot` field or verbatim eyebrow; off-spine drops, missing slots backfill from
-  the deterministic draft). The team also picks the reporting WINDOW on generate (`period` =
+  the deterministic draft). Tasks renders as the Trello-style `board` block (the fact/kind is
+  `board` — the old tiles+table pair is gone); a Research `cards` item carries its
+  why-this-matters in the `why` field (rendered emphasized; a why-line embedded in `body` is
+  split out by `_WHY_RE`); section eyebrows render large. The team also picks the reporting WINDOW on generate (`period` =
   mtd|last_week|'' → `report_window` + `build_facts(window=)`), and each deck card has an
   Edit-with-AI dialog (`op=revise`, whole-deck or one slide via `slide`; edits are deliberately
   NOT re-pinned so they may add slides). A new fact must be claimed by a spine slot or it can

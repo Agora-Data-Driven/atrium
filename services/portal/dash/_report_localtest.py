@@ -298,6 +298,10 @@ def run():
            and len(draft["slides"]) == report_spec.DECK_SLIDES
            and any(b["type"] in ("chart", "table", "kpis", "bullets") and b.get("fact")
                    for b in draft_blocks))
+    _check("the cover is BARE: company name + date, no claim, no chips",
+           draft["slides"][0]["title"] == "Riverdance"
+           and draft["slides"][0]["subtitle"] == "July 29, 2026"
+           and not draft["slides"][0]["blocks"])
     _check("the no-AI deck draws the funnel beside its computed notes",
            any(b["type"] == "funnel" and b.get("fact") == "funnel" for b in draft_blocks))
     _check("the no-AI deck invents no analysis (no actions, no recommendations)",
@@ -336,8 +340,10 @@ def run():
     _check("generate pins the model deck to the strict eight, in spine order",
            err == "" and len(payload["slides"]) == report_spec.DECK_SLIDES
            and payload["slides"][0]["kind"] == "cover"
-           and payload["slides"][0]["title"] == "We doubled daily revenue in two weeks."
            and [sl["eyebrow"] for sl in payload["slides"][1:]] == order)
+    _check("the model's cover claim is REPLACED by the standard bare cover (name + date)",
+           payload["slides"][0]["title"] == "Riverdance"
+           and "doubled" not in payload["slides"][0]["title"])
     by_slot = {sl["slot"]: sl for sl in payload["slides"][1:]}
     _check("a slot-tagged slide keeps its argument but gets the CANONICAL eyebrow",
            by_slot["what_happened"]["title"] == "ROAS reached 7.71x"
@@ -373,6 +379,28 @@ def run():
     _check("the split and its panel reach the deck",
            'class="split' in split_doc and 'class="panel"' in split_doc
            and "What it means" in split_doc)
+
+    # Research emphasis: a card's `why` field renders as an accent strip -- and a model that
+    # buries the line inside `body` ("... Why this matters for X: ...") still gets the emphasis,
+    # because normalization splits it out.
+    why_deck, werr = report_ai.generate("Riverdance", "2026-07-29", inputs, lambda s, u: (
+        json.dumps({"slides": [{"kind": "content", "slot": "research",
+                                "title": "The market moved", "blocks": [
+            {"type": "cards", "items": [
+                {"eyebrow": "Market shift", "title": "AI tools launch", "body": "New tools.",
+                 "why": "They commoditize our templates."},
+                {"eyebrow": "Competitor", "title": "Legal Paige posts",
+                 "body": "Recent videos cover AI. Why this matters for Riverdance: "
+                         "they own the conversation."}]}]}]}), ""))
+    research_cards = next(sl for sl in why_deck["slides"]
+                          if sl["slot"] == "research")["blocks"][0]
+    _check("a card's why field survives and an embedded why-line is split out of the body",
+           werr == "" and research_cards["items"][0]["why"] == "They commoditize our templates."
+           and research_cards["items"][1]["why"] == "they own the conversation."
+           and "Why this matters" not in research_cards["items"][1]["body"])
+    why_doc = report_ai.render_html("Riverdance", why_deck, "2026-07-29")
+    _check("the why reading renders EMPHASIZED on the card",
+           why_doc.count('class="why"') >= 2 and "Why this matters" in why_doc)
     _check("the computed facts ride inside the payload (so a re-render is identical)",
            payload["facts"]["totals"]["summary"] == facts["totals"]["summary"])
 
@@ -442,20 +470,31 @@ def run():
           {"key": "revision", "name": "Revision", "tasks": []},
           {"key": "completed", "name": "Completed",
            "tasks": [{"title": "LP switch", "completed_at": "2026-07-24"}]}]
-    tfacts = {f["key"]: f for f in report_ai.tasks_facts(tv) if f}
-    _check("the Tasks slide carries a count per column and the board verbatim",
-           {"tasks_counts", "tasks_board"} <= set(tfacts)
-           and any(i["label"] == "Paused" and i["value"] == "1"
-                   for i in tfacts["tasks_counts"]["items"])
-           and any(r["task"] == "Ad set build" and r["status"] == "In progress"
-                   for r in tfacts["tasks_board"]["rows"]))
+    board = report_ai.tasks_facts(tv)[0]
+    _check("the Tasks fact is a Trello-style BOARD: one column per tab stage, cards inside",
+           board["kind"] == "board"
+           and [c["label"] for c in board["columns"]]
+           == ["To do", "In progress", "Paused", "Revision", "Completed"]
+           and any(c["label"] == "In progress"
+                   and any(t["title"] == "Ad set build" for t in c["tasks"])
+                   for c in board["columns"]))
     # 🔴 The deck is CLIENT-VISIBLE. hold_reason is internal by design and must never cross, and
     # the column labels are the tab's own (a held card reads "Paused", never "Blocked").
     _check("the board wears the tab's own labels and an internal reason never crosses",
-           "INTERNAL" not in json.dumps(tfacts)
-           and any(r["status"] == "Paused" for r in tfacts["tasks_board"]["rows"]))
-    _check("completed work is dated on the board",
-           any("shipped" in r["when"] for r in tfacts["tasks_board"]["rows"]))
+           "INTERNAL" not in json.dumps(board)
+           and any(c["label"] == "Paused" and c["count"] == 1 for c in board["columns"]))
+    _check("completed work is dated on its card",
+           any("shipped" in t["when"] for c in board["columns"] for t in c["tasks"]))
+    _check("an all-empty board yields no fact (the slide degrades honestly)",
+           report_ai.tasks_facts([{"key": "todo", "name": "To do", "tasks": []}]) == [None])
+    board_doc = report_ai.render_html(
+        "Riverdance",
+        report_ai.draft_payload(report_ai.gather(ws, [], _dash_rd(), tasks_view=tv),
+                                client_name="Riverdance", when="2026-07-29"),
+        "2026-07-29")
+    _check("the Tasks slide renders as Trello columns, like the Tasks tab",
+           board_doc.count('class="bcol"') == 5 and 'class="board"' in board_doc
+           and "Ad set build" in board_doc)
 
     _check("no target on file -> no vs_target fact (never an unagreed judgement)",
            "vs_target" not in report_ai.build_facts(_dash_rich(), None))
@@ -494,7 +533,7 @@ def run():
            html_doc.count("<section class=\"slide") == 8 and "01 / 08" in html_doc
            and "08 / 08" in html_doc)
     _check("the model's claims and the computed numbers both reach the deck",
-           "We doubled daily revenue in two weeks." in html_doc and "7.71x" in html_doc
+           "ROAS reached 7.71x" in html_doc and "7.71x" in html_doc
            and "We'll action" in html_doc)
     _check("the funnel draws as a graph (bars + step rates), not a table",
            'class="funnel"' in html_doc and 'class="fstep"' in html_doc
