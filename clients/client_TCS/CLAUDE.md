@@ -73,13 +73,16 @@ Summary tiles → trend line → **where the funnel leaks** → **creative** →
   and our grain is (ad × day), so someone reached on three days counts three times. There is no
   way to derive true multi-day unique reach from this table. The column is named, labelled and
   captioned as a daily sum — rates stay comparable between ads, which is what a heatmap is for.
-- **The creative grid** renders `thumbnail_url` straight from Meta's CDN. ⚠️ Those URLs are
-  **signed and expire**; this is only safe because the shared Meta loader re-pulls and MERGEs
-  nightly, so a stored URL is never older than the last ingest. If ingest stops, the images go
-  first — hence the `onerror` handler that swaps in a readable tile instead of a broken-image
-  icon. 🔴 **`object-fit: contain`, never `cover`**: Meta serves square, portrait *and* wide
-  banner creatives, and `cover` cropped the wide ones to a headless strip of lettering. The panel
-  exists to judge the creative, so the whole frame must be visible.
+- **The creative grid** prefers **`thumbnail_data`** — the export job's DURABLE copy of each
+  creative. Meta's `thumbnail_url` is **signed and expires** (the whole grid went "Creative
+  preview unavailable" in 2026-08 when ingest paused), so the job's `_attach_thumbs` downloads
+  each image while its link is alive and embeds it as a small data URI in `tcs.json`, inheriting
+  the previous export's capture for any URL that has already died — once captured, an image never
+  rots. `thumbnail_url` stays as the fallback for pre-capture payloads, with the `onerror` handler
+  swapping in a readable tile instead of a broken-image icon. 🔴 **`object-fit: contain`, never
+  `cover`**: Meta serves square, portrait *and* wide banner creatives, and `cover` cropped the
+  wide ones to a headless strip of lettering. The panel exists to judge the creative, so the whole
+  frame must be visible.
 - **`dash/`** — one self-contained `dashboard.html`, dark `--ag-*` theme, inline JS **esprima-4.x-safe**
   (no `?.` / `??`). The engagement chart deliberately avoids a dual axis: rates share one % axis,
   volume is a separate bar strip.

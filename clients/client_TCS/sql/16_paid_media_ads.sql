@@ -18,8 +18,11 @@ WITH agg AS (
     ANY_VALUE(campaign_name)                          AS campaign_name,
     ANY_VALUE(adset_name)                             AS adset_name,
     -- The three thumbnail columns populate inconsistently per placement; take the first
-    -- non-null so an ad with only an Instagram creative still shows a picture.
-    ANY_VALUE(COALESCE(creative_thumbnail_url, ig_thumbnail_url, placement_thumbnail_url))
+    -- non-null so an ad with only an Instagram creative still shows a picture. From the NEWEST
+    -- row that has one (never ANY_VALUE): these URLs are signed and expire, and the freshest
+    -- signature is the one the export job can still download and capture.
+    ARRAY_AGG(COALESCE(creative_thumbnail_url, ig_thumbnail_url, placement_thumbnail_url)
+              IGNORE NULLS ORDER BY metric_date DESC LIMIT 1)[SAFE_OFFSET(0)]
                                                       AS thumbnail_url,
     ANY_VALUE(creative_title)                         AS creative_title,
     ANY_VALUE(creative_body)                          AS creative_body,

@@ -110,6 +110,7 @@
   .filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 12px 13px; font-size: 13px; color: var(--muted); }
   .filterbar label { display: inline-flex; align-items: center; gap: 6px; }
   .filterbar select { font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--ink); }
+  .filterbar input[type="search"] { font: inherit; padding: 4px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--ink); min-width: 200px; }
   .filterbar button { font: inherit; padding: 4px 12px; border: 1px solid var(--border); border-radius: 999px; background: #fff; color: var(--muted); cursor: pointer; }
   .filterbar .fltcount { margin-left: auto; font-size: 12px; }
   td .name { font-weight: 600; color: var(--navy); }
@@ -461,11 +462,15 @@
 
       <div class="panel">
         <h2>Leads, sales &amp; click rate over time</h2>
-        <p class="desc">Quiz-lead activity by month or week, all scoped to the same people: new quiz leads, orders they placed after taking the quiz, and their email <b>click rate</b> (emails clicked ÷ emails sent, one click per email). Each line is indexed to its own peak (100%) so their shape and timing compare on one axis; hover for the actual values. Open rate is left out on purpose. Apple Mail Privacy auto-opens make it unreliable.</p>
+        <p class="desc">Quiz-lead activity by month or week, all scoped to the same people: new quiz leads, orders they placed after taking the quiz, and their email <b>click rate</b> (emails clicked ÷ emails sent, one click per email). <b>Relative</b> indexes each line to its own peak (100%) so their shape and timing compare on one axis; <b>Absolute</b> plots the raw counts (the click-rate line steps aside there &mdash; a percentage cannot share a count axis). Hover always shows the actual values. Open rate is left out on purpose. Apple Mail Privacy auto-opens make it unreliable.</p>
         <div class="legend">
           <span class="item"><span class="swatch" style="background:#153a5b"></span>Leads</span>
           <span class="item"><span class="swatch" style="background:#17a398"></span>Sales</span>
-          <span class="item"><span class="swatch" style="background:#d8952f"></span>Click rate</span>
+          <span class="item" id="actRateLegend"><span class="swatch" style="background:#d8952f"></span>Click rate</span>
+          <div class="seg" id="seg-actscale" style="margin-left:auto">
+            <button type="button" data-v="rel" class="on">Relative</button>
+            <button type="button" data-v="abs">Absolute</button>
+          </div>
         </div>
         <svg class="chart" id="actChart" preserveAspectRatio="none" viewBox="0 0 760 250" role="img" aria-label="Leads, sales and click rate by month"></svg>
         <p class="note" id="actNote"></p>
@@ -516,7 +521,15 @@
 
         <div class="panel">
           <h2 id="emTitle">Emails sent to leads</h2>
-          <p class="desc" id="emDesc">Each subject line sent to quiz leads (at/after their quiz), when it last went out, how many leads it reached, and its <b>click rate</b> among them. Click a heading to sort, or click a lead on the left to see just their emails.</p>
+          <p class="desc" id="emDesc">Every send to quiz leads (at/after their quiz), <b>grouped by subject line</b>: how many leads it reached and how many of them opened and clicked it. Treat opens as directional only &mdash; Apple Mail Privacy auto-opens inflate them. Click a heading to sort, or click a lead on the left to see just their emails.</p>
+          <div class="filterbar" id="emFilter">
+            <input type="search" id="emSearch" placeholder="Search subjects&hellip;" aria-label="Search email subjects">
+            <div class="seg" id="seg-embuyer">
+              <button type="button" data-v="all" class="on">All leads</button>
+              <button type="button" data-v="buyers">Buyers only</button>
+            </div>
+            <span class="fltcount" id="emCount"></span>
+          </div>
           <div class="emreset" id="emReset" style="display:none; margin:0 0 10px 13px;"><a id="emResetLink">← Back to all campaigns</a></div>
           <div class="tablewrap scrolly">
             <table id="camps">
@@ -968,7 +981,10 @@
       var html = '<div class="th">' + esc((opts.xLabel || monthLabel)(rows[i][opts.xkey])) + "</div>", s;
       for (s = 0; s < opts.series.length; s++) {
         var ser = opts.series[s], v = rows[i][ser.key];
-        html += '<div class="row"><span class="dot" style="background:' + ser.color + '"></span>' + esc(ser.label) + ": " + (opts.isRate ? fmtPct(v) : fmtInt(v)) + "</div>";
+        /* A series can carry its own tip formatter (used to show ABSOLUTE values while the
+           axis draws %-of-peak); without one, fall back to formatting the plotted value. */
+        var tv = ser.tip ? ser.tip(rows[i]) : (opts.isRate ? fmtPct(v) : fmtInt(v));
+        html += '<div class="row"><span class="dot" style="background:' + ser.color + '"></span>' + esc(ser.label) + ": " + tv + "</div>";
       }
       if (opts.extra) { html += opts.extra(rows[i]); }
       tip.innerHTML = html; tip.style.opacity = 1;
@@ -1108,11 +1124,16 @@
   // ---- Emails panel: aggregate campaign view, OR per-lead drill-down when a lead is clicked ----
   var pill = function (on) { return on ? '<span class="pill yes">yes</span>' : '<span class="pill no">no</span>'; };
   var EM = {
-    agg: [], byLead: {}, mode: "agg", sortI: 0, dir: -1, selEmail: null, selName: null, wired: false,
+    byLead: {}, conv: {}, mode: "agg", sortI: 1, dir: -1, q: "", buyers: false,
+    selEmail: null, selName: null, wired: false,
+    /* The aggregate view GROUPS every send by subject line, computed client-side from the
+       per-lead send log -- so the Buyers filter, the search and these counts can never disagree
+       with the drill-down. No sent date here: one subject goes out across many dates, so the
+       date only means something once a single person is selected (leadCols keeps it). */
     aggCols: [
-      { key: "last_sent", type: "str", label: "Sent date", cell: function (c) { return esc(String(c.last_sent || "").slice(0, 10)); } },
       { key: "subject", type: "str", label: "Email subject", cell: function (c) { return '<span class="em">' + esc(c.subject) + "</span>"; } },
       { key: "sends", type: "num", label: "Sent", cell: function (c) { return fmtInt(c.sends); } },
+      { key: "opens", type: "num", label: "Opens", cell: function (c) { return fmtInt(c.opens); } },
       { key: "clicks", type: "num", label: "Clicks", cell: function (c) { return fmtInt(c.clicks); } },
       { key: "click_rate", type: "num", label: "Click rate", cell: function (c) { return fmtPct(c.click_rate); } }
     ],
@@ -1162,19 +1183,56 @@
       })(i);
     }
   }
+  /* Group the per-lead send log by subject line. EM.buyers narrows to leads who converted --
+     which is how "which emails did our BUYERS actually touch" gets answered. */
+  function emailAgg() {
+    var map = {}, out = [], k, arr, i, s, g;
+    for (k in EM.byLead) {
+      if (!Object.prototype.hasOwnProperty.call(EM.byLead, k)) { continue; }
+      if (EM.buyers && !EM.conv[k]) { continue; }
+      arr = EM.byLead[k];
+      for (i = 0; i < arr.length; i++) {
+        s = arr[i][1] || "(no subject)";
+        g = map[s];
+        if (!g) { g = { subject: s, sends: 0, opens: 0, clicks: 0, click_rate: null }; map[s] = g; out.push(g); }
+        g.sends += 1;
+        if (arr[i][2]) { g.opens += 1; }
+        if (arr[i][3]) { g.clicks += 1; }
+      }
+    }
+    for (i = 0; i < out.length; i++) { if (out[i].sends > 0) { out[i].click_rate = out[i].clicks / out[i].sends; } }
+    return out;
+  }
+  function subjectMatch(s) {
+    if (!EM.q) { return true; }
+    return String(s || "").toLowerCase().indexOf(EM.q) !== -1;
+  }
   function renderEmails() {
+    var buyerSeg = el("seg-embuyer"), i;
     if (EM.mode === "lead" && EM.selEmail) {
       el("emTitle").textContent = "Emails to " + (EM.selName || EM.selEmail);
       el("emDesc").textContent = "Every email this lead received at/after taking the quiz, newest first, with whether they opened and clicked it.";
       el("emReset").style.display = "";
-      var raw = EM.byLead[EM.selEmail] || [], rows = [], i;
-      for (i = 0; i < raw.length; i++) { rows.push({ d: raw[i][0], s: raw[i][1], o: raw[i][2], c: raw[i][3] }); }
+      /* One person is already chosen, so the Buyers filter has nothing left to narrow. */
+      if (buyerSeg) { buyerSeg.style.display = "none"; }
+      var raw = EM.byLead[EM.selEmail] || [], rows = [];
+      for (i = 0; i < raw.length; i++) {
+        if (!subjectMatch(raw[i][1])) { continue; }
+        rows.push({ d: raw[i][0], s: raw[i][1], o: raw[i][2], c: raw[i][3] });
+      }
+      el("emCount").textContent = fmtInt(rows.length) + (rows.length === 1 ? " email" : " emails");
       renderEmailTable(EM.leadCols, rows);
     } else {
-      el("emTitle").textContent = "Emails sent to leads";
-      el("emDesc").innerHTML = "Each subject line sent to quiz leads (at/after their quiz), when it last went out, how many leads it reached, and its <b>click rate</b> among them. Click a heading to sort, or click a lead on the left to see just their emails.";
+      el("emTitle").textContent = EM.buyers ? "Emails sent to buyers" : "Emails sent to leads";
+      el("emDesc").innerHTML = EM.buyers
+        ? "Every send to quiz leads <b>who went on to buy</b>, grouped by subject line: how many future buyers each subject reached and how many of them opened and clicked it. Treat opens as directional only &mdash; Apple Mail Privacy auto-opens inflate them."
+        : "Every send to quiz leads (at/after their quiz), <b>grouped by subject line</b>: how many leads it reached and how many of them opened and clicked it. Treat opens as directional only &mdash; Apple Mail Privacy auto-opens inflate them. Click a heading to sort, or click a lead on the left to see just their emails.";
       el("emReset").style.display = "none";
-      renderEmailTable(EM.aggCols, EM.agg);
+      if (buyerSeg) { buyerSeg.style.display = ""; }
+      var all = emailAgg(), rows2 = [];
+      for (i = 0; i < all.length; i++) { if (subjectMatch(all[i].subject)) { rows2.push(all[i]); } }
+      el("emCount").textContent = fmtInt(rows2.length) + (rows2.length === 1 ? " subject" : " subjects");
+      renderEmailTable(EM.aggCols, rows2);
     }
   }
   function highlightLead(email) {
@@ -1196,16 +1254,30 @@
     renderEmails();
   }
   function clearLeadSel() {
-    EM.selEmail = null; EM.selName = null; EM.mode = "agg"; EM.sortI = 0; EM.dir = -1;
+    /* Aggregate default sort is the Sent count (col 1), biggest sends first. */
+    EM.selEmail = null; EM.selName = null; EM.mode = "agg"; EM.sortI = 1; EM.dir = -1;
     highlightLead(null);
     renderEmails();
   }
   function renderCampaigns(campaigns, byLead) {
-    EM.agg = campaigns || [];
+    /* `campaigns` (the server-side per-campaign rollup) is no longer rendered -- the aggregate
+       table is grouped by subject from the per-lead send log instead, so the Buyers filter and
+       the drill-down always agree. The payload keeps the key for older consumers. */
     EM.byLead = byLead || {};
-    EM.mode = "agg"; EM.sortI = 0; EM.dir = -1; EM.selEmail = null;
+    /* email -> ever bought, for the Buyers filter (renderLeads has run by now at boot). */
+    EM.conv = {};
+    var ci;
+    for (ci = 0; ci < LEADS.all.length; ci++) {
+      if (Number(LEADS.all[ci].is_converted)) { EM.conv[LEADS.all[ci].email] = 1; }
+    }
+    EM.mode = "agg"; EM.sortI = 1; EM.dir = -1; EM.selEmail = null;
     if (!EM.wired) {
       el("emResetLink").addEventListener("click", function () { clearLeadSel(); });
+      el("emSearch").addEventListener("input", function () {
+        EM.q = String(el("emSearch").value || "").toLowerCase();
+        renderEmails();
+      });
+      segWire("seg-embuyer", function (v) { EM.buyers = (v === "buyers"); renderEmails(); });
       EM.wired = true;
     }
     renderEmails();
@@ -1223,7 +1295,7 @@
   }
 
   // ---- Leads / sales / clicks trend (relative %-of-peak default, or absolute counts) ----
-  var ACT = { monthly: [], weekly: [], period: "month" };
+  var ACT = { monthly: [], weekly: [], period: "month", scale: "rel" };
   function seriesMax(rows, key) {
     var m = 0, i;
     for (i = 0; i < rows.length; i++) { var v = rows[i][key]; if (isNum(v) && Number(v) > m) { m = Number(v); } }
@@ -1249,19 +1321,37 @@
       row[xkey] = r[xkey];
       plot.push(row);
     }
+    /* Tooltips report the ACTUAL values whichever scale is drawn -- the %-of-peak numbers only
+       mean "how close to this line's own best", which nobody should have to read off a hover. */
+    var tipLeads = function (r) { return fmtInt(r.leads); };
+    var tipSales = function (r) { return fmtInt(r.sales); };
+    var tipRate = function (r) { return isNum(r.click_rate) ? fmtPct(r.click_rate) : "–"; };
+    var abs = ACT.scale === "abs";
+    /* Absolute mode drops the click-rate LINE (a percentage cannot share a count axis, and this
+       dashboard deliberately avoids dual axes) but keeps the value in the hover. */
+    var rateLegend = el("actRateLegend");
+    if (rateLegend) {
+      rateLegend.style.opacity = abs ? "0.35" : "";
+      rateLegend.title = abs ? "Not drawn on the absolute (count) axis — hover the chart for its value." : "";
+    }
     renderLineChart({
-      svgId: "actChart", tipId: "actTip", rows: plot, xkey: xkey, isRate: true,
+      svgId: "actChart", tipId: "actTip", rows: plot, xkey: xkey, isRate: !abs,
       xLabel: weekly ? weekLabel : monthLabel,
-      series: [
-        { key: "leads_v", label: "Leads", color: "#153a5b" },
-        { key: "sales_v", label: "Sales", color: "#17a398" },
-        { key: "rate_v", label: "Click rate", color: "#d8952f" }
+      series: abs ? [
+        { key: "leads", label: "Leads", color: "#153a5b", tip: tipLeads },
+        { key: "sales", label: "Sales", color: "#17a398", tip: tipSales }
+      ] : [
+        { key: "leads_v", label: "Leads", color: "#153a5b", tip: tipLeads },
+        { key: "sales_v", label: "Sales", color: "#17a398", tip: tipSales },
+        { key: "rate_v", label: "Click rate", color: "#d8952f", tip: tipRate }
       ],
       extra: function (r) {
-        return '<div class="row" style="color:#6b7c8c">leads: ' + fmtInt(r.leads) +
-               " · sales: " + fmtInt(r.sales) +
-               " · click rate: " + (isNum(r.click_rate) ? fmtPct(r.click_rate) : "–") +
-               (isNum(r.clicks) && isNum(r.sends) ? " (" + fmtInt(r.clicks) + " / " + fmtInt(r.sends) + " sent)" : "") + "</div>";
+        var out = "";
+        if (abs) { out += '<div class="row"><span class="dot" style="background:#d8952f"></span>Click rate: ' + tipRate(r) + "</div>"; }
+        if (isNum(r.clicks) && isNum(r.sends)) {
+          out += '<div class="row" style="color:#6b7c8c">' + fmtInt(r.clicks) + " clicks / " + fmtInt(r.sends) + " emails sent</div>";
+        }
+        return out;
       }
     });
   }
@@ -1538,14 +1628,16 @@
   }
 
   /* ---- the creative grid: the actual ad, next to what it bought ---------------------------
-     ⚠️ thumbnail_url points at Meta's CDN and those URLs are SIGNED AND EXPIRE. That is safe
-     only because the shared Meta loader re-pulls and MERGEs nightly, so a stored URL is never
-     older than the last ingest. If ingest stops, images go first -- hence the onerror handler,
-     which swaps in a readable text tile rather than leaving a browser broken-image icon. */
+     thumbnail_data is the export job's DURABLE copy of the creative (a data URI captured while
+     Meta's signed CDN link was still alive) -- prefer it always. thumbnail_url is the raw CDN
+     link, kept as the fallback for a payload built before the capture existed; those URLs are
+     SIGNED AND EXPIRE, hence the onerror handler, which swaps in a readable text tile rather
+     than leaving a browser broken-image icon. */
   function creativeCard(r) {
     var thin = r.is_significant ? "" : " thin";
-    var img = r.thumbnail_url
-      ? '<img src="' + esc(String(r.thumbnail_url)) + '" alt="' + esc(String(r.ad_name || "ad creative")) +
+    var src = r.thumbnail_data || r.thumbnail_url;
+    var img = src
+      ? '<img src="' + esc(String(src)) + '" alt="' + esc(String(r.ad_name || "ad creative")) +
         '" loading="lazy" onerror="this.style.display=\'none\';' +
         'this.parentNode.querySelector(&quot;.noimg&quot;).style.display=&quot;block&quot;">' +
         '<div class="noimg" style="display:none">Creative preview unavailable<br>(Meta image link expired)</div>'
@@ -1735,6 +1827,7 @@
       })(ids[i]);
     }
     segWire("seg-grain", function (v) { ST.grain = v; syncDateInputs(); renderPeriod(); });
+    segWire("seg-actscale", function (v) { ACT.scale = v; renderActivity(); });
     segWire("seg-view", function (v) { showView(v); });
     segWire("seg-cresort", function (v) { PAID.sortKey = v; renderPaidAds(); });
     wireTuck();

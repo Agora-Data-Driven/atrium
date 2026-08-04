@@ -15,8 +15,10 @@ Self-gating freshness:
   FORCE_REBUILD=1 bypasses the gate. The watermark is written ONLY after a successful upload.
 """
 
+import base64
 import json
 import os
+import urllib.request
 from datetime import datetime, timezone
 
 from google.cloud import bigquery, storage
@@ -44,6 +46,11 @@ GATING_TABLES = [
 WATERMARK_OBJECT = "_freshness.json"
 LEADS_LIMIT = 800
 ADS_LIMIT = 100
+
+# Creative thumbnails: a Meta CDN thumb is a few KB; anything bigger than this is not a thumb
+# and is not worth inlining into tcs.json (100 ads x 250 KB would put ~25 MB on the data path).
+THUMB_MAX_BYTES = 250_000
+THUMB_TIMEOUT = 8  # seconds; an EXPIRED signed URL answers 403 fast, so failures are cheap.
 
 
 def _iso_now():
@@ -343,10 +350,11 @@ def _read_paid_ads(bq):
     """One row per ad, WITH its creative (thumbnail + headline + body copy).
 
     ⚠️ `thumbnail_url` points straight at Meta's CDN (scontent*.fbcdn.net) and those URLs are
-    SIGNED AND EXPIRE. That is safe here only because the shared Meta loader re-pulls and MERGEs
-    every night, so the stored URL is never older than the last ingest. If ingest stops, the
-    images go first -- which is why the dashboard degrades each card to a clean text tile on
-    image error instead of showing a broken-image icon.
+    SIGNED AND EXPIRE -- which is why main() follows up with _attach_thumbs(): each image is
+    downloaded while the link is alive and embedded as a durable `thumbnail_data` data URI
+    (previous exports' captures are inherited for URLs that have already died). The dashboard
+    prefers `thumbnail_data` and only falls back to the raw URL, degrading to a clean text tile
+    on image error instead of a broken-image icon.
     """
     sql = f"""
         SELECT ad_id, ad_name, campaign_name, adset_name, thumbnail_url, creative_title,
@@ -378,6 +386,62 @@ def _read_paid_ads(bq):
             "is_significant": bool(r["is_significant"]),
         })
     return out
+
+
+def _fetch_thumb(url):
+    """Download ONE creative thumbnail and return it as a data URI, or None.
+
+    Meta's `thumbnail_url` is SIGNED AND EXPIRES (days, not weeks). This job runs right after the
+    ingest that minted the URL, so the download succeeds while the link is alive and the pixels
+    land in tcs.json -- where they never expire. An already-dead URL fails fast (403) and the
+    caller falls back to the copy captured by a previous export."""
+    if not url:
+        return None
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "AgoraExport/1.0"})
+        with urllib.request.urlopen(req, timeout=THUMB_TIMEOUT) as resp:
+            ctype = (resp.headers.get("Content-Type") or "image/jpeg").split(";")[0].strip()
+            if not ctype.startswith("image/"):
+                return None
+            raw = resp.read(THUMB_MAX_BYTES + 1)
+        if not raw or len(raw) > THUMB_MAX_BYTES:
+            return None
+        return "data:%s;base64,%s" % (ctype, base64.b64encode(raw).decode("ascii"))
+    except Exception:
+        return None
+
+
+def _prev_thumbs(bucket):
+    """ad_id -> thumbnail_data out of the tcs.json ALREADY in the bucket.
+
+    This is what makes a captured creative permanent: once any export run has embedded an image,
+    every later run inherits it, so an ingest outage (or Meta expiring the CDN link) can no longer
+    blank the creative grid."""
+    try:
+        raw = bucket.blob(DATA_OBJECT).download_as_bytes()
+        ads = (json.loads(raw.decode("utf-8")).get("paid") or {}).get("ads") or []
+        return {a["ad_id"]: a["thumbnail_data"] for a in ads
+                if a.get("ad_id") and a.get("thumbnail_data")}
+    except Exception:
+        return {}
+
+
+def _attach_thumbs(ads, prev):
+    """Give every ad row a durable `thumbnail_data` (fresh capture, else the previous export's)."""
+    fetched = reused = missing = 0
+    for a in ads:
+        data = _fetch_thumb(a.get("thumbnail_url"))
+        if data:
+            fetched += 1
+        else:
+            data = prev.get(a.get("ad_id"))
+            if data:
+                reused += 1
+            else:
+                missing += 1
+        a["thumbnail_data"] = data
+    print(f"[{CLIENT}] creative thumbnails: {fetched} fetched fresh, {reused} reused from the "
+          f"previous export, {missing} unavailable.")
 
 
 def _read_paid_stages(bq):
@@ -513,6 +577,9 @@ def main():
             "stages": _read_paid_stages(bq),
         },
     }
+    # Capture each creative's pixels while its signed CDN URL is still alive (and inherit the
+    # previous export's copies for any URL that has already died) -- see _fetch_thumb.
+    _attach_thumbs(data["paid"]["ads"], _prev_thumbs(bucket))
 
     blob = bucket.blob(DATA_OBJECT)
     blob.cache_control = "no-store"

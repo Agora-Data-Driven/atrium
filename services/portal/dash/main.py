@@ -904,9 +904,14 @@ def _ensure_upstream_login(client_key):
 def _inject_portal_chrome(html, client_key):
     """Inject a small "back to the workspace" + logout chrome into proxied dashboard HTML.
 
-    Keeps the user oriented inside the portal frame when they open /d/<c>/ directly (embedded in
-    Atrium's Dashboard tab this sits outside the iframe's useful area, which is fine). Inserted just
+    Keeps the user oriented inside the portal frame when they open /d/<c>/ directly. Inserted just
     before </body> when present.
+
+    ONLY for the top-level page: embedded in Atrium's Dashboard tab the pills float position:fixed
+    INSIDE the iframe's own viewport, so they landed on top of the dashboard's controls (seen live
+    on TCS: "Back to workspace" covering the creative grid's sort bar). The proxy skips injection
+    when `Sec-Fetch-Dest: iframe` says the document is being framed, and the pill carries a framed
+    check of its own as the fallback for anything that doesn't send that header.
 
     The old "All dashboards" and "Feedback" pills both pointed at the portal landing page; that page
     was deleted 2026-07-31, so the way back is now the client's OWN workspace.
@@ -918,11 +923,15 @@ def _inject_portal_chrome(html, client_key):
              "box-shadow:0 4px 14px rgba(16,24,40,.16);")
     pill = (
         '<div id="ag-portal-chrome" style="position:fixed;top:12px;right:12px;z-index:2147483647;'
-        'display:flex;gap:8px;align-items:center;font-family:-apple-system,BlinkMacSystemFont,'
+        'display:none;gap:8px;align-items:center;font-family:-apple-system,BlinkMacSystemFont,'
         '\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;">'
         '<a href="/w/%s/" style="%scolor:#353535;">Back to workspace</a>'
         '<a href="/logout" style="%scolor:#E5413E;">Log out</a>'
         '</div>'
+        # Hidden until proven top-level: a framed dashboard already has the workspace chrome
+        # around it. (esprima-safe; no ?. / ??)
+        '<script>(function(){try{if(window.top===window.self){'
+        'document.getElementById("ag-portal-chrome").style.display="flex";}}catch(e){}})();</script>'
     ) % (client_key, _pill, _pill)
     marker = "</body>"
     if marker in html:
@@ -967,8 +976,12 @@ def proxy(client, subpath):
 
     content_type = upstream.headers.get("Content-Type", "")
     body = upstream.content
-    # Inject portal chrome only into HTML responses; leave JSON/assets untouched.
-    if "text/html" in content_type.lower():
+    # Inject portal chrome only into HTML responses; leave JSON/assets untouched. A document
+    # fetched FOR AN IFRAME (Atrium's Dashboard tab) never gets the pills -- position:fixed puts
+    # them inside the iframe's own viewport, on top of the dashboard's controls. Browsers that
+    # don't send Sec-Fetch-Dest fall through to the pill's own framed check.
+    framed = request.headers.get("Sec-Fetch-Dest", "").lower() == "iframe"
+    if "text/html" in content_type.lower() and not framed:
         try:
             html = body.decode("utf-8", errors="replace")
             html = _inject_portal_chrome(html, client)
