@@ -1122,7 +1122,12 @@ def model_supports_grounding(model_id):
 
 
 def _grounded_system_prompt(section, client_name, topics, editorial, limit, recency="recent"):
-    """The research contract for a grounded run: PLAN -> SEARCH -> CURATE, with a per-item rationale."""
+    """The research contract for a grounded run: PLAN -> SEARCH -> CURATE, with a per-item rationale.
+
+    `topics` is the team's MONITORING INTENT in their own words (one prose string, or a legacy list
+    of keywords -- both are handed to the model verbatim). The team deliberately does NOT supply
+    search keywords: they usually don't know what the client's audience actually searches for --
+    that is the model's job to work out."""
     section_label = ("Media Buying News" if section == "media_buying" else "Business Research")
     name = client_name or "the client"
     tops = ", ".join(t for t in (topics or []) if (t or "").strip()) or "(none given)"
@@ -1130,10 +1135,14 @@ def _grounded_system_prompt(section, client_name, topics, editorial, limit, rece
         "You are the senior research editor at AGORA, a marketing agency, preparing the \"%s\" "
         "section of the Market Intelligence briefing for the client \"%s\".\n\n"
         "Do REAL web research -- do not summarise a supplied list. Work in three steps:\n"
-        "  1) PLAN: from the client profile below, think about THIS client's business and decide the "
-        "few angles that genuinely matter to them right now (competitor moves, market/demand shifts, "
+        "  1) PLAN: read the team's monitoring intent below. It is a plain-language description of "
+        "what they want watched -- NOT search keywords; the team does not know what this audience "
+        "actually searches for or reads, and working that out is YOUR first job. Decide who the "
+        "relevant audience/buyers are, what they genuinely search for, read, and worry about, and "
+        "which angles matter to THIS client right now (competitor moves, market/demand shifts, "
         "pricing, regulation, how their customers buy; for Media Buying: ad-platform format/policy/"
-        "targeting/measurement/pricing changes on Google, Meta, TikTok, LinkedIn, Amazon).\n"
+        "targeting/measurement/pricing changes on Google, Meta, TikTok, LinkedIn, Amazon). Derive "
+        "the concrete search queries yourself from that reading.\n"
         "  2) SEARCH: use Google Search to find developments from roughly %s across the WHOLE web "
         "for those angles -- not just news sites. Prefer concrete, decision-relevant, well-sourced "
         "items; avoid evergreen explainers and generic 'top tips' listicles.\n"
@@ -1141,8 +1150,7 @@ def _grounded_system_prompt(section, client_name, topics, editorial, limit, rece
         "REAL URL you actually found.\n\n"
         "CLIENT PROFILE:\n"
         "  - Client: %s\n"
-        "  - Their focus / seed keywords (treat as SEEDS to expand into real angles, not literal "
-        "search strings): %s\n"
+        "  - The team's monitoring intent, in their own words: %s\n"
         "  - Editorial guidance: %s\n\n"
         "Return STRICT JSON and nothing else (no markdown, no code fences, no commentary):\n"
         "{\"entries\": [{\"heading\": \"2-4 word tag\", \"title\": \"the real headline\", "
@@ -1315,10 +1323,12 @@ def _suggest_system_prompt(client_name, grounded):
         "daily web research that fills the Market Intelligence briefing shown to the client "
         "\"%s\"; it is steered by three admin-written settings you must now draft for this "
         "client:\n"
-        "  1. \"topics\" -- 4-8 comma-separated research keywords: their industry and product "
-        "category, who their customers are, and named competitors if known. Specific beats "
-        "generic (\"boutique RV rentals\", not \"travel\"). These are SEEDS the researcher "
-        "expands into real web searches.\n"
+        "  1. \"topics\" -- the MONITORING INTENT: 1-3 plain sentences describing what this "
+        "client's briefing should watch and why (their market, who their customers are, what "
+        "those customers care about, named competitors if known). Written for a researcher who "
+        "will work out the actual searches -- NOT a keyword list. Specific beats generic "
+        "(\"watch demand for boutique RV rentals and what first-time renters worry about\", "
+        "not \"travel\").\n"
         "  2. \"business_prompt\" -- 2-4 sentences of editorial guidance for the Business "
         "Research section: which competitor, market, customer, and regulatory developments "
         "genuinely matter to THIS client, and what to skip.\n"
@@ -1331,7 +1341,7 @@ def _suggest_system_prompt(client_name, grounded):
         "  DEFAULT business_prompt: %s\n"
         "  DEFAULT media_prompt: %s\n\n"
         "Return STRICT JSON and nothing else (no markdown, no code fences, no commentary):\n"
-        "{\"topics\": \"kw1, kw2, ...\", \"business_prompt\": \"...\", \"media_prompt\": \"...\"}"
+        "{\"topics\": \"the monitoring intent\", \"business_prompt\": \"...\", \"media_prompt\": \"...\"}"
         % (name, search_step, DEFAULT_BUSINESS_PROMPT, DEFAULT_MEDIA_PROMPT)
     )
 
@@ -1371,6 +1381,77 @@ def suggest_config(client_name, context="", model=None, fetcher=None, token_fetc
         v = obj.get(field)
         if isinstance(v, (list, tuple)):        # tolerate topics coming back as a JSON array
             v = ", ".join(str(x).strip() for x in v if str(x).strip())
+        v = (str(v) if v is not None else "").strip()
+        if len(v) > cap:
+            v = v[:cap].rsplit(" ", 1)[0] + "…"
+        out[field] = v
+    if not any(out.values()):
+        return None, "the model returned nothing usable"
+    return out, ""
+
+
+# --- SAVED-SEARCH drafting: the card form's "Write with AI" button ------------------------------
+# Drafts one saved search (a short name + a monitoring INTENT) from a rough hint the admin typed
+# plus whatever the workspace knows about the client. Same posture as suggest_config: grounded on a
+# live Google lookup when the model is Gemini, returns drafts WITHOUT saving.
+_SEARCH_SUGGEST_MAX = {"name": 60, "intent": 400}
+
+
+def _search_suggest_system_prompt(client_name, grounded):
+    name = client_name or "the client"
+    search_step = (
+        "First, use Google Search to look the client and the hinted audience up, so the intent "
+        "is specific and informed, never generic.\n\n" if grounded else "")
+    return (
+        "You configure a SAVED SEARCH for the Market Intelligence briefing AGORA (a marketing "
+        "agency) keeps for its client \"%s\". A saved search is a standing research angle the "
+        "team wants monitored over time. Draft two fields:\n"
+        "  1. \"name\" -- a 2-4 word card title (e.g. \"Coaching demand\").\n"
+        "  2. \"intent\" -- 1-3 plain sentences of MONITORING INTENT: what to watch and why, who "
+        "the relevant audience is, and what they plausibly care about. Written for a researcher "
+        "who will derive the actual web searches -- NOT a keyword list. The team explicitly does "
+        "not know what this audience searches for; the intent should frame the question, not "
+        "answer it.\n\n"
+        "%s"
+        "Return STRICT JSON and nothing else (no markdown, no code fences, no commentary):\n"
+        "{\"name\": \"...\", \"intent\": \"...\"}"
+        % (name, search_step)
+    )
+
+
+def suggest_search(client_name, context="", rough="", model=None, fetcher=None, token_fetcher=None,
+                   max_tokens=1024):
+    """Draft a saved search ({name, intent}) from the admin's rough hint + client context.
+
+    Returns (fields, error) exactly like suggest_config: fields is {"name","intent"} (strings, ""
+    where the model skipped one) or None with a short human reason. `rough` is whatever the admin
+    already typed into the card form -- refined when present, invented from context when blank."""
+    mid = model if model_available(model) else default_model()
+    if not mid:
+        return None, "no AI model is configured on the server"
+    meta = model_meta(mid)
+    grounded = model_supports_grounding(mid)
+    system = _search_suggest_system_prompt(client_name, grounded)
+    user = (
+        "Client: %s.\nWhat the agency already knows about them:\n%s\n\n"
+        "The team's rough hint for this saved search (may be empty): %s\n\n"
+        "Draft the saved search now and return the JSON."
+        % (client_name or "the client",
+           (context or "").strip() or "(very little yet -- just the name; infer what you can)",
+           (rough or "").strip() or "(none -- propose the most valuable standing angle)"))
+    if grounded:
+        raw, err, _thinking, _grounding = _call_vertex_grounded(
+            meta["id"], system, user, fetcher, token_fetcher, capture=False, max_tokens=max_tokens)
+    else:
+        raw, err, _thinking = _call(meta, system, user, fetcher, max_tokens, token_fetcher)
+    if err:
+        return None, err
+    obj = _parse_json(raw)
+    if not isinstance(obj, dict):
+        return None, "the model returned nothing usable"
+    out = {}
+    for field, cap in _SEARCH_SUGGEST_MAX.items():
+        v = obj.get(field)
         v = (str(v) if v is not None else "").strip()
         if len(v) > cap:
             v = v[:cap].rsplit(" ", 1)[0] + "…"

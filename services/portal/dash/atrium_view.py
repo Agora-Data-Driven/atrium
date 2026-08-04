@@ -758,8 +758,17 @@ def intel_search_cards(ws):
         item.setdefault("name", "")
         item.setdefault("keywords", "")
         item.setdefault("focus", "")
+        # The card's effective monitoring intent (legacy keyword/focus cards fold in, mirroring
+        # workspace.intel_search_intent -- inlined to keep this module infra-free/pure).
+        intent = (s.get("intent") or "").strip()
+        if not intent:
+            legacy = (s.get("keywords") or "").strip()
+            focus = (s.get("focus") or "").strip()
+            intent = ("%s. %s" % (legacy, focus)) if (legacy and focus) else (legacy or focus)
+        item["intent"] = intent
         item["daily"] = (s.get("schedule") or "daily") == "daily"
         item["stories"] = counts.get(s["id"], 0)
+        item["last_queries"] = [str(q) for q in (s.get("last_queries") or []) if str(q).strip()]
         out.append(item)
     return out
 
@@ -799,6 +808,10 @@ def build(ws, client, user, active_tab, now=None):
         "intel": intel_sections(ws),
         # The per-client research keywords the daily auto-refresh searches (team-edited in place).
         "intel_topics": ", ".join(ws.get("intel_topics") or []),
+        # The MONITORING INTENT (plain words; the AI derives the searches). Falls back to the
+        # legacy keyword list so existing clients see their old config in the new box.
+        "intel_intent": ((ws.get("intel_intent") or "").strip()
+                         or ", ".join(ws.get("intel_topics") or [])),
         # The team-only 'AI research' panel: model dropdown, tunable prompts, last-run status.
         "intel_ai": intel_ai_settings(ws),
         # Saved searches (reusable research queries shown as cards) + their filter chips.
