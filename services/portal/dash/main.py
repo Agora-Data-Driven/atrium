@@ -1230,6 +1230,10 @@ def atrium(client, tab):
         # in full -- it is the client's OWN company; only the editing affordances are team-gated.
         company=workspace.company_profile(ws),
         company_empty=workspace.company_is_empty(ws),
+        # Published content: the client's OWN blog/channel archives (titles/dates only -- bodies
+        # stay in the archive objects). Client-visible like the rest of the Company tab; the
+        # add/fetch controls and the content-gap panel are team-gated in the template.
+        company_content=_company_content_view(ws, client),
         favicon=brand.FAVICON_DATA_URI,
     )
 
@@ -3143,6 +3147,34 @@ def atrium_admin_company(client):
         _audit(client, "AI-drafted the company profile")
         return jsonify(ok=True, fields=fields)
 
+    if op == "gaps":
+        # Content-gap analysis (team-only panel): the client's OWN published titles vs what the
+        # watched COMPETITOR sources publish. Each run replaces the stored snapshot.
+        own_lines, comp_blocks, own_n, comp_n = _content_gap_corpus(ws, client)
+        if not own_lines:
+            return jsonify(ok=False, message="Add the client's own site under Published content "
+                                             "first -- there is nothing of theirs to compare."), 200
+        if not comp_blocks:
+            return jsonify(ok=False, message="No competitor content is archived yet. Mark some "
+                                             "Watcher sources as competitors (and fetch their "
+                                             "posts), then run this again."), 200
+        try:
+            payload, err = intel_ai.content_gaps(
+                ws.get("display_name") or client,
+                _intel_client_context(ws),
+                own_lines, comp_blocks,
+                model=_assistant_model(ws),
+            )
+        except Exception as exc:  # never 500 the workspace; report it on the panel
+            return jsonify(ok=False, message="Analysis failed: %s" % str(exc)[:200]), 200
+        if payload is None:
+            return jsonify(ok=False, message="Couldn't run the analysis: %s" % err), 200
+        payload.update(date=workspace.now_iso(), own_posts=own_n, competitor_posts=comp_n)
+        gaps = workspace.set_company_content_gaps(client, payload)
+        _audit(client, "ran the content-gap analysis",
+               "%d gaps found" % len(gaps.get("items") or []))
+        return jsonify(ok=True, gaps=gaps)
+
     if op in ("add", "edit", "delete", "move"):
         kind = request.form.get("kind", "").strip()
         if kind not in workspace.COMPANY_LISTS:
@@ -3220,6 +3252,10 @@ def atrium_admin_intel(client):
                                      workspace knows about this client (returned, NOT saved --
                                      the panel fills the fields for the admin to review + Save).
       * 'refresh-now'             -- run the daily refresh for THIS client right now (test the brain).
+      * 'search_add' | 'search_edit' | 'search_delete' -- a SAVED SEARCH card (name + keywords +
+                                     optional focus + schedule daily|manual). Its stories land in
+                                     business_research tagged with the card's id.
+      * 'search_refresh'          -- run ONE saved search right now (the card's Refresh button).
     """
     gate = _atrium_admin_json_gate(client)
     if gate:
@@ -3288,6 +3324,41 @@ def atrium_admin_intel(client):
         _audit(client, "ran intel refresh", ("ai: %d items" % (counts.get("media_buying", 0)
                + counts.get("business_research", 0))) if counts.get("ai") else ("no fill: %s" % err))
         return jsonify(ok=True, ai=bool(counts.get("ai")), error=err, counts=counts)
+
+    # --- Saved searches: reusable research queries the team keeps as cards ------------------------
+    if op in ("search_add", "search_edit"):
+        fields = {f: request.form.get(f, "") for f in workspace._INTEL_SEARCH_FIELDS
+                  if request.form.get(f) is not None}
+        try:
+            if op == "search_add":
+                item = workspace.add_intel_search(client, fields)
+                _audit(client, "saved an intel search", item.get("name", ""))
+            else:
+                item = workspace.update_intel_search(
+                    client, request.form.get("search_id", "").strip(), fields)
+                if item is None:
+                    return jsonify(ok=False, message="That saved search no longer exists."), 404
+                _audit(client, "edited an intel search", item.get("name", ""))
+        except ValueError as exc:
+            return jsonify(ok=False, message=str(exc)), 400
+        return jsonify(ok=True, id=item.get("id"))
+
+    if op == "search_delete":
+        removed = workspace.delete_intel_search(client, request.form.get("search_id", "").strip())
+        if removed:
+            _audit(client, "deleted an intel search")
+        return jsonify(ok=True, removed=bool(removed))
+
+    if op == "search_refresh":
+        sid = request.form.get("search_id", "").strip()
+        try:
+            out = intel_refresh.refresh_search(client, sid)
+        except Exception as exc:  # never 500 the console; report it
+            return jsonify(ok=False, message="Refresh failed: %s" % str(exc)[:200]), 200
+        if out.get("error"):
+            return jsonify(ok=False, message=out["error"]), 200
+        _audit(client, "ran a saved intel search", "%d item(s)" % out.get("added", 0))
+        return jsonify(ok=True, added=out.get("added", 0))
 
     # --- Bulk action on selected entries: mass delete / mass favourite (star + pin) ---------------
     if op == "bulk":
@@ -3495,6 +3566,7 @@ def _watcher_view(ws, client):
         entry.setdefault("industry", "")
         entry.setdefault("kind", "creator")
         entry["loose"] = bool(ch.get("loose"))  # a "Saved videos"/"Saved articles" pseudo-channel
+        entry["own"] = bool(ch.get("own"))      # the client's OWN content (added on the Company tab)
         entry["labels"] = _watcher_labels(entry["platform"])
         # Safe pull is a YOUTUBE-only escape hatch (it exists because YouTube blocks datacenter
         # IPs). Websites serve Cloud Run fine, so a blog card never offers it.
@@ -3522,6 +3594,84 @@ def _watcher_view(ws, client):
         entry["latest"] = latest or (ch.get("added_at", "") or "")[:10]
         out.append(entry)
     return out
+
+
+# The Company tab's Published-content section lists at most this many posts per source in the
+# page itself (newest first); the archive object always holds the full list.
+_COMPANY_CONTENT_MAX_POSTS = 500
+
+
+def _company_content_view(ws, client):
+    """The Company tab's Published-content render model: each OWN source + its post listing.
+
+    CLIENT-VISIBLE (it is the client's own published content), so unlike _watcher_view it is built
+    for every render -- and therefore stays light: titles/dates/links only, never bodies (those
+    live in the archive object; the Assistant reads them from its index). One object read per own
+    source; a workspace with none reads nothing."""
+    out = []
+    for ch in workspace.own_content_channels(ws):
+        posts = []
+        for v in workspace.read_watcher_videos(client, ch.get("id", "")):
+            posts.append({
+                "id": v.get("id", ""),
+                "title": v.get("title", "") or "Untitled",
+                "url": v.get("url", ""),
+                "published": v.get("published", ""),
+                "published_text": v.get("published_text", ""),
+                "has_body": bool(v.get("transcript")),
+            })
+        posts.sort(key=lambda p: p["published"] or "0000", reverse=True)
+        out.append({
+            "id": ch.get("id", ""),
+            "title": ch.get("title", "") or "Our site",
+            "url": ch.get("url", ""),
+            "platform": ch.get("platform", "blog"),
+            "total": len(posts),
+            "fetched": sum(1 for p in posts if p["has_body"]),
+            "pending": sum(1 for p in posts if not p["has_body"]),
+            "posts": posts[:_COMPANY_CONTENT_MAX_POSTS],
+        })
+    return out
+
+
+# Caps for the content-gap corpus: titles only (the topic signal), bounded per side so one
+# prolific source can never crowd the prompt out.
+_GAP_OWN_TITLES_MAX = 400
+_GAP_COMP_TITLES_PER_SOURCE = 120
+
+
+def _content_gap_corpus(ws, client):
+    """Title lines for the content-gap analysis.
+
+    Returns (own_lines, competitor_blocks, own_count, competitor_count): the client's own published
+    titles (dated) and one titled block per competitor source. Bodies are deliberately excluded --
+    gap-finding is topic-level, and titles keep the prompt inside every provider's context."""
+    own_lines, own_n = [], 0
+    for ch in workspace.own_content_channels(ws):
+        for v in workspace.read_watcher_videos(client, ch.get("id", "")):
+            title = (v.get("title") or "").strip()
+            if not title:
+                continue
+            own_n += 1
+            if len(own_lines) < _GAP_OWN_TITLES_MAX:
+                date = (v.get("published") or "")[:10]
+                own_lines.append("- %s%s" % (title, " (%s)" % date if date else ""))
+    comp_blocks, comp_n = [], 0
+    for ch in workspace.watcher_channels(ws):
+        if ch.get("own") or ch.get("kind") != "competitor":
+            continue
+        lines = []
+        for v in workspace.read_watcher_videos(client, ch.get("id", "")):
+            title = (v.get("title") or "").strip()
+            if not title:
+                continue
+            comp_n += 1
+            if len(lines) < _GAP_COMP_TITLES_PER_SOURCE:
+                lines.append("- " + title)
+        if lines:
+            comp_blocks.append("%s (%s):\n%s" % (ch.get("title") or "Competitor",
+                                                 ch.get("platform") or "blog", "\n".join(lines)))
+    return own_lines, comp_blocks, own_n, comp_n
 
 
 _WATCHER_KINDS = ("creator", "competitor")
@@ -3649,8 +3799,11 @@ def _watcher_op_add(client, ws, url):
             "platform": "youtube", "videos": len(listing["videos"])}
 
 
-def _watcher_op_add_site(client, ws, url):
-    """`add_site` -- the WEBSITE twin of `add`: archive every post a site's blog lists."""
+def _watcher_op_add_site(client, ws, url, own=False):
+    """`add_site` -- the WEBSITE twin of `add`: archive every post a site's blog lists.
+
+    `own=True` (the Company tab's Published-content section) flags the entry as the client's OWN
+    published content -- same registry, same archive, same fetch loop; only the flag differs."""
     import watcher_blog  # lazy: only the blog ops need it
     info = watcher_blog.resolve_site(url)
     if not info["ok"]:
@@ -3666,7 +3819,7 @@ def _watcher_op_add_site(client, ws, url):
                                               [p.get("title", "") for p in listing["posts"]])
     entry = workspace.add_watcher_channel(client, {
         "url": info["url"] or info["site"], "title": info["title"], "channel_id": info["site"],
-        "platform": "blog", "industry": industry, "kind": "creator",
+        "platform": "blog", "industry": industry, "kind": "creator", "own": own,
         "video_count": len(listing["posts"]),
     })
     workspace.write_watcher_videos(client, entry["id"],
@@ -3799,9 +3952,12 @@ def atrium_admin_watcher(client):
         return jsonify(**out)
 
     if op == "add_site":
-        out = _watcher_op_add_site(client, ws, request.form.get("url", ""))
+        # `own=1` comes from the Company tab's Published-content section: the client's OWN blog,
+        # archived by the same machinery as any watched site (the flag is the only difference).
+        own = _bool_field("own")
+        out = _watcher_op_add_site(client, ws, request.form.get("url", ""), own=own)
         if out.get("ok"):
-            _audit(client, "added watcher website",
+            _audit(client, "added the client's own site" if own else "added watcher website",
                    "%s (%d posts)" % (out.get("title", ""), out.get("posts", 0)))
         return jsonify(**out)
 
@@ -4056,18 +4212,18 @@ def _assistant_caller(ws):
     return caller
 
 
-def _report_inputs(ws, client):
-    """The report generator's source pack (loads archives + the dashboard export)."""
+def _report_inputs(ws, client, window_mode=""):
+    """The report generator's source pack (loads archives + the dashboard export).
+
+    The Tasks slide is built from the CLIENT-SAFE task projection (never raw ws["tasks"]);
+    `window_mode` is the Reports tab's period choice ('mtd' / 'last_week' / '' = whole flight) --
+    every numeric fact in the deck answers for that window (report_ai.report_window)."""
     import assistant_ai
     import report_ai
-    # The Delivery slide is built from the CLIENT-SAFE task projection (never raw ws["tasks"]), and
-    # `since` is the PREVIOUS report's date so shipped work is never reported twice.
-    reports = workspace.reports_of(ws)
-    since = (reports[0].get("date") or "")[:10] if reports else ""
     return report_ai.gather(ws, _assistant_archives(ws, client),
                             assistant_ai.read_client_dash_data(
                                 client, (ws or {}).get("dashboard_url", "")),
-                            tasks_view=_progress_tasks(ws), since=since)
+                            tasks_view=_progress_tasks(ws), window_mode=window_mode)
 
 
 def _assistant_action_ctx(ws, client):
@@ -4506,8 +4662,16 @@ def atrium_admin_report(client):
 
     * generate -- draft a new deck from everything the workspace knows: report_ai.gather over the
                   distilled layer -> the configured model writes the slide payload (no model =
-                  the honest deterministic draft) -> rendered + stored, entry newest-first.
-                  Fields: optional `date` (YYYY-MM-DD, default today) + `title`.
+                  the honest deterministic draft) -> enforce_spine pins it to the strict
+                  eight-slide standard -> rendered + stored, entry newest-first.
+                  Fields: optional `date` (YYYY-MM-DD, default today) + `title` + `period`
+                  ('mtd' month to date, the default | 'last_week' the last complete Mon-Sun
+                  week | '' the whole flight) -- the window every numeric fact answers for.
+    * revise   -- the Edit-with-AI control: apply a natural-language instruction to a stored deck
+                  (`id` + `instruction`, optional `slide` = 1-based slide number to scope the edit
+                  to ONE slide). report_ai.revise keeps the fact pack intact; a failed edit leaves
+                  the deck untouched and reports why. Edits MAY add slides (deliberately not
+                  re-pinned to the spine -- "add a slide about project X" is a real instruction).
     * rename   -- retitle/redate a deck (`id` + `title`/`date`); the deck re-renders.
     * delete   -- remove a deck (soft-deletes to the Bin; the payload restores + re-renders).
     """
@@ -4524,7 +4688,11 @@ def atrium_admin_report(client):
     if op == "generate":
         when = (request.form.get("date", "").strip() or workspace.now_iso())[:10]
         title = request.form.get("title", "").strip() or "Performance Review"
-        payload, gen_err = report_ai.generate(name, when, _report_inputs(ws, client),
+        period = request.form.get("period", "mtd").strip()
+        if period not in report_ai.WINDOW_MODES:
+            period = ""          # anything unrecognized reports the whole flight, honestly
+        payload, gen_err = report_ai.generate(name, when,
+                                              _report_inputs(ws, client, window_mode=period),
                                               _assistant_caller(ws))
         entry = workspace.add_report(client, title, when, payload=payload,
                                      origin="draft" if gen_err else "ai")
@@ -4535,6 +4703,30 @@ def atrium_admin_report(client):
         return jsonify(ok=True, id=entry["id"], title=entry["title"], date=entry["date"],
                        url="/w/%s/report/%s" % (client, entry["id"]),
                        note=("Drafted without AI: %s" % gen_err) if gen_err else "")
+
+    if op == "revise":
+        entry = workspace.find_report(ws, request.form.get("id", "").strip())
+        if entry is None:
+            return jsonify(ok=False, message="No such report.")
+        instruction = request.form.get("instruction", "").strip()
+        if not instruction:
+            return jsonify(ok=False, message="Describe the change you want.")
+        slide_no = request.form.get("slide", "").strip()
+        revised, rev_err = report_ai.revise(entry.get("payload") or {}, instruction,
+                                            _assistant_caller(ws),
+                                            slide_no=int(slide_no) if slide_no.isdigit() else None)
+        if rev_err:
+            return jsonify(ok=False, message="Nothing changed: %s." % rev_err)
+        entry = workspace.update_report(client, entry["id"], {"payload": revised})
+        workspace.write_report_html(client, entry["id"],
+                                    report_ai.render_html(name, revised,
+                                                          entry.get("date") or "",
+                                                          title=entry.get("title") or "",
+                                                          brand=report_ai.brand_kit(ws)))
+        _audit(client, "edited a client report with AI",
+               "%s: %s" % (entry.get("title", ""), instruction[:140]))
+        return jsonify(ok=True, id=entry["id"],
+                       url="/w/%s/report/%s" % (client, entry["id"]))
 
     if op == "rename":
         fields = {}
@@ -5185,42 +5377,132 @@ def _task_reply(msg, err=False, **extra):
     return jsonify(ok=True, **extra)
 
 
-# 🔴 ATRIUM NO LONGER WRITES A TASK (2026-08-03, decision D2 of
-# sentinel/docs/TASKBOARD_REBUILD.md). The seven `/w/<c>/admin/task*` routes that used to live here
-# — add/edit, hold, move, delete, subtask, maintask, comment — are RETIRED, together with the
-# `_task_fields_from_form` / `_task_template_seed` form readers that fed them.
+# 🔴 D2 AMENDED 2026-08-04 (owner decision): the TEAM manages the client Tasks board from Atrium
+# again. Decision D2 of sentinel/docs/TASKBOARD_REBUILD.md retired every Atrium-side task write on
+# 2026-08-03; the same-day WP 3.3 already restored the team's ADD (the per-column "+ Add card" on
+# the Progress pane posts /task-add), and this amendment restores the team's MOVE, EDIT and DELETE
+# on that same pane. The model holds because `ws["tasks"]` never stopped being the STORE (D1):
+# Sentinel's board lists these cards live over the internal bridge and writes them through the same
+# `workspace.py` helpers these routes call, so an edit made on either surface is the same record —
+# not a fork.
 #
-# An Atrium task card is a **projection** of a Sentinel `tasks` row: Sentinel is where work is
-# created, assigned, moved, parked, reviewed and filed, and it pushes the client-safe subset here
-# over the internal bridge. Two writers on one record is the model this replaced.
+# ⚠️ The one divergence risk: a card CLAIMED by a Sentinel row (`tasks.atrium_task_id` set — Send
+# to Atrium or adoption). Sentinel renders its own Postgres row for those and re-projects the
+# client-safe fields on every Sentinel-side edit, so an Atrium-side edit to a claimed card holds
+# only until the next re-projection. Sentinel stays authoritative for claimed cards.
 #
-# What still writes `ws["tasks"]`, deliberately:
-#   * the internal bridge — `/api/internal/task-{add,update,move,delete,comment}` (Sentinel, HMAC).
-#     Those call the SAME `workspace.py` helpers these routes did, so nothing about the stored
-#     shape, the derived label, the history or the Bin changed.
+# What writes `ws["tasks"]` now:
+#   * the internal bridge — `/api/internal/task-{add,update,move,delete,comment}` (Sentinel, HMAC);
+#   * the TEAM on the Progress pane — /task-add (per-column add), and the three routes below
+#     (move / edit / delete), all `is_superadmin()`-gated;
+#   * the Assistant's approved task actions (add/move/complete — assistant_actions.py, restored in
+#     the same amendment);
 #   * the CLIENT's two powers — `POST /w/<c>/task-add` (files a REQUEST) and
-#     `POST /w/<c>/task-comment` (comment / request changes). Both survive by decision (D3/D4).
+#     `POST /w/<c>/task-comment` (comment / request changes). Both by decision (D3/D4).
 # `workspace.move_task_stage` keeps its `ValueError` contract: the bridge relies on it, and a future
 # guard must not need a signature change.
 #
-# The console's Delivery → Task Board is a READ-ONLY monitor now (the write forms are gone from
-# `admin_atrium.html`), so nothing in this app posts to the paths below. This one handler answers
-# **410 Gone** with the reason rather than 404, because a stale browser tab holding a rendered form
-# would otherwise report "not found" and send someone hunting for a routing bug.
+# STILL RETIRED (the catch-all below answers 410): hold, subtask, maintask and the team comment
+# route — the breakdown/hold/review surfaces live in Sentinel, and the team comments through the
+# modal's own thread (`/task-comment`) like everyone else. The console's Delivery → Task Board pane
+# also stays a READ-ONLY monitor; these routes serve the client-facing Tasks pane's team view.
 
 
 @app.route("/w/<client>/admin/task", methods=["POST"])
-@app.route("/w/<client>/admin/task/<path:_action>", methods=["POST"])
-def atrium_admin_task_retired(client, _action=""):
-    """Every Atrium-side task write, retired in favour of Sentinel (D2). Answers 410 with why."""
+def atrium_admin_task(client):
+    """Edit a card's basics from the team's view of the client Tasks board (op=edit; TEAM only).
+
+    Narrow ON PURPOSE: title, client note, dates, priority, internal notes — each patched only when
+    the form carried it, so a partial post never wipes the rest (same rule as /task-add's extras).
+    Creation stays with /task-add; the breakdown/hold/review surfaces stay in Sentinel."""
     gate = _atrium_admin_json_gate(client)
     if gate:                       # keep the auth answer first: never explain the estate to a stranger
         return gate
-    msg = ("Tasks are managed in Sentinel now — this board is a read-only view of them. "
-           "Open the task in Sentinel to change it.")
+    if request.form.get("op", "edit").strip() != "edit":
+        return _task_retired_reply()
+    task_id = request.form.get("task_id", "").strip()
+    fields = {}
+    if "title" in request.form:
+        title = request.form.get("title", "").strip()
+        if not title:
+            return _task_reply("A task needs a name.", err=True)
+        fields["title"] = title[:200]
+    if "client_note" in request.form:
+        fields["client_note"] = request.form.get("client_note", "").strip()[:1000]
+    if "start_date" in request.form:
+        fields["start_date"] = request.form.get("start_date", "").strip()[:10]
+    if "due_date" in request.form:
+        fields["due_date"] = request.form.get("due_date", "").strip()[:10]
+    if request.form.get("priority") in workspace.TASK_PRIORITIES:
+        fields["priority"] = request.form.get("priority")
+    if "internal_notes" in request.form:
+        fields["internal_notes"] = request.form.get("internal_notes", "").strip()[:2000]
+    try:
+        task = workspace.update_task(client, task_id, fields, actor=current_user() or "")
+    except KeyError:
+        return _task_reply("That task no longer exists.", err=True)
+    _audit(client, "edited task", task.get("title", ""))
+    return _task_reply("Saved.", task_id=task["id"])
+
+
+@app.route("/w/<client>/admin/task/move", methods=["POST"])
+def atrium_admin_task_move(client):
+    """Move a task to another stage (TEAM only). Every stage move is allowed -- see
+    workspace.move_task_stage; the ValueError branch stays so a future guard needs no route change."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    task_id = request.form.get("task_id", "").strip()
+    stage = request.form.get("stage", "").strip()
+    try:
+        task = workspace.move_task_stage(client, task_id, stage, actor=current_user() or "")
+    except KeyError:
+        return _task_reply("That task (or stage) no longer exists.", err=True)
+    except ValueError as exc:
+        return _task_reply(str(exc), err=True)
+    label = TASK_STAGE_LABELS.get(stage, stage)
+    _audit(client, "moved task to %s" % label, task.get("title", ""))
+    return _task_reply("Moved to %s." % label, stage=task["stage"])
+
+
+@app.route("/w/<client>/admin/task/delete", methods=["POST"])
+def atrium_admin_task_delete(client):
+    """Soft-delete a task -> the console Bin (restorable for 30 days; TEAM only)."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:
+        return gate
+    task_id = request.form.get("task_id", "").strip()
+    try:
+        removed = workspace.delete_task(client, task_id)
+    except KeyError:
+        return _task_reply("That task no longer exists.", err=True)
+    _trash(client, "task", removed.get("title") or task_id, removed)
+    _audit(client, "deleted task", removed.get("title", ""))
+    return _task_reply("Task moved to the Bin (restorable for %d days)." % audit.TRASH_TTL_DAYS)
+
+
+def _task_retired_reply():
+    """The 410 for the task surfaces that STAYED in Sentinel after the 2026-08-04 amendment.
+
+    410 Gone rather than 404 on purpose: a stale browser tab holding one of the old forms must
+    read "managed in Sentinel", never "not found" (which sends someone hunting a routing bug)."""
+    msg = ("That part of a task is managed in Sentinel — open the task there to change its "
+           "breakdown, hold or review state.")
     if request.form.get("redirect") == "console":
         return redirect(url_for("admin_atrium", msg=msg, section="tasks", err=1))
     return jsonify(ok=False, error=msg), 410
+
+
+@app.route("/w/<client>/admin/task/<path:_action>", methods=["POST"])
+def atrium_admin_task_retired(client, _action=""):
+    """The still-retired task writes (hold / subtask / maintask / comment — D2). 410 with why.
+
+    Werkzeug routes the static /move and /delete rules above BEFORE this converter rule, so only
+    the genuinely retired paths land here."""
+    gate = _atrium_admin_json_gate(client)
+    if gate:                       # keep the auth answer first: never explain the estate to a stranger
+        return gate
+    return _task_retired_reply()
 
 
 @app.route("/admin/atrium/tasks/export", methods=["GET"])

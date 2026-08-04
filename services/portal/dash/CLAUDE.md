@@ -516,6 +516,24 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   pair of loops serves all four blocks). Tests: `_workspace_localtest.py` §12 +
   `_atrium_smoketest.py` (routes, gating, the client no-leak render, Bin round trip, indexing, and
   the nav grouping).
+  **Published content + content gaps (2026-08-04), the tab's fifth section:** the client's OWN blog
+  archived **through the Watcher machinery** -- the section's add form posts the existing
+  `/w/<c>/admin/watcher` `op=add_site` with `own=1` (flagging the registry entry via
+  `_watcher_entry`'s `own` field; `workspace.own_content_channels` reads it back, the Watcher tab
+  shows a "Client's own" chip) and the same fetch/refresh/delete ops maintain the archive. Post
+  LISTING is client-visible (`main._company_content_view`, titles/dates/links only, built every
+  render -- bodies never leave the archive object); the controls + the **content-gap panel** are
+  team-only. `op=gaps` on `/w/<c>/admin/company` compares own titles vs every `kind=competitor`
+  Watcher source's titles (`_content_gap_corpus`, titles only, capped) through
+  `intel_ai.content_gaps`, storing the snapshot in `ws["company"]["content_gaps"]`
+  (`workspace.set_company_content_gaps`, replace-on-rerun). Indexed for the Assistant
+  (`digest.company_sections` chunk `content_gaps`) but **excluded from `digest.company_brief`** --
+  decks are client-facing and the analysis names competitor sources. Front end: `.ax-coc-*` styles
+  + the `data-coc*`/`data-cogaps` wiring IIFE next to the company wiring.
+  🔴 **The nav re-cut 2026-08-04:** THREE top-level rows, all groups -- Working Together now holds
+  Dashboard / Communications / Tasks / **Reports** / **Company** (the flat Company link is gone,
+  Reports left Insights); Insights keeps Market Intelligence + the team tools. `work_open` /
+  `tools_open` guards updated to match; asserted in `_atrium_smoketest.py`.
 - **`report_ai.py` / `digest.py`** — the Reports tab's deck maker. A deck is a **fixed 1280x720
   stage** (scaled to the window, one slide shown, arrow keys / dots / click to move, `p` prints;
   `@media print` reveals every slide). Payload = `{meta, facts, slides:[{kind, eyebrow, title,
@@ -554,8 +572,16 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   which is why `_weeks`/`_daily_weeks` return day counts; a 1-day tail against a 7-day mean read
   "-80%" on every metric), and a FLAT series (a fixed weekly budget) has every point tied for max,
   which marked all thirteen weeks "BEST" until `_series` started requiring a real spread and a
-  single winner. `draft_payload` also sweeps up any fact its running order does not name, so adding
-  a fact to `build_facts` puts it on the deck automatically.
+  single winner. 🔴 **A generated deck is EXACTLY EIGHT SLIDES (2026-08-04):** cover + one slide
+  per `report_spec.SPINE` slot (Tasks · Research · The funnel · What happened · Why it happened ·
+  What we'll do · Opportunities), enforced in code by `report_ai.enforce_spine` (slides map onto
+  slots via their `slot` field or verbatim eyebrow; off-spine drops, missing slots backfill from
+  the deterministic draft). The team also picks the reporting WINDOW on generate (`period` =
+  mtd|last_week|'' → `report_window` + `build_facts(window=)`), and each deck card has an
+  Edit-with-AI dialog (`op=revise`, whole-deck or one slide via `slide`; edits are deliberately
+  NOT re-pinned so they may add slides). A new fact must be claimed by a spine slot or it can
+  never reach any deck — `report_spec.claims` + the orphan check in the test guard this (the old
+  draft "sweeps up unclaimed facts" behavior is gone).
   🔴 **The dashboard export is keyed by `assistant_ai.dash_data_key(client, ws["dashboard_url"])`,
   not by the client key** — in production the portal key (`riverdance-rv`, derived from the display
   name) and the dashboard stack key (`riverdance`) diverged for EVERY client, so
