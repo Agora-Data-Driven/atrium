@@ -515,11 +515,11 @@ def run():
                    for e in evs))
 
     import assistant_actions
-    # 🔴 The task-WRITE actions (add_task / move_task / complete_task) were retired 2026-08-03
-    # (decision D2 of sentinel/docs/TASKBOARD_REBUILD.md): Sentinel owns a task and pushes the
-    # client-safe copy here, so an approved proposal writing `ws["tasks"]` would race the system of
-    # record. This block used to prove all three worked end to end; it now proves they are GONE and
-    # that the surviving actions still do.
+    # The task-WRITE actions (add_task / move_task / complete_task) were retired by D2 (2026-08-03)
+    # and RESTORED 2026-08-04 (D2 amended — see main.py's route comment): `ws["tasks"]` is the
+    # STORE on both surfaces, Sentinel lists it live over the bridge, and every executor calls the
+    # same workspace.py writers, so an approved proposal is one record, not a racing copy. This
+    # block proves the "here's what I completed this week" flow end to end below.
     clean, verr = assistant_actions.validate(
         {"action": "comment_task", "params": {"task": "SEED-TASK-FOR-ACTIONS",
                                              "body": "From AI"}, "note": "test"})
@@ -528,14 +528,11 @@ def run():
            and "SEED-TASK-FOR-ACTIONS" in clean["label"])
     _check("validate rejects unknown actions",
            assistant_actions.validate({"action": "rm_rf", "params": {}})[1].startswith("unknown"))
-    for gone in ("add_task", "move_task", "complete_task"):
-        _check("the retired %s action is refused by name" % gone,
-               assistant_actions.validate({"action": gone, "params": {"title": "x", "task": "x",
-                                                                     "stage": "todo"}})[1]
-               .startswith("unknown"))
-    _check("the retired task writers are not offered to the model either",
-           not any(("%s(" % g) in assistant_actions.catalog_text()
-                   for g in ("add_task", "move_task", "complete_task")))
+    for back in ("add_task", "move_task", "complete_task"):
+        _check("the restored %s action validates + is offered to the model" % back,
+               assistant_actions.validate({"action": back, "params": {"title": "x", "task": "x",
+                                                                     "stage": "todo"}})[1] == ""
+               and ("%s(" % back) in assistant_actions.catalog_text())
     _check("validate enforces required params",
            "missing required" in assistant_actions.validate(
                {"action": "comment_task", "params": {"task": "x"}})[1])
@@ -566,6 +563,44 @@ def run():
         {"actor": "Tester", "is_root": False})
     _check("an unresolvable target fails with a friendly reason, never raises",
            ok3 is False and "not found" in msg3)
+    # The restored writers, end to end — the "here are the things I completed this week" flow:
+    # add_task(stage=completed) files straight into the Completed column, client-facing by default
+    # (the proposal is made looking at the client Tasks board); move_task / complete_task shuffle
+    # it from there. A paraphrased stage ("Completed") canonicalises rather than 500s.
+    okA, msgA = assistant_actions.execute(
+        CLIENT, assistant_actions.validate(
+            {"action": "add_task", "params": {"title": "DONE-THIS-WEEK",
+                                              "stage": "Completed"}})[0],
+        {"actor": "Tester", "is_root": False})
+    _doneA = next((t for t in workspace.load_workspace(CLIENT).get("tasks") or []
+                   if t.get("title") == "DONE-THIS-WEEK"), None)
+    _check("an approved add_task(stage=completed) lands in Completed, client-facing",
+           okA and "completed" in msgA and _doneA is not None
+           and _doneA.get("stage") == "completed" and _doneA.get("client_facing") is True)
+    okB, _msgB = assistant_actions.execute(
+        CLIENT, assistant_actions.validate(
+            {"action": "move_task", "params": {"task": "DONE-THIS-WEEK",
+                                               "stage": "in_progress"}})[0],
+        {"actor": "Tester", "is_root": False})
+    _check("an approved move_task moves it by title",
+           okB and any(t.get("title") == "DONE-THIS-WEEK" and t.get("stage") == "in_progress"
+                       for t in workspace.load_workspace(CLIENT).get("tasks") or []))
+    okC, _msgC = assistant_actions.execute(
+        CLIENT, assistant_actions.validate(
+            {"action": "complete_task", "params": {"task": "DONE-THIS-WEEK"}})[0],
+        {"actor": "Tester", "is_root": False})
+    _check("an approved complete_task marks it done",
+           okC and any(t.get("title") == "DONE-THIS-WEEK" and t.get("stage") == "completed"
+                       for t in workspace.load_workspace(CLIENT).get("tasks") or []))
+    okD, _msgD = assistant_actions.execute(
+        CLIENT, assistant_actions.validate(
+            {"action": "add_task", "params": {"title": "INTERNAL-ONLY-ADD",
+                                              "client_facing": "false"}})[0],
+        {"actor": "Tester", "is_root": False})
+    _check("an explicit client_facing=false keeps the card internal (default is true)",
+           okD and any(t.get("title") == "INTERNAL-ONLY-ADD" and t.get("stage") == "todo"
+                       and t.get("client_facing") is False
+                       for t in workspace.load_workspace(CLIENT).get("tasks") or []))
 
     # --- The route: lazy rebuild, reindex, ask (stubbed), gating ---------------------------------
     main.app.config.update(TESTING=True, SESSION_COOKIE_SECURE=False, SESSION_COOKIE_SAMESITE="Lax")

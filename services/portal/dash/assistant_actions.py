@@ -24,15 +24,37 @@ import json
 # name -> {desc: catalog line for the model, params: {name: spec}, gate: "admin"|"root"}.
 # A param spec: {"req": bool, "choices": (...)} -- everything arrives as a string unless noted.
 _ACTIONS = {
-    # 🔴 add_task / move_task / complete_task were RETIRED 2026-08-03 (decision D2 of
-    # sentinel/docs/TASKBOARD_REBUILD.md). A task is created, assigned, moved, parked, reviewed and
-    # filed in SENTINEL, which pushes the client-safe subset into this workspace over the internal
-    # bridge — so an approved proposal that wrote `ws["tasks"]` here would be a second writer racing
-    # the system of record, and Sentinel's next push would silently overwrite it. Dropping them from
-    # this registry is the whole fix: the catalog the model is given is built from it, so the model
-    # is no longer told those verbs exist, and `validate` refuses them by name if it ever emits one.
-    # `comment_task` STAYS — a comment is a message on a thread both sides share, not a field on the
-    # record (the client's own comment is a first-class Atrium write too, decision D4).
+    # add_task / move_task / complete_task were retired by D2 (2026-08-03) and RESTORED 2026-08-04
+    # (D2 amended — see the route comment in main.py): `ws["tasks"]` is the STORE (D1), Sentinel's
+    # board lists it live over the bridge, and both sides write through the same workspace.py
+    # helpers — so an approved proposal is the same record everywhere, not a racing second writer.
+    # `stage` on add_task is what makes "here's what I finished this week" file straight into
+    # Completed; client_facing defaults TRUE because these proposals are made looking at the client
+    # Tasks board. (The one caveat, same as the team routes: a card CLAIMED by a Sentinel row is
+    # re-projected on the next Sentinel-side edit — Sentinel stays authoritative for those.)
+    "add_task": {
+        "desc": "add_task(title*, stage?, department?, priority?, due_date?, start_date?, note?, "
+                "client_facing?) - create a task on the delivery board, in a given column "
+                "(stage todo|in_progress|blocked|revision|completed, default todo; priority "
+                "Low|Medium|High|Urgent; dates YYYY-MM-DD; client_facing true|false, default true "
+                "so it shows on the client's Tasks board). Use one add_task per item when the "
+                "user lists several -- e.g. \"here's what I completed this week\" becomes one "
+                "add_task(stage=completed) proposal per item",
+        "params": {"title": {"req": True}, "stage": {}, "department": {}, "priority": {},
+                   "due_date": {}, "start_date": {}, "note": {}, "client_facing": {}},
+        "gate": "admin",
+    },
+    "move_task": {
+        "desc": "move_task(task*, stage*) - move a task to a stage "
+                "(todo|in_progress|blocked|revision|completed); task = its id or exact title",
+        "params": {"task": {"req": True}, "stage": {"req": True}},
+        "gate": "admin",
+    },
+    "complete_task": {
+        "desc": "complete_task(task*) - mark a task done (moves it to completed)",
+        "params": {"task": {"req": True}},
+        "gate": "admin",
+    },
     "comment_task": {
         "desc": "comment_task(task*, body*) - add a team comment to a task's thread",
         "params": {"task": {"req": True}, "body": {"req": True}},
@@ -180,6 +202,13 @@ def validate(proposal):
 def _label(name, params):
     """The approval card's one-line description of what Approve will do."""
     p = params
+    if name == "add_task":
+        col = (p.get("stage") or "").strip()
+        return "Add task \"%s\" to the %s column" % (p.get("title", ""), col or "todo")
+    if name == "move_task":
+        return "Move task \"%s\" to %s" % (p.get("task", ""), p.get("stage", ""))
+    if name == "complete_task":
+        return "Mark task \"%s\" completed" % p.get("task", "")
     if name == "comment_task":
         return "Comment on task \"%s\"" % p.get("task", "")
     if name == "add_calendar_event":
@@ -271,14 +300,41 @@ def execute(client, clean, ctx):
         if ws is None:
             return False, "no workspace for this client"
 
-        # (The add_task / move_task / complete_task executors stood here — retired with their
-        # registry entries above. Only commenting on a task remains.)
-        if name == "comment_task":
+        if name == "add_task":
+            # `stage` is canonicalised (junk lands in todo, legacy keys land on a live column) so a
+            # model paraphrase like "Completed" can never 500 or drop the card off the board.
+            stage = workspace.canon_stage(
+                (params.get("stage") or "").strip().lower().replace(" ", "_"))
+            fields = {"title": params.get("title"), "department": params.get("department", ""),
+                      "priority": params.get("priority") or "Medium",
+                      "due_date": params.get("due_date", ""),
+                      "start_date": params.get("start_date", ""),
+                      "internal_notes": params.get("note", ""),
+                      "stage": stage,
+                      # Default TRUE: these proposals are made looking at the client Tasks board,
+                      # and a card that silently lands on the hidden internal list reads as "the AI
+                      # didn't add it". Only an explicit false keeps it internal.
+                      "client_facing": (params.get("client_facing", "").lower()
+                                        not in ("0", "false", "no")),
+                      "reporter": "agora", "reporter_name": actor}
+            task = workspace.add_task(client, fields, actor=actor)
+            return True, "Added task \"%s\" to %s (id %s)." % (task["title"], task["stage"],
+                                                               task["id"])
+
+        if name in ("move_task", "complete_task", "comment_task"):
             task, err = _resolve(ws.get("tasks") or [], params.get("task"))
             if task is None:
                 return False, "task not found: %s" % err
-            workspace.add_task_comment(client, task["id"], "agora", actor, params.get("body", ""))
-            return True, "Commented on \"%s\"." % task.get("title")
+            if name == "comment_task":
+                workspace.add_task_comment(client, task["id"], "agora", actor,
+                                           params.get("body", ""))
+                return True, "Commented on \"%s\"." % task.get("title")
+            stage = "completed" if name == "complete_task" else params.get("stage", "")
+            try:
+                moved = workspace.move_task_stage(client, task["id"], stage, actor=actor)
+            except KeyError as e:
+                return False, str(e).strip("'\"")
+            return True, "Moved \"%s\" to %s." % (moved.get("title"), moved.get("stage"))
 
         if name == "add_calendar_event":
             workspace.add_calendar_event(client, params.get("date"), params.get("label"),

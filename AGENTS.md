@@ -894,14 +894,25 @@ auto-refresh (see those bullets below). Product name is one constant:
   start / launch / charge / progress) above **Details | Tasks | Comments** panels (`data-tktab`
   buttons, wired in the console script); the New/Edit form tucks optional fields into a
   collapsible **"Additional details"** `<details>` (auto-open when an edited task uses them).
-  🔴 **The seven team routes `POST /w/<c>/admin/task{,/hold,/move,/delete,/maintask,/subtask,
-  /comment}` are RETIRED (2026-08-03, decision D2).** One handler answers them all with **410 Gone**
-  and the reason — 410 not 404, so a stale open tab reports "managed in Sentinel", never a routing
-  bug. The console pane is a **read-only monitor** now (see below) and the Assistant's `add_task` /
-  `move_task` / `complete_task` proposals went with them (`comment_task` stays — a comment is a
-  message on a shared thread, not a field on the record). What still writes `ws["tasks"]`, by
-  decision: the **internal bridge** (Sentinel, HMAC) and the **client's two powers** (`task-add`
-  files a request, `task-comment`). `workspace.py` remains the only writer either way, so the stored
+  🔴 **D2 AMENDED 2026-08-04 (owner decision): the team manages this board from Atrium again.**
+  D2 (2026-08-03) retired all seven team routes `POST /w/<c>/admin/task{,/hold,/move,/delete,
+  /maintask,/subtask,/comment}`; three are now RESTORED — **`/move`, `/delete`, and `/task` itself
+  as a narrow `op=edit`** (title / client note / dates / priority / internal notes, each patched
+  only when the form carried it). The other four (**hold, subtask, maintask, comment**) stay
+  retired behind one catch-all handler answering **410 Gone** with the reason — 410 not 404, so a
+  stale open tab reports "managed in Sentinel", never a routing bug (`op=add` on `/task` gets the
+  same 410; creation stays with `/task-add`). The model holds because `ws["tasks"]` never stopped
+  being the STORE (D1): Sentinel's board lists these cards live over the bridge and writes through
+  the same `workspace.py` helpers, so an edit on either surface is one record, not a fork. ⚠️ The
+  one divergence risk: a card **CLAIMED by a Sentinel row** (`tasks.atrium_task_id` set) is
+  re-projected on Sentinel's next edit — Sentinel stays authoritative for those. The Assistant's
+  `add_task` / `move_task` / `complete_task` proposals are restored in the same amendment
+  (`assistant_actions.py`): `add_task` takes a `stage`, so "here's what I completed this week"
+  files straight into Completed, and `client_facing` defaults TRUE there. The console pane remains
+  a **read-only monitor** (see below). What writes `ws["tasks"]` now: the **internal bridge**
+  (Sentinel, HMAC), the **team on the Progress pane** (per-column add via `task-add`, the three
+  restored routes, approved Assistant actions), and the **client's two powers** (`task-add` files
+  a request, `task-comment`). `workspace.py` remains the only writer either way, so the stored
   shape, the derived label, the history and the Bin are unchanged. The **client Tasks tab** (nav LABEL "Tasks" since 2026-07-29; the tab key
   stays `progress` in ATRIUM_TABS/routes — canonical, never rename, same posture as `leadgen`;
   pane in `atrium.html`) renders `main._progress_tasks(ws)` — SERVER-FILTERED to `client_facing` tasks and
@@ -909,15 +920,18 @@ auto-refresh (see those bullets below). Product name is one constant:
   `internal_notes`, and the account manager NEVER reach the client's HTML); the two-level
   breakdown reaches the client as **phases** (name + steps, no owners), the detail modal shows a
   **Started → Going live timeline**, cards say **"Launching <date>"** ("Live" once launched), and
-  columns sort by soonest launch. 🔴 **This board is READ-ONLY for EVERYONE since 2026-08-03
-  (decision D2).** The team's drag-to-move + per-card delete ✕ (added 2026-07-28) are GONE — markup,
-  CSS and their whole wiring IIFE — because an Atrium task card is now a **PROJECTION of a Sentinel
-  row**: it is created, assigned, moved, parked, reviewed and filed in Sentinel, and the internal
-  bridge pushes the client-safe subset here. Two writers on one record is the model that replaced.
-  `_atrium_smoketest.py` asserts the affordances are absent from the **team's** HTML too, not merely
-  the client's — the assertion used to say the opposite, so read its comment before "restoring"
-  anything. Plan: `sentinel/docs/TASKBOARD_REBUILD.md` §4. The row of
-  per-stage count TILES above the board was removed in the same change — the column heads already
+  columns sort by soonest launch. 🔴 **The board is read-only for the CLIENT; the TEAM's controls
+  are back (2026-08-04, D2 amended — read-only-for-everyone lasted one day).** The team's
+  drag-to-move + per-card delete ✕ (2026-07-28) are RESTORED — markup (`data-pgcol` /
+  `data-pgdrag` / `data-pgdel`), CSS and wiring IIFE — plus a NEW team-only **✎ Edit** in the
+  detail modal (`data-pgedit` / `data-pgeditform`, a collapsed form reusing `.ax-pg-addform`
+  styling → `POST /admin/task op=edit`, then reload). All of it renders `{% if is_superadmin %}`
+  only, so a client's HTML carries none of it (`_atrium_smoketest.py` asserts presence in the
+  team's HTML AND absence in the client's — that assertion has flipped twice, read its comment
+  before touching it; the edit-form no-leak check matches the RENDERED id because the wiring
+  script's `'[data-pgeditform="'` string literal ships to every viewer). Plan + amendment context:
+  `sentinel/docs/TASKBOARD_REBUILD.md` §4. The row of
+  per-stage count TILES above the board was removed in the D2 change — the column heads already
   showed the same numbers. ⚠️ Don't style team affordances with an `[data-admin="1"]` selector: the
   stylesheet ships to every viewer, so that literal string then appears in a client's HTML and trips
   the no-leak check. TWO client-surface writes: `POST /w/<c>/task-comment`
