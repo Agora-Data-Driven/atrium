@@ -47,6 +47,20 @@ $SSO_SECRET     = "platform-sso-key"
 # The public origin the portal is served on -- used to build the Google OAuth redirect URI.
 $PORTAL_BASE_URL = "https://portal.agoradatadriven.com"
 
+# 🔴 SENTINEL'S ORIGIN -- required for the ENTIRE Atrium -> Sentinel direction. Added 2026-08-04
+# after finding it had NEVER been set in production, which silently disabled three shipped features
+# at once, because all three ask `sentinel_requests.configured()` (secret AND base URL) first:
+#   * D3 intake  -- `POST /w/<c>/task-add` files a client's ask into Sentinel's queue;
+#   * D4 feedback -- a client comment / "request changes" notifies the linked Sentinel row;
+#   * the console overlay's "Open in Sentinel ->" link (`sentinel_base`).
+# The feedback leg is deliberately BEST-EFFORT (the client's words are already saved here, so a
+# Sentinel outage must not fail their comment) -- which is exactly why an unset URL produced no
+# error anywhere: comments landed in the workspace and never reached the delivery board. If that
+# leg is ever seen failing again, check this env var BEFORE reading any bridge code.
+# The run.app host on purpose, not sentinel.agoradatadriven.com: this is a server-to-server call, so
+# it should not depend on that custom domain's DNS or certificate.
+$SENTINEL_URL = "https://sentinel-585951669065.asia-southeast1.run.app"
+
 # Google Sign-In (OPT-IN). These Secret Manager secrets are mounted ONLY when they exist, so a
 # default deploy (before you create them) is unaffected -- the login page simply hides the Google
 # button. Create them once (paste the OAuth client from Google Cloud Console -> Credentials):
@@ -136,7 +150,7 @@ if (-not $SkipBuild) {
 #   process, and the private registry JSON is only ever read behind the portal login.
 # =============================================================================
 # Assemble the env-var list; only ship GTM_CONTAINER_ID when it's set (empty -> GTM stays off).
-$ENV_VARS = "COOKIE_DOMAIN=$COOKIE_DOMAIN,REGISTRY_BUCKET=$BUCKET,REGISTRY_OBJECT=platform.json,PORTAL_BASE_URL=$PORTAL_BASE_URL"
+$ENV_VARS = "COOKIE_DOMAIN=$COOKIE_DOMAIN,REGISTRY_BUCKET=$BUCKET,REGISTRY_OBJECT=platform.json,PORTAL_BASE_URL=$PORTAL_BASE_URL,SENTINEL_URL=$SENTINEL_URL"
 if (-not [string]::IsNullOrWhiteSpace($GTM_CONTAINER_ID)) { $ENV_VARS += ",GTM_CONTAINER_ID=$GTM_CONTAINER_ID" }
 
 # Assemble the secret list. Google sign-in secrets are appended ONLY if they exist (opt-in), so a
