@@ -3667,6 +3667,15 @@
           <form class="ax-pg-add" method="post" action="/w/{{ view.client }}/task-add" data-pgadd-form>
             <input type="text" name="title" data-pgadd-input maxlength="200" required aria-label="Add a request"
                    placeholder='Type a request and press Enter — e.g. "Update the homepage banner"'>
+            {#- Context for the ask. It used to live only in the per-column form, which went
+               team-only on 2026-08-04 (D3 / WP 3.3) -- a request has no column. It travels to
+               Sentinel's intake queue as `details`, so whoever triages it sees WHY it was asked
+               for, not just the one-line title.
+               There is deliberately NO due date here: a request is not scheduled work, and the
+               team sets dates when they accept it. -#}
+            <textarea name="note" rows="1" maxlength="1000" data-pgadd-note
+                      aria-label="Anything else the team should know"
+                      placeholder="Optional — anything else the team should know"></textarea>
             <input type="hidden" name="redirect" value="progress">
             <button type="submit" class="ax-btn violet" data-pgadd-btn>Add request</button>
           </form>
@@ -3710,9 +3719,14 @@
                 </div>
                 {% endfor %}
               </div>
-              {#- Per-column add: files straight into THIS stage with the client already implied by
-                 the workspace. A real form again, so it works with no JS; the script below only
-                 toggles it open. -#}
+              {#- Per-column add -- TEAM ONLY since 2026-08-04 (decision D3 / WP 3.3 of
+                 sentinel/docs/TASKBOARD_REBUILD.md). A CLIENT no longer writes to this board at
+                 all: their quick-add files a REQUEST into Sentinel's intake queue, and a request
+                 has no column, so offering them a per-column choice was offering a control that
+                 could not do anything. The team's own add still writes here, which is why this is
+                 gated rather than deleted. Real form, works with no JS; the script only toggles
+                 it open. -#}
+              {% if is_superadmin %}
               <button type="button" class="ax-pg-addcard" data-pgcol-open="{{ col.key }}">+ Add card</button>
               {#- SAME SHAPE AS SENTINEL'S "New task" (2026-07-27): name + description + due date on
                  show, everything else one click away under "More options". The advanced block is
@@ -3747,12 +3761,13 @@
                   <button type="button" class="ax-btn ghost" data-pgcol-cancel="{{ col.key }}">Cancel</button>
                 </div>
               </form>
+              {% endif %}
             </div>
             {% endfor %}
           </div>
           {% if not pg_total %}
           <div class="ax-pg-empty"><h3>No tasks yet</h3>
-            <div>Type a request above, or use “+ Add card” under any column to start one there.</div></div>
+            <div>Type a request above and the team will pick it up.</div></div>
           {% endif %}
           {% endif %}
 

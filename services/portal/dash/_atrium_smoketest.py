@@ -974,9 +974,18 @@ def run():
                                         "Revision Needed", "Completed"))
            and "For Review" not in pg2 and "Waiting for Client" not in pg2
            and pg2.index("In Progress") < pg2.index("Blocked") < pg2.index("Revision Needed"))
-    _check("every column has its own no-JS '+ Add card' form",
-           all(('data-pgcol-form="%s"' % k) in pg2
-               for k in ("todo", "in_progress", "blocked", "revision", "completed")))
+    # 🔴 FLIPPED 2026-08-04 (D3 / WP 3.3): the per-column "+ Add card" is TEAM-ONLY now. A client
+    # files a REQUEST, and a request has no column, so offering them the choice was offering a
+    # control that could not do anything. `pg2` is a CLIENT render.
+    # NB: match the RENDERED attribute (with a stage key), not the bare name -- the toggle script
+    # builds the selector as a string literal and that script ships to every viewer, so the bare
+    # substring is present in a client's HTML whatever the template does. Same trap as keying
+    # team-only CSS off [data-admin]: the stylesheet/script is not role-scoped, the markup is.
+    _check("the per-column '+ Add card' form is absent from the CLIENT's HTML",
+           not any(('data-pgcol-form="%s"' % k) in pg2
+                   for k in ("todo", "in_progress", "blocked", "revision", "completed"))
+           and not any(('data-pgcol-open="%s"' % k) in pg2
+                       for k in ("todo", "in_progress", "blocked", "revision", "completed")))
     # 🔴 REWRITTEN 2026-08-04 (D3 / WP 3.3). A per-column "+ Add card" used to place the client's
     # card directly into that column. A client's ASK has no column — it is not on the delivery
     # board at all until Sentinel accepts it — so the posted `stage` is now ignored for a client,
@@ -998,8 +1007,12 @@ def run():
                       ).get_json().get("ok") is True and len(filed) == 2)
     # The add form mirrors Sentinel's "New task": name + description + due date on show, the rest
     # collapsed. A CLIENT must never get the internal block, nor be able to forge those fields.
-    _check("the client's add form has name, description and due date",
-           'name="title"' in pg2 and 'name="note"' in pg2 and 'name="due_date"' in pg2)
+    # A request carries a title + context. NOT a due date: a request is not scheduled work, and
+    # the team sets dates when they accept it (D3 / WP 3.3) -- the same reasoning that took the
+    # column choice away.
+    _check("the client's request form has a name and a description",
+           'name="title"' in pg2 and 'name="note"' in pg2)
+    _check("a client is not asked for a due date on a request", 'name="due_date"' not in pg2)
     # NB: match the ELEMENT, not the bare class -- ".ax-pg-more" also appears in the stylesheet,
     # which every page carries whatever the viewer's role is.
     _check("the internal 'More options' block is NOT in the client's HTML",
