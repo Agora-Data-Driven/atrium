@@ -4964,13 +4964,22 @@ def _discipline(labels):
 # For Review + Waiting for Client were removed -- both meant "blocked on someone", so they fold
 # into Blocked (workspace._STAGE_ALIASES lands old rows there) and Blocked moved up to sit right
 # after In Progress. Keys are canonical (workspace.TASK_STAGES).
+# 2026-08-04 (Sentinel WP 1.2): "Blocked" -> "Parked" for the TEAM, matching what Sentinel's board
+# now calls that column. 🔴 The LABEL moved and nothing else -- the key `blocked` is canonical on
+# both sides and every stored row, every bridge write and every alias still speaks it. Touching the
+# key here would break both boards at once.
 TASK_STAGE_META = (("todo", "To Do"), ("in_progress", "In Progress"),
-                   ("blocked", "Blocked"), ("revision", "Revision Needed"),
+                   ("blocked", "Parked"), ("revision", "Revision Needed"),
                    ("completed", "Completed"))
 TASK_STAGE_LABELS = dict(TASK_STAGE_META)
-# The client sees the SAME column names now (previously friendlier relabels). Kept as its own tuple
-# so a client-only wording change stays a one-line edit.
-TASK_CLIENT_STAGES = TASK_STAGE_META
+# 🔴 The client's own wording, and now genuinely its own tuple -- it had quietly become a bare
+# alias of TASK_STAGE_META, so the "client-only wording change is one line" this comment promised
+# was not true any more and the first attempt at one would have relabelled the team's board too.
+# The client's column is "Paused", not "Parked" and never "Blocked": Atrium already tells them a
+# held card is "Paused", and "Blocked" reads to a client as an accusation about their own work.
+TASK_CLIENT_STAGES = (("todo", "To Do"), ("in_progress", "In Progress"),
+                      ("blocked", "Paused"), ("revision", "Revision Needed"),
+                      ("completed", "Completed"))
 
 
 # Canonical Atrium delivery team -- these people must ALWAYS be assignable on the board, on EVERY

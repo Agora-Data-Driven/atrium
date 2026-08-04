@@ -661,7 +661,13 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   `main._progress_tasks(ws)` (client_facing + client-safe fields ONLY — owners/priority/charge/
   internal notes never reach the client HTML; the breakdown arrives as owner-less **phases**;
   the modal shows a Started → Going live timeline; cards say "Launching <date>" / "Live"; columns
-  sort by soonest launch; both surfaces share the `TASK_STAGE_META` stage labels).
+  sort by soonest launch; the client's column names come from **`TASK_CLIENT_STAGES`**, the team's
+  from `TASK_STAGE_META`). 🔴 **Those two are different tuples again since 2026-08-04** (Sentinel
+  WP 1.2): the `blocked` stage reads **"Parked"** to the team and **"Paused"** to the client. It had
+  degenerated into `TASK_CLIENT_STAGES = TASK_STAGE_META`, so the comment promising a one-line
+  client-only relabel was wrong and the first attempt at one would have renamed the team's board too.
+  Only the labels differ — the KEY is `blocked` on both surfaces, in every stored row and across the
+  bridge; `_atrium_smoketest` asserts the client render never contains the word "Blocked".
   🔴 **This board is READ-ONLY for EVERYONE since 2026-08-03 (decision D2 of
   `sentinel/docs/TASKBOARD_REBUILD.md`).** The team's drag-to-move + per-card delete ✕ (2026-07-28)
   are GONE: markup (`data-pgdrag` / `data-pgcol` / `data-pgdel`), the CSS that keyed off them, and

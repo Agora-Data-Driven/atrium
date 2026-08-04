@@ -789,8 +789,15 @@ auto-refresh (see those bullets below). Product name is one constant:
   (spec: `TASK_TRACKER_INTEGRATION.md`, extended 2026-07-14 with the two-level breakdown +
   dates/charge): `ws["tasks"]` per client — a task ("service") is a deliverable travelling
   `todo → in_progress → blocked → revision → completed` (stage KEYS are canonical, never rename;
-  both surfaces show the same `TASK_STAGE_META` labels. For Review + Waiting for Client were
-  REMOVED 2026-07-29 — both just meant "blocked on someone" — and Blocked moved up beside
+  the team reads `TASK_STAGE_META` and the client reads `TASK_CLIENT_STAGES`. 🔴 **Those two
+  diverged again on 2026-08-04** (Sentinel WP 1.2): the `blocked` stage is **"Parked"** for the team,
+  matching what Sentinel's board now calls that column, and **"Paused"** for the client — Atrium
+  already tells them a held card is "Paused", and "Blocked" reads to a client as a verdict on their
+  own work. `TASK_CLIENT_STAGES` had quietly become a bare ALIAS of `TASK_STAGE_META`, so the
+  "a client-only wording change is one line" this doc promised was already false; it is a real tuple
+  again. Only the LABELS moved — the keys are canonical on both sides and in every stored row.
+  For Review + Waiting for Client were
+  REMOVED 2026-07-29 — both just meant "blocked on someone" — and the blocked column moved up beside
   In Progress; retired keys, incl. the pre-2026-07-27 four-stage set, land on a live column via
   `workspace._STAGE_ALIASES`). `workspace.py` is
   the only writer (`add_task`/`update_task`/`move_task_stage`/`delete_task`/`insert_task` +
