@@ -43,6 +43,7 @@ os.environ["REGISTRY_LOCAL_DIR"] = _TMP   # admin_atrium console reads the regis
 os.environ["SESSION_SECRET"] = "test-secret"
 
 import seed_workspace   # noqa: E402
+import service_templates  # noqa: E402
 import store            # noqa: E402
 import workspace        # noqa: E402
 import main             # noqa: E402
@@ -741,54 +742,46 @@ def run():
     _check("non-grantee forbidden", c.get("/w/%s/" % CLIENT).status_code == 403)
     _check("non-grantee creative forbidden", c.get("/w/%s/creative/RVR-014" % CLIENT).status_code == 403)
 
-    # ---- Task tracker: internal board + client Progress tab (TASK_TRACKER_INTEGRATION.md). ----
+    # ---- Task tracker: the client Progress tab + the READ-ONLY console board. ----
+    #
+    # 🔴 REWRITTEN 2026-08-03 (decision D2). This block used to build its whole fixture by POSTing
+    # the seven `/w/<c>/admin/task*` routes. Those routes are RETIRED: Atrium no longer writes a
+    # task, because an Atrium card is a projection of a Sentinel row. The fixture is therefore built
+    # through the `workspace.py` helpers directly — which is exactly what the internal bridge calls,
+    # so this still exercises the real write path, just not a browser-facing one. The retirement
+    # itself is asserted further down (410 for the team, 403 for a client).
     with c.session_transaction() as s:
         s.update(SUPER)
-    # Team creates a client-facing task (with internal-only fields) + a purely internal one.
-    rt = c.post("/w/%s/admin/task" % CLIENT, data={
-        "op": "add", "title": "Park & Porch funnel", "department": "acquisition",
-        "lead_id": "zhen@100.digital",
-        "priority": "High", "start_date": "2026-07-10", "due_date": "2026-07-20",
-        "service_charge": "4200", "client_facing": "1",
+    made = workspace.add_task(CLIENT, {
+        "title": "Park & Porch funnel", "department": "acquisition",
+        "lead_id": "zhen@100.digital", "priority": "High",
+        "start_date": "2026-07-10", "due_date": "2026-07-20",
+        "service_charge": "4200", "client_facing": True,
         "client_note": "Funnel is live.", "deliverable_url": "https://drive.google.com/x",
         "internal_notes": "INTERNAL-ONLY-MARKER-XYZ",
-    })
-    _check("team adds a task", rt.status_code == 200 and rt.get_json().get("ok") is True)
-    task_id = rt.get_json()["task_id"]
-    made = workspace._find_task(workspace.load_workspace(CLIENT), task_id)
-    _check("new service always starts in To Do", made["stage"] == "todo")
-    _forced = c.post("/w/%s/admin/task" % CLIENT,
-                     data={"op": "add", "title": "Stage-forced check",
-                           "department": "lifecycle", "stage": "completed"})
-    _forced_task = workspace._find_task(workspace.load_workspace(CLIENT), _forced.get_json()["task_id"])
-    _check("a submitted stage on create is ignored (always To Do)",
-           _forced_task["stage"] == "todo")
-    _check("label auto-derived from the department", made["labels"] == ["Paid Media"])
+        "labels": ["Paid Media"], "stage": "todo",
+    }, actor="info@agoradatadriven.com")
+    task_id = made["id"]
+    _check("a task exists on the client's board", bool(task_id) and made["stage"] == "todo")
     _check("start date + service charge stored",
            made["start_date"] == "2026-07-10" and made["service_charge"] == "4200")
-    _check("support people assigned after creation (edit patches them)",
-           made["support_ids"] == [] and
-           c.post("/w/%s/admin/task" % CLIENT,
-                  data={"op": "edit", "task_id": task_id, "title": "Park & Porch funnel",
-                        "department": "acquisition", "lead_id": "zhen@100.digital",
-                        "priority": "High", "client_facing": "1", "has_support": "1",
-                        "support_ids": "ehjay@agoradatadriven.com"}).get_json().get("ok") is True
-           and workspace._find_task(workspace.load_workspace(CLIENT),
-                                    task_id)["support_ids"] == ["ehjay@agoradatadriven.com"])
-    _check("internal-only task created",
-           c.post("/w/%s/admin/task" % CLIENT,
-                  data={"op": "add", "title": "HIDDEN-INTERNAL-TASK"}).get_json().get("ok") is True)
-    # A service TYPE auto-builds the whole work breakdown (main tasks + sub-tasks with "done when").
-    rseed = c.post("/w/%s/admin/task" % CLIENT, data={
-        "op": "add", "title": "Seeded G/M Campaign", "department": "acquisition",
-        "service_key": "google_meta_campaign", "client_facing": "1",
-        "ad_type": "video", "ad_qty": "3", "due_date": "2026-08-01"})
-    seeded_id = rseed.get_json()["task_id"]
-    seeded_task = workspace._find_task(workspace.load_workspace(CLIENT), seeded_id)
-    _check("service type auto-built the breakdown (build + launch + 1 ad-production group)",
+    workspace.update_task(CLIENT, task_id, {"support_ids": ["ehjay@agoradatadriven.com"]},
+                          actor="info@agoradatadriven.com")
+    _check("support people patched after creation",
+           workspace._find_task(workspace.load_workspace(CLIENT),
+                                task_id)["support_ids"] == ["ehjay@agoradatadriven.com"])
+    workspace.add_task(CLIENT, {"title": "HIDDEN-INTERNAL-TASK"}, actor="info@agoradatadriven.com")
+    # The service-template catalog still BUILDS a breakdown (Sentinel owns the recipes now and pushes
+    # the result over the bridge; the module stays because this shape is what it must produce).
+    seeded = workspace.add_task(CLIENT, {
+        "title": "Seeded G/M Campaign", "department": "acquisition", "client_facing": True,
+        "due_date": "2026-08-01", "content_type": "Campaign",
+        "maintasks": service_templates.build_maintasks(
+            "google_meta_campaign", {}, [("video", "3")], id_factory=workspace._new_id),
+    }, actor="info@agoradatadriven.com")
+    seeded_task = workspace._find_task(workspace.load_workspace(CLIENT), seeded["id"])
+    _check("service type builds the breakdown (build + launch + 1 ad-production group)",
            len(seeded_task["maintasks"]) == 3)
-    _check("service type set content_type from the template",
-           seeded_task["content_type"] == "Campaign")
     _check("qty=3 expanded the per-video step",
            len([s for s in seeded_task["maintasks"][2]["subs"] if "draft edit" in s["text"]]) == 3)
     _check("seeded sub-tasks carry an internal 'done when'",
@@ -800,64 +793,29 @@ def run():
     _check("client Progress never shows a 'done when' definition", "Done when" not in prog)
     with c.session_transaction() as s:
         s.update(SUPER)
-    # Main tasks + sub-tasks + a team comment (the two-level breakdown, via the routes).
-    _check("main task added",
-           c.post("/w/%s/admin/task/maintask" % CLIENT,
-                  data={"op": "add", "task_id": task_id, "text": "SECRET-PHASE-BUILD",
-                        "assignee_id": "zhen@100.digital"}).get_json().get("ok") is True)
+    # The two-level breakdown, the hold and a team comment — same helpers, no routes.
+    workspace.add_maintask(CLIENT, task_id, "SECRET-PHASE-RENAMED", "zhen@100.digital")
     main_id = workspace._find_task(workspace.load_workspace(CLIENT), task_id)["maintasks"][0]["id"]
-    _check("sub-task added under the main task",
-           c.post("/w/%s/admin/task/subtask" % CLIENT,
-                  data={"op": "add", "task_id": task_id, "maintask_id": main_id,
-                        "text": "Create info pack",
-                        "assignee_id": "ehjay@agoradatadriven.com"}).get_json().get("ok") is True)
+    workspace.add_subtask(CLIENT, task_id, "Create the info pack", "ehjay@agoradatadriven.com",
+                          maintask_id=main_id, dod="PDF filed on the card")
     sub_id = workspace.task_subtasks(
         workspace._find_task(workspace.load_workspace(CLIENT), task_id))[0]["id"]
-    _check("sub-task toggled done",
-           c.post("/w/%s/admin/task/subtask" % CLIENT,
-                  data={"op": "toggle", "task_id": task_id, "subtask_id": sub_id,
-                        "done": "1"}).get_json().get("ok") is True)
-    _check("sub-task inline edit renames + sets a done-when via the route",
-           c.post("/w/%s/admin/task/subtask" % CLIENT,
-                  data={"op": "edit", "task_id": task_id, "subtask_id": sub_id,
-                        "text": "Create the info pack", "dod": "PDF filed on the card"}).get_json().get("ok") is True)
-    _edited = workspace._find_subtask(
-        workspace._find_task(workspace.load_workspace(CLIENT), task_id), sub_id)
-    _check("sub-task edit persisted text + dod",
-           _edited["text"] == "Create the info pack" and _edited["dod"] == "PDF filed on the card")
-    _check("main-task owner reassigned via the route",
-           c.post("/w/%s/admin/task/maintask" % CLIENT,
-                  data={"op": "assign", "task_id": task_id, "maintask_id": main_id,
-                        "assignee_id": "ehjay@agoradatadriven.com"}).get_json().get("ok") is True)
-    _check("main task renamed via the route",
-           c.post("/w/%s/admin/task/maintask" % CLIENT,
-                  data={"op": "rename", "task_id": task_id, "maintask_id": main_id,
-                        "text": "SECRET-PHASE-RENAMED"}).get_json().get("ok") is True
-           and workspace._find_task(workspace.load_workspace(CLIENT),
-                                    task_id)["maintasks"][0]["text"] == "SECRET-PHASE-RENAMED")
-    # On hold <-> ongoing via the route (reason is internal-only).
-    _check("service put on hold via the route",
-           c.post("/w/%s/admin/task/hold" % CLIENT,
-                  data={"task_id": task_id, "on_hold": "1",
-                        "hold_reason": "HOLD-REASON-INTERNAL-XYZ"}).get_json().get("on_hold") is True)
+    workspace.set_subtask_done(CLIENT, task_id, sub_id, True)
+    _check("the breakdown holds a phase with an owned, done step",
+           workspace._find_subtask(
+               workspace._find_task(workspace.load_workspace(CLIENT), task_id), sub_id)["done"] is True)
+    held = workspace.set_task_hold(CLIENT, task_id, True, "HOLD-REASON-INTERNAL-XYZ",
+                                   actor="info@agoradatadriven.com")
+    _check("a service can be put on hold (reason internal)", held["on_hold"] is True)
     _check("hold shows on the console card",
            "tk-hold" in c.get("/admin/atrium").get_data(as_text=True))
-    # Reopen-after-action: a console form that carries back_task/back_tab redirects with
-    # ?task=&tab= so the page script reopens the same overlay on the same tab.
-    back = c.post("/w/%s/admin/task/subtask" % CLIENT,
-                  data={"redirect": "console", "op": "toggle", "task_id": task_id,
-                        "subtask_id": "nope", "back_task": "%s:%s" % (CLIENT, task_id),
-                        "back_tab": "tasks"})
-    _check("console redirect carries the reopen params",
-           back.status_code == 302 and ("task=%s:%s" % (CLIENT, task_id)) in back.headers["Location"]
-           and "tab=tasks" in back.headers["Location"])
-    _check("team comments on the task",
-           c.post("/w/%s/admin/task/comment" % CLIENT,
-                  data={"op": "add", "task_id": task_id,
-                        "body": "First draft is up."}).get_json().get("ok") is True)
-    # The console renders the board with the task; a console-posted form redirects back to it.
+    workspace.add_task_comment(CLIENT, task_id, "agora", "AGORA", "First draft is up.")
+    workspace.move_task_stage(CLIENT, task_id, "revision", actor="info@agoradatadriven.com")
+
+    # 🔴 The console board is a READ-ONLY MONITOR now: it renders every client's tasks and opens the
+    # detail overlay, and carries no form that writes one.
     console = c.get("/admin/atrium").get_data(as_text=True)
-    _check("console shows the Task Board nav + the task",
+    _check("console still shows the Task Board nav + the task",
            'data-section="tasks"' in console and "Park &amp; Porch funnel" in console)
     _check("console has the Delivery Calendar tab + pane",
            'data-section="calendar"' in console and 'data-pane="calendar"' in console)
@@ -867,10 +825,24 @@ def run():
     _check("scheduled (dated) service becomes a calendar event",
            '<div class="cal-ev" data-date="2026-07-20"' in console
            and 'data-open="%s:%s"' % (CLIENT, task_id) in console)
-    _check("console form posts redirect back to the Tasks pane",
-           c.post("/w/%s/admin/task/move" % CLIENT,
-                  data={"redirect": "console", "task_id": task_id,
-                        "stage": "revision"}).status_code == 302)
+    # NB: match a form ACTION, not the bare path. `name="op" value="add"` also appears on the
+    # Mailboxes connect form, and the path itself still appears in the script's own "removed 2026-08-03"
+    # comments — which is exactly where a future reader should find out why it went.
+    _check("the console board carries NO task-write form",
+           ('action="/w/%s/admin/task' % CLIENT) not in console)
+    _check("the overlay's only action is to open the task in Sentinel",
+           "Open in Sentinel" in console and "/dashboard?open=atrium:%s:%s" % (CLIENT, task_id) in console)
+    _check("no draggable cards on the console board", 'class="tk-card' in console
+           and 'draggable="true"' not in console)
+    # Every retired route answers 410 with the reason — never a 404, which would read as a routing
+    # bug to whoever still has a stale tab open.
+    for path in ("task", "task/move", "task/delete", "task/subtask", "task/maintask",
+                 "task/comment", "task/hold"):
+        r410 = c.post("/w/%s/admin/%s" % (CLIENT, path), data={"task_id": task_id})
+        _check("retired route /%s answers 410 for the team" % path,
+               r410.status_code == 410 and "Sentinel" in (r410.get_json() or {}).get("error", ""))
+    _check("a retired route did NOT change the task",
+           workspace._find_task(workspace.load_workspace(CLIENT), task_id)["stage"] == "revision")
 
     # The CLIENT sees the Progress tab: their client-facing task, client-safe fields ONLY.
     with c.session_transaction() as s:
@@ -1007,9 +979,15 @@ def run():
     _check("the team's add form carries the collapsed 'More options' block",
            '<details class="ax-pg-more"' in pg_team and 'name="internal_notes"' in pg_team
            and 'name="priority"' in pg_team)
-    _check("the team's cards are draggable, deletable, and every column is a drop target",
-           'data-pgdrag="' in pg_team and 'data-pgdel="' in pg_team
-           and 'data-pgcol="todo"' in pg_team and 'data-pgcol="completed"' in pg_team)
+    # 🔴 REVERSED 2026-08-03 (decision D2). This used to assert the OPPOSITE — that the team's cards
+    # were draggable and deletable here. The client Tasks board is now a READ-ONLY projection of
+    # Sentinel's task rows for EVERYONE: a card is created, assigned, moved, parked, reviewed and
+    # filed in Sentinel, and the internal bridge pushes the client-safe subset over. Two writers on
+    # one record is exactly the model this replaced (sentinel/docs/TASKBOARD_REBUILD.md §4), so the
+    # affordances must be absent from the TEAM's HTML too, not merely hidden from the client's.
+    _check("the team's board carries NO write affordances either (read-only for everyone)",
+           "data-pgdrag=" not in pg_team and "data-pgdel=" not in pg_team
+           and 'data-pgcol="' not in pg_team)
     rteam = c.post("/w/%s/task-add" % CLIENT,
                    data={"title": "TEAM-WITH-EXTRAS", "priority": "Urgent",
                          "internal_notes": "keep this internal", "note": "client sees this",
@@ -1022,22 +1000,26 @@ def run():
     # (The no-leak rule itself is asserted against a real client session by the
     #  "internal notes never reach the client HTML" check earlier in this file.)
     # Stage moves are UNGUARDED (2026-07-28) -- an open change request no longer vetoes a move to
-    # Completed, so the board's drag never bounces a card back. It is still surfaced as a flag.
+    # Completed, so a card never bounces back. It is still surfaced as a flag. (Driven through the
+    # helper now: the route went with the rest of Atrium's task writers, and the internal bridge
+    # calls exactly this. `move_task_stage` keeps its ValueError contract for a future guard.)
     _check("close is allowed while a change request is open",
-           c.post("/w/%s/admin/task/move" % CLIENT,
-                  data={"task_id": task_id, "stage": "completed"}).get_json().get("ok") is True)
+           workspace.move_task_stage(CLIENT, task_id, "completed",
+                                     actor="info@agoradatadriven.com")["stage"] == "completed")
     _check("team resolves the change request",
-           c.post("/w/%s/admin/task/comment" % CLIENT,
-                  data={"op": "resolve", "task_id": task_id,
-                        "comment_id": chg_id}).get_json().get("open_changes") == 0)
+           workspace.resolve_task_comment(CLIENT, task_id, chg_id)[2] == 0)
 
-    # Delete -> Bin -> restore round-trip.
-    _check("task delete is a soft-delete",
-           c.post("/w/%s/admin/task/delete" % CLIENT,
-                  data={"task_id": task_id}).get_json().get("ok") is True)
+    # Delete -> Bin -> restore round-trip. The Bin is written by whoever deletes; Sentinel's bridge
+    # delete calls `audit.trash_put` directly (there is no session to credit), so mirror that here.
+    _removed = workspace.delete_task(CLIENT, task_id)
+    import audit as _audit_bin
+    _audit_bin.trash_put(client=CLIENT, kind="task",
+                         label=_removed.get("title") or task_id, payload=_removed,
+                         actor="info@agoradatadriven.com", role="superadmin")
+    _check("task delete is a soft-delete", _removed.get("id") == task_id)
     _check("task gone from the workspace",
            workspace._find_task(workspace.load_workspace(CLIENT), task_id) is None)
-    import audit as _audit_mod
+    _audit_mod = _audit_bin
     entry = next(t for t in _audit_mod.trash_list() if t.get("kind") == "task")
     _check("deleted task is in the Bin", entry["payload"]["id"] == task_id)
     _check("task restore returns it to the board",

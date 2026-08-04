@@ -264,6 +264,34 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   Tests: `_run_template_checks` in `_watcher_localtest.py` (catalog, the shared redirect, and all
   four reconcile invariants). ⚠️ Every client is pre-seeded now, so a test asserting "the registry is
   empty" must filter template entries — see the `_hand_channels` helper.
+- 🔴 **The task board is READ-ONLY on BOTH surfaces (2026-08-03, decision D2 of
+  `sentinel/docs/TASKBOARD_REBUILD.md`).** Atrium renders tasks; **Sentinel manages them.**
+  - **Routes:** the seven `POST /w/<c>/admin/task{,/hold,/move,/delete,/maintask,/subtask,/comment}`
+    are retired — one handler (`atrium_admin_task_retired`) answers them all **410 Gone** with the
+    reason, after the auth gate. 410 not 404 on purpose: a stale open tab must read "managed in
+    Sentinel", not "not found". `_task_reply` / `_task_fields_from_form` / `_task_template_seed` went
+    with them.
+  - **Console pane** (`admin_atrium.html`, Delivery → Task Board): every VIEW kept (columns, search,
+    filters, swimlanes, density, caps, the Delivery Calendar, the tabbed detail overlay); every WRITE
+    gone (drag-to-move, New Service + its service-type/ad-production builder, the Edit overlay, the
+    breakdown's checkboxes/renames/owner selects/✕/add forms, the hold form, the comment composer,
+    Resolve, Archive, advance-stage). The overlay's one action is **Open in Sentinel →**, built from
+    the new `sentinel_base` template var (`SENTINEL_URL` minus `/login`, because `/login` drops its
+    query string) plus Atrium's own composite board id: `?open=atrium:<client_key>:<task_id>`.
+  - **Client Tasks pane** (`atrium.html`): the team's drag-to-move + delete-✕ and their whole wiring
+    IIFE are gone too. The client keeps `task-comment` and the quick-add composer (D3/D4).
+  - **Assistant actions:** `add_task` / `move_task` / `complete_task` are out of `_ACTIONS`, so the
+    model is never told those verbs exist and `validate` refuses them by name. `comment_task` stays.
+  - **Still writes `ws["tasks"]`, deliberately:** the internal bridge (`/api/internal/task*`) and the
+    client's two powers. `workspace.py` is still the only writer, and `move_task_stage` keeps its
+    `ValueError` contract for the bridge.
+  - `service_templates.py` is **kept but unwired** (`# noqa: F401` on the import): Sentinel's
+    `ServiceTemplate` table owns the recipes now: the module is the written record of the shape both
+    sides agreed, and `_atrium_smoketest` still checks `build_maintasks` produces it. Don't re-wire
+    it into a form here.
+  - Tests: `_atrium_smoketest.py` builds its task fixture through the `workspace.py` helpers (what
+    the bridge calls) and asserts the 410s + the absent affordances; `_assistant_localtest.py`
+    asserts the three retired actions are refused and uncatalogued.
 - **`assistant_ai.py`** — the team-only Assistant tab: RAG chat over EVERY workspace source
   (watcher transcripts, intel, campaigns/content, metrics, calendar, conversations, health, plus
   the opt-in client dashboard export — grant via `enable_assistant_dash_data.ps1`). Index stored as
@@ -634,17 +662,21 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   internal notes never reach the client HTML; the breakdown arrives as owner-less **phases**;
   the modal shows a Started → Going live timeline; cards say "Launching <date>" / "Live"; columns
   sort by soonest launch; both surfaces share the `TASK_STAGE_META` stage labels).
-  **On that same board the TEAM gets drag-to-move + a per-card delete ✕ (2026-07-28)** — rendered
-  `{% if is_superadmin %}` only (a `.ax-pg-cardwrap` draggable wrapper per card because the card is
-  a `<button>` and a ✕ can't nest inside one; `data-pgcol` drop targets; `data-pgdel` buttons) and
-  wired in **its own IIFE** in `atrium.html`, deliberately NOT sharing the board IIFE's
-  `if (!root || !veil || !storeBox) return;` guard — the same lesson the quick-add composer records.
-  It posts the existing `/admin/task/move` + `/admin/task/delete` routes (optimistic move, rolled
-  back + alerted on failure; delete confirms, then soft-deletes to the Bin). The per-stage count
-  TILES above the board were removed in the same change (the column heads already show the counts).
+  🔴 **This board is READ-ONLY for EVERYONE since 2026-08-03 (decision D2 of
+  `sentinel/docs/TASKBOARD_REBUILD.md`).** The team's drag-to-move + per-card delete ✕ (2026-07-28)
+  are GONE: markup (`data-pgdrag` / `data-pgcol` / `data-pgdel`), the CSS that keyed off them, and
+  the whole separate wiring IIFE — a comment marks where it stood. An Atrium task card is a
+  **projection of a Sentinel row** now; it is created, assigned, moved, parked, reviewed and filed in
+  Sentinel, and the internal bridge (`/api/internal/task*`) pushes the client-safe subset here. Two
+  writers on one record is the model this replaced, so **before re-adding any write control to this
+  pane, read §4 of that plan.** `_atrium_smoketest.py` asserts the affordances are absent from the
+  **team's** HTML as well as the client's — that check used to assert the opposite; its comment says
+  why it flipped. (The per-stage count TILES went in the 2026-07-28 change; the column heads already
+  show the counts.)
   🔴 **Never key team-only CSS off `[data-admin="1"]`** — the stylesheet ships to every viewer, so
   the literal string lands in a client's HTML and trips `_atrium_smoketest`'s no-leak assertion
-  (cost a test round; that CSS keys off `[data-pgcol]`, which is itself team-only markup). The
+  (cost a test round; the drag CSS keyed off `[data-pgcol]` for exactly this reason, back when it
+  existed). The
   client-surface writes are `POST /w/<c>/task-comment` (comment / request-changes; resolve is
   team-only) and `POST /w/<c>/task-add` (the Progress quick-add composer, client AND team — the
   reporter is AUTO-TAGGED from the session as agora|client + a derived `reporter_name`, never a
