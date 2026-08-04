@@ -520,7 +520,10 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   archived **through the Watcher machinery** -- the section's add form posts the existing
   `/w/<c>/admin/watcher` `op=add_site` with `own=1` (flagging the registry entry via
   `_watcher_entry`'s `own` field; `workspace.own_content_channels` reads it back, the Watcher tab
-  shows a "Client's own" chip) and the same fetch/refresh/delete ops maintain the archive. Post
+  shows a "Client's own" chip) and the same fetch/refresh/delete ops maintain the archive -- the
+  add handler AUTO-RUNS the fetch loop after a successful add, so one paste captures the whole
+  blog, article text included (a mid-loop failure just reloads; the card's Fetch missing button
+  resumes where it stopped). Post
   LISTING is client-visible (`main._company_content_view`, titles/dates/links only, built every
   render -- bodies never leave the archive object); the controls + the **content-gap panel** are
   team-only. `op=gaps` on `/w/<c>/admin/company` compares own titles vs every `kind=competitor`

@@ -143,14 +143,57 @@ def run():
     workspace.save_workspace(CLIENT, {"display_name": "Feed Test", "intel": {},
                                       "intel_topics": ["RV industry"]})
     counts = intel_refresh.refresh_client(CLIENT, fetcher=_fetcher)
-    _check("no model -> nothing filled", counts == {"media_buying": 0, "business_research": 0, "ai": False})
+    _check("no model -> nothing filled",
+           counts == {"media_buying": 0, "business_research": 0, "searches": 0, "ai": False})
     _check("no model -> reason recorded",
            "model" in (workspace.load_workspace(CLIENT).get("intel_ai", {}).get("last_error", "").lower()))
 
     # 9. refresh_client on an unseeded client is a safe no-op.
     _check("missing workspace -> zeros",
            intel_refresh.refresh_client("nope", fetcher=_fetcher) ==
-           {"media_buying": 0, "business_research": 0, "ai": False})
+           {"media_buying": 0, "business_research": 0, "searches": 0, "ai": False})
+
+    # 10. Saved searches -- the data layer (CRUD + validation + the delete purge).
+    workspace.save_workspace(CLIENT, {"display_name": "Feed Test", "intel": {}})
+    try:
+        workspace.add_intel_search(CLIENT, {"keywords": "x"})
+        raise AssertionError("saved search without a name should refuse")
+    except ValueError:
+        print("  [OK] saved search without a name refuses")
+    try:
+        workspace.add_intel_search(CLIENT, {"name": "x"})
+        raise AssertionError("saved search without keywords should refuse")
+    except ValueError:
+        print("  [OK] saved search without keywords refuses")
+    s = workspace.add_intel_search(CLIENT, {"name": "Coaching demand",
+                                            "keywords": "coaching demand, coach hiring",
+                                            "focus": "Watch demand signals", "schedule": "weird"})
+    _check("bad schedule normalised to manual", s["schedule"] == "manual")
+    _check("saved search listed", any(
+        x["id"] == s["id"] for x in workspace.get_intel_searches(workspace.load_workspace(CLIENT))))
+    upd = workspace.update_intel_search(CLIENT, s["id"], {"name": "", "schedule": "daily"})
+    _check("blank rename keeps the name, schedule patched",
+           upd["name"] == "Coaching demand" and upd["schedule"] == "daily")
+    _check("editing an unknown search returns None",
+           workspace.update_intel_search(CLIENT, "isearch_nope", {"name": "x"}) is None)
+    workspace.mark_intel_search_run(CLIENT, s["id"], added=3, error="")
+    got = workspace.get_intel_searches(workspace.load_workspace(CLIENT))[0]
+    _check("run recorded on the card", got["last_added"] == 3 and got["last_run"])
+    # The delete purge: the card's plain-auto stories go; favourites + hand-added stay.
+    workspace.add_intel_entry(CLIENT, "business_research", {"title": "Hand note", "search": s["id"]})
+    workspace.add_auto_intel(CLIENT, "business_research", [
+        {"title": "Auto tagged", "link": "https://a.example/1", "search": s["id"]},
+        {"title": "Auto starred", "link": "https://a.example/2", "search": s["id"]},
+        {"title": "Auto other", "link": "https://a.example/3"}])
+    starred = [e for e in workspace.load_workspace(CLIENT)["intel"]["business_research"]
+               if e["title"] == "Auto starred"][0]
+    workspace.bulk_intel(CLIENT, "business_research", "favourite", [starred["id"]])
+    _check("delete removes the card", workspace.delete_intel_search(CLIENT, s["id"]) is True)
+    left = sorted(e["title"] for e in workspace.load_workspace(CLIENT)["intel"]["business_research"])
+    _check("purge drops only the card's plain-auto stories",
+           left == ["Auto other", "Auto starred", "Hand note"])
+    _check("card gone from the list",
+           workspace.get_intel_searches(workspace.load_workspace(CLIENT)) == [])
 
 
 def main():

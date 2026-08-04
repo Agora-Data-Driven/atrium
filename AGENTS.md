@@ -975,7 +975,9 @@ auto-refresh (see those bullets below). Product name is one constant:
   OWN blog **through the Watcher machinery** — the add form posts the existing
   `POST /w/<c>/admin/watcher` `op=add_site` with `own=1`, which flags the registry entry
   (`_watcher_entry`'s `own` field, read back by `workspace.own_content_channels`); the same
-  fetch/refresh/delete ops fill and maintain the archive, and the Watcher tab shows the source with
+  fetch/refresh/delete ops fill and maintain the archive, **and the add form auto-runs the fetch
+  loop** — one paste captures the whole blog, article text included (websites serve Cloud Run fine,
+  so no proxy/Safe-pull is ever involved). The Watcher tab shows the source with
   a "Client's own" chip. The post LISTING is client-visible (titles/dates/links only, built by
   `main._company_content_view` on every render — bodies stay in the archive object); the archive
   controls and the **content-gap panel** are team-only. `op=gaps` on `/w/<c>/admin/company` gathers

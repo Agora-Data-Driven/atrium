@@ -737,6 +737,33 @@ def intel_ai_settings(ws):
     }
 
 
+def intel_search_cards(ws):
+    """The saved-search cards for the Market Intelligence tab, each with its live story count. Pure.
+
+    Mirrors workspace.get_intel_searches (read straight off ws to stay infra-free here) and adds
+    `stories` (how many entries across the sections carry this card's tag) + `daily` (schedule
+    convenience flag). The template's filter chips render from this list too."""
+    counts = {}
+    intel = ws.get("intel") or {}
+    for rows in intel.values():
+        for e in rows or []:
+            sid = (e or {}).get("search")
+            if sid:
+                counts[sid] = counts.get(sid, 0) + 1
+    out = []
+    for s in ws.get("intel_searches") or []:
+        if not isinstance(s, dict) or not s.get("id"):
+            continue
+        item = dict(s)
+        item.setdefault("name", "")
+        item.setdefault("keywords", "")
+        item.setdefault("focus", "")
+        item["daily"] = (s.get("schedule") or "daily") == "daily"
+        item["stories"] = counts.get(s["id"], 0)
+        out.append(item)
+    return out
+
+
 # --- The full view context ----------------------------------------------------------------------
 def build(ws, client, user, active_tab, now=None):
     """Assemble the `view` dict the Atrium template needs beyond the raw workspace `ws`."""
@@ -774,4 +801,6 @@ def build(ws, client, user, active_tab, now=None):
         "intel_topics": ", ".join(ws.get("intel_topics") or []),
         # The team-only 'AI research' panel: model dropdown, tunable prompts, last-run status.
         "intel_ai": intel_ai_settings(ws),
+        # Saved searches (reusable research queries shown as cards) + their filter chips.
+        "intel_searches": intel_search_cards(ws),
     }

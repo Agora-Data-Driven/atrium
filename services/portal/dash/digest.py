@@ -405,6 +405,26 @@ def company_sections(ws, company=None):
     if rows:
         out.append(("products", "What %s sells (products and services)" % name,
                     "\n".join(["%s's product and service catalogue:" % name] + rows)))
+
+    # The content-gap snapshot (the Company tab's team-only analysis): indexed so "what content
+    # gaps did we find for <client>?" retrieves the actual findings. One chunk -- the items are a
+    # single reading, not independent facts.
+    gaps = comp.get("content_gaps") if isinstance(comp.get("content_gaps"), dict) else {}
+    gap_items = [g for g in (gaps.get("items") or []) if isinstance(g, dict)
+                 and (g.get("topic") or "").strip()]
+    if gap_items:
+        lines = ["Content-gap analysis for %s (run %s): topics competitors cover that %s has not "
+                 "published on." % (name, (gaps.get("date") or "")[:10] or "undated", name)]
+        summary = (gaps.get("summary") or "").strip()
+        if summary:
+            lines.append(summary)
+        for g in gap_items:
+            bits = [b for b in ((g.get("why") or "").strip(), (g.get("angle") or "").strip(),
+                    ("covered by %s" % g["inspired_by"].strip())
+                    if (g.get("inspired_by") or "").strip() else "") if b]
+            lines.append("  %s -- %s" % (g["topic"].strip(), "; ".join(bits) or "no detail"))
+        out.append(("content_gaps", "Content gaps: what %s has not covered yet" % name,
+                    "\n".join(lines)))
     return out
 
 
@@ -412,8 +432,11 @@ def company_brief(ws, company=None):
     """The whole company profile as one block of text (the report deck's client context).
 
     The Assistant indexes `company_sections` separately for retrieval; a deck writer wants the lot
-    at once, so it gets the same derived material joined."""
-    return "\n\n".join(text for _sid, _title, text in company_sections(ws, company))
+    at once, so it gets the same derived material joined. The content-gap chunk is EXCLUDED: it is
+    the team's internal analysis (it names competitor sources from the watchlist), and a deck is a
+    client-facing document."""
+    return "\n\n".join(text for sid, _title, text in company_sections(ws, company)
+                       if sid != "content_gaps")
 
 
 # --- market intelligence ---------------------------------------------------------------------------

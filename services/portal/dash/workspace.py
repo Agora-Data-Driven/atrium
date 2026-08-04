@@ -230,6 +230,15 @@ def find_watcher_channel(ws, channel_id):
     return None
 
 
+def own_content_channels(ws):
+    """The registry entries flagged as the client's OWN published content (their blog/channel).
+
+    These are ordinary watcher entries (same archive objects, same fetch loop) added from the
+    Company tab's Published-content section; the flag is what that section renders and what the
+    content-gap analysis treats as "ours" against the competitor sources."""
+    return [ch for ch in watcher_channels(ws) if ch.get("own")]
+
+
 # --- Shared (estate-wide) archives ---------------------------------------------------------------
 # A TEMPLATE source that is byte-identical for every client (ad-platform news, our own mentor
 # library) is fetched and stored ONCE, not once per client: fifteen clients watching Search Engine
@@ -312,6 +321,12 @@ def _watcher_entry(fields):
         "platform": fields.get("platform", "youtube"),
         "industry": fields.get("industry", ""),
         "kind": fields.get("kind", "creator"),
+        # `own` marks the CLIENT'S OWN published content (their blog, their channel) as opposed to a
+        # source we merely watch. Own sources are added from the Company tab's Published-content
+        # section (same archive machinery, same fetch loop) and are what the content-gap analysis
+        # compares against the competitor sources. Orthogonal to `kind` on purpose -- the Watcher
+        # UI's creator|competitor toggle stays two-state.
+        "own": bool(fields.get("own")),
         "template_id": fields.get("template_id", ""),
         "video_count": int(fields.get("video_count", 0) or 0),
         "transcript_count": 0,
@@ -2501,7 +2516,9 @@ def add_meeting_summary(client, title, summary, attendees="", date=None, meeting
 #   {"profile":  {one_liner, industry, founded, hq, website, size, customers},   # at a glance
 #    "brand":    {tagline, voice, tone, personality, colors, fonts, dos, donts, assets_url},
 #    "sections": [{id, heading, body}],       # the story: About / History / Mission / Positioning
-#    "products": [{id, name, summary, price, audience, url, status}]}            # what they sell
+#    "products": [{id, name, summary, price, audience, url, status}],            # what they sell
+#    "content_gaps": {date, model, summary, own_posts, competitor_posts,         # team-only AI
+#                     items: [{topic, why, angle, inspired_by}]}}                # gap analysis
 #
 # `sections` and `products` are ORDERED lists the team arranges by hand (move_company_item), not
 # date-sorted feeds -- a company story reads top to bottom, so "newest first" would be wrong here.
@@ -2616,8 +2633,32 @@ def _ensure_company(ws):
                 row[f] = str(it.get(f) or "")
             clean.append(row)
         comp[kind] = clean
+    comp["content_gaps"] = _shape_content_gaps(comp.get("content_gaps"))
     ws["company"] = comp
     return comp
+
+
+# The content-gap analysis (Company tab, TEAM-ONLY panel): what the client's own published content
+# does not cover that the watched competitor sources do. Written whole by set_company_content_gaps
+# (each run replaces the last -- it is a snapshot, not a feed).
+CONTENT_GAP_ITEM_FIELDS = ("topic", "why", "angle", "inspired_by")
+
+
+def _shape_content_gaps(gaps):
+    """A fully-shaped content-gaps snapshot (every field present, items clean), from anything."""
+    gaps = gaps if isinstance(gaps, dict) else {}
+    items = []
+    for it in (gaps.get("items") if isinstance(gaps.get("items"), list) else []):
+        if isinstance(it, dict) and str(it.get("topic") or "").strip():
+            items.append({f: str(it.get(f) or "") for f in CONTENT_GAP_ITEM_FIELDS})
+    return {
+        "date": str(gaps.get("date") or ""),
+        "model": str(gaps.get("model") or ""),
+        "summary": str(gaps.get("summary") or ""),
+        "own_posts": int(gaps.get("own_posts") or 0),
+        "competitor_posts": int(gaps.get("competitor_posts") or 0),
+        "items": items,
+    }
 
 
 def company_profile(ws):
@@ -2628,7 +2669,18 @@ def company_profile(ws):
     comp = _ensure_company(dict(ws or {}))
     return {"profile": dict(comp["profile"]), "brand": dict(comp["brand"]),
             "sections": [dict(x) for x in comp["sections"]],
-            "products": [dict(x) for x in comp["products"]]}
+            "products": [dict(x) for x in comp["products"]],
+            "content_gaps": {**comp["content_gaps"],
+                             "items": [dict(x) for x in comp["content_gaps"]["items"]]}}
+
+
+def set_company_content_gaps(client, gaps):
+    """Replace the content-gap snapshot (each run supersedes the last). Returns the shaped block."""
+    def fn(ws):
+        comp = _ensure_company(ws)
+        comp["content_gaps"] = _shape_content_gaps(gaps)
+        return dict(comp["content_gaps"])
+    return _mutate(client, fn)
 
 
 def company_is_empty(ws):
@@ -2769,7 +2821,9 @@ def move_company_item(client, kind, item_id, delta):
 # explanation for a bad week, it is NOT what Watcher does (that is creators/competitors), and the
 # report's Landscape slide leads with it. Client-visible + team-curated like the other two.
 INTEL_SECTIONS = ("business_research", "media_buying", "conditions")
-_INTEL_FIELDS = ("heading", "title", "body", "relevance", "source", "link", "date")
+# `search` ties an entry to the saved search that found it (ws["intel_searches"], see below) -- it is
+# what the tab's filter chips key on. Manual entries simply leave it "".
+_INTEL_FIELDS = ("heading", "title", "body", "relevance", "source", "link", "date", "search")
 
 
 def _intel_key(section):
@@ -3154,3 +3208,113 @@ def mark_intel_run(client, model, error="", backfilled=None, traces=None):
 def intel_backfilled(ws):
     """True iff this client has already had its first 12-month backfill run."""
     return bool((ws or {}).get("intel_ai", {}).get("backfilled"))
+
+
+# --- Market Intelligence: SAVED SEARCHES (reusable research queries, shown as cards) -------------
+# ws["intel_searches"] -- named searches the team saves so a proven angle ("coaching demand") keeps
+# getting monitored without retyping keywords. Each is {id, name, keywords, focus, schedule,
+# created, last_run, last_error, last_added}:
+#   * keywords -- comma/newline-separated seed keywords (same contract as intel_topics).
+#   * focus    -- optional editorial guidance (blank -> the Business Research focus / default).
+#   * schedule -- "daily" (the intel-refresh job sweeps it every run) or "manual" (only its card's
+#                 Refresh button runs it).
+# Results land in the business_research section (the default home for extra research) with the
+# entry's `search` field set to the card's id -- the filter chips on the tab key off that, and
+# deleting a card takes its plain-auto stories with it (favourited/hand-added ones always stay).
+_INTEL_SEARCH_FIELDS = ("name", "keywords", "focus", "schedule")
+_MAX_INTEL_SEARCHES = 12
+
+
+def get_intel_searches(ws):
+    """The client's saved-search list from an already-loaded workspace dict (never None)."""
+    return [s for s in ((ws or {}).get("intel_searches") or [])
+            if isinstance(s, dict) and s.get("id")]
+
+
+def _clean_search_fields(fields):
+    """Trim the recognised saved-search fields; normalise schedule to daily|manual."""
+    cleaned = {}
+    for f in _INTEL_SEARCH_FIELDS:
+        if f in (fields or {}):
+            val = fields.get(f)
+            cleaned[f] = ("" if val is None else str(val)).strip()
+    if "schedule" in cleaned:
+        cleaned["schedule"] = "daily" if cleaned["schedule"] == "daily" else "manual"
+    return cleaned
+
+
+def add_intel_search(client, fields):
+    """Save a new search card (name + keywords required). Returns the stored dict.
+
+    Raises ValueError with a user-facing message when the name/keywords are missing or the
+    per-client cap is hit (the route surfaces it verbatim)."""
+    cleaned = _clean_search_fields(fields)
+    if not cleaned.get("name"):
+        raise ValueError("Give the search a name first.")
+    if not cleaned.get("keywords"):
+        raise ValueError("Give the search its keywords first.")
+
+    def fn(ws):
+        lst = ws.setdefault("intel_searches", [])
+        if len(lst) >= _MAX_INTEL_SEARCHES:
+            raise ValueError("Limit of %d saved searches reached — delete one first." % _MAX_INTEL_SEARCHES)
+        item = {"id": _new_id("isearch"), "name": "", "keywords": "", "focus": "",
+                "schedule": "daily", "created": now_iso(),
+                "last_run": "", "last_error": "", "last_added": 0}
+        item.update(cleaned)
+        lst.append(item)
+        return dict(item)
+    return _mutate(client, fn)
+
+
+def update_intel_search(client, search_id, fields):
+    """Patch a saved search in place (recognised fields only; a blank name/keywords never wipes the
+    stored value). Returns the updated dict, or None if the id is unknown."""
+    cleaned = _clean_search_fields(fields)
+    for required in ("name", "keywords"):
+        if cleaned.get(required) == "":
+            cleaned.pop(required)
+
+    def fn(ws):
+        for s in ws.get("intel_searches") or []:
+            if s.get("id") == search_id:
+                s.update(cleaned)
+                return dict(s)
+        return None
+    return _mutate(client, fn)
+
+
+def delete_intel_search(client, search_id):
+    """Remove a saved search card AND the plain-auto stories it pulled (favourited or hand-added
+    entries always stay). Returns True iff a card was removed."""
+    def fn(ws):
+        lst = ws.get("intel_searches") or []
+        kept = [s for s in lst if s.get("id") != search_id]
+        removed = len(kept) != len(lst)
+        ws["intel_searches"] = kept
+        if removed:
+            intel = ws.get("intel") or {}
+            for key in INTEL_SECTIONS:
+                rows = intel.get(key)
+                if rows:
+                    intel[key] = [it for it in rows
+                                  if it.get("search") != search_id
+                                  or not it.get("auto") or it.get("favourite")]
+        return removed
+    return _mutate(client, fn)
+
+
+def mark_intel_search_run(client, search_id, added=0, error=""):
+    """Record a saved search's last run on its card (best-effort; mirrors mark_intel_run)."""
+    def fn(ws):
+        for s in ws.get("intel_searches") or []:
+            if s.get("id") == search_id:
+                s["last_run"] = now_iso()
+                s["last_error"] = (error or "")[:300]
+                s["last_added"] = int(added or 0)
+                return dict(s)
+        return None
+    try:
+        return _mutate(client, fn)
+    except Exception:
+        return None

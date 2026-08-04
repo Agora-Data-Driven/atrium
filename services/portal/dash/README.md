@@ -79,8 +79,9 @@ Client-safe filtering happens **server-side before the template** (`_progress_ta
    Moving a tab between them is a markup move plus its group's `*_open` guard (`work_open` /
    `camp_open` / `tools_open`) so the group auto-opens on that tab. Nothing else changes: the
    collapsed rail and the phone strip flatten groups via CSS, and `showTab` pops a group open
-   generically. **Four** top-level rows since 2026-07-29 (Working Together / Company / Campaigns /
-   Insights) — the nav comment in the template says why each tab sits where it does. A group head
+   generically. **Three** top-level rows since 2026-08-04, all groups (Working Together — which now
+   holds Reports + Company too / Campaigns / Insights) — the nav comment in the template says why
+   each tab sits where it does. A group head
    is a plain label with NO tab key, so renaming one is a one-line edit. ⚠️ Working Together must
    stay FIRST: it holds `dashboard`, the landing tab, and burying that in a lower collapsed group
    opens the rail with no active item on it (asserted in `_atrium_smoketest.py`).
