@@ -5237,37 +5237,28 @@ def admin_atrium_tasks_export():
 
 @app.route("/admin/atrium/tasks/import", methods=["POST"])
 def admin_atrium_tasks_import():
-    """Restore tasks from an exported JSON backup (super-admin only). Non-destructive: upserts BY ID
-    into each client that still exists (existing tasks updated, new ones added; nothing deleted)."""
+    """RETIRED 2026-08-04 — answers 410, like the seven per-task writes above (decision D2).
+
+    🔴 This was the LAST WRITE PATH into `ws["tasks"]` from Atrium's own surfaces, and it was the
+    most dangerous one left: it upserted a whole board by id, so one restore could overwrite every
+    card Sentinel had pushed — silently, in bulk, with nothing to reconcile the two afterwards.
+    Sentinel owns a task now and this pane is its projection; restoring a projection ON TOP of its
+    source is not a backup, it is a fork.
+
+    It also could not have restored what matters. The exported file is the client-safe copy, so
+    assignees, priorities, reviews, holds and history were never in it — importing it would have
+    rebuilt cards stripped of the delivery state that makes them work.
+
+    Kept as a 410 rather than deleted for the same reason as the others: a stale console tab still
+    holding the old file picker must read "managed in Sentinel", never "not found".
+    """
     if not authed():
         return redirect(url_for("login", next="/admin/atrium"))
     if not is_superadmin():
         return Response("Forbidden", status=403, mimetype="text/plain")
-    upload = request.files.get("file")
-    if upload is None or not upload.filename:
-        return _atrium_redirect_list("Choose a JSON backup to import.", section="tasks", err=True)
-    try:
-        data = json.loads(upload.read().decode("utf-8"))
-        clients = (data or {}).get("clients") or {}
-        if not isinstance(clients, dict):
-            raise ValueError("bad shape")
-    except (ValueError, UnicodeDecodeError):
-        return _atrium_redirect_list("That file isn't a valid task-board backup.", section="tasks", err=True)
-    known = {c.get("key") for c in store.list_clients()}
-    added = updated = skipped = 0
-    for key, block in clients.items():
-        if key not in known or workspace.load_workspace(key) is None:
-            skipped += 1
-            continue
-        tasks = (block or {}).get("tasks") if isinstance(block, dict) else block
-        a, u = workspace.upsert_tasks(key, tasks or [])
-        added += a
-        updated += u
-    _audit("", "imported task board", "added %d, updated %d" % (added, updated))
-    note = "Imported: %d added, %d updated." % (added, updated)
-    if skipped:
-        note += " %d client(s) in the file no longer exist — skipped." % skipped
-    return _atrium_redirect_list(note, section="tasks")
+    msg = ("Task backups are restored in Sentinel now — it owns the board, and importing here "
+           "would overwrite what Sentinel published.")
+    return _atrium_redirect_list(msg, section="tasks", err=True)
 
 
 # --- Atrium team management (super-admin operator console) --------------------------------------
