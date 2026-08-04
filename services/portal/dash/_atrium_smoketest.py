@@ -1132,24 +1132,28 @@ def run():
            c.get("/admin/atrium/tasks/export").status_code == 403)
     _check("client cannot import (super-admin only)",
            c.post("/admin/atrium/tasks/import").status_code == 403)
-    # Import an edited copy: change one task's title (update-by-id) + add a brand-new task.
+    # 🔴 IMPORT IS RETIRED (2026-08-04) AND THIS BLOCK NOW ASSERTS THE INVERSE OF WHAT IT USED TO.
+    # It used to prove the upsert worked — update-by-id plus add-a-new-task. That behaviour was the
+    # last bulk WRITE path into `ws["tasks"]` from Atrium's own surfaces, and Sentinel owns a task
+    # now (decision D2): a restore here would overwrite in bulk whatever the bridge had published,
+    # with nothing to reconcile the two. So the test that guarded the feature now guards its
+    # ABSENCE. Read this comment before "fixing" it back.
     with c.session_transaction() as s:
         s.update(SUPER)
-    imp = dict(exported)
     imp_tasks = list(exported["clients"][CLIENT]["tasks"])
-    imp_tasks[0] = dict(imp_tasks[0], title="Imported title change")
-    imp_tasks.append({"id": "tk_imported_new", "title": "Imported new task", "stage": "todo"})
-    imp = {"version": 1, "clients": {CLIENT: {"name": "Riverdance", "tasks": imp_tasks},
-                                     "ghostclient": {"tasks": [{"id": "x", "title": "skip me"}]}}}
+    before_title = imp_tasks[0]["title"]
+    imp = {"version": 1, "clients": {CLIENT: {"name": "Riverdance", "tasks": [
+        dict(imp_tasks[0], title="Imported title change"),
+        {"id": "tk_imported_new", "title": "Imported new task", "stage": "todo"}]}}}
     ri = c.post("/admin/atrium/tasks/import",
                 data={"file": (io.BytesIO(json.dumps(imp).encode()), "backup.json", "application/json")},
                 content_type="multipart/form-data")
-    _check("import redirects back to the Tasks pane", ri.status_code == 302)
+    _check("import still redirects back to the Tasks pane (410-equivalent, not a 404)",
+           ri.status_code == 302)
     after = {t["id"]: t for t in workspace.load_workspace(CLIENT)["tasks"]}
-    _check("import UPDATED an existing task by id", after[imp_tasks[0]["id"]]["title"] == "Imported title change")
-    _check("import ADDED the new task", "tk_imported_new" in after)
-    _check("import skipped a client that no longer exists",
-           workspace.load_workspace("ghostclient") is None)
+    _check("import WROTE NOTHING — the existing task keeps its title",
+           after[imp_tasks[0]["id"]]["title"] == before_title)
+    _check("import WROTE NOTHING — the new task was not added", "tk_imported_new" not in after)
 
     # ---- The internal task bridge, WRITE half (Sentinel edits these cards without leaving its own
     # board). HMAC-gated, server-to-server. Sentinel already READ the board over

@@ -334,41 +334,67 @@
     .tk-hbtn { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; white-space: nowrap; }
     .tk-hbtn svg { width: 15px; height: 15px; flex: 0 0 auto; }
     .tk-hbtn .tnum { font-weight: 800; color: var(--accent-600); background: var(--accent-100); border-radius: 999px; padding: 0 6px; min-width: 17px; text-align: center; }
-    .tk-filters { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: 0 0 12px; }
+    /* ONE control bar: filters on the left, view + count + the Display menu on the right, pushed
+       apart by .tk-barsp. It wraps rather than scrolls, and the spacer collapses when it does. */
+    .tk-bar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: 0 0 16px;
+      padding: 0 0 14px; border-bottom: 1px solid var(--line); }
+    .tk-barsp { flex: 1 1 24px; }
     /* The console gives every <select> width:100% -- force these back to inline, compact widths
-       so the filter row matches the prototype (a single row, not stacked full-width dropdowns). */
-    .tk-filters select { width: auto; max-width: 220px; flex: 0 1 auto; padding: 8px 11px; background: var(--surface); color: var(--ink);
+       so the bar stays a row rather than a stack of full-width dropdowns. */
+    .tk-bar select { width: auto; max-width: 220px; flex: 0 1 auto; padding: 8px 11px; background: var(--surface); color: var(--ink);
       border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-    .tk-filters .clear { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 700;
+    .tk-bar .clear { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 700;
       cursor: pointer; padding: 7px 9px; border-radius: 8px; }
-    .tk-filters .clear:hover { color: var(--brand-700); background: var(--tint); }
+    .tk-bar .clear:hover { color: var(--brand-700); background: var(--tint); }
+    .tk-bar .clear[hidden] { display: none; }
     /* Search box (find one service among many) -- matches the select styling, with a leading icon. */
-    .tk-filters .tk-search { position: relative; flex: 1 1 190px; min-width: 160px; max-width: 320px; }
-    .tk-filters .tk-search input { width: 100%; padding: 8px 11px 8px 30px; background: var(--surface); color: var(--ink);
+    .tk-bar .tk-search { position: relative; flex: 1 1 190px; min-width: 160px; max-width: 300px; }
+    .tk-bar .tk-search input { width: 100%; padding: 8px 11px 8px 30px; background: var(--surface); color: var(--ink);
       border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 12.5px; font-weight: 600; }
-    .tk-filters .tk-search input:focus { outline: 2px solid rgba(79,168,74,.3); border-color: var(--brand-500); }
-    .tk-filters .tk-search svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--muted); pointer-events: none; }
-    .tk-filters .tk-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--body); cursor: pointer; user-select: none; padding: 6px 4px; }
-    .tk-filters .tk-chk input { accent-color: var(--brand-500); }
-    /* Display row -- HOW services are shown (view / sort / density / caps), separated from the
-       filter row above by a hairline (not a heavy card), each control behind a small label. */
-    .tk-display { display: flex; align-items: center; flex-wrap: wrap; gap: 11px 22px; margin: 0 0 18px;
-      padding: 13px 2px 0; border-top: 1px solid var(--line); }
-    .tk-dgroup { display: inline-flex; align-items: center; gap: 9px; }
-    .tk-dlabel { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-    .tk-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
-    .tk-seg button { border: 0; background: transparent; color: var(--body); font: inherit; font-size: 12.5px; font-weight: 600;
-      padding: 7px 15px; cursor: pointer; transition: background .12s, color .12s; }
-    .tk-seg button + button { border-left: 1px solid var(--line); }
-    .tk-seg button:not(.on):hover { background: var(--brand-50); color: var(--brand-700); }
-    .tk-seg button.on { background: var(--brand-500); color: #fff; font-weight: 700; }
-    .tk-display select { padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 12.5px;
-      font-weight: 600; background: var(--surface); color: var(--ink); cursor: pointer; }
-    .tk-display .tk-chk { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600;
-      color: var(--body); text-transform: none; letter-spacing: 0; cursor: pointer; user-select: none; padding: 0; }
-    .tk-display .tk-chk input { accent-color: var(--brand-500); width: 15px; height: 15px; }
-    .tk-shown { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 600; }
+    .tk-bar .tk-search input:focus { outline: 2px solid rgba(79,168,74,.3); border-color: var(--brand-500); }
+    .tk-bar .tk-search svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--muted); pointer-events: none; }
+    /* 🔴 A SEGMENTED CONTROL IS NOT A PRIMARY ACTION. These used to paint the selected segment
+       solid brand-green — the same green as a Save button — so "Flat board" and "Comfortable" read
+       with the visual weight of the most important thing on the page, and the design system's one
+       rule (green = primary ACTION, purple = informational) quietly stopped being true. Selection
+       is now shown the way selection is shown everywhere else: a raised white chip on a recessed
+       track. Green is left to mean "do this" — and, on the board below, "done". */
+    .tk-seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line);
+      border-radius: 9px; background: var(--canvas); }
+    .tk-seg button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600;
+      padding: 6px 14px; border-radius: 7px; cursor: pointer; transition: background .12s, color .12s, box-shadow .12s; }
+    .tk-seg button:not(.on):hover { color: var(--ink); background: var(--tint); }
+    .tk-seg button.on { background: var(--surface); color: var(--ink); font-weight: 700;
+      box-shadow: 0 1px 2px rgba(16,24,40,.10), 0 0 0 1px var(--line); }
+    /* Stage colour language, keyed off the column's canonical stage (see the markup comment on the
+       dot). ONE meaning per colour: grey = not started, blue = in flight, amber = paused,
+       red = needs attention, green = done. */
+    .tk-col[data-stage="todo"] .tk-colhead .dot { background: #8b8f8c; }
+    .tk-col[data-stage="in_progress"] .tk-colhead .dot { background: #2f6ecc; }
+    .tk-col[data-stage="blocked"] .tk-colhead .dot { background: #c77d16; }
+    .tk-col[data-stage="revision"] .tk-colhead .dot { background: #dc2626; }
+    .tk-col[data-stage="completed"] .tk-colhead .dot { background: var(--brand-500); }
+    .tk-shown { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; }
     .tk-shown b { color: var(--ink); font-weight: 800; }
+    /* Display menu -- the controls that describe HOW the board is drawn, one click away. */
+    .tk-dwrap { position: relative; }
+    .tk-dbtn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; background: var(--surface); color: var(--body);
+      border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .tk-dbtn svg { width: 14px; height: 14px; }
+    .tk-dbtn:hover { background: var(--brand-50); color: var(--brand-700); border-color: var(--brand-500); }
+    .tk-dbtn[aria-expanded="true"] { background: var(--tint); color: var(--brand-700); border-color: var(--brand-500); }
+    .tk-dmenu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 268px;
+      display: flex; flex-direction: column; gap: 13px; padding: 14px; background: var(--surface);
+      border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: 0 12px 28px rgba(16,24,40,.14); }
+    .tk-dmenu[hidden] { display: none; }
+    .tk-drow { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      font-size: 12.5px; font-weight: 600; color: var(--body); }
+    .tk-drow > span { color: var(--muted); font-weight: 700; }
+    .tk-drow select { flex: 0 0 auto; }
+    .tk-dmenu .tk-seg button { padding: 6px 11px; font-size: 12px; }
+    .tk-dchk { cursor: pointer; user-select: none; justify-content: flex-start; }
+    .tk-dchk input { accent-color: var(--brand-500); width: 15px; height: 15px; }
+    .tk-dchk > span { color: var(--body); font-weight: 600; }
     /* Swimlanes: one row per client, its four stage columns side by side, each a stack of chips. */
     .tk-swim[hidden] { display: none; }
     .tk-lane { border: 1px solid var(--line); border-radius: var(--r-lg); margin-bottom: 12px; overflow: hidden; background: var(--surface); }
@@ -489,7 +515,7 @@
     .tkd-body { padding: 18px 22px 22px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
     .tkd-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 22px; }
     .tk-stagepill { font-size: 10px; font-weight: 800; border-radius: 999px; padding: 2px 9px; letter-spacing: .03em; text-transform: uppercase; }
-    .tk-stagepill.in_process { background: #eaf1fb; color: #1c4f9c; } .tk-stagepill.for_launch { background: #fdf3e3; color: #8a6003; }
+    .tk-stagepill.in_progress { background: #eaf1fb; color: #1c4f9c; } .tk-stagepill.blocked { background: #fdf3e3; color: #8a6003; }
     .tk-stagepill.launched { background: var(--tint); color: var(--brand-700); } .tk-stagepill.closed { background: #eef0ee; color: #5b615c; }
     /* Section labels: quiet sentence-case guides, not shouting uppercase headers, the content
        carries the hierarchy, the label just whispers what it is. */
@@ -1250,29 +1276,34 @@
               <h1 class="page">Task Board</h1>
               <p class="lead">Every client deliverable across every workspace — <b>read-only</b>. Click a card to see where it stands; open it in Sentinel to change anything.</p>
             </div>
-            <div class="tk-head-actions">
-              <button type="button" class="btn-ghost tk-hbtn" data-section="trash" title="Deleted tasks live in the Bin, restorable for {{ trash_ttl_days }} days">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                Archived{% if task_trash_count %} <span class="tnum">{{ task_trash_count }}</span>{% endif %}
-              </button>
-              <button type="button" class="btn-ghost tk-hbtn" id="tk-export-btn" title="Download the whole board as a JSON backup">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M5 20h14"/></svg>
-                Export
-              </button>
-              <button type="button" class="btn-ghost tk-hbtn" id="tk-import-btn" title="Restore tasks from a JSON backup">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M8 7l4-4 4 4"/><path d="M5 20h14"/></svg>
-                Import
-              </button>
-              <form id="tk-import-form" method="post" action="/admin/atrium/tasks/import" enctype="multipart/form-data" hidden>
-                <input type="file" id="tk-import-file" name="file" accept="application/json">
-              </form>
-              {#- No "New Service" button: a service is raised in Sentinel (decision D2). Export
-                  stays (it is a read-only backup) and so does Import — break-glass restore, not
-                  task management. -#}
-            </div>
+            {#- 🔴 Archived / Export / Import were REMOVED here (2026-08-04). A task is owned by
+                SENTINEL (decision D2) and this pane is its read-only projection, so board-level
+                management belongs on the owning side:
+                  * "Archived" was a second door to the Bin, which is already one click away in the
+                    left rail with the same count on it. Two entrances to one room.
+                  * "Import" is the serious one. It POSTs straight into `ws["tasks"]`, which makes
+                    it a SECOND WRITER on a record Sentinel owns — precisely the model D2 replaced.
+                    A restore run here would silently overwrite whatever Sentinel had pushed, and
+                    nothing would reconcile the two. Its route answers 410 now, like the other seven
+                    retired task routes.
+                  * "Export" was a read-only JSON backup and is harmless, but a backup of a
+                    projection is the wrong artifact — it captures the client-safe copy, never the
+                    assignees, priorities, reviews or history that make a board restorable. The
+                    ROUTE stays reachable by URL (`/admin/atrium/tasks/export`) because it is
+                    currently the only board dump that exists anywhere; the button is gone so nobody
+                    mistakes it for the backup. See sentinel/docs/TASKBOARD_REBUILD.md §4. -#}
           </div>
 
-          <div class="tk-filters">
+          {#- ONE control bar (2026-08-04). It used to be two full rows -- four filters, then View /
+              Sort / Density / Cap / count -- i.e. nine controls standing permanently in front of a
+              read-only monitoring board that usually holds a handful of cards. The split is now by
+              QUESTION, not by category: what am I looking at (filters, left) vs how is it drawn
+              (the Display menu, right). Only the two things people reach for often stay out on the
+              rail -- the view switch, because a cross-client board is exactly what Swimlanes is
+              for, and the "N shown" count, which is feedback rather than a control.
+              🔴 Every control below still EXISTS and keeps its id, so `agora.tkprefs`, refresh()
+              and the [data-flatonly] rule are untouched -- this is a relayout, not a feature cut. -#}
+          <div class="tk-bar">
             <label class="tk-search">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
               <input id="tk-f-search" type="search" placeholder="Search services…" aria-label="Search services by title, client or lead">
@@ -1286,43 +1317,55 @@
             <select id="tk-f-person" aria-label="Filter by person"><option value="">Anyone (lead or support)</option>
               {% for p in task_roster %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
             </select>
-            <button type="button" class="clear" id="tk-f-clear">Clear filters</button>
-          </div>
+            {#- Hidden until something is actually filtered: an always-visible "Clear" on an unfiltered
+                board is a button that does nothing, and it reads as clutter every time you scan past it. -#}
+            <button type="button" class="clear" id="tk-f-clear" hidden>Clear</button>
 
-          {#- Display row: HOW the matching services are shown (view / sort / density / caps), kept
-              separate from the filter row above so neither feels crowded. VIEW + DENSITY are
-              segmented toggles; density + caps only apply to the flat board (hidden in Swimlanes). -#}
-          <div class="tk-display">
-            <div class="tk-dgroup"><span class="tk-dlabel">View</span>
-              <div class="tk-seg" id="tk-view-seg">
-                <button type="button" data-view="flat" class="on">Flat board</button>
-                <button type="button" data-view="swim">Swimlanes</button>
-              </div>
+            <span class="tk-barsp"></span>
+
+            <div class="tk-seg" id="tk-view-seg">
+              <button type="button" data-view="flat" class="on">Flat board</button>
+              <button type="button" data-view="swim">Swimlanes</button>
             </div>
-            <div class="tk-dgroup"><span class="tk-dlabel">Sort</span>
-              <select id="tk-f-sort" aria-label="Order cards within each column">
-                <option value="priority">Priority (urgent first)</option>
-                <option value="due">Launch date</option>
-                <option value="client">Client</option>
-              </select>
-            </div>
-            <div class="tk-dgroup" data-flatonly><span class="tk-dlabel">Density</span>
-              <div class="tk-seg" id="tk-dens-seg">
-                <button type="button" data-dens="comfortable" class="on">Comfortable</button>
-                <button type="button" data-dens="compact">Compact</button>
-              </div>
-            </div>
-            <label class="tk-chk" data-flatonly title="Show the first few per column with a “Show all”, and collapse Closed">
-              <input type="checkbox" id="tk-f-cap" checked> Cap long columns
-            </label>
             <span class="tk-shown"><b id="tk-shown-n">0</b> shown</span>
+
+            <div class="tk-dwrap">
+              <button type="button" class="tk-dbtn" id="tk-dbtn" aria-haspopup="true" aria-expanded="false" aria-controls="tk-dmenu">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h9"/></svg>
+                Display
+              </button>
+              <div class="tk-dmenu" id="tk-dmenu" hidden role="group" aria-label="Display options">
+                <label class="tk-drow"><span>Sort</span>
+                  <select id="tk-f-sort" aria-label="Order cards within each column">
+                    <option value="priority">Priority (urgent first)</option>
+                    <option value="due">Launch date</option>
+                    <option value="client">Client</option>
+                  </select>
+                </label>
+                <div class="tk-drow" data-flatonly><span>Density</span>
+                  <div class="tk-seg" id="tk-dens-seg">
+                    <button type="button" data-dens="comfortable" class="on">Comfortable</button>
+                    <button type="button" data-dens="compact">Compact</button>
+                  </div>
+                </div>
+                <label class="tk-drow tk-dchk" data-flatonly title="Show the first few per column with a “Show all”, and collapse Closed">
+                  <input type="checkbox" id="tk-f-cap" checked> <span>Cap long columns</span>
+                </label>
+              </div>
+            </div>
           </div>
 
           <div class="tk-board" id="tk-board">
             {% for col in task_cols %}
             <div class="tk-col" data-stage="{{ col.key }}">
               <div class="tk-colhead">
-                <span class="dot" style="background: {{ {'in_process':'#2f6ecc','for_launch':'#c77d16','launched':'#4fa84a','closed':'#8b8f8c'}[col.key] }}"></span>
+                {#- 🔴 The dot colour is CSS keyed off the column's own `data-stage`, not an inline
+                    Jinja dict. It used to be `{'in_process':…,'for_launch':…}[col.key]` — the
+                    PRE-2026-07-29 stage keys — and the canonical set became todo / in_progress /
+                    blocked / revision / completed. A Jinja subscript on a missing key renders
+                    Undefined as "", so every dot has been shipping as `background: ` (invisible)
+                    ever since, on a board where the dot IS the stage's colour language. -#}
+                <span class="dot"></span>
                 <span class="t">{{ col.name }}</span><span class="c tnum" data-colcount>{{ col.tasks|length }}</span>
               </div>
               <div class="tk-list" data-stage="{{ col.key }}">
@@ -1354,7 +1397,7 @@
                     </span>
                     <span class="tk-icons">
                       {% if t.subs_total %}<span title="sub-tasks done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span data-subs="{{ t.client_key }}:{{ t.id }}">{{ t.subs_done }}/{{ t.subs_total }}</span></span>{% endif %}
-                      {% if t.subs_unassigned and col.key != 'closed' %}<span class="warn" title="{{ t.subs_unassigned }} sub-task(s) with no owner">⚠ {{ t.subs_unassigned }}</span>{% endif %}
+                      {% if t.subs_unassigned and col.key != 'completed' %}<span class="warn" title="{{ t.subs_unassigned }} sub-task(s) with no owner">⚠ {{ t.subs_unassigned }}</span>{% endif %}
                       {% if t.open_changes %}<span class="chg" title="open client change request">⚑ {{ t.open_changes }}</span>{% endif %}
                       {% if t.comment_count %}<span title="comments"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>{{ t.comment_count }}</span>{% endif %}
                     </span>
@@ -1379,7 +1422,7 @@
             <div class="tkd narrow" data-tkd="{{ t.client_key }}:{{ t.id }}" hidden>
               <div class="tkd-head">
                 <div style="display:flex;align-items:center;gap:12px;min-width:0;flex-wrap:wrap">
-                  <span class="tkd-status"><span class="pdot" style="background: {{ {'in_process':'#2f6ecc','for_launch':'#c77d16','launched':'#4fa84a','closed':'#8b8f8c'}[t.stage] }}"></span>{{ col.name }}</span>
+                  <span class="tkd-status" data-stage="{{ t.stage }}"><span class="pdot"></span>{{ col.name }}</span>
                   <span class="tkd-eyebrow">Service &middot; {{ t.client_name }}</span>
                 </div>
                 {#- No Edit: this overlay READS a task (D2). The footer carries the one action left
@@ -1407,9 +1450,9 @@
                 {#- On-hold banner (orthogonal to stage, shows above it). -#}
                 {% if t.on_hold %}<div class="tkd-ctx hold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>On hold{% if t.hold_reason %} &middot; {{ t.hold_reason }}{% endif %}</div>{% endif %}
                 {#- Stage context banner (skipped for In Process, that's the default working state). -#}
-                {% if t.stage == 'for_launch' %}<div class="tkd-ctx review"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>In review, awaiting sign-off{% if t.subs_total and t.subs_done != t.subs_total %} &middot; {{ t.subs_total - t.subs_done }} sub-task(s) still open{% endif %}</div>
-                {% elif t.stage == 'launched' %}<div class="tkd-ctx live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/></svg>Live</div>
-                {% elif t.stage == 'closed' %}<div class="tkd-ctx done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Completed &amp; archived</div>{% endif %}
+                {% if t.stage == 'blocked' %}<div class="tkd-ctx review"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>In review, awaiting sign-off{% if t.subs_total and t.subs_done != t.subs_total %} &middot; {{ t.subs_total - t.subs_done }} sub-task(s) still open{% endif %}</div>
+                {% elif t.stage == 'completed' %}<div class="tkd-ctx live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/></svg>Live</div>
+                {% elif t.stage == 'revision' %}<div class="tkd-ctx done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Completed &amp; archived</div>{% endif %}
                 {#- Details / Tasks / Comments -- heavy content split into tabs, not one long scroll. -#}
                 <div class="tkd-tabs" role="tablist">
                   <button type="button" class="tkd-tab is-active" role="tab" aria-selected="true" data-tktab="details">Details</button>
@@ -2116,27 +2159,8 @@
       // the bridge pushes the client-safe result into the workspace. Nothing on this page creates a
       // task, so none of that machinery has anything to submit.
 
-      // ---- Export: download the whole board as a JSON backup. ----
-      var exportBtn = document.getElementById("tk-export-btn");
-      if (exportBtn) {
-        exportBtn.addEventListener("click", function () { window.location.href = "/admin/atrium/tasks/export"; });
-      }
-
-      // ---- Import: pick a JSON backup -> confirm -> submit (restore/upsert by task id). ----
-      var importBtn = document.getElementById("tk-import-btn");
-      var importFile = document.getElementById("tk-import-file");
-      var importForm = document.getElementById("tk-import-form");
-      if (importBtn && importFile && importForm) {
-        importBtn.addEventListener("click", function () { importFile.click(); });
-        importFile.addEventListener("change", function () {
-          if (!importFile.files || !importFile.files.length) { return; }
-          if (window.confirm("Import tasks from this backup?\n\nTasks are matched by id: existing ones are updated, new ones are added. Nothing is deleted.")) {
-            importForm.submit();
-          } else {
-            importFile.value = "";
-          }
-        });
-      }
+      // ---- Export / Import wiring REMOVED 2026-08-04 with their buttons (see the pane header).
+      // Import was a second writer on a record Sentinel owns; export backed up a projection. ----
 
       // ---- Detail overlay tabs (Details / Tasks / Comments): toggle panels in place. ----
       qsa("[data-tktab]").forEach(function (b) {
@@ -2264,6 +2288,8 @@
           if (count) { count.textContent = visible; }
         });
         if (shownN) { shownN.textContent = shown; }
+        // "Clear" only exists while there is something to clear -- see the markup comment.
+        if (fClear) { fClear.hidden = !(c || d || p || q); }
       }
 
       // ---- Sort: reorder cards inside each column, client-side (Urgent always floats first). ----
@@ -2318,7 +2344,7 @@
           if (old) { list.removeChild(old); }
           var vis = qsa(".tk-card", list).filter(function (x) { return x.style.display !== "none"; });
           vis.forEach(function (x) { x.classList.remove("tk-capped"); });
-          var cap = (stage === "closed") ? TK_CAP_CLOSED : TK_CAP;
+          var cap = (stage === "completed") ? TK_CAP_CLOSED : TK_CAP;
           if (!on || capExpanded[stage] || vis.length <= cap) { return; }
           vis.forEach(function (x, i) { if (i >= cap) { x.classList.add("tk-capped"); } });
           var btn = document.createElement("button");
@@ -2332,8 +2358,13 @@
       // ---- Swimlanes: build per-client rows from the SAME cards (their data-* attrs), grouped into
       // the four stage columns as chips. Respects the current filters/search (skips hidden cards);
       // chips reuse the board's detail overlay via data-open + tkOpen. ----
-      var SWIM_STAGES = [["in_process", "In Process", "#2f6ecc"], ["for_launch", "For Launch", "#c77d16"],
-        ["launched", "Launched", "#4fa84a"], ["closed", "Closed", "#8b8f8c"]];
+      // 🔴 The CANONICAL five stage keys (workspace.TASK_STAGES / main.TASK_STAGE_META). This list
+      // still held the pre-2026-07-29 four — in_process / for_launch / launched / closed — so every
+      // lane grouped on a key no card carries and Swimlanes rendered EMPTY lanes for every client.
+      // Colours match the column dots above: green means completed and nothing else.
+      var SWIM_STAGES = [["todo", "To Do", "#8b8f8c"], ["in_progress", "In Progress", "#2f6ecc"],
+        ["blocked", "Parked", "#c77d16"], ["revision", "Revision Needed", "#dc2626"],
+        ["completed", "Completed", "#4fa84a"]];
       function swEsc(s) {
         return String(s).replace(/[&<>"]/g, function (ch) {
           return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch];
@@ -2431,6 +2462,30 @@
       segWire(viewSeg, "data-view", function () { savePrefs(); refresh(); });
       segWire(densSeg, "data-dens", function () { savePrefs(); refresh(); });
 
+      // ---- Display menu: open/close only. The controls INSIDE it are wired above exactly as they
+      // were when they sat in the old display row, so moving them cost no behaviour. It closes on
+      // outside click and on Escape (returning focus to the button) -- a popover you can only
+      // dismiss by clicking its trigger again is the one thing that makes these feel broken. ----
+      var dBtn = document.getElementById("tk-dbtn");
+      var dMenu = document.getElementById("tk-dmenu");
+      function dSet(open) {
+        if (!dBtn || !dMenu) { return; }
+        dMenu.hidden = !open;
+        dBtn.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+      if (dBtn && dMenu) {
+        dBtn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          dSet(dMenu.hidden);
+        });
+        // Clicks inside must not bubble to the document handler that closes it.
+        dMenu.addEventListener("click", function (e) { e.stopPropagation(); });
+        document.addEventListener("click", function () { dSet(false); });
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape" && !dMenu.hidden) { dSet(false); dBtn.focus(); }
+        });
+      }
+
       // Restore saved prefs on load, then render (filters -> view -> sort/caps or swimlanes).
       restorePrefs();
       refresh();
@@ -2482,7 +2537,7 @@
                    subsDone: n.getAttribute("data-subsdone") || "0", subsTotal: n.getAttribute("data-substotal") || "0",
                    changes: n.getAttribute("data-changes") || "0", comments: n.getAttribute("data-comments") || "0" };
         });
-        var STAGE_LABEL = { in_process: "In Process", for_launch: "For Launch", launched: "Launched", closed: "Closed" };
+        var STAGE_LABEL = { todo: "To Do", in_progress: "In Progress", blocked: "Parked", revision: "Revision Needed", completed: "Completed" };
         function discLabel(cls) { return { "lb-paid": "Paid Media", "lb-organic": "Organic", "lb-web": "Website" }[cls] || "Other"; }
         function fmtDay(iso) {
           if (!iso) { return ""; }
@@ -2498,9 +2553,11 @@
         function ymd(y, m, d) { return y + "-" + pad2(m + 1) + "-" + pad2(d); }
         var todayStr = ymd(now.getFullYear(), now.getMonth(), now.getDate());
 
-        // Launched = the Launched/Closed stages (a past date is fine); overdue = the launch date
-        // passed while the work is still pre-launch (In Process / For Launch).
-        function isLaunched(ev) { return ev.stage === "launched" || ev.stage === "closed"; }
+        // Launched = the work is DONE (a past date is fine); overdue = the launch date passed while
+        // it is still in flight. 🔴 This tested `"launched"`/`"closed"` — retired stage keys — so it
+        // was permanently false and EVERY dated service with a past launch date rendered overdue,
+        // including the completed ones.
+        function isLaunched(ev) { return ev.stage === "completed"; }
         function overdue(ev) { return !isLaunched(ev) && ev.date < todayStr; }
 
         function chip(ev) {
