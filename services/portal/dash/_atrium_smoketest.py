@@ -45,12 +45,35 @@ os.environ["SESSION_SECRET"] = "test-secret"
 import seed_workspace   # noqa: E402
 import service_templates  # noqa: E402
 import store            # noqa: E402
+import contextlib
+import sentinel_requests
 import workspace        # noqa: E402
 import main             # noqa: E402
 
 CLIENT = "riverdance"
 SUPER = {"ok": True, "user": "info@agoradatadriven.com", "clients": ["*"]}
 
+
+
+@contextlib.contextmanager
+def _filing_stubbed():
+    """Run a block with Sentinel's intake bridge stubbed out, yielding the list of asks filed.
+
+    The client's quick-add posts to Sentinel now (D3), and a smoketest must not depend on a live
+    sister service — so the transport is replaced and the CALL is what gets asserted.
+    """
+    filed = []
+    real = sentinel_requests.file_request
+
+    def _fake(client_key, title, **kw):
+        filed.append({"client": client_key, "title": title, **kw})
+        return True, ""
+
+    sentinel_requests.file_request = _fake
+    try:
+        yield filed
+    finally:
+        sentinel_requests.file_request = real
 
 def _check(label, cond):
     if not cond:
@@ -877,33 +900,70 @@ def run():
     _check("client cannot comment on an internal-only task (404)",
            c.post("/w/%s/task-comment" % CLIENT,
                   data={"task_id": hidden_id, "body": "hi"}).status_code == 404)
-    # The client's OTHER write: quick-add a request from the Progress tab. The reporter is
-    # auto-tagged from the session (never a form choice) and the task is always client-facing.
-    radd = c.post("/w/%s/task-add" % CLIENT, data={"title": "CLIENT-ASKED-FOR-THIS"})
-    _check("client quick-adds a request",
-           radd.get_json().get("ok") is True and radd.get_json().get("reporter") == "client")
-    added = workspace._find_task(workspace.load_workspace(CLIENT), radd.get_json()["task_id"])
-    _check("client request is client-facing + To Do + reporter-tagged",
-           added["client_facing"] is True and added["stage"] == "todo"
-           and added["reporter"] == "client" and added["reporter_name"] == "Owner")
-    _check("empty quick-add rejected",
-           c.post("/w/%s/task-add" % CLIENT, data={"title": "  "}).status_code == 400)
-    # The composer is a REAL form, so a request must file with NO JavaScript at all: a native post
-    # carries redirect=progress and gets a redirect back to the tab instead of JSON.
-    rform = c.post("/w/%s/task-add" % CLIENT,
-                   data={"title": "FILED-WITHOUT-JS", "redirect": "progress"})
-    _check("no-JS form post files the request and redirects back to Progress",
-           rform.status_code in (301, 302, 303)
-           and rform.headers.get("Location", "").endswith("/w/%s/progress" % CLIENT))
-    _check("the no-JS request really landed on the board",
-           any(t.get("title") == "FILED-WITHOUT-JS"
-               for t in workspace.load_workspace(CLIENT).get("tasks", [])))
+    # The client's OTHER write: quick-add from the Progress tab.
+    #
+    # 🔴 REWRITTEN 2026-08-04 (decision D3 / WP 3.3). This used to assert that a client's ask
+    # became a TASK in ws["tasks"] straight away — which is exactly the behaviour the taskboard
+    # rebuild removed: anything typed on a live call landed on the delivery board unowned and
+    # unestimated, indistinguishable from committed work. The ask is now FILED into Sentinel's
+    # intake queue and becomes a task only when a manager accepts it there. So the assertion is
+    # inverted: nothing may appear in ws["tasks"].
+    calls = []
+
+    def _fake_file(client_key, title, **kw):
+        calls.append({"client": client_key, "title": title, **kw})
+        return True, ""
+
+    _real_file = sentinel_requests.file_request
+    sentinel_requests.file_request = _fake_file
+    try:  # noqa: SIM117 — mirrored by _filing_stubbed() below
+        radd = c.post("/w/%s/task-add" % CLIENT, data={"title": "CLIENT-ASKED-FOR-THIS"})
+        body = radd.get_json()
+        _check("client quick-add files a REQUEST (not a task)",
+               body.get("ok") is True and body.get("request") is True)
+        _check("the ask reached Sentinel with the workspace key + title",
+               len(calls) == 1 and calls[0]["client"] == CLIENT
+               and calls[0]["title"] == "CLIENT-ASKED-FOR-THIS")
+        _check("the requester is auto-tagged from the session, never a form field",
+               calls[0].get("requester_name") == "Owner")
+        _check("a client ask NEVER lands on the delivery board",
+               not any(t.get("title") == "CLIENT-ASKED-FOR-THIS"
+                       for t in workspace.load_workspace(CLIENT).get("tasks", [])))
+        _check("empty quick-add rejected",
+               c.post("/w/%s/task-add" % CLIENT, data={"title": "  "}).status_code == 400)
+
+        # The composer is a REAL form, so an ask must file with NO JavaScript at all: a native post
+        # carries redirect=progress and gets a redirect back to the tab instead of JSON.
+        rform = c.post("/w/%s/task-add" % CLIENT,
+                       data={"title": "FILED-WITHOUT-JS", "redirect": "progress"})
+        _check("no-JS form post files the request and redirects back to Progress",
+               rform.status_code in (301, 302, 303)
+               and "/w/%s/progress" % CLIENT in rform.headers.get("Location", ""))
+        _check("the no-JS ask reached Sentinel too", len(calls) == 2)
+
+        # 🔴 A bridge failure must be TOLD to the client. Silently succeeding would say "sent" when
+        # nobody has it; silently falling back to a local task would restore the very bug D3 fixed.
+        sentinel_requests.file_request = lambda *a, **k: (False, "Sentinel unreachable")
+        rfail = c.post("/w/%s/task-add" % CLIENT, data={"title": "BRIDGE-DOWN"})
+        _check("a bridge failure surfaces to the client as an error", rfail.status_code == 502)
+        _check("a failed ask does NOT fall back to writing a task",
+               not any(t.get("title") == "BRIDGE-DOWN"
+                       for t in workspace.load_workspace(CLIENT).get("tasks", [])))
+    finally:
+        sentinel_requests.file_request = _real_file
     _check("an empty no-JS post redirects back rather than erroring",
            c.post("/w/%s/task-add" % CLIENT,
                   data={"title": " ", "redirect": "progress"}).status_code in (301, 302, 303))
+    # The "Requested by" chip marks a card the CLIENT asked for. Since D3 the composer no longer
+    # creates one — the ask goes to Sentinel and comes back over the bridge once accepted — so the
+    # fixture seeds one directly, which is exactly the shape the bridge writes.
+    workspace.add_task(CLIENT, {
+        "title": "ACCEPTED-CLIENT-ASK", "stage": "todo", "client_facing": True,
+        "reporter": "client", "reporter_name": "Owner",
+    }, actor="smoketest")
     pg2 = c.get("/w/%s/progress" % CLIENT).get_data(as_text=True)
-    _check("progress renders the quick-add composer + the request's reporter chip",
-           "data-pgadd-input" in pg2 and "Requested by" in pg2)
+    _check("progress still renders the quick-add composer", "data-pgadd-input" in pg2)
+    _check("a client-reported card still carries its 'Requested by' chip", "Requested by" in pg2)
     _check("the composer is a real form that posts to task-add without JS",
            'method="post"' in pg2 and ('action="/w/%s/task-add"' % CLIENT) in pg2
            and 'name="title"' in pg2)
@@ -917,19 +977,25 @@ def run():
     _check("every column has its own no-JS '+ Add card' form",
            all(('data-pgcol-form="%s"' % k) in pg2
                for k in ("todo", "in_progress", "blocked", "revision", "completed")))
-    # Adding from a column files straight into THAT column, with the client implied by the URL.
-    rcol = c.post("/w/%s/task-add" % CLIENT,
-                  data={"title": "FILED-INTO-BLOCKED", "stage": "blocked", "redirect": "progress"})
-    _col_task = [t for t in workspace.load_workspace(CLIENT).get("tasks", [])
-                 if t.get("title") == "FILED-INTO-BLOCKED"]
-    _check("'+ Add card' files into the column it was added from",
-           rcol.status_code in (301, 302, 303) and _col_task
-           and _col_task[0]["stage"] == "blocked" and _col_task[0]["client_facing"] is True)
-    _check("a junk stage can never 500 or lose the card (falls back to To Do)",
-           c.post("/w/%s/task-add" % CLIENT,
-                  data={"title": "JUNK-STAGE", "stage": "not-a-stage"}).get_json().get("ok") is True
-           and [t for t in workspace.load_workspace(CLIENT).get("tasks", [])
-                if t.get("title") == "JUNK-STAGE"][0]["stage"] == "todo")
+    # 🔴 REWRITTEN 2026-08-04 (D3 / WP 3.3). A per-column "+ Add card" used to place the client's
+    # card directly into that column. A client's ASK has no column — it is not on the delivery
+    # board at all until Sentinel accepts it — so the posted `stage` is now ignored for a client,
+    # and nothing is written locally whatever column the form came from.
+    # (Remaining polish, tracked in the roadmap: drop the per-column form from the CLIENT surface
+    # entirely, since it now offers a choice that has no effect.)
+    with _filing_stubbed() as filed:
+        rcol = c.post("/w/%s/task-add" % CLIENT,
+                      data={"title": "FILED-INTO-BLOCKED", "stage": "blocked",
+                            "redirect": "progress"})
+        _check("a client's per-column add still files a request",
+               rcol.status_code in (301, 302, 303) and len(filed) == 1)
+        _check("a client's ask never lands in a column",
+               not any(t.get("title") == "FILED-INTO-BLOCKED"
+                       for t in workspace.load_workspace(CLIENT).get("tasks", [])))
+        _check("a junk stage can never 500 or lose the ask",
+               c.post("/w/%s/task-add" % CLIENT,
+                      data={"title": "JUNK-STAGE", "stage": "not-a-stage"}
+                      ).get_json().get("ok") is True and len(filed) == 2)
     # The add form mirrors Sentinel's "New task": name + description + due date on show, the rest
     # collapsed. A CLIENT must never get the internal block, nor be able to forge those fields.
     _check("the client's add form has name, description and due date",
@@ -945,15 +1011,22 @@ def run():
            "data-pgdrag=" not in pg2 and "data-pgdel=" not in pg2)
     _check("the duplicated per-stage count tiles are gone from the board",
            "ax-pg-summary" not in pg2)
-    rforge = c.post("/w/%s/task-add" % CLIENT,
-                    data={"title": "CLIENT-FORGERY", "priority": "Urgent",
-                          "internal_notes": "should never stick", "due_date": "2026-09-01"})
-    _forged = workspace._find_task(workspace.load_workspace(CLIENT),
-                                   rforge.get_json()["task_id"])
-    _check("a client cannot forge priority or internal notes",
-           _forged.get("priority") == "Medium" and not _forged.get("internal_notes"))
-    _check("but the client's own due date IS honoured",
-           _forged.get("due_date") == "2026-09-01")
+    # Forging internal fields is now impossible by CONSTRUCTION rather than by filtering: a client
+    # post creates no local task at all, and the intake bridge only ever carries title / details /
+    # requester. Priority, internal notes and the rest have nowhere to land (D3 / WP 3.3).
+    with _filing_stubbed() as forged:
+        rforge = c.post("/w/%s/task-add" % CLIENT,
+                        data={"title": "CLIENT-FORGERY", "priority": "Urgent",
+                              "internal_notes": "should never stick", "due_date": "2026-09-01"})
+        _check("a client's forged fields have nowhere to go", rforge.get_json().get("ok") is True)
+        _check("the ask carries only title/details/requester over the bridge",
+               set(forged[0]) <= {"client", "title", "details",
+                                  "requester_name", "requester_email"})
+        _check("no priority or internal notes cross the bridge",
+               "priority" not in forged[0] and "internal_notes" not in forged[0])
+        _check("and no local task is written for a client at all",
+               not any(t.get("title") == "CLIENT-FORGERY"
+                       for t in workspace.load_workspace(CLIENT).get("tasks", [])))
     # Rows written under a RETIRED stage key must still land in a real column: the old 4-stage
     # keys, and (since 2026-07-29) For Review / Waiting for Client, which fold into Blocked.
     _check("a legacy stage key is translated, not dropped",

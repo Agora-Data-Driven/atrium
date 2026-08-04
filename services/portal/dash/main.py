@@ -57,6 +57,7 @@ import intel_refresh
 import notify
 import platform_sso
 import sentinel_directory
+import sentinel_requests
 # 🔴 UNUSED IN THIS APP since 2026-08-03 (decision D2), and kept on purpose. The New-Service form
 # that read its catalogs is gone — Sentinel's own ServiceTemplate table owns the recipes now and
 # seeds a breakdown before it ever reaches a workspace. The module stays because it is the written
@@ -2072,6 +2073,23 @@ def atrium_task_comment(client):
         notify.client_task_changes(client, task, current_user())
     else:
         notify.client_task_commented(client, task, body, current_user())
+    # THE REVERSE CHANNEL (decision D4 / WP 3.5 of sentinel/docs/TASKBOARD_REBUILD.md). The client's
+    # words are already saved above -- the workspace comment is the record -- so this push is the
+    # notification to the delivery side, where the work is actually managed. Before it, the team
+    # only learned a client had replied by re-reading the client's own board, which nobody does.
+    #
+    # 🔴 Best-effort ON PURPOSE, and the opposite posture to the intake queue: there, Sentinel is
+    # the only store, so silence would be a lie. Here the comment is safe locally, so a Sentinel
+    # outage must not fail the client's post. The comment id rides along as source_ref, which is
+    # what makes the far side idempotent -- without it a retry would keep raising the change
+    # counter and the pill could never honestly clear.
+    ok_push, push_err = sentinel_requests.send_feedback(
+        task_id, body, client_key=client, kind=kind,
+        author_name=_client_sender_name(current_user()) or "",
+        source_ref=str((comment or {}).get("id") or ""),
+    )
+    if not ok_push and sentinel_requests.configured():
+        _audit(client, "client feedback did NOT reach Sentinel", "%s (%s)" % (task_id, push_err))
     _audit(client, "requested task changes" if kind == "changes" else "commented on task",
            task.get("title") or task_id)
     return jsonify(ok=True, comment=comment,
@@ -2126,15 +2144,39 @@ def atrium_task_add(client):
         if priority in workspace.TASK_PRIORITIES:
             fields["priority"] = priority
         fields["internal_notes"] = (request.form.get("internal_notes") or "").strip()[:2000]
+    # 🔴 A CLIENT'S ask is now a REQUEST, not a task (decision D3 / WP 3.3 of
+    # sentinel/docs/TASKBOARD_REBUILD.md). It used to call workspace.add_task, so anything typed on
+    # a live call became a card on the delivery board immediately — unowned, unestimated, and
+    # indistinguishable from work the agency had committed to. It is filed into Sentinel's intake
+    # queue instead, and a manager turns it into real work by accepting it. The TEAM's own
+    # quick-add still writes here, because the team IS the delivery side.
+    #
+    # A failure is surfaced, never swallowed: telling a client "sent" when nobody received it is
+    # the one outcome worse than an error.
+    if not from_team:
+        ok, err = sentinel_requests.file_request(
+            client, title,
+            details=note,
+            requester_name=fields["reporter_name"] or "",
+            requester_email=user or "",
+        )
+        _audit(client, "client filed a request" if ok else "client request FAILED to file", title)
+        if not ok:
+            if wants_redirect:
+                return redirect(back + "?request_error=1")
+            return Response(json.dumps({"error": "sentinel", "detail": err}),
+                            status=502, mimetype="application/json")
+        if wants_redirect:
+            return redirect(back + "?request_filed=1")
+        return jsonify(ok=True, filed=True, request=True)
+
     try:
         task = workspace.add_task(client, fields, actor=user or "")
     except KeyError:
         if wants_redirect:
             return redirect(back)
         return Response('{"error":"not_found"}', status=404, mimetype="application/json")
-    if not from_team:
-        notify.client_task_added(client, task, user)
-    _audit(client, "added task" if from_team else "client added request", task["title"])
+    _audit(client, "added task", task["title"])
     if wants_redirect:
         return redirect(back)
     return jsonify(ok=True, task_id=task["id"], reporter=task["reporter"])
