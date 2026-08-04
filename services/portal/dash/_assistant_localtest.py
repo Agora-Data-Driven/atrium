@@ -515,22 +515,36 @@ def run():
                    for e in evs))
 
     import assistant_actions
+    # 🔴 The task-WRITE actions (add_task / move_task / complete_task) were retired 2026-08-03
+    # (decision D2 of sentinel/docs/TASKBOARD_REBUILD.md): Sentinel owns a task and pushes the
+    # client-safe copy here, so an approved proposal writing `ws["tasks"]` would race the system of
+    # record. This block used to prove all three worked end to end; it now proves they are GONE and
+    # that the surviving actions still do.
     clean, verr = assistant_actions.validate(
-        {"action": "add_task", "params": {"title": "From AI"}, "note": "test"})
+        {"action": "comment_task", "params": {"task": "SEED-TASK-FOR-ACTIONS",
+                                             "body": "From AI"}, "note": "test"})
     _check("validate accepts a known action and labels it",
            clean is not None and verr == "" and clean["gate"] == "admin"
-           and "From AI" in clean["label"])
+           and "SEED-TASK-FOR-ACTIONS" in clean["label"])
     _check("validate rejects unknown actions",
            assistant_actions.validate({"action": "rm_rf", "params": {}})[1].startswith("unknown"))
+    for gone in ("add_task", "move_task", "complete_task"):
+        _check("the retired %s action is refused by name" % gone,
+               assistant_actions.validate({"action": gone, "params": {"title": "x", "task": "x",
+                                                                     "stage": "todo"}})[1]
+               .startswith("unknown"))
+    _check("the retired task writers are not offered to the model either",
+           not any(("%s(" % g) in assistant_actions.catalog_text()
+                   for g in ("add_task", "move_task", "complete_task")))
     _check("validate enforces required params",
            "missing required" in assistant_actions.validate(
-               {"action": "move_task", "params": {"task": "x"}})[1])
+               {"action": "comment_task", "params": {"task": "x"}})[1])
     _check("validate enforces choice params",
            "must be one of" in assistant_actions.validate(
                {"action": "add_intel", "params": {"section": "nope", "title": "t"}})[1])
     _check("every registry action is described in the catalog",
            all(name in assistant_actions.catalog_text()
-               for name in ("add_task", "move_task", "generate_report", "edit_report",
+               for name in ("comment_task", "generate_report", "edit_report",
                             "run_website_check", "reindex")))
     _check("a root-gated action refuses a non-root approver",
            assistant_actions.execute(
@@ -538,22 +552,17 @@ def run():
                    {"action": "set_website_notes", "params": {"notes": "x"}})[0],
                {"is_root": False})
            == (False, "only the super admin can approve this action"))
+    # A task to comment on — written through the workspace helper, the way the bridge does.
+    workspace.add_task(CLIENT, {"title": "SEED-TASK-FOR-ACTIONS"}, actor="tester")
     ok, msg = assistant_actions.execute(CLIENT, clean, {"actor": "Tester", "is_root": True})
-    _check("an approved add_task lands on the board via the same workspace writer",
-           ok and "From AI" in msg
-           and any(t.get("title") == "From AI"
+    _check("an approved comment_task lands on the task's thread",
+           ok and "SEED-TASK-FOR-ACTIONS" in msg
+           and any(t.get("title") == "SEED-TASK-FOR-ACTIONS" and t.get("comments")
                    for t in workspace.load_workspace(CLIENT).get("tasks") or []))
-    ok2, _msg2 = assistant_actions.execute(
-        CLIENT, assistant_actions.validate(
-            {"action": "complete_task", "params": {"task": "From AI"}})[0],
-        {"actor": "Tester", "is_root": False})
-    _check("complete_task resolves by title and moves the stage",
-           ok2 and any(t.get("title") == "From AI" and t.get("stage") == "completed"
-                       for t in workspace.load_workspace(CLIENT).get("tasks") or []))
     ok3, msg3 = assistant_actions.execute(
         CLIENT, assistant_actions.validate(
-            {"action": "move_task", "params": {"task": "no such task xyz",
-                                              "stage": "todo"}})[0],
+            {"action": "comment_task", "params": {"task": "no such task xyz",
+                                                 "body": "hi"}})[0],
         {"actor": "Tester", "is_root": False})
     _check("an unresolvable target fails with a friendly reason, never raises",
            ok3 is False and "not found" in msg3)
@@ -571,7 +580,7 @@ def run():
 
     r = c.post("/w/%s/admin/assistant" % CLIENT,
                data={"op": "execute", "action": json.dumps(
-                   {"action": "comment_task", "params": {"task": "From AI",
+                   {"action": "comment_task", "params": {"task": "SEED-TASK-FOR-ACTIONS",
                                                          "body": "ship it"}})})
     data = r.get_json()
     _check("op=execute runs an approved action through the route",

@@ -24,25 +24,15 @@ import json
 # name -> {desc: catalog line for the model, params: {name: spec}, gate: "admin"|"root"}.
 # A param spec: {"req": bool, "choices": (...)} -- everything arrives as a string unless noted.
 _ACTIONS = {
-    "add_task": {
-        "desc": "add_task(title*, department?, priority?, due_date?, start_date?, note?, "
-                "client_facing?) - create a service/task on the delivery board "
-                "(priority Low|Medium|High|Urgent; dates YYYY-MM-DD; client_facing true|false)",
-        "params": {"title": {"req": True}, "department": {}, "priority": {}, "due_date": {},
-                   "start_date": {}, "note": {}, "client_facing": {}},
-        "gate": "admin",
-    },
-    "move_task": {
-        "desc": "move_task(task*, stage*) - move a task to a stage "
-                "(todo|in_progress|blocked|revision|completed); task = its id or exact title",
-        "params": {"task": {"req": True}, "stage": {"req": True}},
-        "gate": "admin",
-    },
-    "complete_task": {
-        "desc": "complete_task(task*) - mark a task done (moves it to completed)",
-        "params": {"task": {"req": True}},
-        "gate": "admin",
-    },
+    # 🔴 add_task / move_task / complete_task were RETIRED 2026-08-03 (decision D2 of
+    # sentinel/docs/TASKBOARD_REBUILD.md). A task is created, assigned, moved, parked, reviewed and
+    # filed in SENTINEL, which pushes the client-safe subset into this workspace over the internal
+    # bridge — so an approved proposal that wrote `ws["tasks"]` here would be a second writer racing
+    # the system of record, and Sentinel's next push would silently overwrite it. Dropping them from
+    # this registry is the whole fix: the catalog the model is given is built from it, so the model
+    # is no longer told those verbs exist, and `validate` refuses them by name if it ever emits one.
+    # `comment_task` STAYS — a comment is a message on a thread both sides share, not a field on the
+    # record (the client's own comment is a first-class Atrium write too, decision D4).
     "comment_task": {
         "desc": "comment_task(task*, body*) - add a team comment to a task's thread",
         "params": {"task": {"req": True}, "body": {"req": True}},
@@ -190,12 +180,6 @@ def validate(proposal):
 def _label(name, params):
     """The approval card's one-line description of what Approve will do."""
     p = params
-    if name == "add_task":
-        return "Add task \"%s\" to the delivery board" % p.get("title", "")
-    if name == "move_task":
-        return "Move task \"%s\" to %s" % (p.get("task", ""), p.get("stage", ""))
-    if name == "complete_task":
-        return "Mark task \"%s\" completed" % p.get("task", "")
     if name == "comment_task":
         return "Comment on task \"%s\"" % p.get("task", "")
     if name == "add_calendar_event":
@@ -287,32 +271,14 @@ def execute(client, clean, ctx):
         if ws is None:
             return False, "no workspace for this client"
 
-        if name == "add_task":
-            fields = {"title": params.get("title"), "department": params.get("department", ""),
-                      "priority": params.get("priority") or "Medium",
-                      "due_date": params.get("due_date", ""),
-                      "start_date": params.get("start_date", ""),
-                      "internal_notes": params.get("note", ""),
-                      "client_facing": (params.get("client_facing", "").lower()
-                                        in ("1", "true", "yes")),
-                      "reporter": "agora", "reporter_name": actor}
-            task = workspace.add_task(client, fields, actor=actor)
-            return True, "Added task \"%s\" (id %s)." % (task["title"], task["id"])
-
-        if name in ("move_task", "complete_task", "comment_task"):
+        # (The add_task / move_task / complete_task executors stood here — retired with their
+        # registry entries above. Only commenting on a task remains.)
+        if name == "comment_task":
             task, err = _resolve(ws.get("tasks") or [], params.get("task"))
             if task is None:
                 return False, "task not found: %s" % err
-            if name == "comment_task":
-                workspace.add_task_comment(client, task["id"], "agora", actor,
-                                           params.get("body", ""))
-                return True, "Commented on \"%s\"." % task.get("title")
-            stage = "completed" if name == "complete_task" else params.get("stage", "")
-            try:
-                moved = workspace.move_task_stage(client, task["id"], stage, actor=actor)
-            except KeyError as e:
-                return False, str(e).strip("'\"")
-            return True, "Moved \"%s\" to %s." % (moved.get("title"), moved.get("stage"))
+            workspace.add_task_comment(client, task["id"], "agora", actor, params.get("body", ""))
+            return True, "Commented on \"%s\"." % task.get("title")
 
         if name == "add_calendar_event":
             workspace.add_calendar_event(client, params.get("date"), params.get("label"),

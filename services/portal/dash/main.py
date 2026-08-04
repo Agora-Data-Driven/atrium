@@ -57,7 +57,12 @@ import intel_refresh
 import notify
 import platform_sso
 import sentinel_directory
-import service_templates
+# 🔴 UNUSED IN THIS APP since 2026-08-03 (decision D2), and kept on purpose. The New-Service form
+# that read its catalogs is gone — Sentinel's own ServiceTemplate table owns the recipes now and
+# seeds a breakdown before it ever reaches a workspace. The module stays because it is the written
+# record of the recipe SHAPE both sides agreed on, and `_atrium_smoketest` still checks that
+# `build_maintasks` produces it. Do not re-wire it into a form here.
+import service_templates  # noqa: F401
 import store
 import sync_dash
 import workspace
@@ -96,6 +101,12 @@ SENTINEL_URL = os.environ.get(
     # .agoradatadriven.com, so on a raw *.run.app host SSO is inert and the user
     # hits a bare login form instead of being carried straight into Sentinel.
     "SENTINEL_URL", "https://sentinel.agoradatadriven.com/login")
+# The same host WITHOUT /login, for deep links into Sentinel's own surfaces. `/login` DROPS its query
+# string (it either short-circuits to /dashboard or renders the form), so a link that has to carry
+# `?open=<id>` must target the destination directly.
+SENTINEL_BASE_URL = SENTINEL_URL.rstrip("/")
+if SENTINEL_BASE_URL.endswith("/login"):
+    SENTINEL_BASE_URL = SENTINEL_BASE_URL[:-len("/login")]
 
 app = Flask(__name__)
 app.secret_key = SESSION_SECRET
@@ -5110,265 +5121,42 @@ def _task_reply(msg, err=False, **extra):
     return jsonify(ok=True, **extra)
 
 
-def _task_fields_from_form():
-    """The editable task fields from the posted form (shared by op=add and op=edit).
-
-    The form's one name field is LABELED "Campaign" (tasks are mostly campaigns) but stores as
-    `title` -- the canonical display name everywhere. Labels are AUTO-derived from the department
-    (TASK_DEPT_LABEL), so there is no label input to read. The support picker only renders on the
-    Edit form; op=add posts none and the new task starts with no support people."""
-    dept = request.form.get("department", "").strip()
-    lbl = TASK_DEPT_LABEL.get(dept)
-    fields = {
-        "title": request.form.get("title", "").strip(),
-        "department": dept,
-        "lead_id": request.form.get("lead_id", "").strip(),
-        "priority": request.form.get("priority", "Medium"),
-        "labels": [lbl] if lbl else [],
-        "client_facing": _bool_field("client_facing"),
-        "client_note": request.form.get("client_note", "").strip(),
-        "deliverable_url": request.form.get("deliverable_url", "").strip(),
-        "internal_notes": request.form.get("internal_notes", "").strip(),
-    }
-    # Dates + charge are patched ONLY when the form actually carried them, so a partial/programmatic
-    # POST can't silently wipe a launch date or charge (the real add/edit forms always include them).
-    if "start_date" in request.form:
-        fields["start_date"] = request.form.get("start_date", "").strip()
-    if "due_date" in request.form:
-        fields["due_date"] = request.form.get("due_date", "").strip()
-    if "service_charge" in request.form:
-        fields["service_charge"] = request.form.get("service_charge", "").strip().replace("$", "").replace(",", "")
-    # Support people are assigned AFTER the service exists (Edit form / detail overlay) -- only
-    # patch them when the form actually carried the field, so op=add never clears anything.
-    if "has_support" in request.form:
-        fields["support_ids"] = [s for s in request.form.getlist("support_ids") if s]
-    return fields
-
-
-def _task_template_seed():
-    """Read the New-Service form's service-type picker and return the fields a template drives:
-    {maintasks, content_type, department, labels} -- or {} when no template was chosen (a
-    custom/blank service). ONLY the New form posts `service_key`; edits never regenerate the
-    breakdown, so an edited task keeps whatever the team has since changed."""
-    key = request.form.get("service_key", "").strip()
-    tpl = service_templates.get(key)
-    if not tpl:
-        return {}
-    params = {p["k"]: request.form.get("p_" + p["k"], "") for p in tpl.get("params", [])}
-    added = []
-    if tpl.get("ad_production"):
-        types, qtys = request.form.getlist("ad_type"), request.form.getlist("ad_qty")
-        for i, ad_type in enumerate(types):
-            if (ad_type or "").strip():
-                added.append((ad_type.strip(), qtys[i] if i < len(qtys) else ""))
-    maintasks = service_templates.build_maintasks(key, params, added, id_factory=workspace._new_id)
-    lbl = TASK_DEPT_LABEL.get(tpl["dept"])
-    return {"maintasks": maintasks, "content_type": tpl["content_type"],
-            "department": tpl["dept"], "labels": [lbl] if lbl else []}
+# 🔴 ATRIUM NO LONGER WRITES A TASK (2026-08-03, decision D2 of
+# sentinel/docs/TASKBOARD_REBUILD.md). The seven `/w/<c>/admin/task*` routes that used to live here
+# — add/edit, hold, move, delete, subtask, maintask, comment — are RETIRED, together with the
+# `_task_fields_from_form` / `_task_template_seed` form readers that fed them.
+#
+# An Atrium task card is a **projection** of a Sentinel `tasks` row: Sentinel is where work is
+# created, assigned, moved, parked, reviewed and filed, and it pushes the client-safe subset here
+# over the internal bridge. Two writers on one record is the model this replaced.
+#
+# What still writes `ws["tasks"]`, deliberately:
+#   * the internal bridge — `/api/internal/task-{add,update,move,delete,comment}` (Sentinel, HMAC).
+#     Those call the SAME `workspace.py` helpers these routes did, so nothing about the stored
+#     shape, the derived label, the history or the Bin changed.
+#   * the CLIENT's two powers — `POST /w/<c>/task-add` (files a REQUEST) and
+#     `POST /w/<c>/task-comment` (comment / request changes). Both survive by decision (D3/D4).
+# `workspace.move_task_stage` keeps its `ValueError` contract: the bridge relies on it, and a future
+# guard must not need a signature change.
+#
+# The console's Delivery → Task Board is a READ-ONLY monitor now (the write forms are gone from
+# `admin_atrium.html`), so nothing in this app posts to the paths below. This one handler answers
+# **410 Gone** with the reason rather than 404, because a stale browser tab holding a rendered form
+# would otherwise report "not found" and send someone hunting for a routing bug.
 
 
 @app.route("/w/<client>/admin/task", methods=["POST"])
-def atrium_admin_task(client):
-    """Create or edit a task on a client's board (op=add|edit; TEAM only)."""
+@app.route("/w/<client>/admin/task/<path:_action>", methods=["POST"])
+def atrium_admin_task_retired(client, _action=""):
+    """Every Atrium-side task write, retired in favour of Sentinel (D2). Answers 410 with why."""
     gate = _atrium_admin_json_gate(client)
-    if gate:
+    if gate:                       # keep the auth answer first: never explain the estate to a stranger
         return gate
-    op = request.form.get("op", "add").strip()
-    fields = _task_fields_from_form()
-    actor = current_user() or ""
-    if op == "edit":
-        task_id = request.form.get("task_id", "").strip()
-        try:
-            task = workspace.update_task(client, task_id, fields, actor=actor)
-        except KeyError:
-            return _task_reply("That task no longer exists.", err=True)
-        _audit(client, "edited task", task.get("title", ""))
-        return _task_reply("Service updated.", task_id=task["id"])
-    if not fields["title"]:
-        return _task_reply("A service needs a campaign name.", err=True)
-    # A chosen service type seeds the whole work breakdown (main tasks + sub-tasks with "done when"),
-    # the content type, and the department/label -- overriding the posted department so they agree.
-    fields.update(_task_template_seed())
-    # New services always start In Process; they're moved along the board from there.
-    fields["stage"] = "todo"
-    try:
-        task = workspace.add_task(client, fields, actor=actor)
-    except KeyError:
-        return _task_reply("No workspace exists for that client yet.", err=True)
-    _audit(client, "added task", task["title"])
-    return _task_reply("Service added.", task_id=task["id"])
-
-
-@app.route("/w/<client>/admin/task/hold", methods=["POST"])
-def atrium_admin_task_hold(client):
-    """Put a service on hold or resume it (TEAM only). `on_hold` is a plain boolean; the reason is
-    internal. A client-facing held task shows the client a plain 'Paused' (reason never crosses)."""
-    gate = _atrium_admin_json_gate(client)
-    if gate:
-        return gate
-    task_id = request.form.get("task_id", "").strip()
-    held = _bool_field("on_hold")
-    reason = request.form.get("hold_reason", "").strip()
-    try:
-        task = workspace.set_task_hold(client, task_id, held, reason, actor=current_user() or "")
-    except KeyError:
-        return _task_reply("That task no longer exists.", err=True)
-    _audit(client, "put task on hold" if held else "resumed task", task.get("title", ""))
-    return _task_reply("Put on hold." if held else "Resumed.", on_hold=task["on_hold"])
-
-
-@app.route("/w/<client>/admin/task/move", methods=["POST"])
-def atrium_admin_task_move(client):
-    """Move a task to another stage (TEAM only). Every stage move is allowed -- see
-    workspace.move_task_stage; the ValueError branch stays so a future guard needs no route change."""
-    gate = _atrium_admin_json_gate(client)
-    if gate:
-        return gate
-    task_id = request.form.get("task_id", "").strip()
-    stage = request.form.get("stage", "").strip()
-    try:
-        task = workspace.move_task_stage(client, task_id, stage, actor=current_user() or "")
-    except KeyError:
-        return _task_reply("That task (or stage) no longer exists.", err=True)
-    except ValueError as exc:
-        return _task_reply(str(exc), err=True)
-    label = TASK_STAGE_LABELS.get(stage, stage)
-    _audit(client, "moved task to %s" % label, task.get("title", ""))
-    return _task_reply("Moved to %s." % label, stage=task["stage"])
-
-
-@app.route("/w/<client>/admin/task/delete", methods=["POST"])
-def atrium_admin_task_delete(client):
-    """Soft-delete a task -> the console Bin (restorable for 30 days; TEAM only)."""
-    gate = _atrium_admin_json_gate(client)
-    if gate:
-        return gate
-    task_id = request.form.get("task_id", "").strip()
-    try:
-        removed = workspace.delete_task(client, task_id)
-    except KeyError:
-        return _task_reply("That task no longer exists.", err=True)
-    _trash(client, "task", removed.get("title") or task_id, removed)
-    _audit(client, "deleted task", removed.get("title", ""))
-    return _task_reply("Task moved to the Bin (restorable for %d days)." % audit.TRASH_TTL_DAYS)
-
-
-@app.route("/w/<client>/admin/task/subtask", methods=["POST"])
-def atrium_admin_task_subtask(client):
-    """Sub-task ops on a task (op=add|toggle|edit|assign|delete; TEAM only).
-
-    op=edit inline-renames the sub-task and/or edits its INTERNAL "done when" (dod) -- each patched
-    only when the form carried it, so a partial autosubmit never wipes the other field."""
-    gate = _atrium_admin_json_gate(client)
-    if gate:
-        return gate
-    op = request.form.get("op", "").strip()
-    task_id = request.form.get("task_id", "").strip()
-    subtask_id = request.form.get("subtask_id", "").strip()
-    try:
-        if op == "add":
-            text = request.form.get("text", "").strip()
-            if not text:
-                return _task_reply("A sub-task needs a description.", err=True)
-            workspace.add_subtask(client, task_id, text,
-                                  request.form.get("assignee_id", "").strip(),
-                                  maintask_id=request.form.get("maintask_id", "").strip(),
-                                  dod=request.form.get("dod", "").strip())
-            msg = "Sub-task added."
-        elif op == "toggle":
-            workspace.set_subtask_done(client, task_id, subtask_id, _bool_field("done"))
-            msg = "Sub-task updated."
-        elif op == "edit":
-            # Inline rename + edit the internal "done when" (only the fields the form carried).
-            text = request.form.get("text") if "text" in request.form else None
-            dod = request.form.get("dod") if "dod" in request.form else None
-            workspace.edit_subtask(client, task_id, subtask_id, text=text, dod=dod)
-            msg = "Sub-task updated."
-        elif op == "assign":
-            workspace.set_subtask_owner(client, task_id, subtask_id,
-                                        request.form.get("assignee_id", "").strip())
-            msg = "Sub-task owner updated."
-        elif op == "delete":
-            workspace.delete_subtask(client, task_id, subtask_id)
-            msg = "Sub-task removed."
-        else:
-            return _task_reply("Unknown sub-task action.", err=True)
-    except KeyError:
-        return _task_reply("That task or sub-task no longer exists.", err=True)
-    return _task_reply(msg)
-
-
-@app.route("/w/<client>/admin/task/maintask", methods=["POST"])
-def atrium_admin_task_maintask(client):
-    """Main-task ops on a service (op=add|assign|delete; TEAM only).
-
-    A main task is a named group of sub-tasks with its own owner -- the two-level work
-    breakdown's parent row. Deleting one removes its sub-tasks with it."""
-    gate = _atrium_admin_json_gate(client)
-    if gate:
-        return gate
-    op = request.form.get("op", "").strip()
-    task_id = request.form.get("task_id", "").strip()
-    maintask_id = request.form.get("maintask_id", "").strip()
-    try:
-        if op == "add":
-            text = request.form.get("text", "").strip()
-            if not text:
-                return _task_reply("A main task needs a name.", err=True)
-            workspace.add_maintask(client, task_id, text,
-                                   request.form.get("assignee_id", "").strip())
-            msg = "Main task added."
-        elif op == "assign":
-            workspace.set_maintask_owner(client, task_id, maintask_id,
-                                         request.form.get("assignee_id", "").strip())
-            msg = "Main-task owner updated."
-        elif op == "rename":
-            text = request.form.get("text", "").strip()
-            if not text:
-                return _task_reply("A main task needs a name.", err=True)
-            workspace.rename_maintask(client, task_id, maintask_id, text)
-            msg = "Main task renamed."
-        elif op == "delete":
-            workspace.delete_maintask(client, task_id, maintask_id)
-            msg = "Main task removed."
-        else:
-            return _task_reply("Unknown main-task action.", err=True)
-    except KeyError:
-        return _task_reply("That task or main task no longer exists.", err=True)
-    return _task_reply(msg)
-
-
-@app.route("/w/<client>/admin/task/comment", methods=["POST"])
-def atrium_admin_task_comment(client):
-    """Team comment on a task, or resolve a client change request (op=add|resolve; TEAM only)."""
-    gate = _atrium_admin_json_gate(client)
-    if gate:
-        return gate
-    op = request.form.get("op", "add").strip()
-    task_id = request.form.get("task_id", "").strip()
-    if op == "resolve":
-        comment_id = request.form.get("comment_id", "").strip()
-        try:
-            task, _comment, open_left = workspace.resolve_task_comment(client, task_id, comment_id)
-        except KeyError:
-            return _task_reply("That task or comment no longer exists.", err=True)
-        if task.get("client_facing"):
-            notify.team_task_resolved(client, workspace.load_workspace(client), task)
-        _audit(client, "resolved task change request", task.get("title", ""))
-        return _task_reply("Change request resolved.", open_changes=open_left)
-    body = request.form.get("body", "").strip()
-    if not body:
-        return _task_reply("Write a comment first.", err=True)
-    sender_name = _admin_sender_name(current_user())
-    try:
-        task, comment = workspace.add_task_comment(client, task_id, "agora", sender_name, body)
-    except KeyError:
-        return _task_reply("That task no longer exists.", err=True)
-    # A comment on a client-facing task reaches the client's Progress tab -> notify opted-in users.
-    if task.get("client_facing"):
-        notify.team_task_commented(client, workspace.load_workspace(client), task, body, sender_name)
-    _audit(client, "commented on task", task.get("title", ""))
-    return _task_reply("Comment posted.", comment=comment)
+    msg = ("Tasks are managed in Sentinel now — this board is a read-only view of them. "
+           "Open the task in Sentinel to change it.")
+    if request.form.get("redirect") == "console":
+        return redirect(url_for("admin_atrium", msg=msg, section="tasks", err=1))
+    return jsonify(ok=False, error=msg), 410
 
 
 @app.route("/admin/atrium/tasks/export", methods=["GET"])
@@ -5545,12 +5333,12 @@ def admin_atrium():
         initial_section=(request.args.get("section") or "clients"),
         user=current_user(), workspace_name=WORKSPACE_NAME,
         skill_mastery_url=SKILL_MASTERY_URL, website_editor_url=WEBSITE_EDITOR_URL,
-        sentinel_url=SENTINEL_URL,
+        sentinel_url=SENTINEL_URL, sentinel_base=SENTINEL_BASE_URL,
         # Delivery -> Task Board: stage columns of every client's tasks + the pickers' vocabularies.
         task_cols=task_cols, task_roster=task_roster,
         task_departments=TASK_DEPARTMENTS,
         # Service-template catalog for the New-Service picker (rendered as hidden DOM the JS reads).
-        task_services=service_templates.catalog(), task_adprod=service_templates.ad_catalog(),
+        # (task_services / task_adprod went with the New-Service form — D2, 2026-08-03.)
         # Nav badge = every task on the board (matches the prototype's total count).
         task_open_total=sum(len(col["tasks"]) for col in task_cols),
         task_trash_count=len([t for t in trash if t.get("kind") == "task"]),

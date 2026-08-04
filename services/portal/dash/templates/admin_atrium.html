@@ -318,12 +318,6 @@
     /* A failed sync shows its reason inline (not just a tooltip) so the operator can act on it. */
     .sync-inline .meta.sync-err { color: #b3261e; white-space: normal; max-width: 420px; }
     /* Small, non-blocking confirmation for the no-reload task actions (checkbox / assign). */
-    .tk-toast { position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 12px);
-      background: var(--ink, #1a1c1a); color: #fff; font-size: 12.5px; font-weight: 600;
-      padding: 8px 14px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.22);
-      opacity: 0; transition: opacity .22s ease, transform .22s ease; z-index: 4000; pointer-events: none; }
-    .tk-toast.show { opacity: 1; transform: translate(-50%, 0); }
-    .tk-toast.bad { background: #b3261e; }
     .sync-inline .btn { margin: 0; display: inline-flex; align-items: center; gap: 7px; }
     .tk-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
     /* One toolbar: every header button is the SAME height + shape, so the green primary sits on the
@@ -510,54 +504,20 @@
     .tk-personchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--ink);
       background: var(--canvas); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px 2px 3px; }
     .tk-leadtag { font-size: 8.5px; font-weight: 800; color: var(--brand-700); background: var(--tint); border-radius: 4px; padding: 1px 5px; letter-spacing: .04em; }
-    .tk-nudge { display: flex; align-items: center; gap: 8px; background: var(--tint); border: 1px solid var(--brand-200); color: var(--brand-700);
-      border-radius: var(--r-md); padding: 8px 11px; font-size: 12px; font-weight: 700; margin-top: 10px; }
-    .tk-nudge form { margin: 0; }
     /* align-items:flex-start so the checkbox sits beside the sub-task's NAME line (the row can be two
        lines tall once the "done when" caption shows). It no longer floats between text + caption. */
     .tk-subrow { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; padding: 7px 2px; font-size: 13px; }
-    .tk-subrow form { margin: 0; display: flex; align-items: center; gap: 6px; }
-    .tk-subrow input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--brand-600); cursor: pointer; margin-top: 3px; }
+    /* READ-ONLY done marker (2026-08-03, D2): stands exactly where the checkbox did, since ticking a
+       step is a Sentinel action now. Same 15px box so the rows keep their alignment. */
+    .tk-subdone { width: 15px; flex: 0 0 auto; margin-top: 1px; text-align: center; font-size: 12px;
+      font-weight: 800; color: var(--line); line-height: 1.3; }
+    .tk-subrow.done .tk-subdone { color: var(--brand-600); }
     .tk-subrow .txt { flex: 1 1 auto; min-width: 0; color: var(--body); }
     .tk-subrow.done .txt { color: var(--muted); text-decoration: line-through; }
     /* "Done when" -- internal definition of done; wraps to its own line under the step text. */
     .tk-dod { display: block; flex-basis: 100%; font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 2px; line-height: 1.4; }
     .tk-subrow.done .tk-dod { text-decoration: none; }
-    .tk-dod-in { max-width: 190px; }
-    /* Inline sub-task editing: the step text + its "done when" read as ONE stacked unit (a name line
-       + a smaller muted caption), NOT two boxes -- so the single checkbox clearly belongs to the one
-       sub-task. Borderless text with a faint dashed underline (only on hover/focus) signals editable,
-       matching the main-task rename. The element+attribute selectors beat the global input rule. */
-    .tk-sub-edit { flex: 1 1 auto; min-width: 120px; flex-direction: column; gap: 0; align-items: stretch !important; }
-    .tk-sub-edit input.tk-sub-name, .tk-sub-edit input.tk-sub-dod {
-      width: 100%; border: 1px solid transparent; background: transparent; font: inherit;
-      padding: 2px 6px; border-radius: 6px; cursor: text; }
-    .tk-sub-edit input.tk-sub-name { font-size: 13px; color: var(--body); }
-    .tk-sub-edit input.tk-sub-dod { font-size: 11px; font-weight: 600; color: var(--muted); }
-    .tk-sub-edit input.tk-sub-dod::placeholder { color: var(--line); font-weight: 600; }
-    .tk-sub-edit input.tk-sub-name:hover, .tk-sub-edit input.tk-sub-dod:hover { border-bottom: 1px dashed var(--brand-300); }
-    .tk-sub-edit input.tk-sub-name:focus, .tk-sub-edit input.tk-sub-dod:focus {
-      border: 1px solid var(--brand-500); background: var(--surface); outline: none; box-shadow: 0 0 0 3px rgba(79,168,74,.14); }
-    .tk-subrow.done .tk-sub-edit input.tk-sub-name { color: var(--muted); text-decoration: line-through; }
-    .tk-subrow select { max-width: 118px; padding: 3px 5px; border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 11px; background: var(--surface); color: var(--body); }
-    .tk-subrow .rm { border: 0; background: transparent; color: #c2c7c2; font-size: 15px; cursor: pointer; padding: 1px 6px; border-radius: 6px; }
-    .tk-subrow .rm:hover { color: var(--danger); background: var(--danger-bg); }
-    .tk-addsub { display: flex; gap: 7px; margin-top: 8px; }
-    .tk-addsub input[type=text] { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 12.5px; }
-    .tk-addsub select { max-width: 118px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 11.5px; background: var(--surface); }
     /* ---- New-Service: service-type picker + params + ad-production ---- */
-    .svc-block { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line); }
-    .svc-params { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
-    .svc-param-field { display: flex; flex-direction: column; gap: 4px; min-width: 150px; }
-    .svc-param-field label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-    .svc-param-field input, .svc-param-field select { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 13px; background: var(--surface); color: var(--body); }
-    .svc-adprod { margin-top: 12px; padding: 12px; border: 1px dashed var(--line); border-radius: var(--r-md); background: var(--canvas); }
-    .svc-adprod-h { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--brand-700); margin-bottom: 8px; }
-    .svc-adprod-add { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
-    .svc-adprod-add select { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 13px; background: var(--surface); }
-    .svc-ad-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); }
-    .svc-ad-name { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: 13px; }
-    .svc-ad-qty { width: 74px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 13px; }
     .tk-progress { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 7px 0 9px; }
     .tk-progress i { display: block; height: 100%; background: linear-gradient(90deg, var(--brand-500), var(--brand-400)); }
     .tk-thread { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 10px; max-height: 260px; overflow-y: auto; padding-right: 4px; }
@@ -644,11 +604,6 @@
     .tk-linkish { border: 0; background: transparent; font: inherit; font-size: 12px; font-weight: 700; color: var(--muted);
       cursor: pointer; padding: 2px 4px; border-radius: 6px; text-decoration: underline; text-underline-offset: 2px; }
     .tk-linkish:hover { color: var(--ink); background: var(--canvas); }
-    .tk-holdform { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    /* display:flex beats the [hidden] UA style. Restore it, or the collapsed form leaks through. */
-    .tk-holdrow[hidden], .tk-holdform[hidden] { display: none; }
-    .tk-holdform input[type=text] { flex: 1; min-width: 140px; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 12.5px; }
-    .tk-holdform .btn, .tk-holdform .btn-ghost { margin: 0; }
     /* Detail overlay: Details / Tasks / Comments tabs (summary above stays persistent) */
     /* The tab bar sticks to the top of the scrolling body (full-bleed so scrolled content never
        peeks beside it), so you can switch Details / Tasks / Comments at any scroll depth. */
@@ -666,33 +621,10 @@
     .tk-main { border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 10px; background: var(--surface); }
     .tk-main.done { background: var(--tint); border-color: var(--brand-200); }
     .tk-main-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .tk-main-head form { margin: 0; display: flex; align-items: center; }
     .tk-main-check { width: 16px; height: 16px; flex: 0 0 auto; color: var(--brand-600); display: inline-flex; align-items: center; justify-content: center; }
     .tk-main-check svg { width: 14px; height: 14px; }
     .tk-main-title { font-weight: 700; font-size: 13.5px; color: var(--ink); }
-    /* Rename-in-place: the main-task title is an editable input. A faint dashed underline at rest
-       signals "you can rename this" (the old fully-transparent border read as static text and users
-       didn't realise they could name/rename it); it firms up on hover and boxes in on focus. */
-    .tk-main-rename { flex: 1 1 auto; min-width: 80px; }
-    .tk-main-rename input[type=text] { width: 100%; border: 1px solid transparent; border-bottom: 1px dashed var(--brand-300);
-      background: transparent; font: inherit; font-weight: 700; font-size: 13.5px; color: var(--ink);
-      padding: 2px 6px; border-radius: 6px; cursor: text; }
-    .tk-main-rename input[type=text]:hover { border-color: var(--line); border-bottom-style: solid; }
-    .tk-main-rename input[type=text]:focus { border: 1px solid var(--brand-500); background: var(--surface); outline: none;
-      box-shadow: 0 0 0 3px rgba(79,168,74,.14); }
     .tk-main-count { font-size: 10.5px; font-weight: 800; color: var(--muted); background: var(--canvas); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
-    .tk-main-head select { max-width: 118px; padding: 3px 5px; border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 11px; background: var(--surface); color: var(--body); }
-    /* The group owner reads like the prototype (avatar + bold name): a borderless select that
-       only reveals it's a control on hover. Clicking it reassigns in one step. */
-    .tk-main-head select.tk-ownersel { border-color: transparent; background: transparent; font-size: 12px; font-weight: 800;
-      color: var(--ink); cursor: pointer; padding: 3px 2px; max-width: 128px; }
-    .tk-main-head select.tk-ownersel:hover, .tk-main-head select.tk-ownersel:focus { border-color: var(--line); background: var(--surface); }
-    .tk-main-head .rm { border: 0; background: transparent; color: #c2c7c2; font-size: 15px; cursor: pointer; padding: 1px 6px; border-radius: 6px; }
-    .tk-main-head .rm:hover { color: var(--danger); background: var(--danger-bg); }
-    .tk-main .tk-addsub { margin-top: 6px; }
-    .tk-addmain { display: flex; gap: 7px; margin-top: 10px; }
-    .tk-addmain input[type=text] { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 12.5px; }
-    .tk-addmain select { max-width: 118px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 11.5px; background: var(--surface); }
     /* Form: the collapsible "Additional details" section + hints */
     details.tk-extra { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 6px; }
     details.tk-extra > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 7px; font-size: 10.5px;
@@ -1304,86 +1236,19 @@
         </section>
 
         <!-- ---------- TASK BOARD (Delivery) ---------- -->
-        {#- Person <select> options from the team roster (lead / sub-task owner pickers). -#}
-        {% macro tk_people(sel, blank) -%}
-          <option value="">{{ blank|default('-', true) }}</option>
-          {%- for p in task_roster %}<option value="{{ p.id }}" {{ 'selected' if p.id == sel else '' }}>{{ p.name }}</option>{% endfor %}
-        {%- endmacro %}
-        {#- Reopen-after-action: overlay forms carry these so the redirect lands back INSIDE this
-            task's detail overlay, on the same tab (the console script reads ?task=&tab=). -#}
-        {% macro tk_back(t, tab) -%}
-          <input type="hidden" name="back_task" value="{{ t.client_key }}:{{ t.id }}"><input type="hidden" name="back_tab" value="{{ tab }}">
-        {%- endmacro %}
-        {#- The full add/edit field set, pre-filled from `t` (empty dict for the New form).
-            The one name field is LABELED Campaign but stores as `title` (tasks are mostly
-            campaigns); the label auto-follows the department; optional fields live in a
-            collapsible "Additional details" section, auto-open when an edited task uses them.
-            Support people render ONLY on Edit (is_edit) -- they're assigned after creation. -#}
-        {#- The New/Edit service form is split into small field groups so the two forms can arrange
-            them differently: the New form slots the Service-type picker between Dept/Lead and
-            Campaign (so you pick the template that drives the tasks BEFORE the details it fills in),
-            while Edit, which never regenerates the breakdown, just stacks them in reading order. -#}
-        {% macro tk_deptlead(t) -%}
-          <div class="tk-formgrid">
-            <div><label>Department</label><select name="department">
-              <option value="">-</option>
-              {% for dk, dl in task_departments %}<option value="{{ dk }}" {{ 'selected' if t.department|default('') == dk else '' }}>{{ dl }}</option>{% endfor %}
-            </select></div>
-            <div><label>Lead (main)</label><select name="lead_id">{{ tk_people(t.lead_id|default('', true), 'Unassigned') }}</select></div>
-            <div class="full"><div class="tk-hint">The card label follows the department automatically: Acquisition → <b>Paid Media</b>, Lifecycle → <b>Organic</b>, everything else → <b>Website</b>.</div></div>
-          </div>
-        {%- endmacro %}
-        {% macro tk_campaign(t) -%}
-          <div class="tk-formgrid" style="margin-top:12px">
-            <div class="full"><label>Campaign name</label><input type="text" name="title" value="{{ t.title|default('', true) }}" placeholder="Unique campaign or service name" required></div>
-          </div>
-        {%- endmacro %}
-        {% macro tk_meta(t) -%}
-          <div class="tk-formgrid" style="margin-top:12px">
-            <div><label>Priority</label><select name="priority">
-              {% for pr in ['Low','Medium','High','Urgent'] %}<option {{ 'selected' if t.priority|default('Medium') == pr else '' }}>{{ pr }}</option>{% endfor %}
-            </select></div>
-            <div><label>Service charge ($)</label><input type="text" inputmode="decimal" name="service_charge" value="{{ t.service_charge|default('', true) }}" placeholder="0" data-money pattern="[0-9]*[.]?[0-9]*" title="Numbers only (e.g. 4200 or 4200.50)"></div>
-            <div><label>Start date</label><input type="date" name="start_date" value="{{ t.start_date|default('', true) }}"></div>
-            <div><label>Launch date</label><input type="date" name="due_date" value="{{ t.due_date|default('', true) }}"></div>
-          </div>
-        {%- endmacro %}
-        {% macro tk_extra(t, is_edit) -%}
-          {% set has_extra = is_edit and (t.client_facing|default(false) or t.deliverable_url|default('') or t.client_note|default('') or t.internal_notes|default('') or (t.support_ids|default([], true))|length) %}
-          <details class="tk-extra" {{ 'open' if has_extra else '' }}>
-            <summary>Additional details{{ '' if has_extra else ' (optional)' }}</summary>
-            <div class="tk-formgrid">
-              <div class="full"><div class="tk-hint">This board is internal. The service reaches the client's Progress tab only when <b>Client-facing</b> is ticked, and even then only the client-safe fields are shared; support people, the charge, and internal notes stay here.</div></div>
-              <div class="full"><label class="tk-cf"><input type="checkbox" name="client_facing" value="1" {{ 'checked' if t.client_facing|default(false) else '' }}>
-                Client-facing: show this service on the client's Progress tab</label></div>
-              {% if is_edit %}
-              <input type="hidden" name="has_support" value="1">
-              <div class="full"><label>Support people</label><div class="tk-pick">
-                {% for p in task_roster %}<label><input type="checkbox" name="support_ids" value="{{ p.id }}" {{ 'checked' if p.id in (t.support_ids|default([], true)) else '' }}> {{ p.name }}</label>{% endfor %}
-              </div></div>
-              {% else %}
-              <div class="full"><div class="tk-hint">Support people are added from the service's card once it's created.</div></div>
-              {% endif %}
-              <div><label>Deliverable URL (client-safe)</label><input type="text" name="deliverable_url" value="{{ t.deliverable_url|default('', true) }}" placeholder="https://…"></div>
-              <div><label>Client note (client-safe)</label><input type="text" name="client_note" value="{{ t.client_note|default('', true) }}" placeholder="The update the client reads"></div>
-              <div class="full"><label>🔒 Internal notes (never shown to the client)</label><textarea name="internal_notes">{{ t.internal_notes|default('', true) }}</textarea></div>
-            </div>
-          </details>
-        {%- endmacro %}
-        {#- Edit form: no service-type picker (edits never regenerate the breakdown), so the groups
-            just stack: Dept/Lead → Campaign → Priority/charge/dates → Additional details. -#}
-        {% macro tk_fields(t, is_edit) -%}
-          {{ tk_deptlead(t) }}
-          {{ tk_campaign(t) }}
-          {{ tk_meta(t) }}
-          {{ tk_extra(t, is_edit) }}
-        {%- endmacro %}
+        {#- 🔴 The seven task FORM macros that stood here (tk_people / tk_back / tk_deptlead /
+            tk_campaign / tk_meta / tk_extra / tk_fields) are GONE (2026-08-03, decision D2 of
+            sentinel/docs/TASKBOARD_REBUILD.md). This pane is a READ-ONLY monitor: every task is
+            created, assigned, moved, parked, reviewed and filed in SENTINEL, which pushes the
+            client-safe subset into each workspace over the internal bridge. Nothing here writes a
+            task, so there are no pickers, no autosubmitting inputs and no reopen-after-action
+            plumbing (`back_task`/`back_tab`) left to build. -#}
         <section class="pane" data-pane="tasks">
           <div class="tk-pagehead">
             <div>
               <p class="eyebrow">Atrium Admin &middot; Delivery</p>
               <h1 class="page">Task Board</h1>
-              <p class="lead">Every client deliverable across every workspace, drag to move, click to open.</p>
+              <p class="lead">Every client deliverable across every workspace — <b>read-only</b>. Click a card to see where it stands; open it in Sentinel to change anything.</p>
             </div>
             <div class="tk-head-actions">
               <button type="button" class="btn-ghost tk-hbtn" data-section="trash" title="Deleted tasks live in the Bin, restorable for {{ trash_ttl_days }} days">
@@ -1401,10 +1266,9 @@
               <form id="tk-import-form" method="post" action="/admin/atrium/tasks/import" enctype="multipart/form-data" hidden>
                 <input type="file" id="tk-import-file" name="file" accept="application/json">
               </form>
-              <button type="button" class="btn" id="tk-new-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                New Service
-              </button>
+              {#- No "New Service" button: a service is raised in Sentinel (decision D2). Export
+                  stays (it is a read-only backup) and so does Import — break-glass restore, not
+                  task management. -#}
             </div>
           </div>
 
@@ -1463,7 +1327,8 @@
               </div>
               <div class="tk-list" data-stage="{{ col.key }}">
                 {% for t in col.tasks %}
-                <div class="tk-card{{ ' held' if t.on_hold else '' }}" draggable="true" data-open="{{ t.client_key }}:{{ t.id }}"
+                {#- Not draggable since 2026-08-03: a stage move is a Sentinel action (D2). -#}
+                <div class="tk-card{{ ' held' if t.on_hold else '' }}" data-open="{{ t.client_key }}:{{ t.id }}"
                      data-client="{{ t.client_key }}" data-dept="{{ t.department }}"
                      data-people="{{ t.people }}" data-priority="{{ t.priority }}"
                      data-due="{{ t.due_date or '9999-99-99' }}" data-cname="{{ t.client_name }}" data-hold="{{ '1' if t.on_hold else '0' }}">
@@ -1517,9 +1382,8 @@
                   <span class="tkd-status"><span class="pdot" style="background: {{ {'in_process':'#2f6ecc','for_launch':'#c77d16','launched':'#4fa84a','closed':'#8b8f8c'}[t.stage] }}"></span>{{ col.name }}</span>
                   <span class="tkd-eyebrow">Service &middot; {{ t.client_name }}</span>
                 </div>
-                {#- Edit + Close live in the always-visible header, the ONLY Edit affordance
-                    (the footer keeps just Archive + the one primary stage action). -#}
-                <button type="button" class="btn-ghost small tkd-headedit" data-tkedit-open="{{ t.client_key }}:{{ t.id }}">Edit</button>
+                {#- No Edit: this overlay READS a task (D2). The footer carries the one action left
+                    — open it in Sentinel, where it is actually managed. -#}
                 <button type="button" class="tkd-x" data-tkclose aria-label="Close">&times;</button>
               </div>
               <div class="tkd-body">
@@ -1567,128 +1431,50 @@
                       {% for s in t.support_people %}<span class="tk-personchip"><span class="tk-av sup" style="margin:0;background: {{ s.color }}">{{ s.name[:1]|upper }}</span>{{ s.name }}</span>{% endfor %}
                     </div>
                     {% if t.internal_notes %}<div class="tkd-sl">Notes</div><div style="font-size:13px;color:var(--body);line-height:1.55">{{ t.internal_notes }}</div>{% endif %}
-                    {#- On hold ⇄ Ongoing. The put-on-hold form stays hidden behind a link, a
-                        rarely-used action shouldn't hold a permanent input field. -#}
-                    {% if t.on_hold %}
-                    <form class="tk-holdform" method="post" action="/w/{{ t.client_key }}/admin/task/hold">
-                      <input type="hidden" name="redirect" value="console"><input type="hidden" name="task_id" value="{{ t.id }}">
-                      {{ tk_back(t, 'details') }}
-                      <span class="tk-hold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>On hold</span>
-                      <input type="hidden" name="on_hold" value="0">
-                      <button type="submit" class="btn small">Set ongoing →</button>
-                    </form>
-                    {% else %}
+                    {#- Read-only. Parking/resuming is a Sentinel action (it stores the column the
+                        card left, which Atrium has no field for). -#}
                     <div class="tk-holdrow">
-                      <span class="tk-ongoing">● Ongoing</span>
-                      <button type="button" class="tk-linkish" data-holdreveal>Put on hold…</button>
+                      {% if t.on_hold %}<span class="tk-hold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>On hold</span>
+                      {% else %}<span class="tk-ongoing">● Ongoing</span>{% endif %}
                     </div>
-                    <form class="tk-holdform" method="post" action="/w/{{ t.client_key }}/admin/task/hold" hidden>
-                      <input type="hidden" name="redirect" value="console"><input type="hidden" name="task_id" value="{{ t.id }}">
-                      {{ tk_back(t, 'details') }}
-                      <input type="text" name="hold_reason" aria-label="Hold reason" placeholder="Reason (optional, internal)">
-                      <input type="hidden" name="on_hold" value="1">
-                      <button type="submit" class="btn-ghost">Put on hold</button>
-                      <button type="button" class="tk-linkish" data-holdcancel>Cancel</button>
-                    </form>
-                    {% endif %}
                   </div>
                 </div>
                 <div class="tkd-panel" role="tabpanel" data-tkpanel="tasks">
+                  {#- 🔴 READ-ONLY (2026-08-03, D2). Every control that used to live in this panel —
+                      the sub-task checkboxes, the inline rename + "done when" inputs, the owner
+                      selects, the ✕ removals, the add-a-main-task / add-a-sub-task forms and the
+                      "all done → move it on" nudge — wrote `ws["tasks"]` through the retired
+                      /w/<c>/admin/task/{maintask,subtask,move} routes. The breakdown is owned by the
+                      Sentinel row and arrives over the bridge; ticking a step here would fight it. -#}
                   <div class="tkd-sl" style="margin-top:0">Main tasks{% if t.subs_total %} &middot; {{ t.subs_done }}/{{ t.subs_total }} sub-tasks{% endif %}</div>
                   {% if t.subs_total %}<div class="tk-progress"><i style="width: {{ (100 * t.subs_done / t.subs_total)|round|int }}%"></i></div>{% endif %}
                   {% for m in t.maintasks %}
                   <div class="tk-main {{ 'done' if m.all_done else '' }}">
                     <div class="tk-main-head">
                       <span class="tk-main-check">{% if m.all_done %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{% endif %}</span>
-                      {#- The title IS the rename control: edit the text, blur, and it saves. -#}
-                      <form method="post" action="/w/{{ t.client_key }}/admin/task/maintask" data-autosubmit class="tk-main-rename">
-                        <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="rename">
-                        <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="maintask_id" value="{{ m.id }}">
-                        {{ tk_back(t, 'tasks') }}
-                        <input type="text" name="text" value="{{ m.text }}" aria-label="Main task name (edit to rename)" title="Click to rename">
-                      </form>
+                      <span class="tk-main-title" style="flex:1 1 auto;min-width:80px">{{ m.text }}</span>
                       <span class="tk-main-count tnum">{{ m.subs_done }}/{{ m.subs_total }}</span>
-                      {#- Owner reads like the prototype: colored avatar + bold name. The name IS
-                          a borderless select, so clicking it still reassigns in one step. -#}
-                      <form method="post" action="/w/{{ t.client_key }}/admin/task/maintask" data-autosubmit style="margin-left:auto;gap:6px">
-                        <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="assign">
-                        <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="maintask_id" value="{{ m.id }}">
-                        {{ tk_back(t, 'tasks') }}
-                        {% if m.owner_name %}<span class="tk-av sup" style="margin:0;background: {{ m.owner_color }}" title="{{ m.owner_name }} (owner)">{{ m.owner_name[:1]|upper }}</span>{% endif %}
-                        <select name="assignee_id" class="tk-ownersel" aria-label="Main-task owner" title="Reassign this main task">{{ tk_people(m.assignee_id, 'Assign…') }}</select>
-                      </form>
-                      <form method="post" action="/w/{{ t.client_key }}/admin/task/maintask" data-tkmaindel data-tktitle="{{ m.text }}">
-                        <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="delete">
-                        <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="maintask_id" value="{{ m.id }}">
-                        {{ tk_back(t, 'tasks') }}
-                        <button type="submit" class="rm" title="Remove main task (and its sub-tasks)">&times;</button>
-                      </form>
+                      <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+                        {% if m.owner_name %}<span class="tk-av sup" style="margin:0;background: {{ m.owner_color }}" title="{{ m.owner_name }} (owner)">{{ m.owner_name[:1]|upper }}</span><span class="tk-lead-nm">{{ m.owner_name }}</span>
+                        {% else %}<span style="font-size:12.5px;color:var(--muted)">No owner</span>{% endif %}
+                      </span>
                     </div>
                     {% for s in m.subs %}
                     <div class="tk-subrow {{ 'done' if s.done else '' }}">
-                      <form method="post" action="/w/{{ t.client_key }}/admin/task/subtask" data-autosubmit>
-                        <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="toggle">
-                        <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="subtask_id" value="{{ s.id }}">
-                        {{ tk_back(t, 'tasks') }}
-                        <input type="checkbox" name="done" value="1" {{ 'checked' if s.done else '' }} aria-label="Done">
-                      </form>
-                      {#- Text + "done when" are inline-editable: edit and blur to save (like the
-                          main-task rename). The dod is INTERNAL, never rendered on the client Progress. -#}
-                      <form method="post" action="/w/{{ t.client_key }}/admin/task/subtask" data-autosubmit class="tk-sub-edit">
-                        <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="edit">
-                        <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="subtask_id" value="{{ s.id }}">
-                        {{ tk_back(t, 'tasks') }}
-                        <input type="text" name="text" value="{{ s.text }}" class="tk-sub-name" aria-label="Sub-task (edit to rename)" title="Click to edit">
-                        <input type="text" name="dod" value="{{ s.dod|default('', true) }}" class="tk-sub-dod" placeholder="Done when… (internal)" aria-label="Done when (internal)" title="Definition of done: internal, never shown to the client">
-                      </form>
-                      <form method="post" action="/w/{{ t.client_key }}/admin/task/subtask" data-autosubmit>
-                        <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="assign">
-                        <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="subtask_id" value="{{ s.id }}">
-                        {{ tk_back(t, 'tasks') }}
+                      <span class="tk-subdone" aria-hidden="true">{{ '✓' if s.done else '○' }}</span>
+                      <span class="txt">{{ s.text }}</span>
+                      {% if s.dod %}<span class="tk-dod" title="Definition of done — internal, never shown to the client">Done when: {{ s.dod }}</span>{% endif %}
+                      <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
                         {% if s.owner_name %}<span class="tk-av sup" style="margin:0;background: {{ s.owner_color }}" title="{{ s.owner_name }}">{{ s.owner_name[:1]|upper }}</span>{% endif %}
-                        <select name="assignee_id" aria-label="Sub-task owner">{{ tk_people(s.assignee_id, 'Assign…') }}</select>
-                      </form>
-                      <form method="post" action="/w/{{ t.client_key }}/admin/task/subtask">
-                        <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="delete">
-                        <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="subtask_id" value="{{ s.id }}">
-                        {{ tk_back(t, 'tasks') }}
-                        <button type="submit" class="rm" title="Remove sub-task">&times;</button>
-                      </form>
+                      </span>
                     </div>
                     {% else %}
                     <div style="font-size:12.5px;color:var(--muted);padding:4px 2px">No sub-tasks yet.</div>
                     {% endfor %}
-                    <form class="tk-addsub" method="post" action="/w/{{ t.client_key }}/admin/task/subtask">
-                      <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="add">
-                      <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="maintask_id" value="{{ m.id }}">
-                      {{ tk_back(t, 'tasks') }}
-                      <input type="text" name="text" placeholder="Add a sub-task…">
-                      <input type="text" name="dod" placeholder="Done when… (optional, internal)" class="tk-dod-in">
-                      <select name="assignee_id" aria-label="Assign">{{ tk_people('', 'Assign…') }}</select>
-                      <button type="submit" class="btn small">Add</button>
-                    </form>
                   </div>
                   {% else %}
-                  <div style="font-size:12.5px;color:var(--muted)">No main tasks yet. Add one below, then break it into sub-tasks.</div>
+                  <div style="font-size:12.5px;color:var(--muted)">No breakdown yet. The phases and steps come from the task in Sentinel.</div>
                   {% endfor %}
-                  <form class="tk-addmain" method="post" action="/w/{{ t.client_key }}/admin/task/maintask">
-                    <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="add">
-                    <input type="hidden" name="task_id" value="{{ t.id }}">
-                    {{ tk_back(t, 'tasks') }}
-                    <input type="text" name="text" placeholder="Add a main task…">
-                    <select name="assignee_id" aria-label="Assign">{{ tk_people('', 'Assign…') }}</select>
-                    <button type="submit" class="btn small">Add main task</button>
-                  </form>
-                  {% if t.all_subs_done and t.next_stage_key and t.stage != 'closed' %}
-                  <div class="tk-nudge">✓ All sub-tasks done:
-                    <form method="post" action="/w/{{ t.client_key }}/admin/task/move">
-                      <input type="hidden" name="redirect" value="console"><input type="hidden" name="task_id" value="{{ t.id }}">
-                      <input type="hidden" name="stage" value="{{ t.next_stage_key }}">
-                      {{ tk_back(t, 'tasks') }}
-                      <button type="submit" class="btn small">Move to {{ t.next_stage_label }} →</button>
-                    </form>
-                  </div>
-                  {% endif %}
                 </div>
                 <div class="tkd-panel" role="tabpanel" data-tkpanel="comments">
                   <div class="tk-thread">
@@ -1697,26 +1483,15 @@
                       {% if c.kind == 'changes' %}<span class="flag">⚑ Change request{{ ' · resolved' if c.resolved else '' }}</span>{% endif %}
                       <span class="who">{{ c.sender_name or ('Client' if c.sender == 'client' else 'AGORA') }}</span>
                       <div>{{ c.body }}</div>
-                      {% if c.kind == 'changes' and not c.resolved %}
-                      <form method="post" action="/w/{{ t.client_key }}/admin/task/comment">
-                        <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="resolve">
-                        <input type="hidden" name="task_id" value="{{ t.id }}"><input type="hidden" name="comment_id" value="{{ c.id }}">
-                        {{ tk_back(t, 'comments') }}
-                        <button type="submit" class="btn small">Resolve</button>
-                      </form>
-                      {% endif %}
+                      {#- Resolving a change request is a Sentinel action now (its drawer posts it
+                          over the bridge), so this is a read of the flag, not a control. -#}
                     </div>
                     {% else %}
                     <div style="font-size:12.5px;color:var(--muted)">No comments yet.</div>
                     {% endfor %}
                   </div>
-                  <form class="tk-comform" method="post" action="/w/{{ t.client_key }}/admin/task/comment">
-                    <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="add">
-                    <input type="hidden" name="task_id" value="{{ t.id }}">
-                    {{ tk_back(t, 'comments') }}
-                    <input type="text" name="body" placeholder="Write a comment…">
-                    <button type="submit" class="btn small">Send</button>
-                  </form>
+                  {#- No composer: a team comment on a client-facing card reaches the client, and
+                      Sentinel's drawer is where the team writes one (it posts over the bridge). -#}
                   <details class="tk-disc">
                     <summary>Activity</summary>
                     <ul class="tk-activity">
@@ -1730,43 +1505,21 @@
                 </div>
               </div>
               <div class="tkd-foot">
-                <form method="post" action="/w/{{ t.client_key }}/admin/task/delete" data-tkdelete data-tktitle="{{ t.title }}">
-                  <input type="hidden" name="redirect" value="console"><input type="hidden" name="task_id" value="{{ t.id }}">
-                  <button type="submit" class="btn-ghost" title="Moves this service to the Bin, restorable for {{ trash_ttl_days }} days">Move to Archive</button>
-                </form>
+                {#- The only action left. Archive + the advance-stage button posted the retired
+                    /admin/task/{delete,move} routes; filing and moving are Sentinel's now.
+                    `?open=` takes Atrium's composite board id — Sentinel's board renders these cards
+                    under exactly that id (atrium:<client_key>:<task_id>), so the drawer opens on the
+                    right card. It targets /dashboard directly because Sentinel's /login drops the
+                    query string. -#}
+                <span class="tkd-hint" style="font-size:12px;color:var(--muted)">Managed in Sentinel</span>
                 <span class="spacer"></span>
-                {#- No Edit here: the sticky header carries it (.tkd-headedit), so a second one is
-                    redundant and crowds the primary action. -#}
-                {#- The one primary action per stage (sandbox design): advance to the next stage.
-                    Backward moves stay on the board via drag; the close-guard flash covers blocks. -#}
-                {% if t.next_stage_key %}
-                <form method="post" action="/w/{{ t.client_key }}/admin/task/move" style="margin:0">
-                  <input type="hidden" name="redirect" value="console"><input type="hidden" name="task_id" value="{{ t.id }}">
-                  <input type="hidden" name="stage" value="{{ t.next_stage_key }}">
-                  {{ tk_back(t, 'details') }}
-                  <button type="submit" class="btn small">{{ {'for_launch': 'Move to For Launch', 'launched': 'Mark Launched', 'closed': 'Mark Complete'}[t.next_stage_key] }} →</button>
-                </form>
-                {% endif %}
+                <a class="btn small violet" style="text-decoration:none"
+                   href="{{ sentinel_base }}/dashboard?open=atrium:{{ t.client_key }}:{{ t.id }}"
+                   target="_blank" rel="noopener">Open in Sentinel →</a>
               </div>
             </div>
-            <div class="tkd" data-tkedit="{{ t.client_key }}:{{ t.id }}" hidden>
-              <form method="post" action="/w/{{ t.client_key }}/admin/task">
-                <div class="tkd-head">
-                  <div><div class="tkd-eyebrow">{{ t.client_name }} &middot; Edit Service</div>
-                    <div class="tkd-title">{{ t.title }}</div></div>
-                  <button type="button" class="tkd-x" data-tkclose aria-label="Close">&times;</button>
-                </div>
-                <div class="tkd-body">
-                  <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="edit">
-                  <input type="hidden" name="task_id" value="{{ t.id }}">
-                  {{ tk_fields(t, true) }}
-                </div>
-                <div class="tkd-foot"><span class="spacer"></span>
-                  <button type="button" class="btn-ghost" data-tkclose>Cancel</button>
-                  <button type="submit" class="btn small violet">Save changes</button>
-                </div>
-              </form>
-            </div>
+            {#- The per-task EDIT overlay stood here; it posted /w/<c>/admin/task (op=edit).
+                Gone with the rest of Atrium's task writers (D2). -#}
             {% endfor %}{% endfor %}
             {#- New CLIENT overlay (opened from the Clients page head; reuses the same veil). -#}
             <div class="tkd narrow" data-ncnew hidden>
@@ -1790,78 +1543,11 @@
                 </div>
               </form>
             </div>
-            <div class="tkd" data-tknew hidden>
-              <form method="post" action="" id="tk-new-form">
-                <div class="tkd-head">
-                  <div><div class="tkd-eyebrow">Delivery &middot; New Service</div>
-                    <div class="tkd-title">Add a service</div></div>
-                  <button type="button" class="tkd-x" data-tkclose aria-label="Close">&times;</button>
-                </div>
-                <div class="tkd-body">
-                  <input type="hidden" name="redirect" value="console"><input type="hidden" name="op" value="add">
-                  {#- New services always start in In Process (no stage picker); move them along the
-                      board from there. -#}
-                  <div class="tk-formgrid" style="margin-bottom:12px">
-                    <div class="full"><label>Client</label><select id="tk-new-client" required>
-                      <option value="">Choose a client…</option>
-                      {% for c in clients %}{% if c.has_workspace %}<option value="{{ c.key }}">{{ c.name|default(c.key, true) }}</option>{% endif %}{% endfor %}
-                    </select></div>
-                  </div>
-                  {{ tk_deptlead({}) }}
-                  {#- Service type -> auto-built work breakdown, placed UP HERE (right after Dept/Lead)
-                      so you choose the template that builds the tasks BEFORE the details it fills in.
-                      The department select (tk_deptlead) filters the list; the picker + campaign +
-                      params + ad-production drive service_templates.py server-side. The catalog is
-                      rendered as hidden DOM the JS reads (no Jinja in a script block, per the house
-                      rule). -#}
-                  <div class="svc-block">
-                    <div class="tk-formgrid">
-                      <div class="full"><label>Service type</label>
-                        <select name="service_key" id="svc-type" disabled>
-                          <option value="">Choose a department first…</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div class="tk-hint" style="margin-top:8px">Pick a department, then a service type. The phases and steps (with a &ldquo;done when&rdquo; on each) are created for you. Choose <b>Custom (blank)</b> to start empty.</div>
-                    {{ tk_campaign({}) }}
-                    <div id="svc-params" class="svc-params"></div>
-                    <div id="svc-adprod" class="svc-adprod" hidden>
-                      <div class="svc-adprod-h">Ad production tasks</div>
-                      <div class="tk-hint">Add the creative work this campaign needs. Each drops in its own task group on top of the automatic launch tasks. Add as many as you like.</div>
-                      <div class="svc-adprod-add">
-                        <select id="svc-adprod-pick" aria-label="Choose a set of tasks"></select>
-                        <button type="button" class="btn small" id="svc-adprod-add-btn">+ Add</button>
-                      </div>
-                      <div id="svc-adprod-list" class="svc-adprod-list"></div>
-                    </div>
-                  </div>
-                  {{ tk_meta({}) }}
-                  {#- Hidden service catalog (data only; no form inputs, so it never submits). -#}
-                  <div id="svc-catalog" hidden>
-                    {% for s in task_services %}
-                    <div class="svc" data-key="{{ s.key }}" data-dept="{{ s.dept }}" data-label="{{ s.label }}"
-                         data-content="{{ s.content_type }}" data-camptype="{{ s.camp_type }}"
-                         data-adprod="{{ '1' if s.ad_production else '' }}">
-                      {% for p in s.params %}
-                      <div class="svc-param" data-k="{{ p.k }}" data-kind="{{ p.kind }}" data-label="{{ p.label }}"
-                           data-def="{{ p.def }}" data-opts="{{ p.opts|join('|') }}"></div>
-                      {% endfor %}
-                    </div>
-                    {% endfor %}
-                  </div>
-                  <div id="adprod-catalog" hidden>
-                    {% for a in task_adprod %}
-                    <div class="ad" data-key="{{ a.key }}" data-label="{{ a.label }}" data-qlabel="{{ a.qty_label }}" data-def="{{ a.def }}"></div>
-                    {% endfor %}
-                  </div>
-                  {{ tk_extra({}, false) }}
-                </div>
-                <div class="tkd-foot"><span class="spacer"></span>
-                  <button type="button" class="btn-ghost" data-tkclose>Cancel</button>
-                  <button type="submit" class="btn small violet">Create service</button>
-                </div>
-              </form>
-            </div>
+            {#- The NEW SERVICE overlay stood here — the client picker, the service-type
+                template picker, its params, the ad-production builder and the two hidden catalogs
+                (#svc-catalog / #adprod-catalog fed by task_services / task_adprod). All gone: a
+                service is raised in Sentinel, whose own ServiceTemplate table owns the recipes and
+                seeds the breakdown before it ever reaches a client's workspace (D2). -#}
           </div>
         </section>
 
@@ -2402,15 +2088,11 @@
       veil.addEventListener("click", function (e) { if (e.target === veil) { tkClose(); } });
       document.addEventListener("keydown", function (e) { if (e.key === "Escape") { tkClose(); } });
       qsa("[data-tkclose]").forEach(function (b) { b.addEventListener("click", tkClose); });
-      qsa("[data-tkedit-open]").forEach(function (b) {
-        b.addEventListener("click", function () { tkOpen(findNode("data-tkedit", b.getAttribute("data-tkedit-open"))); });
-      });
+      // (The [data-tkedit-open] wiring went with the Edit overlay itself — D2, 2026-08-03.)
 
-      // ---- Cards open their detail overlay (unless the click ended a drag). ----
-      var justDragged = false;
+      // ---- Cards open their detail overlay. (No drag to swallow a trailing click any more.) ----
       qsa(".tk-card").forEach(function (card) {
         card.addEventListener("click", function () {
-          if (justDragged) { return; }
           tkOpen(findNode("data-tkd", card.getAttribute("data-open")));
         });
       });
@@ -2426,169 +2108,13 @@
         });
       }
 
-      // ---- New task: pick the client first; the form posts to that client's task route. ----
-      var newBtn = document.getElementById("tk-new-btn");
-      var newForm = document.getElementById("tk-new-form");
-      var newClient = document.getElementById("tk-new-client");
-      if (newBtn) {
-        newBtn.addEventListener("click", function () { tkOpen(document.querySelector("[data-tknew]")); });
-      }
-      if (newForm && newClient) {
-        newClient.addEventListener("change", function () {
-          newForm.setAttribute("action", newClient.value ? "/w/" + newClient.value + "/admin/task" : "");
-        });
-        newForm.addEventListener("submit", function (e) {
-          if (!newClient.value) { e.preventDefault(); newClient.focus(); }
-        });
-      }
-
-      // ---- New service: the service-type picker drives the auto-built task breakdown. ----
-      // Department (in tk_fields) filters the service list; picking a service renders its params +
-      // (Acquisition) the ad-production picker. Everything is plain named inputs, so the server
-      // rebuilds the maintasks from service_key + p_* + ad_type/ad_qty. Catalog read from hidden DOM.
-      (function () {
-        var form = document.getElementById("tk-new-form");
-        if (!form) { return; }
-        var deptSel = form.querySelector("select[name=department]");
-        var typeSel = document.getElementById("svc-type");
-        var paramsBox = document.getElementById("svc-params");
-        var adWrap = document.getElementById("svc-adprod");
-        var adPick = document.getElementById("svc-adprod-pick");
-        var adAdd = document.getElementById("svc-adprod-add-btn");
-        var adList = document.getElementById("svc-adprod-list");
-        if (!deptSel || !typeSel) { return; }
-
-        var CAT = [];
-        qsa("#svc-catalog .svc").forEach(function (n) {
-          var params = [];
-          qsa(".svc-param", n).forEach(function (p) {
-            var opts = p.getAttribute("data-opts") || "";
-            params.push({ k: p.getAttribute("data-k"), kind: p.getAttribute("data-kind"),
-              label: p.getAttribute("data-label"), def: p.getAttribute("data-def") || "",
-              opts: opts ? opts.split("|") : [] });
-          });
-          CAT.push({ key: n.getAttribute("data-key"), dept: n.getAttribute("data-dept"),
-            label: n.getAttribute("data-label"), adprod: !!n.getAttribute("data-adprod"),
-            params: params });
-        });
-        var ADCAT = [];
-        qsa("#adprod-catalog .ad").forEach(function (n) {
-          ADCAT.push({ key: n.getAttribute("data-key"), label: n.getAttribute("data-label"),
-            qlabel: n.getAttribute("data-qlabel"), def: n.getAttribute("data-def") || "1" });
-        });
-
-        function svcByKey(k) {
-          for (var i = 0; i < CAT.length; i++) { if (CAT[i].key === k) { return CAT[i]; } }
-          return null;
-        }
-        function adByKey(k) {
-          for (var i = 0; i < ADCAT.length; i++) { if (ADCAT[i].key === k) { return ADCAT[i]; } }
-          return null;
-        }
-        function emptyAdHint() {
-          if (!adList.children.length) {
-            var hint = document.createElement("div");
-            hint.className = "tk-hint svc-ad-empty";
-            hint.textContent = "No ad production added yet. The campaign still ships with its automatic launch tasks.";
-            adList.appendChild(hint);
-          }
-        }
-        function addAdRow(type) {
-          var a = adByKey(type);
-          if (!a) { return; }
-          var empty = adList.querySelector(".svc-ad-empty");
-          if (empty) { empty.parentNode.removeChild(empty); }
-          var row = document.createElement("div");
-          row.className = "svc-ad-row";
-          var hid = document.createElement("input");
-          hid.type = "hidden"; hid.name = "ad_type"; hid.value = a.key;
-          var name = document.createElement("span");
-          name.className = "svc-ad-name"; name.textContent = a.label;
-          var qty = document.createElement("input");
-          qty.type = "number"; qty.name = "ad_qty"; qty.min = "1"; qty.max = "50";
-          qty.value = a.def; qty.title = a.qlabel; qty.className = "svc-ad-qty";
-          var rm = document.createElement("button");
-          rm.type = "button"; rm.className = "btn-ghost small"; rm.textContent = "Remove";
-          rm.addEventListener("click", function () { row.parentNode.removeChild(row); emptyAdHint(); });
-          row.appendChild(hid); row.appendChild(name); row.appendChild(qty); row.appendChild(rm);
-          adList.appendChild(row);
-        }
-        function renderService() {
-          paramsBox.innerHTML = "";
-          adList.innerHTML = "";
-          var s = svcByKey(typeSel.value);
-          if (!s) { adWrap.hidden = true; return; }
-          for (var i = 0; i < s.params.length; i++) {
-            var p = s.params[i];
-            var wrap = document.createElement("div");
-            wrap.className = "svc-param-field";
-            var lab = document.createElement("label");
-            lab.textContent = p.label; wrap.appendChild(lab);
-            var input;
-            if (p.kind === "choice") {
-              input = document.createElement("select");
-              for (var j = 0; j < p.opts.length; j++) {
-                var o = document.createElement("option");
-                o.value = p.opts[j]; o.textContent = p.opts[j];
-                if (p.opts[j] === p.def) { o.selected = true; }
-                input.appendChild(o);
-              }
-            } else if (p.kind === "qty") {
-              input = document.createElement("input");
-              input.type = "number"; input.min = "1"; input.max = "50"; input.value = p.def || "1";
-            } else {
-              input = document.createElement("input");
-              input.type = "text"; input.value = p.def || "";
-            }
-            input.name = "p_" + p.k;
-            wrap.appendChild(input); paramsBox.appendChild(wrap);
-          }
-          if (s.adprod) {
-            adWrap.hidden = false;
-            adPick.innerHTML = "";
-            for (var a = 0; a < ADCAT.length; a++) {
-              var ao = document.createElement("option");
-              ao.value = ADCAT[a].key; ao.textContent = ADCAT[a].label; adPick.appendChild(ao);
-            }
-            emptyAdHint();
-          } else {
-            adWrap.hidden = true;
-          }
-        }
-        function fillTypes() {
-          var dept = deptSel.value;
-          typeSel.innerHTML = "";
-          var here = [];
-          for (var i = 0; i < CAT.length; i++) { if (CAT[i].dept === dept) { here.push(CAT[i]); } }
-          var first = document.createElement("option");
-          first.value = "";
-          first.textContent = dept ? "Custom (blank, no auto tasks)" : "Choose a department first…";
-          typeSel.appendChild(first);
-          for (var k = 0; k < here.length; k++) {
-            var o = document.createElement("option");
-            o.value = here[k].key; o.textContent = here[k].label; typeSel.appendChild(o);
-          }
-          typeSel.disabled = !dept;
-          if (here.length === 1) { typeSel.value = here[0].key; }  // one-service dept auto-selects
-          renderService();
-        }
-
-        deptSel.addEventListener("change", fillTypes);
-        typeSel.addEventListener("change", renderService);
-        if (adAdd) { adAdd.addEventListener("click", function () { addAdRow(adPick.value); }); }
-        // Fresh form on every open: form.reset() clears the campaign name / dates / client, then
-        // fillTypes() rebuilds the service picker + wipes any params / ad-production rows left over
-        // from a previous (possibly cancelled) New Service -- so you never create a service carrying
-        // a stale breakdown. Runs alongside the tk-new-btn -> tkOpen handler.
-        var newBtnEl = document.getElementById("tk-new-btn");
-        if (newBtnEl) {
-          newBtnEl.addEventListener("click", function () {
-            try { form.reset(); } catch (e) { /* reset is best-effort */ }
-            fillTypes();
-          });
-        }
-        fillTypes();
-      })();
+      // ---- (removed 2026-08-03, decision D2) ----
+      // Here stood the New-Service wiring: the client picker that pointed the form at
+      // /w/<c>/admin/task, and the service-type builder that read #svc-catalog / #adprod-catalog out
+      // of hidden DOM to render a template's params + ad-production rows. A service is raised in
+      // SENTINEL now — its own ServiceTemplate table owns the recipes and seeds the breakdown, and
+      // the bridge pushes the client-safe result into the workspace. Nothing on this page creates a
+      // task, so none of that machinery has anything to submit.
 
       // ---- Export: download the whole board as a JSON backup. ----
       var exportBtn = document.getElementById("tk-export-btn");
@@ -2629,142 +2155,18 @@
         });
       });
 
-      // ---- "Put on hold…" stays a link until clicked; then the reason form appears. ----
-      qsa("[data-holdreveal]").forEach(function (b) {
-        b.addEventListener("click", function () {
-          var row = b.parentNode;                 // .tk-holdrow
-          var form = row.nextElementSibling;      // the hidden .tk-holdform
-          if (form) {
-            row.hidden = true;
-            form.hidden = false;
-            var inp = form.querySelector('input[name="hold_reason"]');
-            if (inp) { inp.focus(); }
-          }
-        });
-      });
-      qsa("[data-holdcancel]").forEach(function (b) {
-        b.addEventListener("click", function () {
-          var form = b.parentNode;                // .tk-holdform
-          var row = form.previousElementSibling;  // .tk-holdrow
-          form.hidden = true;
-          if (row) { row.hidden = false; }
-        });
-      });
-
-      // ---- Confirm before removing a main task (its sub-tasks go with it). ----
-      qsa("form[data-tkmaindel]").forEach(function (f) {
-        f.addEventListener("submit", function (e) {
-          var title = f.getAttribute("data-tktitle") || "this main task";
-          if (!window.confirm("Remove the main task “" + title + "” and its sub-tasks?")) {
-            e.preventDefault();
-          }
-        });
-      });
-
-      // ---- Auto-submit mini-forms WITHOUT the full-page reload ("the blink"). ----
-      // Sub-task done toggles + owner/assignee selects + main-task rename post via fetch and the
-      // page STAYS PUT, the control already shows the new state, so it reads as instant (optimistic
-      // update). Only these high-frequency actions are converted; create/edit/move/delete still do a
-      // normal submit. The routes return JSON when `redirect` is absent (see _task_reply).
-      function tkToast(text, bad) {
-        var el = document.createElement("div");
-        el.className = "tk-toast" + (bad ? " bad" : "");
-        el.textContent = text;
-        document.body.appendChild(el);
-        void el.offsetWidth;                      // reflow so the transition runs
-        el.classList.add("show");
-        setTimeout(function () {
-          el.classList.remove("show");
-          setTimeout(function () { if (el.parentNode) { el.parentNode.removeChild(el); } }, 300);
-        }, bad ? 2400 : 1300);
-      }
-      // Keep the board card's "done/total" sub-task chip fresh after a toggle (no reload to do it).
-      function tkRefreshCounts(f) {
-        var store = f.closest ? f.closest("[data-tkd]") : null;
-        if (!store) { return; }
-        var key = store.getAttribute("data-tkd");
-        var boxes = qsa('input[type="checkbox"][name="done"]', store);
-        if (!boxes.length) { return; }
-        var done = 0;
-        boxes.forEach(function (b) { if (b.checked) { done += 1; } });
-        var chip = document.querySelector('[data-subs="' + key + '"]');
-        if (chip) { chip.textContent = done + "/" + boxes.length; }
-      }
-      // A ticked sub-task must restyle the whole overlay live (strike-through, per-phase count +
-      // ✓, the progress bar, the Tasks-tab badge, the "x/y sub-tasks" header) -- otherwise the UI
-      // lies until a reload. Recomputed from the DOM so it always matches what's actually checked.
-      var TK_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-      function tkCountDone(rows) {
-        var d = 0;
-        rows.forEach(function (r) { var b = r.querySelector('input[name="done"]'); if (b && b.checked) { d += 1; } });
-        return d;
-      }
-      function tkAfterToggle(f) {
-        var store = f.closest ? f.closest("[data-tkd]") : null;
-        if (!store) { return; }
-        var row = f.closest(".tk-subrow");
-        var box = f.querySelector('input[name="done"]');
-        if (row && box) { row.classList.toggle("done", box.checked); }
-        qsa(".tk-main", store).forEach(function (m) {
-          var rows = qsa(".tk-subrow", m);
-          var done = tkCountDone(rows);
-          var allDone = rows.length > 0 && done === rows.length;
-          var cnt = m.querySelector(".tk-main-count");
-          if (cnt) { cnt.textContent = done + "/" + rows.length; }
-          m.classList.toggle("done", allDone);
-          var chk = m.querySelector(".tk-main-check");
-          if (chk) { chk.innerHTML = allDone ? TK_CHECK : ""; }
-        });
-        var all = qsa(".tk-subrow", store);
-        var tdone = tkCountDone(all), ttot = all.length;
-        var pct = ttot ? Math.round(100 * tdone / ttot) : 0;
-        var bar = store.querySelector(".tk-progress i");
-        if (bar) { bar.style.width = pct + "%"; }
-        var badge = store.querySelector('.tkd-tab[data-tktab="tasks"] .tcount');
-        if (badge) { badge.textContent = tdone + "/" + ttot; }
-        var sl = store.querySelector('[data-tkpanel="tasks"] .tkd-sl');
-        if (sl && ttot) { sl.textContent = "Main tasks · " + tdone + "/" + ttot + " sub-tasks"; }
-      }
-      function tkAjaxSubmit(f) {
-        var fd = new FormData(f);
-        fd.delete("redirect");                    // no redirect -> route returns JSON, page stays put
-        fd.delete("back_task"); fd.delete("back_tab");
-        fetch(f.getAttribute("action"), { method: "POST", credentials: "same-origin", body: fd })
-          .then(function (r) { return r.json(); })
-          .then(function (j) {
-            if (!j || !j.ok) { throw new Error((j && j.error) || "Save failed"); }
-            tkRefreshCounts(f);
-            if (f.querySelector('input[name="done"]')) { tkAfterToggle(f); }  // a sub-task toggle
-            tkToast("Saved");
-          })
-          .catch(function () {
-            // Never silently drop a change. Resync by reloading so the UI can't lie.
-            tkToast("Couldn't save, refreshing", true);
-            setTimeout(function () { window.location.reload(); }, 950);
-          });
-      }
-      qsa("form[data-autosubmit]").forEach(function (f) {
-        f.addEventListener("change", function () { tkAjaxSubmit(f); });
-      });
-
-      // ---- Confirm before archiving (soft-delete: the service lands in the Bin, restorable). ----
-      qsa("form[data-tkdelete]").forEach(function (f) {
-        f.addEventListener("submit", function (e) {
-          e.preventDefault();
-          var title = f.getAttribute("data-tktitle") || "this service";
-          var msg = "“" + title + "” will move to the Bin. You can restore it for 30 days.";
-          if (!window.agConfirm) {   // defensive fallback
-            if (window.confirm(msg)) { f.submit(); }
-            return;
-          }
-          window.agConfirm({
-            title: "Move to Archive",
-            message: msg,
-            confirmText: "Move to Archive",
-            onConfirm: function () { f.submit(); }
-          });
-        });
-      });
+      // ---- (removed 2026-08-03, decision D2) ----
+      // This stretch was the overlay's whole optimistic-write layer, and it exists nowhere now
+      // because the overlay has nothing to write:
+      //   * the "Put on hold…" reveal/cancel pair (the hold form is a read-only chip now);
+      //   * the confirm-before-removing-a-main-task guard;
+      //   * `tkAjaxSubmit` + the [data-autosubmit] wiring — sub-task toggles, owner selects and the
+      //     main-task rename posted by fetch and restyled the overlay live (`tkAfterToggle`,
+      //     `tkRefreshCounts`, `tkToast`) so the page never blinked;
+      //   * the agConfirm-guarded Archive submit.
+      // Every one of them posted a retired /w/<c>/admin/task* route. A step is ticked in SENTINEL,
+      // which owns the breakdown and pushes the client-safe copy over the bridge — ticking it here
+      // would be a second writer racing the first (sentinel/docs/TASKBOARD_REBUILD.md §4).
 
       // ---- Board controls: filters (client/dept/person + search), plus the display row
       // (view / sort / density / caps). All client-side. ----
@@ -3055,43 +2457,11 @@
         }
       } catch (e) { /* URL/history unsupported, harmless, the board still rendered */ }
 
-      // ---- Drag a card to another column -> POST the stage move (server re-renders). ----
-      var dragKey = null;
-      qsa(".tk-card").forEach(function (card) {
-        card.addEventListener("dragstart", function (e) {
-          dragKey = card.getAttribute("data-open");
-          card.classList.add("dragging");
-          e.dataTransfer.effectAllowed = "move";
-        });
-        card.addEventListener("dragend", function () {
-          card.classList.remove("dragging");
-          justDragged = true;
-          setTimeout(function () { justDragged = false; }, 200);
-        });
-      });
-      qsa(".tk-list").forEach(function (list) {
-        var col = list.parentNode;
-        list.addEventListener("dragover", function (e) { e.preventDefault(); col.classList.add("drag-over"); });
-        list.addEventListener("dragleave", function () { col.classList.remove("drag-over"); });
-        list.addEventListener("drop", function (e) {
-          e.preventDefault();
-          col.classList.remove("drag-over");
-          if (!dragKey) { return; }
-          var parts = dragKey.split(":");
-          var form = document.createElement("form");
-          form.method = "post";
-          form.action = "/w/" + parts[0] + "/admin/task/move";
-          [["redirect", "console"], ["task_id", parts[1]], ["stage", list.getAttribute("data-stage") || ""]]
-            .forEach(function (kv) {
-              var inp = document.createElement("input");
-              inp.type = "hidden"; inp.name = kv[0]; inp.value = kv[1];
-              form.appendChild(inp);
-            });
-          document.body.appendChild(form);
-          form.submit();
-          dragKey = null;
-        });
-      });
+      // ---- (removed 2026-08-03, decision D2) ----
+      // Drag-to-move lived here: a drop built a form pointing at /w/<c>/admin/task/move and
+      // submitted it. A stage move is a SENTINEL action now, and it flows the other way — Sentinel
+      // pushes the new stage over the internal bridge. The cards are no longer `draggable`, so
+      // there is nothing to listen for.
 
       // ---- Delivery Calendar (month grid built from #cal-store; clicks reuse the task overlay). ----
       (function () {
