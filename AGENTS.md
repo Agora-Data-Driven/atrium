@@ -1025,6 +1025,16 @@ auto-refresh (see those bullets below). Product name is one constant:
   Sentinel user; `set_task_maintasks` is the array-shaped breakdown setter Sentinel's drawer needs,
   and it re-mints foreign ids + preserves the internal `dod` the other side can't see).
   Fail-CLOSED like every internal route. Covered in `_atrium_smoketest.py` + `_workspace_localtest.py`.
+  🔴 **The LIST payload must resolve owner NAMES, not just ids (2026-08-05).**
+  `_internal_task_view` sent `lead_id`/`support_ids` — roster **emails** — while only
+  `_internal_task_detail` resolved them, so Sentinel's board had no name to print and rendered a card
+  with a Lead as **"Unassigned"**, while the drawer for that same card said "Lead: Leo". The two
+  payloads disagreed about whether anyone owned the work. Both now carry `lead_name`/`support_names`
+  via `_person_name` (which degrades an unrostered email to a display name rather than the blank
+  `names.get(..., "")` produced), and the detail view no longer re-maps them — one derivation, both
+  payloads. Pass the roster map **into** `_internal_task_view`: `internal_tasks` builds it once,
+  because `_team_roster()` merges live accounts with `ATRIUM_TEAM` and calling it per card would
+  re-read every admin account for every task on the board.
 - **Company is a CLIENT-VISIBLE, TEAM-WRITTEN tab (who the client actually is; 2026-07-29):** ONE
   workspace key `ws["company"]` holding the agency's answer to "who are we working for?" — the
   **profile** (at-a-glance facts: `one_liner`/`industry`/`founded`/`hq`/`website`/`size`/`customers`),
