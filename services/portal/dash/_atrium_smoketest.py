@@ -914,6 +914,18 @@ def run():
                "3 open change requests" in mirrored)
         _check("the Sentinel column's real label shows, not just the stage's",
                'data-stage="in_progress"' in mirrored)
+        # 🔴 A FILTERED-empty column must say so. The placeholder used to be server-side only
+        # (`{% if not col.tasks %}`), so a column holding cards that the client filter hid rendered
+        # blank while a genuinely empty one said "Nothing here" — on a filtered board that reads as
+        # "nothing loaded", and it is why a working filter looked like the console still wasn't
+        # fetching everything. Every column ships the node now; applyFilters() toggles + rewords it.
+        # Count the MARKUP's own string, not bare "data-colempty" -- the wiring script's
+        # `"[data-colempty]"` selector literal ships in the same HTML and would inflate the count.
+        _check("every column ships an empty-state node for the filter to toggle",
+               mirrored.count('class="tk-empty" data-colempty') == len(main.TASK_STAGE_META)
+               and 'data-colempty hidden>' in mirrored)
+        _check("'N shown' can say what it is a subset OF",
+               'id="tk-shown-total"' in mirrored and "No matches in this column" in mirrored)
 
         # An OUTAGE must not draw an empty board and must not claim to be the whole board.
         main.sentinel_board.fetch_board = lambda: None
