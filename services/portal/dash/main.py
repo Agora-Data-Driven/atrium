@@ -1563,6 +1563,40 @@ def internal_tasks():
     return jsonify(ok=True, tasks=out)
 
 
+@app.route("/api/internal/clients", methods=["GET"])
+def internal_clients():
+    """The CLIENT REGISTRY, for Sentinel to mirror. HMAC-gated, server-to-server, read-only.
+
+    🔴 Atrium is the source of truth for WHO THE CLIENTS ARE (Sentinel is the source of truth for
+    who the STAFF are). Until this endpoint existed Sentinel could only learn a client from the
+    `client_key`/`client_name` embedded in each task of `/api/internal/tasks` — so **a client with no
+    tasks was invisible to it**, and its own `clients` table had to be maintained by hand in Manage,
+    which is exactly the duplicated-source-of-truth this removes.
+
+    `display_name` from the workspace wins over the registry name (that is what the console's Rename
+    button edits and what the client actually sees); the key is the stable identity Sentinel stores as
+    `Client.atrium_client_id`. An unreadable workspace degrades to the registry name rather than
+    dropping the client — a client missing from this list would be deactivated on the far side, and a
+    transient storage blip must never do that.
+    """
+    gate = _internal_gate("clients")
+    if gate:
+        return gate
+    out = []
+    for c in store.list_clients():
+        key = c.get("key") or ""
+        if not key:
+            continue
+        name = c.get("name") or key
+        try:
+            ws = workspace.load_workspace(key) or {}
+            name = ws.get("display_name") or name
+        except Exception:
+            pass          # keep the registry name; see the docstring
+        out.append({"key": key, "name": name, "contact_email": c.get("contact_email") or ""})
+    return jsonify(ok=True, clients=out)
+
+
 @app.route("/api/internal/task-move", methods=["POST"])
 def internal_task_move():
     """Move an Atrium task to a new stage from Sentinel's board (drag-and-drop write-back)."""

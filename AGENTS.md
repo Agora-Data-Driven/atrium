@@ -1025,6 +1025,17 @@ auto-refresh (see those bullets below). Product name is one constant:
   Sentinel user; `set_task_maintasks` is the array-shaped breakdown setter Sentinel's drawer needs,
   and it re-mints foreign ids + preserves the internal `dod` the other side can't see).
   Fail-CLOSED like every internal route. Covered in `_atrium_smoketest.py` + `_workspace_localtest.py`.
+  🔴 **`GET /api/internal/clients` (purpose `clients`) — ATRIUM OWNS THE CLIENT LIST (2026-08-05).**
+  Sentinel owns EMPLOYEES (its `users` table authorizes every login); Atrium owns CLIENTS (each is a
+  workspace in this registry, created and renamed here). Sentinel used to keep its own hand-maintained
+  `clients` table, which made it a second source of truth for the **workspace KEY the entire task
+  bridge is addressed by** — and the two drifted. Its Manage → Clients write routes are gone;
+  `services/client_sync` mirrors this endpoint instead. Read-only, HMAC-gated, cross-workspace, and
+  it returns `{key, name, contact_email}` with the workspace's `display_name` winning over the
+  registry name. ⚠️ Before it existed Sentinel could only learn a client from the `client_key`
+  embedded in each TASK, so **a client with no tasks was invisible to it**. An unreadable workspace
+  degrades to the registry name rather than being dropped — the far side DEACTIVATES a client missing
+  from this list, and a transient storage blip must never trigger that.
   🔴 **The LIST payload must resolve owner NAMES, not just ids (2026-08-05).**
   `_internal_task_view` sent `lead_id`/`support_ids` — roster **emails** — while only
   `_internal_task_detail` resolved them, so Sentinel's board had no name to print and rendered a card
