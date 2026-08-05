@@ -1487,10 +1487,23 @@ def _internal_gate(purpose):
     return None
 
 
-def _internal_task_view(client_key, client_name, t):
-    """One Atrium task in the shape Sentinel's board needs (internal surface -- full fields)."""
+def _internal_task_view(client_key, client_name, t, names=None):
+    """One Atrium task in the shape Sentinel's board needs (internal surface -- full fields).
+
+    🔴 `names` (the roster email -> display-name map) is what makes `lead_name`/`support_names` part
+    of the LIST payload, not just the detail one (2026-08-05). Without them this view carried only
+    `lead_id`, an email, and Sentinel's board had no name to print -- so a card with a Lead set here
+    rendered "Unassigned" on the internal board while its own drawer said "Lead: Charles". Sentinel
+    now degrades an email to a display name on its side too, so this is the accurate answer rather
+    than the only one; keep both, because the roster is the only place a real name exists.
+
+    Pass the map in when looping (`internal_tasks` builds it ONCE for every workspace) -- resolving
+    it per task would re-read every admin account for each card on the board.
+    """
     t = workspace.normalize_task(dict(t))
     subs = workspace.task_subtasks(t)
+    if names is None:
+        names = {p["id"]: p["name"] for p in _team_roster()}
     return {
         # Namespaced so Sentinel can tell an Atrium-owned card from one of its own rows and route
         # edits back here instead of to its Postgres table.
@@ -1506,6 +1519,10 @@ def _internal_task_view(client_key, client_name, t):
         "department": t.get("department", ""),
         "lead_id": t.get("lead_id", ""),
         "support_ids": list(t.get("support_ids") or []),
+        # Resolved names ride along so the reading side needs no lookup table -- the same contract
+        # `_internal_task_detail` already documented, now honoured by the board list too.
+        "lead_name": _person_name(names, t.get("lead_id", "")),
+        "support_names": [_person_name(names, s) for s in (t.get("support_ids") or [])],
         "due_date": t.get("due_date", ""),
         "start_date": t.get("start_date", ""),
         "client_facing": bool(t.get("client_facing")),
@@ -1528,6 +1545,9 @@ def internal_tasks():
         return gate
     only = (request.args.get("client") or "").strip()
     out = []
+    # Resolved ONCE for the whole board: `_team_roster()` merges live accounts with ATRIUM_TEAM, so
+    # calling it per card would re-read every admin account for every task on the internal board.
+    names = {p["id"]: p["name"] for p in _team_roster()}
     for c in store.list_clients():
         key = c.get("key") or ""
         if not key or (only and key != only):
@@ -1539,7 +1559,7 @@ def internal_tasks():
             continue
         name = ws.get("display_name") or c.get("name") or key
         for t in ws.get("tasks") or []:
-            out.append(_internal_task_view(key, name, t))
+            out.append(_internal_task_view(key, name, t, names))
     return jsonify(ok=True, tasks=out)
 
 
@@ -1636,7 +1656,7 @@ def _internal_task_detail(client_key, client_name, t):
     """
     t = workspace.normalize_task(dict(t))
     names = {p["id"]: p["name"] for p in _team_roster()}
-    view = _internal_task_view(client_key, client_name, t)
+    view = _internal_task_view(client_key, client_name, t, names)
     view.update({
         "campaign": t.get("campaign", ""),
         "content_type": t.get("content_type", ""),
@@ -1648,8 +1668,10 @@ def _internal_task_detail(client_key, client_name, t):
         "hold_reason": t.get("hold_reason", ""),
         "account_manager_id": t.get("account_manager_id", ""),
         "department_label": dict(TASK_DEPARTMENTS).get(t.get("department", ""), ""),
-        "lead_name": names.get(t.get("lead_id", ""), ""),
-        "support_names": [names.get(s, s) for s in (t.get("support_ids") or [])],
+        # `lead_name` / `support_names` are NOT re-mapped here: `_internal_task_view` derives them
+        # from the same `names` map now, via `_person_name` (which degrades an unrostered email to a
+        # display name instead of the blank `names.get(..., "")` produced). Two derivations of one
+        # field is what let the board and the drawer disagree about who owns a card.
         "open_changes": len(workspace.task_open_changes(t)),
         "maintasks": [{
             "id": m.get("id", ""), "text": m.get("text", ""),

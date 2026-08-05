@@ -1361,6 +1361,19 @@ def run():
     _check("a foreign placeholder id never becomes an Atrium id",
            _sid.startswith("st_") and _sid != "st_new_1")
 
+    # 🔴 The BOARD LIST must resolve owner names, not just ids (2026-08-05). It sent `lead_id` alone
+    # — an email — so Sentinel's board had no name to print and rendered a card with a Lead as
+    # "Unassigned", while the drawer for that same card (task-detail, which DID resolve names) said
+    # "Lead: Leo". The two payloads disagreed about whether anyone owned the work.
+    _listed = next(t for t in _bridge("tasks", "/api/internal/tasks?client=%s" % CLIENT)
+                   .get_json()["tasks"] if t["task_id"] == btid)
+    _check("the board LIST resolves the lead's name, not just their email",
+           _listed["lead_id"] == "leo@agora.ph" and _listed["lead_name"] == "Leo")
+    _check("the list and the detail payload name the SAME owner",
+           _listed["lead_name"] == _bridge(
+               "task-detail", "/api/internal/task?client=%s&task=%s" % (CLIENT, btid)
+           ).get_json()["task"]["lead_name"])
+
     # `dod` is Atrium-internal: Sentinel neither shows nor sends it, so a breakdown edit from over
     # there must not quietly drop it off a sub-task that kept its id.
     workspace.edit_subtask(CLIENT, btid, _sid, dod="done when the client approves")
