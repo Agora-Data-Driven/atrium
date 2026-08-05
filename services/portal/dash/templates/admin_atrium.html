@@ -1337,7 +1337,7 @@
               <button type="button" data-view="flat" class="on">Flat board</button>
               <button type="button" data-view="swim">Swimlanes</button>
             </div>
-            <span class="tk-shown"><b id="tk-shown-n">0</b> shown</span>
+            <span class="tk-shown"><b id="tk-shown-n">0</b> shown<span id="tk-shown-total" hidden> of {{ task_open_total }}</span></span>
 
             <div class="tk-dwrap">
               <button type="button" class="tk-dbtn" id="tk-dbtn" aria-haspopup="true" aria-expanded="false" aria-controls="tk-dmenu">
@@ -1414,7 +1414,13 @@
                   </div>
                 </div>
                 {% endfor %}
-                {% if not col.tasks %}<div class="tk-empty">Nothing here</div>{% endif %}
+                {#- 🔴 ALWAYS in the DOM, hidden when the column has cards -- `applyFilters` toggles it.
+                    It used to be `{% if not col.tasks %}`, i.e. server-side only, so a column that
+                    HAD cards but none matching the current filter rendered completely blank while a
+                    genuinely empty one said "Nothing here". On a filtered board that reads as "the
+                    board failed to load", and it is what made a working client filter look like the
+                    console was still not fetching everything. -#}
+                <div class="tk-empty" data-colempty{% if col.tasks %} hidden{% endif %}>Nothing here</div>
               </div>
             </div>
             {% endfor %}
@@ -2223,6 +2229,7 @@
       var tkBoard = document.getElementById("tk-board");
       var swimEl = document.getElementById("tk-swim");
       var shownN = document.getElementById("tk-shown-n");
+      var shownTotal = document.getElementById("tk-shown-total");
       var viewSeg = document.getElementById("tk-view-seg");
       var densSeg = document.getElementById("tk-dens-seg");
       var PRIO_RANK = { Urgent: 0, High: 1, Medium: 2, Low: 3 };
@@ -2299,16 +2306,28 @@
           }
           card.style.display = show ? "" : "none";
         });
+        var filtering = !!(c || d || p || q);
         var shown = 0;
         qsa(".tk-col").forEach(function (col) {
           var visible = qsa(".tk-card", col).filter(function (x) { return x.style.display !== "none"; }).length;
           shown += visible;
           var count = col.querySelector("[data-colcount]");
           if (count) { count.textContent = visible; }
+          // Say WHY a column is empty. "Nothing here" is a fact about the board; "No matches" is a
+          // fact about the filter, and confusing the two is how a narrowed board reads as a broken one.
+          var empty = col.querySelector("[data-colempty]");
+          if (empty) {
+            empty.hidden = visible > 0;
+            empty.textContent = filtering ? "No matches in this column" : "Nothing here";
+          }
         });
         if (shownN) { shownN.textContent = shown; }
+        // With a filter on, "N shown" is a SUBSET -- so say what it is a subset of. The nav badge
+        // carries the unfiltered total, and 26 in the rail beside 2 on the board is exactly the
+        // mismatch that reads as missing data rather than as a filter doing its job.
+        if (shownTotal) { shownTotal.hidden = !filtering; }
         // "Clear" only exists while there is something to clear -- see the markup comment.
-        if (fClear) { fClear.hidden = !(c || d || p || q); }
+        if (fClear) { fClear.hidden = !filtering; }
       }
 
       // ---- Sort: reorder cards inside each column, client-side (Urgent always floats first). ----
