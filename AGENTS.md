@@ -911,17 +911,46 @@ auto-refresh (see those bullets below). Product name is one constant:
   open, a change request unresolved, or the service had no steps at all — a refused drop reads as a
   broken board, so the blockers are now only SURFACED (progress bar, "Changes requested" tag), never
   enforced. The **team board** is a console pane (Delivery → Task
-  Board in `admin_atrium.html`), **read-only since 2026-08-03**: cross-client stage columns collected
-  in `admin_atrium()` from the already-loaded workspaces (no extra reads), columns sorted
+  Board in `admin_atrium.html`), **read-only since 2026-08-03**, and 🔴 **it MIRRORS SENTINEL since
+  2026-08-05 — it is no longer built from `ws["tasks"]`.**
+
+  > **Why it changed.** Since D2 a task is owned by Sentinel and `ws["tasks"]` holds only the
+  > **client-safe projection** Sentinel pushes — a copy that exists at all once somebody hit Send to
+  > Atrium AND the client had an `atrium_client_id` to publish into. So this pane could only ever
+  > show work already **shared with a client**, under a heading claiming "every client deliverable
+  > across every workspace": every unpublished row was structurally invisible and the console
+  > under-reported the agency's workload. Nothing was broken in the render — it read the wrong source.
+  >
+  > `sentinel_board.fetch_board()` (HMAC purpose **`board`**, → Sentinel's `GET /api/internal/board`,
+  > payload built by `sentinel/services/board_mirror.py` in *Atrium's* own task-dict key names) is
+  > the source now, merged in `main._operator_board_tasks()` with the workspace cards **no Sentinel
+  > row claims** — the same de-dup rule Sentinel's board applies in reverse, on `atrium_task_id`, so
+  > one piece of work is one card. **FAIL-SOFT and tri-state:** `None` means "couldn't ask" and falls
+  > back to the projections *while the pane says so*; `[]` is a real empty board. Returning `[]` on
+  > an outage would draw a short board as if it were whole, which is the bug. Kill switch:
+  > `SENTINEL_BOARD_MIRROR=0`.
+  >
+  > 🔴 **This is a STAFF payload** — assignee, priority, service charge, internal notes, hold
+  > reasons. `/admin/atrium` is `is_superadmin()`-gated and that is what makes it safe. It must never
+  > reach a `/w/<c>` template; the client Tasks tab still reads `ws["tasks"]` and is untouched.
+  > ⚠️ It blocks the console's render (the pane is server-rendered and also feeds `#tk-store`,
+  > `#cal-store` and the swimlanes builder), so the timeouts are deliberately tight — 6s + one 12s
+  > retry for a cold Sentinel. Covered in `_atrium_smoketest.py` (mirror renders, de-dup, deep link,
+  > outage fallback, no client leak) + `sentinel/tests/test_board_mirror.py`.
+
+  Cross-client stage columns are shaped by `main._task_board()`, columns sorted
   **Urgent-first then launch date**, client/department/person filters, search, swimlanes, density and
   column caps — every VIEW kept. What went: drag-to-move, the New-Service overlay (with its
   service-type/ad-production builder and the `task_services`/`task_adprod` catalogs), the per-task
   Edit overlay, the sub-task checkboxes + inline rename/"done when" inputs + owner selects + ✕
   removals, the add-a-phase/step forms, the hold form, the comment composer, the Resolve button, and
   Archive + advance-stage. The detail overlay's one action is now **Open in Sentinel →**
-  (`{{ sentinel_base }}/dashboard?open=atrium:<client_key>:<task_id>` — Sentinel's board renders these
-  cards under exactly that composite id; it targets `/dashboard` directly because Sentinel's `/login`
-  drops the query string). `service_templates.py` is deliberately **kept but unwired** — Sentinel's
+  (`{{ sentinel_base }}/dashboard?open={{ t.open_ref }}` — 🔴 **`open_ref`, not a composite built in
+  the template.** A mirrored Sentinel row is addressed by its own row id; only a workspace-only card
+  is `atrium:<client_key>:<task_id>`, which is how Sentinel's board renders those. Building the
+  composite form for every card — as this did until 2026-08-05 — sent every real row to a card Atrium
+  would look for and not find. `main._task_board()` picks the right one. It targets `/dashboard`
+  directly because Sentinel's `/login` drops the query string). `service_templates.py` is deliberately **kept but unwired** — Sentinel's
   own `ServiceTemplate` table owns the recipes now.
   The detail overlay is **tabbed** — a persistent summary (stage pill + glance chips: priority /
   start / launch / charge / progress) above **Details | Tasks | Comments** panels (`data-tktab`

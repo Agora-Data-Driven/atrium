@@ -1274,7 +1274,17 @@
             <div>
               <p class="eyebrow">Atrium Admin &middot; Delivery</p>
               <h1 class="page">Task Board</h1>
-              <p class="lead">Every client deliverable across every workspace — <b>read-only</b>. Click a card to see where it stands; open it in Sentinel to change anything.</p>
+              {#- 🔴 The claim this pane makes has to match the source it read. It used to say "every
+                  client deliverable" while assembling itself from `ws["tasks"]` — the client-safe
+                  projections — so it silently showed only work somebody had SHARED with a client and
+                  disagreed with Sentinel about how much work existed. It mirrors Sentinel's board
+                  now (main._operator_board_tasks); when Sentinel can't be reached it falls back to
+                  those projections and says so rather than drawing a short board as if it were whole. -#}
+              {% if task_source == 'sentinel' %}
+              <p class="lead">Sentinel's delivery board, mirrored live — every task, shared with a client or not. <b>Read-only</b>: click a card to see where it stands; open it in Sentinel to change anything.</p>
+              {% else %}
+              <p class="lead"><b>Sentinel didn't answer, so this is the client-shared copy only</b> — internal and unshared work is missing. Reload in a moment for the full board. Click a card to see where it stands; open it in Sentinel to change anything.</p>
+              {% endif %}
             </div>
             {#- 🔴 Archived / Export / Import were REMOVED here (2026-08-04). A task is owned by
                 SENTINEL (decision D2) and this pane is its read-only projection, so board-level
@@ -1422,7 +1432,10 @@
             <div class="tkd narrow" data-tkd="{{ t.client_key }}:{{ t.id }}" hidden>
               <div class="tkd-head">
                 <div style="display:flex;align-items:center;gap:12px;min-width:0;flex-wrap:wrap">
-                  <span class="tkd-status" data-stage="{{ t.stage }}"><span class="pdot"></span>{{ col.name }}</span>
+                  {#- The SENTINEL column's own label when we have it, else the stage's. Several
+                      Sentinel statuses may fold onto one Atrium stage, so naming the stage would
+                      tell an operator the wrong column to look in. -#}
+                  <span class="tkd-status" data-stage="{{ t.stage }}"><span class="pdot"></span>{{ t.status|default(col.name, true) }}</span>
                   <span class="tkd-eyebrow">Service &middot; {{ t.client_name }}</span>
                 </div>
                 {#- No Edit: this overlay READS a task (D2). The footer carries the one action left
@@ -1443,8 +1456,12 @@
                   {% if t.due_date %}<span class="tkd-stat {{ 'due-over' if t.due_cls == 'over' else ('due-soon' if t.due_cls == 'soon' else '') }}"><span class="k">Launch</span> {{ (t.due_date ~ 'T00:00:00Z')|atrium_date }}{{ ' · overdue' if t.due_cls == 'over' else (' · soon' if t.due_cls == 'soon' else '') }}</span>{% endif %}
                   {% if t.service_charge_label %}<span class="tkd-stat">{{ t.service_charge_label }}</span>{% endif %}
                   {% if t.open_changes %}<span class="tkd-stat due-over">⚑ {{ t.open_changes }} open change request{{ 's' if t.open_changes != 1 else '' }}</span>{% endif %}
-                  {% if t.client_facing %}<span class="tkd-stat sync-on">Syncs to Atrium</span>
-                  {% else %}<span class="tkd-stat"><span class="k">Internal only</span></span>{% endif %}
+                  {% if t.client_facing %}<span class="tkd-stat sync-on">Shared with client</span>
+                  {% else %}<span class="tkd-stat"><span class="k">Not shared</span></span>{% endif %}
+                  {#- A push that FAILED. The client's card exists but is stale, and Sentinel stores
+                      the reason on the row precisely so it can't be silent — surface it here too,
+                      because this console is where somebody notices a whole client has gone stale. -#}
+                  {% if t.atrium_sync_error %}<span class="tkd-stat due-over" title="{{ t.atrium_sync_error }}">⚠ Client copy stale</span>{% endif %}
                   {% if t.reporter == 'client' %}<span class="tkd-stat sync-on">Requested by client{{ ' · ' ~ t.reporter_name if t.reporter_name else '' }}</span>{% endif %}
                 </div>
                 {#- On-hold banner (orthogonal to stage, shows above it). -#}
@@ -1550,14 +1567,16 @@
               <div class="tkd-foot">
                 {#- The only action left. Archive + the advance-stage button posted the retired
                     /admin/task/{delete,move} routes; filing and moving are Sentinel's now.
-                    `?open=` takes Atrium's composite board id — Sentinel's board renders these cards
-                    under exactly that id (atrium:<client_key>:<task_id>), so the drawer opens on the
-                    right card. It targets /dashboard directly because Sentinel's /login drops the
-                    query string. -#}
+                    🔴 `?open=` takes `t.open_ref`, NOT a composite id built here. A mirrored Sentinel
+                    row is addressed by its own row id; only a workspace-only card is
+                    `atrium:<client_key>:<task_id>`. Building the composite form for both (as this
+                    did) sent every real row to a card Sentinel would look for in Atrium and not find.
+                    `main._task_board` picks the right one. It targets /dashboard directly because
+                    Sentinel's /login drops the query string. -#}
                 <span class="tkd-hint" style="font-size:12px;color:var(--muted)">Managed in Sentinel</span>
                 <span class="spacer"></span>
                 <a class="btn small violet" style="text-decoration:none"
-                   href="{{ sentinel_base }}/dashboard?open=atrium:{{ t.client_key }}:{{ t.id }}"
+                   href="{{ sentinel_base }}/dashboard?open={{ t.open_ref }}"
                    target="_blank" rel="noopener">Open in Sentinel →</a>
               </div>
             </div>
