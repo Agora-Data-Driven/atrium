@@ -56,6 +56,7 @@ import intel_ai
 import intel_refresh
 import notify
 import platform_sso
+import sentinel_board
 import sentinel_directory
 import sentinel_requests
 # 🔴 UNUSED IN THIS APP since 2026-08-03 (decision D2), and kept on purpose. The New-Service form
@@ -5301,11 +5302,48 @@ def _task_next_stage(stage):
     return TASK_STAGE_META[i + 1]
 
 
+def _operator_board_tasks(local_tasks):
+    """The operator console's task list: SENTINEL's live board, plus any local card it doesn't own.
+
+    Returns (tasks, source) where `tasks` is [(client_key, client_name, task_dict), ...] ready for
+    `_task_board` and `source` is "sentinel" | "projection" -- the template says which, because the
+    two answer different questions and an operator must never have to guess which they are reading.
+
+    🔴 THE POINT OF THIS FUNCTION. `local_tasks` is built from `ws["tasks"]`, which since D2 holds
+    only the CLIENT-SAFE PROJECTION Sentinel pushes -- a copy that exists at all only once somebody
+    hit Send to Atrium AND the client had an `atrium_client_id` to publish into. Reading it alone is
+    why this console showed a fraction of the agency's work under the heading "every client
+    deliverable across every workspace" (see sentinel_board.py). Sentinel owns a task, so Sentinel
+    is asked.
+
+    🔴 The de-duplication is the same rule Sentinel's own board applies in reverse, and it is not
+    optional: a Sentinel row carrying `atrium_task_id` IS the projection sitting in that workspace,
+    so keeping both would render one piece of work twice -- once as the real row and once as a ghost
+    that drifts from it the moment either moves. The Sentinel row wins because it is the whole
+    truth. What survives from `local_tasks` is exactly the ATRIUM-ORIGIN cards no Sentinel row has
+    adopted yet (`sentinel/services/task_adoption.py`), which is also what Sentinel's board shows.
+
+    Fail-soft: `fetch_board()` returning None means "couldn't ask", NOT "no work" -- so the console
+    falls back to the projections it still holds and labels itself accordingly. Returning [] on an
+    outage would draw an empty board and every count on it would be a lie.
+    """
+    mirror = sentinel_board.fetch_board()
+    if mirror is None:
+        return local_tasks, "projection"
+    claimed = {(t.get("client_key") or "", str(t.get("atrium_task_id") or ""))
+               for t in mirror if t.get("atrium_task_id")}
+    out = [(t.get("client_key") or "", t.get("client_name") or "", t) for t in mirror]
+    out += [(ckey, cname, t) for ckey, cname, t in local_tasks
+            if (ckey, str(t.get("id") or "")) not in claimed]
+    return out, "sentinel"
+
+
 def _task_board(clients_tasks, roster):
     """Shape every client's tasks into the console's stage columns (render-ready dicts).
 
-    `clients_tasks` is [(client_key, client_name, task_dict), ...] from the admin_atrium walk --
-    the workspaces are already loaded there, so this adds NO extra bucket reads."""
+    `clients_tasks` is [(client_key, client_name, task_dict), ...] -- either Sentinel's mirrored
+    board or, on an outage, the locally-held projections (see `_operator_board_tasks`). A workspace
+    card arrives already loaded by the admin_atrium walk, so that half adds NO extra bucket reads."""
     names = {p["id"]: p["name"] for p in roster}
     today = datetime.date.today()
     today_iso = today.isoformat()
@@ -5348,7 +5386,17 @@ def _task_board(clients_tasks, roster):
                                 "color": _person_color(s)} for s in support],
             "subs_done": done, "subs_total": len(subs),
             "subs_unassigned": len([s for s in subs if not s.get("done") and not s.get("assignee_id")]),
-            "open_changes": len(workspace.task_open_changes(t)),
+            # 🔴 A SENTINEL row states its own count; only a workspace card has it derived from the
+            # thread. Sentinel tracks a client's open change requests on the row
+            # (`tasks.client_changes_open`), so its mirrored comments carry no `kind` for
+            # `task_open_changes` to find -- deriving it there would report 0 on every card that has
+            # one, which is precisely the flag an operator is scanning the board for.
+            "open_changes": (t["open_changes"] if "open_changes" in t
+                             else len(workspace.task_open_changes(t))),
+            # Where "Open in Sentinel" points. A Sentinel row hands us its own board id; a card that
+            # still lives only in a workspace is addressed the way Sentinel's board renders it,
+            # `atrium:<client_key>:<task_id>`.
+            "open_ref": t.get("open_ref") or ("atrium:%s:%s" % (ckey, t.get("id") or "")),
             "due_cls": due_cls,
             "service_charge_label": _money_label(t.get("service_charge")),
             "disc_class": _discipline(t.get("labels"))[1] or "lb-other",
@@ -5625,7 +5673,9 @@ def admin_atrium():
         return Response("Forbidden", status=403, mimetype="text/plain")
     clients = []
     name_by_key = {}
-    board_tasks = []   # (client_key, client_name, task) for the Delivery -> Task Board pane
+    # (client_key, client_name, task) for whatever of the Delivery -> Task Board pane still comes
+    # from a workspace. Sentinel owns the board itself -- see _operator_board_tasks below.
+    board_tasks = []
     for c in store.list_clients():
         key, name = c.get("key"), c.get("name")
         name_by_key[key] = name or key
@@ -5643,7 +5693,9 @@ def admin_atrium():
             for piece in camp.get("content", []) or []:
                 if piece.get("status") == "awaiting":
                     awaiting += 1
-        # Task Board: same already-loaded workspace, so collecting its tasks is another free walk.
+        # Same already-loaded workspace, so collecting its tasks is another free walk. These are the
+        # client-safe PROJECTIONS; only the ones no Sentinel row has adopted reach the board, and on
+        # a Sentinel outage they are the fallback (_operator_board_tasks).
         for t in (ws or {}).get("tasks") or []:
             board_tasks.append((key, name or key, t))
         clients.append({"key": key, "name": name,
@@ -5651,7 +5703,8 @@ def admin_atrium():
     # Clients needing attention come first; the sort is stable so ties keep their registry order.
     clients.sort(key=lambda c: -c["awaiting"])
     task_roster = _team_roster()
-    task_cols = _task_board(board_tasks, task_roster)
+    operator_tasks, task_source = _operator_board_tasks(board_tasks)
+    task_cols = _task_board(operator_tasks, task_roster)
 
     all_accounts = store.list_accounts()
     pending = [a for a in all_accounts if a.get("status") == "pending"]
@@ -5701,6 +5754,10 @@ def admin_atrium():
         # Delivery -> Task Board: stage columns of every client's tasks + the pickers' vocabularies.
         task_cols=task_cols, task_roster=task_roster,
         task_departments=TASK_DEPARTMENTS,
+        # "sentinel" = the real delivery board. "projection" = Sentinel didn't answer and this is the
+        # client-safe copy, i.e. shared work only. The pane SAYS which, because the difference is the
+        # whole reason this console was under-reporting and an operator can't see it in the cards.
+        task_source=task_source,
         # Service-template catalog for the New-Service picker (rendered as hidden DOM the JS reads).
         # (task_services / task_adprod went with the New-Service form — D2, 2026-08-03.)
         # Nav badge = every task on the board (matches the prototype's total count).

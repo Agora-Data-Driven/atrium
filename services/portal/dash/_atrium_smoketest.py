@@ -857,6 +857,91 @@ def run():
            "Open in Sentinel" in console and "/dashboard?open=atrium:%s:%s" % (CLIENT, task_id) in console)
     _check("no draggable cards on the console board", 'class="tk-card' in console
            and 'draggable="true"' not in console)
+
+    # --- The console board MIRRORS SENTINEL (sentinel_board.py) ---------------------------------
+    # 🔴 The bug these pin. This pane used to be assembled from `ws["tasks"]`, which since D2 holds
+    # only the CLIENT-SAFE PROJECTION Sentinel pushes -- so it could only ever show work somebody
+    # had already SHARED with a client, under a heading claiming "every client deliverable across
+    # every workspace". Unpublished work (the majority of the board) was structurally invisible and
+    # the console under-reported the agency's workload. It reads Sentinel's board now.
+    _mirror = [
+        # An UNPUBLISHED row: no atrium_task_id, so no client card exists and the projection never
+        # held it. This is the card the console could not see.
+        {"id": "s41", "sentinel_id": 41, "open_ref": "41", "client_key": CLIENT,
+         "client_name": "Riverdance RV", "stage": "todo", "status": "To Do",
+         "title": "MIRROR-UNPUBLISHED-ROW", "priority": "Urgent", "labels": ["Organic"],
+         "lead_id": "zhen@100.digital", "support_ids": [], "maintasks": [], "comments": [],
+         "history": [], "client_facing": False, "atrium_task_id": "", "open_changes": 0},
+        # A PUBLISHED row that claims the workspace card the smoketest created above.
+        {"id": "s42", "sentinel_id": 42, "open_ref": "42", "client_key": CLIENT,
+         "client_name": "Riverdance RV", "stage": "in_progress", "status": "In Progress",
+         "title": "MIRROR-CLAIMS-THE-WORKSPACE-CARD", "priority": "Medium", "labels": [],
+         "lead_id": "", "support_ids": [], "maintasks": [], "comments": [], "history": [],
+         "client_facing": True, "atrium_task_id": task_id, "open_changes": 3,
+         "atrium_sync_error": "Atrium timed out"},
+    ]
+    # An ATRIUM-ORIGIN card no Sentinel row has adopted yet (services/task_adoption.py). Sentinel's
+    # own board renders these read-only, so the console has to keep them too or the two disagree
+    # again -- in the other direction this time.
+    unadopted = workspace.add_task(CLIENT, {"title": "MIRROR-UNADOPTED-ATRIUM-CARD"},
+                                   actor="info@agoradatadriven.com")["id"]
+    _real_fetch = main.sentinel_board.fetch_board
+    try:
+        main.sentinel_board.fetch_board = lambda: _mirror
+        mirrored = c.get("/admin/atrium").get_data(as_text=True)
+        _check("an UNPUBLISHED Sentinel row now renders on the console board",
+               "MIRROR-UNPUBLISHED-ROW" in mirrored)
+        _check("the pane says it is mirroring Sentinel, not the client-shared copy",
+               "mirrored live" in mirrored
+               and "this is the client-shared copy only" not in mirrored)
+        # 🔴 ONE piece of work is ONE card -- the same rule Sentinel's board applies in reverse. The
+        # Sentinel row wins; keeping both would render a real row plus a read-only ghost that drifts
+        # from it the moment either moves.
+        _check("a workspace card the mirror claims is DROPPED (no double card)",
+               "MIRROR-CLAIMS-THE-WORKSPACE-CARD" in mirrored
+               and "Park &amp; Porch funnel" not in mirrored)
+        _check("a workspace card NO Sentinel row claims still renders",
+               "MIRROR-UNADOPTED-ATRIUM-CARD" in mirrored
+               and "/dashboard?open=atrium:%s:%s" % (CLIENT, unadopted) in mirrored)
+        # `?open=` takes the row's own id. Building `atrium:<key>:<id>` for a Sentinel row (as this
+        # template did for every card) sends the drawer hunting for a card Atrium doesn't have.
+        _check("Open in Sentinel deep-links a mirrored row by its ROW id",
+               "/dashboard?open=41" in mirrored
+               and "/dashboard?open=atrium:%s:s41" % CLIENT not in mirrored)
+        _check("a stale client copy is called out on the card detail",
+               "Client copy stale" in mirrored)
+        _check("the row's own open-change count is used, not one derived from the thread",
+               "3 open change requests" in mirrored)
+        _check("the Sentinel column's real label shows, not just the stage's",
+               'data-stage="in_progress"' in mirrored)
+
+        # An OUTAGE must not draw an empty board and must not claim to be the whole board.
+        main.sentinel_board.fetch_board = lambda: None
+        degraded = c.get("/admin/atrium").get_data(as_text=True)
+        _check("a Sentinel outage falls back to the projections and SAYS so",
+               "this is the client-shared copy only" in degraded
+               and "mirrored live" not in degraded
+               and "Park &amp; Porch funnel" in degraded
+               and "MIRROR-UNPUBLISHED-ROW" not in degraded)
+    finally:
+        main.sentinel_board.fetch_board = _real_fetch
+
+    # 🔴 The mirror is a STAFF payload and carries internal fields. A client page reads `ws["tasks"]`
+    # and must never see it -- that separation is the whole reason task_bridge.SAFE exists.
+    with c.session_transaction() as s:
+        s.update({"ok": True, "user": "owner@riverdanceresort.com", "clients": [CLIENT]})
+    try:
+        main.sentinel_board.fetch_board = lambda: _mirror
+        cpg = c.get("/w/%s/progress" % CLIENT).get_data(as_text=True)
+        _check("the Sentinel mirror never reaches a CLIENT page",
+               "MIRROR-UNPUBLISHED-ROW" not in cpg
+               and "MIRROR-CLAIMS-THE-WORKSPACE-CARD" not in cpg)
+        _check("a client hitting the operator console is still forbidden",
+               c.get("/admin/atrium").status_code == 403)
+    finally:
+        main.sentinel_board.fetch_board = _real_fetch
+    with c.session_transaction() as s:
+        s.update(SUPER)
     # The STILL-retired routes (breakdown / hold / team comment — D2) answer 410 with the reason —
     # never a 404, which would read as a routing bug to whoever still has a stale tab open.
     # (move / edit / delete came OFF this list 2026-08-04 — D2 amended; they're exercised below.)
