@@ -1369,6 +1369,18 @@ def run():
                    .get_json()["tasks"] if t["task_id"] == btid)
     _check("the board LIST resolves the lead's name, not just their email",
            _listed["lead_id"] == "leo@agora.ph" and _listed["lead_name"] == "Leo")
+
+    # 🔴 The CLIENT REGISTRY over the bridge (2026-08-05). Atrium owns the client list; Sentinel
+    # mirrors it (`services/client_sync` there) instead of having it typed into its own Manage screen,
+    # which was a second source of truth for the workspace KEY the whole task bridge is addressed by.
+    # Before this route existed Sentinel could only learn a client from the key embedded in each TASK,
+    # so a client with no tasks was invisible to it.
+    _check("the client registry is refused unsigned",
+           c.get("/api/internal/clients").status_code == 401)
+    _clients = _bridge("clients", "/api/internal/clients").get_json()["clients"]
+    _mine = next((x for x in _clients if x["key"] == CLIENT), None)
+    _check("the client registry lists each client with its workspace KEY and display name",
+           _mine is not None and _mine["name"])
     _check("the list and the detail payload name the SAME owner",
            _listed["lead_name"] == _bridge(
                "task-detail", "/api/internal/task?client=%s&task=%s" % (CLIENT, btid)
