@@ -2885,8 +2885,16 @@ function renderMetaAds(){
     s.sp += x2.sp; s.im += x2.im; s.cl += x2.cl; s.lc += x2.lc;
     s.ld += x2.ld; s.lpv += x2.lpv;
   });
-  byId("metaSub").textContent = "live via Windsor.ai · " + prettyDate(r[0]) + " to " +
-    prettyDate(r[1]) + " · data through " + prettyDate(maxD);
+  // `mode` is load-bearing: a carried-forward section is real history but it is NOT current, and
+  // labelling it "live" is what hid the 2026-08-01 Windsor outage for two days.
+  var mStale = M.mode === "stale";
+  var mSub = byId("metaSub");
+  mSub.textContent = (mStale
+      ? "STALE · not updating since " + prettyDate(M.stale_since || maxD)
+      : "live via Windsor.ai") +
+    " · " + prettyDate(r[0]) + " to " + prettyDate(r[1]) + " · data through " + prettyDate(maxD);
+  mSub.className = mStale ? "sub stale" : "sub";
+  mSub.title = mStale && M.stale_reason ? M.stale_reason : "";
 
   var ctr = s.im > 0 ? s.lc / s.im : null;
   var cpm = s.im > 0 ? s.sp / s.im * 1000 : null;
