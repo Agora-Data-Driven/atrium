@@ -147,6 +147,19 @@ AUTO_LOGIN = DEV_NOAUTH or DEMO_NOAUTH
 _LOCAL_BACKEND = bool(os.environ.get("WORKSPACE_LOCAL_DIR"))
 app.config["MAX_CONTENT_LENGTH"] = (1100 * 1024 * 1024) if _LOCAL_BACKEND else (32 * 1024 * 1024)
 
+# --- Local hot reload (LOCAL ONLY) ---------------------------------------------------------------
+# Interlocked exactly like DEV_NOAUTH above -- the local-fs backend AND relaxed cookies, neither of
+# which exists in a deploy -- and it can only ever take effect through the `app.run` at the bottom
+# of this file, which gunicorn never calls. So this is inert in production two ways over.
+# 🔴 TEMPLATES_AUTO_RELOAD is the one that matters. Jinja compiles a template ONCE per process, so
+# without it editing the 630 KB atrium.html changed NOTHING until you killed and re-ran the server
+# (re-seeding the demo data on the way) -- by far the slowest edit loop in this repo, and the reason
+# small CSS/markup changes here used to cost a minute each. `use_reloader` covers the .py side.
+# The Werkzeug DEBUGGER is deliberately NOT turned on (no `debug=True`): its interactive traceback
+# console executes arbitrary code in the process, and reloading is the whole point here.
+_DEV_RELOAD = _LOCAL_BACKEND and not _secure_cookies
+app.config["TEMPLATES_AUTO_RELOAD"] = _DEV_RELOAD
+
 # Per-upstream-dashboard proxy sessions, keyed by client key. Each holds the upstream <c>-dash
 # login cookie so we only log into a dashboard ONCE server-side, then reuse the session. This is
 # an in-process cache; on a cold start it is rebuilt lazily on first proxy request.
@@ -1208,7 +1221,16 @@ def atrium(client, tab):
         can_edit_health=(is_root_admin() and not admin_preview),
         # Watcher (team-only tab): per-channel video cards with transcript PREVIEWS only -- the
         # full transcripts stay in each channel's own archive object, fetched on click.
-        watcher=(_watcher_view(ws, client) if is_admin_view else []),
+        # 🔴 LAZY -- built ONLY when Watcher is the ACTIVE tab (2026-08-07). _watcher_view reads
+        # EVERY watched source's archive object, one multi-MB GCS download each, and
+        # watcher_template pre-seeds 5 sources into every client -- so building it on every render
+        # made a Dashboard / Communications / Tasks page load pay 5+ downloads for a pane it never
+        # showed, on every load, forever (HTML is no-store, so nothing amortises). The template
+        # renders the pane only when it is active to match, and atrium.html's nav click handler
+        # NAVIGATES for a pane that is absent from the document instead of switching client-side.
+        # Keep the three in step: view + pane + nav. A pane rendered without its data is a blank
+        # tab, and a pane whose link still calls preventDefault is a dead link.
+        watcher=(_watcher_view(ws, client) if (is_admin_view and tab == "watcher") else []),
         mail=mailview,
         # Communications: ONE unified, date-sorted timeline of every conversation (email/Upwork/
         # Slack/meeting/call). Clients get ONLY audience=="client" cards (team cards are filtered out
@@ -1548,15 +1570,16 @@ def internal_tasks():
     # Resolved ONCE for the whole board: `_team_roster()` merges live accounts with ATRIUM_TEAM, so
     # calling it per card would re-read every admin account for every task on the internal board.
     names = {p["id"]: p["name"] for p in _team_roster()}
-    for c in store.list_clients():
+    # ONE concurrent fan-out (workspace.load_workspaces) rather than a round-trip per client:
+    # Atrium's serial latency here WAS Sentinel's board latency, since its board blocks on this call.
+    # A failed read still comes back None -> {} -> no tasks, so the old "one unreadable workspace
+    # must never blank the whole internal board" guarantee is unchanged.
+    _rows = [c for c in store.list_clients()
+             if (c.get("key") or "") and not (only and c.get("key") != only)]
+    _ws_by_key = workspace.load_workspaces([c.get("key") for c in _rows])
+    for c in _rows:
         key = c.get("key") or ""
-        if not key or (only and key != only):
-            continue
-        try:
-            ws = workspace.load_workspace(key) or {}
-        except Exception:
-            # One unreadable workspace must never blank the whole internal board.
-            continue
+        ws = _ws_by_key.get(key) or {}
         name = ws.get("display_name") or c.get("name") or key
         for t in ws.get("tasks") or []:
             out.append(_internal_task_view(key, name, t, names))
@@ -1583,16 +1606,16 @@ def internal_clients():
     if gate:
         return gate
     out = []
-    for c in store.list_clients():
+    # ONE concurrent fan-out (workspace.load_workspaces). A failed read comes back None, so `name`
+    # keeps the registry value -- exactly the degradation the docstring above promises (a client
+    # must never DROP off this list; the far side would deactivate it).
+    _rows = [c for c in store.list_clients() if (c.get("key") or "")]
+    _ws_by_key = workspace.load_workspaces([c.get("key") for c in _rows])
+    for c in _rows:
         key = c.get("key") or ""
-        if not key:
-            continue
         name = c.get("name") or key
-        try:
-            ws = workspace.load_workspace(key) or {}
-            name = ws.get("display_name") or name
-        except Exception:
-            pass          # keep the registry name; see the docstring
+        ws = _ws_by_key.get(key) or {}
+        name = ws.get("display_name") or name
         out.append({"key": key, "name": name, "contact_email": c.get("contact_email") or ""})
     return jsonify(ok=True, clients=out)
 
@@ -1926,15 +1949,14 @@ def internal_watcher_channels():
         return gate
     only = (request.args.get("client") or "").strip()
     out = []
-    for c in store.list_clients():
+    # ONE concurrent fan-out (workspace.load_workspaces); a failed read is None -> {} -> no channels,
+    # so "one unreadable workspace must never blank the whole picker" still holds.
+    _rows = [c for c in store.list_clients()
+             if (c.get("key") or "") and not (only and c.get("key") != only)]
+    _ws_by_key = workspace.load_workspaces([c.get("key") for c in _rows])
+    for c in _rows:
         key = c.get("key") or ""
-        if not key or (only and key != only):
-            continue
-        try:
-            ws = workspace.load_workspace(key) or {}
-        except Exception:
-            # One unreadable workspace must never blank the whole picker.
-            continue
+        ws = _ws_by_key.get(key) or {}
         name = ws.get("display_name") or c.get("name") or key
         for ch in workspace.watcher_channels(ws):
             channel_id = ch.get("id") or ""
@@ -4901,6 +4923,10 @@ def _mail_view(ws, client):
         "security": tier_counts["security"],
         "tier_counts": tier_counts,
     }
+    # ONE read of the mailbox registry object, not two: public_mailboxes() already calls
+    # mail_mailboxes() internally and returns one row per mailbox, so the count comes off the same
+    # list. Reading it twice cost an extra GCS round-trip on every team render.
+    boxes = workspace.public_mailboxes()
     return {
         "contacts": ", ".join(state.get("contacts") or []),
         "threads": rows,
@@ -4910,10 +4936,10 @@ def _mail_view(ws, client):
         "last_error": state.get("last_error", ""),
         "backlog": int(state.get("backlog") or 0),
         # Which connected mailboxes actually feed THIS client (assigned to it, or shared).
-        "mailboxes": [m for m in workspace.public_mailboxes()
+        "mailboxes": [m for m in boxes
                       if m.get("client") == client or not m.get("client")],
         # Drives the pane's setup hints ("connect a mailbox first" vs "add contacts").
-        "mailbox_count": len(workspace.mail_mailboxes()),
+        "mailbox_count": len(boxes),
     }
 
 
@@ -5647,11 +5673,12 @@ def admin_atrium_tasks_export():
     if not is_superadmin():
         return Response("Forbidden", status=403, mimetype="text/plain")
     payload = {"version": 1, "exported_at": workspace.now_iso(), "clients": {}}
-    for c in store.list_clients():
+    # ONE concurrent fan-out (workspace.load_workspaces) instead of a round-trip per client.
+    _rows = [c for c in store.list_clients() if c.get("key") != "template"]
+    _ws_by_key = workspace.load_workspaces([c.get("key") for c in _rows])
+    for c in _rows:
         key = c.get("key")
-        if key == "template":
-            continue
-        ws = workspace.load_workspace(key)
+        ws = _ws_by_key.get(key)
         tasks = (ws or {}).get("tasks") or []
         if tasks:
             payload["clients"][key] = {"name": c.get("name") or key, "tasks": tasks}
@@ -5732,12 +5759,22 @@ def admin_atrium():
     # (client_key, client_name, task) for whatever of the Delivery -> Task Board pane still comes
     # from a workspace. Sentinel owns the board itself -- see _operator_board_tasks below.
     board_tasks = []
-    for c in store.list_clients():
+    # 🔴 ONE concurrent fan-out, not N serial GCS round-trips. This is the admin LANDING page (`/`
+    # redirects a super-admin here), and it needs every client's workspace for the card logos, the
+    # awaiting-approval chips and the board projection -- so a serial loop made the whole console
+    # wait out one round-trip per client, every load. See workspace.load_workspaces.
+    # It also means one unreadable workspace now degrades to one card rendered as unseeded instead
+    # of 500-ing the entire console: this loop had no try/except at all before.
+    _registry = store.list_clients()          # already a list copy
+    for c in _registry:
+        name_by_key[c.get("key")] = c.get("name") or c.get("key")
+    _ws_by_key = workspace.load_workspaces(
+        [c.get("key") for c in _registry if c.get("key") != "template"])
+    for c in _registry:
         key, name = c.get("key"), c.get("name")
-        name_by_key[key] = name or key
         if key == "template":
             continue  # the worked-example pattern, not a real client -- never list it in the console
-        ws = workspace.load_workspace(key)
+        ws = _ws_by_key.get(key)
         # Logo shown on the card: the client's own logo from its workspace, else an initials monogram
         # (so a brand-new / unseeded client still renders something on-brand rather than an empty box).
         logo = (ws.get("brand", {}).get("client_logo") if ws else None) or brand.monogram(name or key)
@@ -6369,6 +6406,27 @@ def healthz():
 # All would read/write the same private platform.json via store.py (no database).
 
 
+# --- Warm the big templates at IMPORT, not inside the first request -----------------------------
+# Jinja compiles a template the first time it is rendered: atrium.html is ~9,600 lines and
+# admin_atrium.html ~3,000, so on a cold start that parse landed on whichever unlucky user arrived
+# first. Compiling here moves it into container startup instead (gunicorn imports this module before
+# serving), which costs nothing extra -- the work happened either way -- and takes it off the
+# request path. Best-effort by design: a template error must surface as the normal render-time
+# traceback on the page, never as a container that refuses to boot.
+def _warm_templates():
+    for name in ("atrium.html", "admin_atrium.html"):
+        try:
+            app.jinja_env.get_template(name)
+        except Exception:   # noqa: BLE001 -- warming is an optimisation, never a boot gate
+            pass
+
+
+_warm_templates()
+
+
 if __name__ == "__main__":
     # Local dev only; in Cloud Run gunicorn (see Dockerfile) serves main:app.
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))
+    # use_reloader restarts on any .py edit; templates reload via TEMPLATES_AUTO_RELOAD (both are
+    # _DEV_RELOAD-gated to the local posture -- see the hot-reload block near the top).
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")),
+            use_reloader=_DEV_RELOAD)
