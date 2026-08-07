@@ -542,6 +542,82 @@ def _call_vertex_gemini(model_id, system, user, fetcher, max_tokens, token_fetch
         return "", "Vertex returned an unexpected response", ""
 
 
+# --- Media transcription (Watcher's Instagram reels) ---------------------------------------------
+# Gemini reads audio and video natively, so "what was said in this reel" is ONE generateContent call
+# with the bytes inlined -- the same Vertex host, the same runtime-SA token, the same billing as the
+# text brain above. No new API, no new IAM, no new key, and no speech-to-text service to stand up.
+# Flash on purpose: transcription is dictation, not reasoning, and a reel archive can run to hundreds
+# of items.
+MEDIA_MODEL = os.environ.get("WATCHER_MEDIA_MODEL", "gemini-2.5-flash")
+# Vertex caps an inline-data request at ~20 MB and base64 inflates by 4/3, so the caller must keep
+# the raw bytes well under that (watcher_ig.MAX_MEDIA_BYTES is 12 MB). Enforced here too, because a
+# 413 from Vertex is a much worse error message than "that video is too big to transcribe".
+MEDIA_MAX_BYTES = 14 * 1024 * 1024
+# A minute of speech is ~150 words ~ 200 tokens; a 90s reel therefore needs a few hundred. The cap
+# is generous so a long IGTV clip is never cut off mid-sentence.
+_MEDIA_MAX_TOKENS = 8192
+# Media calls are slower than text (the model watches the whole clip before answering).
+_MEDIA_TIMEOUT = 180
+
+
+def transcribe_media(data, mime="video/mp4", prompt="", model_id=None, token_fetcher=None,
+                     fetcher=None, usage_out=None):
+    """Transcribe audio/video BYTES with Vertex Gemini. Returns (text, error).
+
+    Used by watcher_ig to turn an Instagram reel into words. Returns ("", reason) -- never raises --
+    for every failure mode (no credentials, oversized clip, Vertex error), because the caller's
+    contract is "a reel that can't be transcribed still archives its caption".
+
+    Unlike `_call` this asks for PLAIN TEXT, not JSON: a transcript wrapped in a JSON envelope only
+    invites truncation and escaping bugs for no benefit."""
+    if not data:
+        return "", "no media data"
+    if len(data) > MEDIA_MAX_BYTES:
+        return "", "clip too large to transcribe (%.1f MB)" % (len(data) / 1048576.0)
+    token = _gcp_access_token(token_fetcher)
+    if not token:
+        return "", "could not get GCP credentials for Vertex"
+    import base64  # lazy, stdlib
+    model = model_id or MEDIA_MODEL
+    loc = _VERTEX_LOCATION
+    host = "aiplatform.googleapis.com" if loc == "global" else ("%s-aiplatform.googleapis.com" % loc)
+    url = ("https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent"
+           % (host, _VERTEX_PROJECT, loc, model))
+    payload = {
+        "contents": [{"role": "user", "parts": [
+            {"inline_data": {"mime_type": mime or "video/mp4",
+                             "data": base64.b64encode(data).decode("ascii")}},
+            {"text": prompt or "Transcribe the spoken words in this clip verbatim, as plain prose."},
+        ]}],
+        # No response_mime_type: we want the transcript itself, not a JSON wrapper. Thinking is
+        # pinned OFF -- dictation needs none of it and it bills against the same output cap.
+        "generationConfig": {"maxOutputTokens": _MEDIA_MAX_TOKENS, "temperature": 0,
+                             "thinkingConfig": {"thinkingBudget": 0}},
+    }
+    headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+    fn = fetcher or _requests_post
+    try:
+        resp = fn(url, headers, payload, _MEDIA_TIMEOUT)
+    except Exception as exc:
+        return "", "could not reach Vertex AI (%s)" % type(exc).__name__
+    if getattr(resp, "status_code", 0) >= 400:
+        return "", _short_error(resp, "Vertex error")
+    try:
+        body = resp.json()
+        if usage_out is not None:
+            u = body.get("usageMetadata") or {}
+            usage_out["model"] = model
+            usage_out["input_tokens"] = int(u.get("promptTokenCount") or 0)
+            usage_out["output_tokens"] = (int(u.get("candidatesTokenCount") or 0)
+                                          + int(u.get("thoughtsTokenCount") or 0))
+        parts = body["candidates"][0]["content"]["parts"]
+        return "".join(p.get("text", "") for p in parts if not p.get("thought")).strip(), ""
+    except Exception:
+        # A clip with no speech legitimately comes back with no text part -- that is an empty
+        # transcript, not an error the caller should retry.
+        return "", "Vertex returned no transcript"
+
+
 def _call(model, system, user, fetcher, max_tokens, token_fetcher=None, capture=False, usage_out=None,
           think=None):
     """Dispatch to the right provider for `model` (a MODELS dict). Returns (text, error, thinking).

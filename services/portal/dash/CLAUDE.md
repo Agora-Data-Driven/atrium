@@ -112,6 +112,18 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
 - **`atrium_docs.py` / `feedback_ai.py`** — the opt-in Google-Doc → AI strategy feature (gated, degrades).
 - **`atrium_health.py`** — the team-only Website Health tab: fetches the client's live site + detects
   installed marketing tags (GTM/GA4/pixels) by scanning the page HTML (no GTM API, infra-free, degrades).
+- 🔴 **ONE add box, THREE source types (the 2026-08-07 UI pass).** The tab used to stack a separate
+  card per source (Watch channel / Archive blog / Get transcript), which is how it grew one source
+  at a time and is not a shape that survives a fourth. There is now ONE link input plus a **type
+  dropdown** that auto-selects what the pasted link looks like and stays overridable. The dropdown
+  is the ONLY thing that chooses the `op` — no route changed, and the six options map onto the four
+  existing adding ops (`add` · `add_site` · `add_profile` · `add_video` ×3). The mapping table is
+  `WT_TYPES` in `atrium.html`'s Watcher IIFE; **an `<option value>` with no `WT_TYPES` entry
+  silently does nothing on click**, so the two move together. Detection (`detectType`, pure, no
+  network) deliberately mirrors the server's own parsers — `watcher.extract_video_id`,
+  `watcher_ig.extract_shortcode`/`extract_username` — so the dropdown can never show one thing
+  while the route does another. On a NON-Instagram/YouTube host the rule is "a real path ⇒ one
+  article, a bare domain (or a `/blog`-ish section) ⇒ the whole blog".
 - **`watcher.py`** — the team-only Watcher tab: paste a YouTube channel link, archive EVERY video's
   raw transcript. No YouTube API key: channel-page scrape → public `youtubei/v1/browse` playlist
   paging (classic renderer AND 2025+ lockupViewModel shapes; captures upload age →
@@ -119,10 +131,12 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   Channels are classified: `platform` / `industry` (auto-labeled via `intel_ai.classify_text`,
   hand-editable) / `kind` creator|competitor. Registry in `ws["watcher"]`; each channel's
   transcripts in its own `workspace/watcher/<c>/<id>.json` object. `POST /w/<c>/admin/watcher`
-  (op add|**add_site**|add_video|fetch|safe_pull|refresh|meta|label|delete; **`add_site` = the
-  website-blog twin of `add`** (see `watcher_blog.py` below), and **`add_video` auto-detects** — a
+  (op add|**add_site**|**add_profile**|add_video|fetch|safe_pull|refresh|meta|label|delete;
+  **`add_site` = the website-blog twin of `add`** (see `watcher_blog.py` below), **`add_profile` =
+  the Instagram twin** (see `watcher_ig.py`), and **`add_video` auto-detects** — an instagram.com
+  link is scraped as a post/reel into a "Saved posts" loose channel, a
   link with no YouTube video id is scraped as a blog post into a separate "Saved articles" loose
-  channel, so ONE box takes both; fetch = MISSING-only batches (parallel
+  channel, so ONE box takes all three; fetch = MISSING-only batches (parallel
   `FETCH_WORKERS`/`FETCH_BATCH` waves behind a proxy, else serial), page JS loops it and AUTO-RETRIES
   with backoff on a `blocked` rate-limit / network error instead of stopping (button toggles to Stop);
   a rate-limit reports `blocked` and never marks videos failed) +
@@ -141,7 +155,12 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   Check-new/Auto-label buttons are hidden (no real channel_id → `list_videos`/`refresh` never run
   on it). UI: 3-across creator grid, collapsed to the 4 newest videos, filter bar
   (search/platform/industry/type) + date sort. YouTube blocks datacenter IPs — for Cloud Run
-  fetching create Secret `watcher-proxy-url` (mounted as `WATCHER_PROXY_URL` when present).
+  fetching create Secret `watcher-proxy-url` (mounted as `WATCHER_PROXY_URL` when present;
+  `watcher_ig.py` reuses that SAME secret rather than adding a second proxy to forget about).
+  🔴 **`can_safe_pull` and the `safe_pull` op are an ALLOW-list (`platform == "youtube"`), NOT
+  `!= "blog"`** — `safe_scrape_local.py` only knows how to fetch YouTube transcripts, so a
+  deny-list would offer Instagram a button that queues work the scraper skips forever. A new
+  platform opts IN, in all three places (`main._watcher_view`, the route, `scrape_channel`).
   **Safe pull** = the no-proxy path: `op=safe_pull` queues the channel in
   `ws["watcher"]["safe_pull"]` (helpers `workspace.queue/clear_watcher_safe_pull`); the operator
   machine's scheduled task (`install_safe_pull_task.ps1` → `safe_pull_agent.vbs`, 5-min tick,
@@ -226,6 +245,50 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   pull is hidden on blog cards** (`can_safe_pull`; `op=safe_pull` refuses them). Verified live on
   thelegalpaige.com: 330 posts listed in ~2s, 24 full articles per fetch batch in ~2.6s, 0 errors.
   Tests: `_run_blog_checks` in `_watcher_localtest.py` (fetchers injected — no network in CI).
+- **`watcher_ig.py`** — the **INSTAGRAM twin** (2026-08-07). Third source type, SAME tab, SAME
+  archive object, SAME UI, SAME Assistant index — only the fetcher differs, chosen by the registry
+  entry's `platform` (`youtube`|`blog`|`instagram`). Three helpers mirror the other two modules
+  one-for-one: `resolve_profile(url)` (→ @handle + display name; **the handle is the entry's
+  `channel_id`**, so the duplicate check is unchanged), `list_posts(username)` and `fetch_post(url)`
+  (→ the body in the field literally named **`transcript`**). A post's `id` is its **shortcode** —
+  already stable and URL-safe, so it drops straight into the reader route.
+  - 🔴 **Instagram serves a logged-out server ONE thing: `/<code>/embed/captioned/` for a single
+    public post.** A whole-profile listing is 401/403 every time. So the module has two legs, and
+    the second is opt-in: **Secret `instagram-session`** → `INSTAGRAM_SESSIONID` (mounted by
+    `deploy_dash_platform.ps1` only when it exists, exactly like `watcher-proxy-url`). With it,
+    `list_posts` walks `/api/v1/feed/user/<pk>/` by `next_max_id` and `fetch_post` uses the richer
+    `/api/v1/media/<pk>/info/`. Without it, single posts/reels still archive fine and a pasted
+    PROFILE returns a sentence naming the missing secret — **never an empty listing**, which would
+    read as "this account has no posts". A listing that only got the public dozen reports
+    `source: "public"` → the route's `partial` → the tab says so instead of implying completeness.
+    ⚠️ Use a throwaway account: automated access is against Instagram's ToS, and an expired cookie
+    surfaces as "the cookie has probably expired", never as "the post doesn't exist".
+  - **`media_pk(shortcode)` is pure base-64 arithmetic** over Instagram's own alphabet — that is
+    what bridges the two id systems (every link a human can copy carries the shortcode; the authed
+    endpoint is keyed by the numeric pk). Only the FIRST 11 chars carry the id; the tail is carousel
+    data and folding it in corrupts the number.
+  - **Reels are TRANSCRIBED, which is the whole point of the source.** `fetch_post` downloads the
+    mp4 (streamed, hard-capped at `MAX_MEDIA_BYTES` = 12 MB) and hands it to
+    **`intel_ai.transcribe_media`** — Vertex Gemini `generateContent` with the clip as
+    `inline_data`, asking for PLAIN TEXT (a transcript in a JSON envelope only invites truncation
+    and escaping bugs). Same Vertex host, same runtime-SA token, same billing as the text brain:
+    **no new API, no new IAM, no new key.** The archived body is `compose_body()` — labelled
+    `Caption:` / `Shown in the image:` / `Spoken in this reel:` sections, so a human (and the
+    Assistant's chunker) can tell the writing from the speech. ALWAYS best-effort: an oversized
+    clip, a photo post, missing Vertex credentials or a failed call all archive the caption alone
+    and leave the post **succeeded**, never failed. `WATCHER_IG_TRANSCRIBE=0` turns it off entirely.
+    Spend is banked into the client's Assistant tally via `main._watcher_bank_usage` (it is the
+    same Vertex project the cost pill already reports), which is why `fetch_posts_batch`
+    ACCUMULATES `usage_out` instead of overwriting it per post.
+  - **SERIAL and paced (`POST_WORKERS = 1`, `POST_BATCH = 8`, 2s)** — deliberately unlike
+    watcher_blog's modest concurrency. Instagram reads a burst as automation instantly, and each
+    item may also carry a multi-MB download plus a Gemini call, so a small batch is also what keeps
+    the request inside Cloud Run's timeout. Throttling reuses the SAME "rate-limiting" wording
+    watcher.py uses, so the route's `blocked` handling and the page's auto-retry-with-backoff loop
+    are shared code, not a third copy.
+  - Tests: `_run_ig_checks` in `_watcher_localtest.py` (every seam injected — `json_fetcher` /
+    `fetcher` / `media_fetcher` / `transcriber` — so there is no network and no AI in CI), plus the
+    `transcribe_media` block in `_intel_ai_localtest.py`.
 - **`watcher_template.py`** — the **default watched sources EVERY client gets, automatically**
   (2026-07-30). Pure catalog (no I/O, no workspace import), the twin of `service_templates.py`:
   a git-versioned source list keyed by segment — `UNIVERSAL` for everyone plus industry segments
@@ -494,7 +557,13 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   and its models are thinking-first so only `think is False` sends the disable flag. 🔴 The
   Secret-Manager secret is the UPPER-case `KIMI_API_KEY`; the lower-case `kimi-api-key` secret is
   the VS Code / Claude Code launcher key and is a DIFFERENT value — never mount it here. Kimi sits
-  LAST in `MODELS` so `default_model()` (first available) keeps resolving to Gemini Flash. Adding a
+  LAST in `MODELS` so `default_model()` (first available) keeps resolving to Gemini Flash.
+  **`transcribe_media(data, mime, prompt)`** is the ONE non-text transport here: Vertex
+  `generateContent` with audio/video as `inline_data`, PLAIN text out, thinking pinned off — it is
+  what turns an Instagram reel into words for `watcher_ig.py`. Vertex caps an inline request at
+  ~20 MB and base64 inflates by 4/3, hence `MEDIA_MAX_BYTES` (14 MB) refusing oversized clips
+  BEFORE the request, because a 413 from Vertex is a far worse error message than "that clip is too
+  big to transcribe". Returns `(text, error)` and never raises. Adding a
   provider = a MODELS entry + a `provider_configured` branch + `_call_*`/`_stream_*` + the secret in
   the three deploy scripts (`deploy_dash_platform.ps1`, `deploy_intel_refresh.ps1`,
   `deploy_mail_refresh.ps1` — the jobs run this same code and need the key too). Test:

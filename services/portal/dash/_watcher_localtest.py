@@ -43,6 +43,7 @@ import seed_workspace   # noqa: E402
 import store            # noqa: E402
 import watcher          # noqa: E402
 import watcher_blog     # noqa: E402
+import watcher_ig       # noqa: E402
 import workspace        # noqa: E402
 import main             # noqa: E402
 
@@ -365,6 +366,398 @@ def _run_blog_checks(c):
     workspace.delete_watcher_channel(CLIENT, loose_blog["id"])
     watcher_blog.resolve_site, watcher_blog.list_posts = real_resolve_site, real_list_posts
     watcher_blog.fetch_post = real_fetch_post
+
+
+# =================================================================================================
+# INSTAGRAM (watcher_ig.py) -- the third source type. Canned fixtures for all three endpoints the
+# module can talk to: the web-profile blob (the only one that sometimes answers logged out), the
+# authenticated user feed (paging past post 12) and per-post media info. Nothing here touches the
+# network -- every seam (json_fetcher / fetcher / media_fetcher / transcriber) is injected.
+# =================================================================================================
+_IG_USER = "greenlawco"
+_IG_PK = "77712345"
+
+
+def _ig_node(code, caption, taken_at, video=False):
+    """One post in the web_profile_info (GraphQL) shape."""
+    node = {"shortcode": code, "taken_at_timestamp": taken_at, "is_video": video,
+            "edge_media_to_caption": {"edges": [{"node": {"text": caption}}]}}
+    return {"node": node}
+
+
+def _ig_feed_item(code, caption, taken_at, video=False):
+    """One post in the private-API feed shape (`code` + a caption OBJECT, not GraphQL edges)."""
+    item = {"code": code, "taken_at": taken_at, "caption": {"text": caption}}
+    if video:
+        item["video_versions"] = [{"url": "https://cdn.test/%s.mp4" % code}]
+        item["product_type"] = "clips"
+    return item
+
+
+_IG_PROFILE = {"data": {"user": {
+    "id": _IG_PK, "full_name": "Green Law Co", "is_private": False,
+    "edge_owner_to_timeline_media": {"count": 4, "edges": [
+        _ig_node("IGnewest0001", "#ad Three NDA mistakes founders make\nSave this one.", 1785000000,
+                 video=True),
+        _ig_node("IGsecond0002", "Contract templates that actually hold up", 1784000000),
+    ]}}}}
+_IG_FEED = {"items": [
+    _ig_feed_item("IGnewest0001", "Three NDA mistakes founders make", 1785000000, video=True),
+    _ig_feed_item("IGolder00003", "What a retainer really buys you", 1783000000),
+    _ig_feed_item("IGoldest0004", "How we price fixed-fee work", 1782000000),
+], "more_available": False, "next_max_id": ""}
+_IG_MEDIA = {"items": [{
+    "code": "IGnewest0001", "taken_at": 1785000000,
+    "caption": {"text": "Three NDA mistakes founders make\nSave this one. #legal #founders"},
+    "accessibility_caption": "Photo of a person holding a document",
+    "user": {"username": _IG_USER},
+    "video_versions": [{"url": "https://cdn.test/IGnewest0001.mp4"}],
+}]}
+# The keyless embed page -- the ONE thing Instagram serves a logged-out client.
+_IG_EMBED = ('<html><body><div class="Caption">'
+             '<a class="CaptionUsername" href="/greenlawco/">greenlawco</a>'
+             'Contract templates that actually hold up<br>Link in bio.'
+             '<div class="CaptionComments">View all 31 comments</div></div>'
+             '<script>window.__additionalDataLoaded(\'extra\', '
+             '{"shortcode_media":{"shortcode":"IGsecond0002","taken_at_timestamp":1784000000,'
+             '"owner":{"username":"greenlawco"},'
+             '"edge_media_to_caption":{"edges":[{"node":{"text":"Contract templates that actually '
+             'hold up"}}]}}});</script></body></html>')
+
+
+def _ig_json(url, referer=""):
+    """Injected JSON seam: serves the three canned endpoints, 404s anything else."""
+    if "web_profile_info" in url:
+        return _IG_PROFILE
+    if "/feed/user/" in url:
+        return _IG_FEED
+    if "/media/" in url and "/info/" in url:
+        return _IG_MEDIA
+    raise watcher_ig.FetchError(404)
+
+
+def _ig_html(url, referer=""):
+    """Injected HTML seam: the embed page for any post."""
+    if "/embed/" in url:
+        return _IG_EMBED
+    raise watcher_ig.FetchError(404)
+
+
+def _ig_media_bytes(url):
+    """Injected media seam: pretend we downloaded a small mp4."""
+    return b"\x00fake-mp4-bytes", "video/mp4"
+
+
+def _ig_transcriber(data, mime, prompt, usage_out=None):
+    """Injected ASR seam: what Gemini would return for the reel's audio."""
+    if usage_out is not None:
+        usage_out.update({"model": "gemini-2.5-flash", "input_tokens": 900, "output_tokens": 40})
+    return "So the first mistake founders make with an NDA is signing the other side's version.", ""
+
+
+class _IgSession(object):
+    """Set/clear INSTAGRAM_SESSIONID around a block.
+
+    The module reads the env on EVERY call on purpose (a secret can be rotated without a redeploy),
+    so the tests flip it the same way rather than caching a flag."""
+
+    def __init__(self, value):
+        self.value = value
+        self.prev = None
+
+    def __enter__(self):
+        self.prev = os.environ.get("INSTAGRAM_SESSIONID")
+        if self.value:
+            os.environ["INSTAGRAM_SESSIONID"] = self.value
+        else:
+            os.environ.pop("INSTAGRAM_SESSIONID", None)
+        return self
+
+    def __exit__(self, *exc):
+        if self.prev is None:
+            os.environ.pop("INSTAGRAM_SESSIONID", None)
+        else:
+            os.environ["INSTAGRAM_SESSIONID"] = self.prev
+        return False
+
+
+def _run_ig_checks(c):
+    """The Instagram third of Watcher: link parsing, the two listing legs, reel transcription, and
+    the routes (every network + AI seam injected)."""
+    # --- Link parsing: what did the operator paste? -----------------------------------------------
+    for link, code in (("https://www.instagram.com/p/ABC123xyz/", "ABC123xyz"),
+                       ("https://instagram.com/reel/ABC123xyz", "ABC123xyz"),
+                       ("https://www.instagram.com/reels/ABC123xyz/?igsh=1", "ABC123xyz"),
+                       ("instagram.com/tv/ABC123xyz/", "ABC123xyz"),
+                       ("https://www.instagram.com/greenlawco/reel/ABC123xyz/", "ABC123xyz")):
+        _check("extract_shortcode reads %r" % link[-24:], watcher_ig.extract_shortcode(link) == code)
+    _check("extract_shortcode returns '' for a PROFILE link (that is how the two are told apart)",
+           watcher_ig.extract_shortcode("https://www.instagram.com/greenlawco/") == "")
+    _check("extract_username reads a profile handle",
+           watcher_ig.extract_username("https://www.instagram.com/greenlawco/?hl=en") == "greenlawco")
+    _check("extract_username returns '' for a post link",
+           watcher_ig.extract_username("https://www.instagram.com/p/ABC123xyz/") == "")
+    _check("extract_username never treats an Instagram ROUTE as a username",
+           watcher_ig.extract_username("https://www.instagram.com/explore/") == ""
+           and watcher_ig.extract_username("https://www.instagram.com/accounts/login/") == "")
+    _check("a bare @handle normalizes to a profile URL",
+           watcher_ig.extract_username("@greenlawco") == "greenlawco")
+    _check("is_instagram_url is true with or without a scheme",
+           watcher_ig.is_instagram_url("instagram.com/x") and watcher_ig.is_instagram_url(
+               "https://www.instagram.com/") and not watcher_ig.is_instagram_url("example.com/blog"))
+
+    # --- shortcode <-> media pk (pure base64 arithmetic; it is how the authed endpoint is reached) -
+    _check("media_pk decodes the shortcode alphabet", watcher_ig.media_pk("B") == "1"
+           and watcher_ig.media_pk("BA") == "64" and watcher_ig.media_pk("BB") == "65")
+    _check("media_pk refuses a character outside the alphabet", watcher_ig.media_pk("A!B") == "")
+    _check("media_pk uses only the first 11 chars (the tail is carousel data, not the id)",
+           watcher_ig.media_pk("BBBBBBBBBBBZZZ") == watcher_ig.media_pk("BBBBBBBBBBB"))
+
+    # --- Titles + body composition ----------------------------------------------------------------
+    _check("caption_title takes the caption's first real line",
+           watcher_ig.caption_title("Three NDA mistakes\nSave this", "X") == "Three NDA mistakes")
+    _check("caption_title strips a leading hashtag/mention so the card reads as a title",
+           watcher_ig.caption_title("#ad Three NDA mistakes", "X") == "Three NDA mistakes")
+    _check("a caption-less post still gets a title",
+           watcher_ig.caption_title("", "ABC123") == "Instagram post ABC123")
+    body = watcher_ig.compose_body("The caption", "The spoken words", "The alt text")
+    _check("compose_body labels each part so writing and speech stay distinguishable",
+           "Caption:" in body and "Spoken in this reel:" in body and "Shown in the image:" in body
+           and "The spoken words" in body)
+    _check("compose_body of nothing is empty (which is what marks a post unreadable)",
+           watcher_ig.compose_body("", "", "") == "")
+
+    # --- resolve_profile --------------------------------------------------------------------------
+    with _IgSession("fake-session"):
+        info = watcher_ig.resolve_profile("https://www.instagram.com/greenlawco/",
+                                          json_fetcher=_ig_json)
+        _check("resolve_profile returns the handle + display name",
+               info["ok"] and info["username"] == _IG_USER and info["title"] == "Green Law Co")
+    _check("a PROFILE op given a POST link says which dropdown option to use instead",
+           "Instagram post" in watcher_ig.resolve_profile(
+               "https://www.instagram.com/p/ABC123xyz/")["error"])
+    _check("resolve_profile rejects a non-Instagram link",
+           watcher_ig.resolve_profile("https://example.com/blog")["ok"] is False)
+
+    # --- list_posts: the public leg alone vs the authenticated feed walk ---------------------------
+    with _IgSession(""):
+        pub = watcher_ig.list_posts(_IG_USER, json_fetcher=_ig_json)
+        _check("logged out, list_posts still returns what the public blob carries",
+               pub["ok"] and len(pub["posts"]) == 2 and pub["source"] == "public")
+        _check("...and flags needs_session so the UI can say the history is incomplete",
+               pub["needs_session"] is True)
+        empty = watcher_ig.list_posts("nobody", json_fetcher=lambda u, r="": {"data": {}})
+        _check("logged out with nothing public, the failure names the missing secret",
+               empty["ok"] is False and "instagram-session" in empty["error"])
+    with _IgSession("fake-session"):
+        full = watcher_ig.list_posts(_IG_USER, json_fetcher=_ig_json)
+        codes = [p["id"] for p in full["posts"]]
+        _check("with a session the feed walk reaches every post",
+               full["ok"] and full["source"] == "feed" and len(codes) == 4)
+        _check("posts come back newest-first and de-duplicated across the two legs",
+               codes == ["IGnewest0001", "IGsecond0002", "IGolder00003", "IGoldest0004"])
+        _check("a post's date comes from its epoch timestamp",
+               full["posts"][0]["published"] == "2026-07-25")
+        _check("the caption's first line becomes the card title",
+               full["posts"][0]["title"] == "Three NDA mistakes founders make")
+        _check("a private account fails with a plain reason, not an empty listing",
+               watcher_ig.list_posts("x", json_fetcher=lambda u, r="": {
+                   "data": {"user": {"is_private": True}}})["ok"] is False)
+
+    # --- fetch_post: the authed media path (with reel transcription) ------------------------------
+    with _IgSession("fake-session"):
+        usage = {}
+        r = watcher_ig.fetch_post("https://www.instagram.com/reel/IGnewest0001/",
+                                  json_fetcher=_ig_json, media_fetcher=_ig_media_bytes,
+                                  transcriber=_ig_transcriber, usage_out=usage)
+        _check("fetch_post returns the body in the `transcript` field (the shared archive shape)",
+               r["ok"] and "Three NDA mistakes" in r["transcript"])
+        _check("a reel's SPOKEN words are transcribed into the same body",
+               r["spoken"] is True and "signing the other side's version" in r["transcript"])
+        _check("Instagram's own alt text is archived too",
+               "Photo of a person holding a document" in r["transcript"])
+        _check("the post's real date and author come back", r["published"] == "2026-07-25"
+               and r["author"] == _IG_USER)
+        _check("the transcription's token usage is reported so it can be billed to the client",
+               usage["input_tokens"] == 900 and usage["output_tokens"] == 40)
+
+        r = watcher_ig.fetch_post("https://www.instagram.com/reel/IGnewest0001/",
+                                  json_fetcher=_ig_json, media_fetcher=_ig_media_bytes,
+                                  transcriber=_ig_transcriber, transcribe=False)
+        _check("transcribe=False archives the caption alone (no Gemini call)",
+               r["ok"] and r["spoken"] is False and "signing the other side" not in r["transcript"])
+
+        r = watcher_ig.fetch_post("https://www.instagram.com/reel/IGnewest0001/",
+                                  json_fetcher=_ig_json,
+                                  media_fetcher=lambda u: (b"", "video/mp4"),
+                                  transcriber=_ig_transcriber)
+        _check("an OVERSIZED video degrades to caption-only instead of failing the post",
+               r["ok"] is True and r["spoken"] is False)
+        r = watcher_ig.fetch_post("https://www.instagram.com/reel/IGnewest0001/",
+                                  json_fetcher=_ig_json, media_fetcher=_ig_media_bytes,
+                                  transcriber=lambda *a, **k: ("", "vertex is down"))
+        _check("a FAILED transcription degrades the same way (never marks the post failed)",
+               r["ok"] is True and r["spoken"] is False and "Three NDA mistakes" in r["transcript"])
+
+    # --- fetch_post: the keyless embed path + error mapping ---------------------------------------
+    with _IgSession(""):
+        r = watcher_ig.fetch_post("https://www.instagram.com/p/IGsecond0002/", fetcher=_ig_html)
+        _check("logged out, the embed page still yields the caption",
+               r["ok"] and "Contract templates that actually hold up" in r["transcript"])
+        _check("the embed page's date is read from its own JSON blob", r["published"] == "2026-07-14")
+        r = watcher_ig.fetch_post("https://www.instagram.com/p/GONE12345/",
+                                  fetcher=lambda u, ref="": (_ for _ in ()).throw(
+                                      watcher_ig.FetchError(404)))
+        _check("a deleted post is a PERMANENT error (never retried)",
+               r["ok"] is False and r["permanent"] is True)
+        r = watcher_ig.fetch_post("https://www.instagram.com/p/BUSY12345/",
+                                  fetcher=lambda u, ref="": (_ for _ in ()).throw(
+                                      watcher_ig.FetchError(429)))
+        _check("throttling is transient and worded so the shared retry loop backs off",
+               r["ok"] is False and r["permanent"] is False and "rate-limiting" in r["error"])
+        _check("a non-Instagram link is rejected outright",
+               watcher_ig.fetch_post("https://example.com/x")["permanent"] is True)
+
+    # --- Batch fetching (the contract the page's Fetch-missing loop depends on) -------------------
+    with _IgSession("fake-session"):
+        entries = [watcher_ig.post_entry({"id": i["code"], "caption": i["caption"]["text"]})
+                   for i in _IG_FEED["items"]]
+        total = {}
+        fetched, blocked = watcher_ig.fetch_posts_batch(
+            entries, pause=0, json_fetcher=_ig_json, media_fetcher=_ig_media_bytes,
+            transcriber=_ig_transcriber, usage_out=total)
+        _check("fetch_posts_batch fills every pending post",
+               fetched == 3 and blocked is False and all(e["transcript"] for e in entries))
+        _check("batch usage ACCUMULATES across the reels (not just the last one)",
+               total["input_tokens"] == 2700 and total["calls"] == 3)
+        # 🔴 The wall-clock budget exists because the archive is written only AFTER the batch
+        # returns: a batch that outlives Cloud Run's request timeout would discard every transcript
+        # it had already paid Gemini for. A spent budget must BANK the finished item, not drop it.
+        slow = [watcher_ig.post_entry({"id": i["code"]}) for i in _IG_FEED["items"]]
+        fetched, blocked = watcher_ig.fetch_posts_batch(
+            slow, pause=0, budget_seconds=-1, json_fetcher=_ig_json,
+            media_fetcher=_ig_media_bytes, transcriber=_ig_transcriber)
+        _check("a spent time budget stops the batch but KEEPS the item it just fetched",
+               fetched == 1 and blocked is False and slow[0]["transcript"]
+               and not slow[1]["transcript"])
+        _check("...and the unfetched rest stay PENDING, so the page's loop resumes on them",
+               all(e["error"] == "" for e in slow[1:]))
+        blk = [watcher_ig.post_entry({"id": "IGblocked001"}),
+               watcher_ig.post_entry({"id": "IGblocked002"})]
+        fetched, blocked = watcher_ig.fetch_posts_batch(
+            blk, pause=0, json_fetcher=lambda u, r="": (_ for _ in ()).throw(
+                watcher_ig.FetchError(429)),
+            fetcher=lambda u, r="": (_ for _ in ()).throw(watcher_ig.FetchError(429)))
+        _check("a throttled Instagram stops the batch WITHOUT poisoning posts",
+               fetched == 0 and blocked is True and all(e["error"] == "" for e in blk))
+
+    # --- Routes: add_profile -> fetch -> read -> refresh -> delete (seams injected) ---------------
+    real_resolve, real_list, real_fetch = (watcher_ig.resolve_profile, watcher_ig.list_posts,
+                                           watcher_ig.fetch_post)
+    watcher_ig.resolve_profile = lambda url, json_fetcher=None, fetcher=None: real_resolve(
+        url, json_fetcher=_ig_json)
+    watcher_ig.list_posts = lambda user, json_fetcher=None, fetcher=None: real_list(
+        user, json_fetcher=_ig_json)
+    watcher_ig.fetch_post = lambda url, **kw: real_fetch(
+        url, json_fetcher=_ig_json, media_fetcher=_ig_media_bytes, transcriber=_ig_transcriber,
+        usage_out=kw.get("usage_out"))
+    session = _IgSession("fake-session")
+    session.__enter__()
+    try:
+        r = c.post("/w/%s/admin/watcher" % CLIENT,
+                   data={"op": "add_profile", "url": "https://www.instagram.com/greenlawco/"})
+        data = r.get_json()
+        _check("op=add_profile lists every post on the account", data["ok"] and data["posts"] == 4)
+        ig_chan = data["channel"]
+        ch = workspace.find_watcher_channel(workspace.load_workspace(CLIENT), ig_chan)
+        _check("the account registers as an `instagram` platform keyed by its @handle",
+               ch["platform"] == "instagram" and ch["channel_id"] == _IG_USER
+               and ch["video_count"] == 4)
+        _check("op=add_profile refuses the same account twice",
+               c.post("/w/%s/admin/watcher" % CLIENT,
+                      data={"op": "add_profile",
+                            "url": "instagram.com/greenlawco"}).get_json()["ok"] is False)
+        _check("op=add_profile rejects a link that isn't a profile",
+               c.post("/w/%s/admin/watcher" % CLIENT,
+                      data={"op": "add_profile", "url": "example.com"}).get_json()["ok"] is False)
+
+        body = c.get("/w/%s/watcher" % CLIENT).get_data(as_text=True)
+        _check("the Instagram card renders with INSTAGRAM wording, not video or blog wording",
+               "Green Law Co" in body and "Open profile" in body and "4 posts" in body
+               and "Caption not fetched yet." in body)
+        _check("the platform filter offers Instagram", ">Instagram<" in body)
+        _check("Safe pull is NOT offered on an Instagram card (the local scraper can't fetch it)",
+               ('data-wtsafe="%s"' % ig_chan) not in body)
+        _check("op=safe_pull is refused for Instagram (with a helpful message)",
+               c.post("/w/%s/admin/watcher" % CLIENT,
+                      data={"op": "safe_pull", "channel_id": ig_chan}).get_json()["ok"] is False)
+
+        r = c.post("/w/%s/admin/watcher" % CLIENT, data={"op": "fetch", "channel_id": ig_chan})
+        data = r.get_json()
+        _check("op=fetch pulls captions + reel transcripts for an Instagram channel",
+               data["ok"] and data["done"] == 4 and data["remaining"] == 0)
+        posts = workspace.read_watcher_videos(CLIENT, ig_chan)
+        _check("the caption AND the spoken words landed in the archive",
+               all(p["transcript"] for p in posts)
+               and any("signing the other side's version" in p["transcript"] for p in posts))
+        tally = workspace.assistant_usage(workspace.load_workspace(CLIENT))
+        _check("the reels' Gemini spend was banked into the client's Assistant tally",
+               tally["input_tokens"] >= 900 and tally["cost_usd"] > 0)
+
+        r = c.get("/w/%s/watcher/video/%s/%s" % (CLIENT, ig_chan, posts[0]["id"]))
+        data = r.get_json()
+        _check("the reader GET serves the FULL post text and says it is Instagram",
+               data["ok"] and data["platform"] == "instagram"
+               and "Three NDA mistakes" in data["transcript"])
+
+        r = c.post("/w/%s/admin/watcher" % CLIENT, data={"op": "refresh", "channel_id": ig_chan})
+        _check("op=refresh on an account adds nothing when it has not posted",
+               r.get_json()["ok"] is True and r.get_json()["new"] == 0)
+        _check("refresh kept the fetched text",
+               all(p["transcript"] for p in workspace.read_watcher_videos(CLIENT, ig_chan)))
+
+        # --- ONE box, THREE sources: an instagram.com link is scraped as a single post ------------
+        r = c.post("/w/%s/admin/watcher" % CLIENT,
+                   data={"op": "add_video", "url": "https://www.instagram.com/reel/IGnewest0001/"})
+        data = r.get_json()
+        _check("op=add_video auto-detects an INSTAGRAM link and scrapes just that post",
+               data["ok"] and data["platform"] == "instagram" and data["spoken"] is True
+               and data["already"] is False)
+        loose_ig = next(ch for ch in workspace.watcher_channels(workspace.load_workspace(CLIENT))
+                        if ch.get("loose") and ch.get("platform") == "instagram")
+        _check("it saved under a SEPARATE 'Saved posts' loose channel",
+               loose_ig["title"] == workspace.LOOSE_IG_TITLE and loose_ig["transcript_count"] == 1)
+        r = c.post("/w/%s/admin/watcher" % CLIENT,
+                   data={"op": "add_video", "url": "https://www.instagram.com/p/IGnewest0001/"})
+        _check("re-scraping the same post de-dupes",
+               r.get_json()["already"] is True
+               and len(workspace.read_watcher_videos(CLIENT, loose_ig["id"])) == 1)
+
+        # --- Team-only gating ---------------------------------------------------------------------
+        with c.session_transaction() as s:
+            s.clear()
+            s.update(CLIENT_LOGIN)
+        _check("a client cannot add an Instagram account", c.post(
+            "/w/%s/admin/watcher" % CLIENT,
+            data={"op": "add_profile", "url": "instagram.com/x"}).status_code == 403)
+        with c.session_transaction() as s:
+            s.clear()
+            s.update(SUPER)
+
+        # --- The internal (Academy) bridge exposes add_profile, and still refuses curation ---------
+        _check("the internal bridge accepts add_profile",
+               "add_profile" in main._INTERNAL_WATCHER_ADD_OPS)
+        for banned in ("delete", "meta", "label", "safe_pull"):
+            _check("the internal bridge still refuses %s" % banned,
+                   banned not in main._INTERNAL_WATCHER_ADD_OPS)
+
+        r = c.post("/w/%s/admin/watcher" % CLIENT, data={"op": "delete", "channel_id": ig_chan})
+        _check("op=delete removes the Instagram archive", r.get_json()["ok"] is True)
+        workspace.delete_watcher_channel(CLIENT, loose_ig["id"])
+    finally:
+        session.__exit__()
+        watcher_ig.resolve_profile, watcher_ig.list_posts = real_resolve, real_list
+        watcher_ig.fetch_post = real_fetch
 
 
 def _run_lazy_pane_checks(c):
@@ -1112,6 +1505,11 @@ def run():
     _run_blog_checks(c)
     _check("every hand-added source was cleaned up (only template sources remain)",
            _hand_channels() == [])
+
+    # --- The Instagram third of the tab (same archive again, a third fetcher) --------------------
+    print("  -- instagram --")
+    _run_ig_checks(c)
+    _check("every hand-added Instagram source was cleaned up too", _hand_channels() == [])
 
     # --- The LAZY pane (archives are read only on the Watcher tab) -------------------------------
     print("  -- lazy pane --")

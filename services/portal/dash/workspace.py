@@ -393,19 +393,23 @@ def add_watcher_channel(client, fields):
 
 
 # The single-item scrapers have no parent channel/site, so their items are archived under ONE
-# per-client pseudo-channel PER PLATFORM (marked `loose`): "Saved videos" for one-off YouTube links
-# and "Saved articles" for one-off blog links. Each renders as a normal card and the Assistant
-# indexes it like any other channel; only the source-wide actions (Check new / Auto-label) are
-# hidden for it in the UI. `list_videos`/`list_posts` never run against it (its channel_id is "").
+# per-client pseudo-channel PER PLATFORM (marked `loose`): "Saved videos" for one-off YouTube links,
+# "Saved articles" for one-off blog links and "Saved posts" for one-off Instagram links. Each renders
+# as a normal card and the Assistant indexes it like any other channel; only the source-wide actions
+# (Check new / Auto-label) are hidden for it in the UI. `list_videos`/`list_posts` never run against
+# it (its channel_id is "").
 LOOSE_CHANNEL_TITLE = "Saved videos"
 LOOSE_BLOG_TITLE = "Saved articles"
+LOOSE_IG_TITLE = "Saved posts"
+_LOOSE_TITLES = {"blog": LOOSE_BLOG_TITLE, "instagram": LOOSE_IG_TITLE}
 
 
 def ensure_loose_channel(client, platform="youtube"):
     """Find (or create, newest-first) the per-client loose pseudo-channel for `platform`.
 
     Keyed on platform as well as the `loose` marker so a saved article never lands in the video
-    archive (their fetchers are different: one takes a video id, the other a page URL)."""
+    archive (their fetchers are all different: one takes a video id, one a page URL, one an
+    Instagram shortcode)."""
     def fn(ws):
         channels = ws.setdefault("watcher", {}).setdefault("channels", [])
         for ch in channels:
@@ -414,7 +418,7 @@ def ensure_loose_channel(client, platform="youtube"):
         entry = {
             "id": _new_id("wch"),
             "url": "",
-            "title": LOOSE_BLOG_TITLE if platform == "blog" else LOOSE_CHANNEL_TITLE,
+            "title": _LOOSE_TITLES.get(platform, LOOSE_CHANNEL_TITLE),
             "channel_id": "",
             "platform": platform, "industry": "", "kind": "creator", "loose": True,
             "video_count": 0, "transcript_count": 0, "failed_count": 0,

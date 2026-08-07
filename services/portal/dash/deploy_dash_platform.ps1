@@ -251,6 +251,24 @@ if (Test-SecretExists "watcher-proxy-url") {
     Write-Host "[..] watcher-proxy-url absent -- Watcher fetches directly (YouTube may rate-limit)" -ForegroundColor Yellow
 }
 
+# Watcher Instagram session (OPT-IN, watcher_ig.py). Instagram serves a SINGLE public post to a
+# logged-out server and nothing else -- listing a whole profile needs a session cookie. Create the
+# secret once with the `sessionid` cookie value from a logged-in throwaway account:
+#   "PASTE_SESSIONID" | gcloud secrets create instagram-session --data-file=- --project=agora-data-driven
+# then redeploy. Absent secret -> single posts and reels still archive fine; pasting a PROFILE
+# returns a clear "Instagram needs a session for this" message instead of an empty listing.
+# ⚠️ Automated access is against Instagram's ToS and a flagged cookie costs that account, not this
+# server -- use a throwaway, and rotate the secret when it expires (it surfaces as a plain
+# "the cookie has probably expired" message in the tab, never as "the post doesn't exist").
+if (Test-SecretExists "instagram-session") {
+    gcloud secrets add-iam-policy-binding "instagram-session" --project=$PROJECT `
+        --member="serviceAccount:$WEB_SA" --role="roles/secretmanager.secretAccessor" *> $null
+    $SECRETS += ",INSTAGRAM_SESSIONID=instagram-session:latest"
+    Write-Host "[OK] instagram-session found -- mounting it (whole Instagram profiles can be archived)" -ForegroundColor Green
+} else {
+    Write-Host "[..] instagram-session absent -- Watcher archives single Instagram posts only" -ForegroundColor Yellow
+}
+
 Write-Host "[..] Deploying Cloud Run service $PLATFORM" -ForegroundColor Cyan
 # 🔴 --memory 2Gi is LOAD-BEARING, not a default. At the old 512Mi the Assistant's index work
 # OOM-killed the container mid-SSE-stream (2026-07-31): the stream logged HTTP 200 while the
