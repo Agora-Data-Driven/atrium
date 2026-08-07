@@ -631,15 +631,38 @@ def pull_meta(c, previous):
     """Per-ad/day Meta rows via the Windsor `all` connector. Windsor caps a wide pull at ~12
     months, so each run fetches WINDSOR_PRESET and older rows are CARRIED FORWARD from the
     previous publication keyed by (date, campaign, adset, ad) — the honeytribe merge pattern.
-    No key / any failure -> the previous publication's meta section (or a disabled stub)."""
+    No key / any failure -> the previous publication's meta section, STAMPED STALE (or a
+    disabled stub)."""
     prev_meta = (previous or {}).get("meta_ads") or {}
-    fallback = prev_meta if prev_meta.get("enabled") else {
-        "enabled": False, "rows": [],
-        "note": "Meta per-ad/day rows via Windsor.ai (spend, impressions, reach, link clicks, "
-                "leads, frequency)."}
+
+    def fallback(reason):
+        """The previous section carried forward, stamped stale — never left as `mode: "live"`.
+
+        Returning `prev_meta` verbatim is what made the 2026-08-01 Windsor outage invisible: the
+        shared agency key lost this account, every publish since kept `mode: "live"` and the old
+        `range`, and the job still exited 0 — so two days of frozen rows served as current while
+        `sync_state.json` recorded no failure. `enabled` stays true so the real history still
+        renders; `mode` is what tells the reader it stopped moving.
+        """
+        if not prev_meta.get("enabled"):
+            print("[meta] unavailable (%s) — disabled stub" % reason[:120], flush=True)
+            return {
+                "enabled": False, "rows": [], "stale_reason": reason[:200],
+                "note": "Meta per-ad/day rows via Windsor.ai (spend, impressions, reach, "
+                        "link clicks, leads, frequency)."}
+        out = dict(prev_meta)
+        out["mode"] = "stale"
+        out["stale_reason"] = reason[:200]
+        rng = out.get("range") or []
+        if len(rng) == 2:
+            out["stale_since"] = rng[1]
+        print("[meta] STALE: %d rows carried forward, frozen at %s (%s)"
+              % (len(out.get("rows") or []), out.get("stale_since") or "?", reason[:120]),
+              flush=True)
+        return out
+
     if not c.get("w_key"):
-        print("[meta] no Windsor key — carrying the previous section forward", flush=True)
-        return fallback
+        return fallback("no Windsor key")
     try:
         q = urllib.parse.urlencode({
             "api_key": c["w_key"], "date_preset": WINDSOR_PRESET,
@@ -653,8 +676,7 @@ def pull_meta(c, previous):
                 body = e.read().decode()[:160]
             except Exception:  # noqa: BLE001
                 body = ""
-        print("[meta] Windsor pull failed (%s %s) — carrying forward" % (e, body), flush=True)
-        return fallback
+        return fallback("Windsor pull failed: %s %s" % (e, body))
 
     seen = {}
     for row in data:
@@ -676,8 +698,7 @@ def pull_meta(c, previous):
             "lpv": int(_num(row.get("actions_landing_page_view"))),
         }
     if not seen:
-        print("[meta] Windsor returned no rows — carrying forward", flush=True)
-        return fallback
+        return fallback("Windsor returned no rows for %s" % WINDSOR_ACCOUNT)
     fresh_min = min(k[0] for k in seen)
     kept = 0
     for old in prev_meta.get("rows", []):
