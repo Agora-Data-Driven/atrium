@@ -220,12 +220,21 @@ auto-refresh (see those bullets below). Product name is one constant:
   `ws["website_health"]` via `workspace.set_website_url`/`set_website_notes`/`save_website_check`.
 - **Watcher is a TEAM-ONLY tab (creator/competitor content archive):** paste a channel link and
   Watcher lists EVERY video, then pulls each video's raw transcript — or paste a **website** and it
-  lists EVERY blog post, then pulls each post's full article text (AI summaries are a later step).
+  lists EVERY blog post, then pulls each post's full article text — or paste an **Instagram
+  profile** and it lists EVERY post, then pulls each caption and **transcribes each reel's audio**
+  (AI summaries are a later step).
   Rendered/gated exactly like Website Health (`ATRIUM_TEAM_TABS`, never shown to clients), but
-  editing is any-admin (`is_superadmin()`), not root-only. **Two source types share ONE tab, ONE
-  archive shape and ONE set of routes** — a registry entry's `platform` (`youtube`|`blog`) is the
-  only thing that picks a fetcher; a blog post is stored in the very field a video transcript is
+  editing is any-admin (`is_superadmin()`), not root-only. **THREE source types share ONE tab, ONE
+  archive shape and ONE set of routes** — a registry entry's `platform`
+  (`youtube`|`blog`|`instagram`) is the
+  only thing that picks a fetcher; a blog post and an Instagram caption are stored in the very
+  field a video transcript is
   (`transcript`), so the cards, the reader modal, the counts and the Assistant index never branch.
+  🔴 **The tab has ONE add box (2026-08-07)**, not one card per source: a single link input plus a
+  **type dropdown** that auto-selects what the pasted link looks like and stays overridable. The
+  dropdown is the only thing that picks the `op`, so adding a fourth source is one catalog entry on
+  each side, not a fourth stacked card. See the dash `CLAUDE.md` for the `WT_TYPES` ↔ `<option>`
+  coupling.
   **Websites (`dash/watcher_blog.py`, op `add_site`):** resolve the site (its origin becomes
   `channel_id`) → list EVERY post **sitemap-first** (robots.txt `Sitemap:` → index → blog-named
   children only; index-page crawl only as a fallback) → extract each post's readable text with a
@@ -235,21 +244,40 @@ auto-refresh (see those bullets below). Product name is one constant:
   site), and a **TLS cipher pin** in `_session` is load-bearing: Python's default handshake gets
   `429 local_rate_limited` forever from Cloudflare-fronted Shopify while curl gets 200. Blogs need
   NO proxy and NO Safe pull (Cloud Run isn't blocked by ordinary sites), so that button is hidden on
-  their cards. **YouTube (`dash/watcher.py`)** does the fetching with
+  their cards. **Instagram (`dash/watcher_ig.py`, op `add_profile`):** resolve the profile (its
+  @handle becomes `channel_id`) → list EVERY post/reel → per post, archive the caption, Instagram's
+  own alt text, and — for a reel — the **words actually spoken**, transcribed from the mp4's audio
+  by Vertex Gemini (`intel_ai.transcribe_media`: the clip goes up as `inline_data` on the same
+  Vertex host, the same runtime-SA token, the same billing as the text brain — no new API, no new
+  IAM, no new key; the spend is banked into the client's Assistant tally). Transcription is
+  BEST-EFFORT throughout: a photo post, an oversized clip (>12 MB) or a Vertex failure archives the
+  caption alone and the post still counts as fetched. 🔴 Instagram serves a logged-out server
+  exactly one thing — the `/embed/captioned/` page for ONE public post — so listing a whole profile
+  needs the **OPT-IN Secret `instagram-session`** (a `sessionid` cookie from a throwaway account;
+  mounted as `INSTAGRAM_SESSIONID` only when it exists, same posture as `watcher-proxy-url`, whose
+  proxy Instagram also reuses). Without it, single posts still archive and a pasted profile returns
+  a sentence naming the missing secret rather than an empty listing that reads as "no posts"; a
+  listing that reached only the public dozen reports `partial` so the tab says so. Fetching is
+  SERIAL and paced (Instagram reads a burst as automation), and Safe pull is hidden on its cards.
+  **YouTube (`dash/watcher.py`)** does the fetching with
   NO YouTube API key: channel page scrape → the public web `youtubei/v1/browse` endpoint pages the
   uploads playlist (handles BOTH the classic `playlistVideoRenderer` and the 2025+ `lockupViewModel`
   shapes, and captures each video's relative upload age → `published_text` +
   `watcher.published_estimate` ISO date) → `youtube-transcript-api` (pinned in dash requirements,
   imported LAZILY so tests/CI run without it) per video. **Classification:** each channel carries
-  `platform` (the SOURCE TYPE, and what decides which fetcher runs: `youtube` or `blog`), `industry`
+  `platform` (the SOURCE TYPE, and what decides which fetcher runs: `youtube`, `blog` or
+  `instagram`), `industry`
   (auto-labeled on add from the video/post titles via `intel_ai.classify_text` — the intel brain's
   default model — and hand-editable), and `kind` creator|competitor. State: the small channel
   registry lives in `ws["watcher"]["channels"]` (counts + classification only); each channel's full
   archive is its OWN object `workspace/watcher/<c>/<channel_id>.json` (transcripts run to MBs —
   same posture as creatives). Routes: `POST /w/<c>/admin/watcher` (`op`
-  add|**add_site**|add_video|fetch|refresh|meta|label|delete — **add_site** is the website twin of
-  add (list every blog post; the SAME fetch loop then pulls each article's text), **add_video
-  auto-detects** (a link with no YouTube video id is scraped as a blog post into a separate "Saved
+  add|**add_site**|**add_profile**|add_video|fetch|refresh|meta|label|delete — **add_site** is the
+  website twin of
+  add (list every blog post; the SAME fetch loop then pulls each article's text), **add_profile**
+  is the Instagram twin, **add_video
+  auto-detects** (an instagram.com link is scraped as a post/reel into a "Saved posts" loose
+  channel; a link with no YouTube video id is scraped as a blog post into a separate "Saved
   articles" loose channel), fetch pulls MISSING bodies in batches
   (parallel `FETCH_WORKERS` waves behind a rotating proxy, else the serial politely-paced path) and
   the page JS loops it with a progress bar; **a YouTube rate-limit reports `blocked` WITHOUT marking
@@ -333,7 +361,12 @@ auto-refresh (see those bullets below). Product name is one constant:
     **mastery-engine's Academy Admin** add a watched source without anyone opening Atrium — the
     same reasoning that made the task bridge two-way ("go somewhere else to do it" is a dead end).
     JSON body `{client, op, url|channel, retry, actor}`; `op` is **only** `add` | `add_site` |
-    `add_video` | `fetch`. 🔴 **delete / meta / label / safe_pull are deliberately NOT exposed** —
+    `add_profile` | `add_video` | `fetch`.
+    (⚠️ `mastery-engine/lib/watcher.js` still allow-lists only the first two plus `add_video`, so an
+    Instagram PROFILE cannot yet be added from the Academy — a single reel can, since `add_video`
+    auto-detects. Widening it is a one-line change there plus a UI option, deliberately not done
+    from this side.)
+    🔴 **delete / meta / label / safe_pull are deliberately NOT exposed** —
     removing and re-classifying a watched source is curation that belongs to the team who owns the
     workspace, and safe_pull queues work onto an operator's laptop.
     🔴 **Both callers run the SAME code**: the four ops live in `main._watcher_op_add` /

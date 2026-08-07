@@ -1531,7 +1531,12 @@
     .ax-wt-addmsg { margin-top: 10px; font-size: 13.5px; font-weight: 600; color: #c0322f; }
     .ax-wt-addmsg.is-busy { color: var(--ax-sub); }
     .ax-wt-addmsg.is-ok { color: #2f7a2c; }
-    .ax-wt-sitecard, .ax-wt-vidcard { margin-top: -4px; }
+    /* The ONE add box's type picker + hint. `.ax-wt-type` only narrows the shared `.ax-wt-fsel`
+       filter-select styling, so the control matches the filter bar below it by construction. */
+    .ax-wt-type { flex: 0 1 260px; min-width: 190px; max-width: 100%; }
+    .ax-wt-type.is-auto { color: var(--ax-sub); border-style: dashed; }
+    .ax-wt-hint { margin-top: 9px; font-size: 12.5px; font-weight: 600; color: var(--ax-sub); }
+    .ax-wt-hint strong { color: var(--ax-ink); font-weight: 800; }
     /* Filter bar: search + platform + industry + type + sort. */
     .ax-wt-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
     .ax-wt-fsearch { flex: 1 1 220px; min-width: 160px; }
@@ -4289,35 +4294,35 @@
            return`), which is what lets the pane be absent with no JS errors. -#}
         {% if view.active_tab == 'watcher' %}
         <section class="ax-pane is-active" data-pane="watcher">
-          <p class="ax-lede">Watch creators and competitors across platforms and archive everything they publish. Paste a <strong>YouTube channel</strong> to list every video and pull the raw transcripts, paste a <strong>website</strong> to list every blog post and pull the full article text, or paste a <strong>single video or article</strong> link to grab just that one (saved under &ldquo;Saved videos&rdquo; / &ldquo;Saved articles&rdquo;).</p>
+          <p class="ax-lede">Watch creators and competitors across platforms and archive everything they publish &mdash; <strong>YouTube</strong>, any <strong>website blog</strong>, and <strong>Instagram</strong>. Paste a link and Watcher works out what it is: a channel, site or profile is archived whole (every video, post or reel), while a single video, article or reel is grabbed on its own. Reels are transcribed from their audio, so the words actually spoken are searchable too.</p>
 
+          {#- ONE add box (2026-08-07, replacing the three stacked cards this tab grew one source at
+             a time). The TYPE dropdown is the single source of truth for which `op` is posted; the
+             page just auto-selects the type it detects from the link's shape and lets the operator
+             override it. Every op the three old cards posted is still posted from here -- nothing
+             about the routes changed, only which control chooses between them.
+             ⚠️ Keep the `value`s in step with WT_TYPES in the wiring IIFE below: that table maps each
+             one to its op, its button label and its hint, and an option with no entry there silently
+             does nothing on click. -#}
           <div class="ax-panel ax-wt-addcard">
             <div class="ax-wt-addrow">
               <span class="ax-wt-eye">{{ ic('watcher') }}</span>
-              <input class="ax-editbox ax-wt-url" id="ax-wt-url" type="url" inputmode="url" placeholder="https://www.youtube.com/@channel">
-              <button class="ax-btn violet" id="ax-wt-add" type="button">Watch channel</button>
+              <input class="ax-editbox ax-wt-url" id="ax-wt-url" type="text" inputmode="url"
+                     autocomplete="off" spellcheck="false"
+                     placeholder="Paste any link — YouTube channel or video, a website or article, an Instagram profile or reel">
+              <select class="ax-wt-fsel ax-wt-type" id="ax-wt-type" title="What kind of link is this?">
+                <option value="auto">Detect from link</option>
+                <option value="yt-channel">YouTube channel &mdash; every video</option>
+                <option value="yt-video">YouTube video &mdash; just this one</option>
+                <option value="site">Website &mdash; every blog post</option>
+                <option value="article">Article &mdash; just this one</option>
+                <option value="ig-profile">Instagram profile &mdash; every post</option>
+                <option value="ig-post">Instagram post or reel &mdash; just this one</option>
+              </select>
+              <button class="ax-btn violet" id="ax-wt-add" type="button">Add</button>
             </div>
+            <div class="ax-wt-hint" id="ax-wt-hint">Paste a link and the type picks itself &mdash; change it here if it guesses wrong.</div>
             <div class="ax-wt-addmsg" id="ax-wt-addmsg" hidden></div>
-          </div>
-
-          <!-- Website blog archive: paste a site, list EVERY blog post, pull each article's text. -->
-          <div class="ax-panel ax-wt-addcard ax-wt-sitecard">
-            <div class="ax-wt-addrow">
-              <span class="ax-wt-eye">{{ ic('watcher') }}</span>
-              <input class="ax-editbox ax-wt-url" id="ax-wt-surl" type="url" inputmode="url" placeholder="Or paste a WEBSITE: example.com (archives every blog post on it)">
-              <button class="ax-btn violet" id="ax-wt-sadd" type="button">Archive blog</button>
-            </div>
-            <div class="ax-wt-addmsg" id="ax-wt-smsg" hidden></div>
-          </div>
-
-          <!-- Single-item scraper: paste ONE video OR article link (auto-detected by the route). -->
-          <div class="ax-panel ax-wt-addcard ax-wt-vidcard">
-            <div class="ax-wt-addrow">
-              <span class="ax-wt-eye">{{ ic('watcher') }}</span>
-              <input class="ax-editbox ax-wt-url" id="ax-wt-vurl" type="url" inputmode="url" placeholder="Or paste ONE video or article link (grabs just that one)">
-              <button class="ax-btn" id="ax-wt-vget" type="button">Get transcript</button>
-            </div>
-            <div class="ax-wt-addmsg" id="ax-wt-vmsg" hidden></div>
           </div>
 
           {% if watcher %}
@@ -4325,8 +4330,10 @@
             <input class="ax-editbox ax-wt-fsearch" id="ax-wt-fsearch" type="search" placeholder="Search creators&hellip;">
             <select class="ax-wt-fsel" id="ax-wt-fplatform" title="Platform">
               <option value="">All platforms</option>
+              {#- The wording per platform lives ONCE, server-side, in main._WATCHER_LABELS -- the
+                 same table the cards use -- so a new source type never needs a Jinja conditional. -#}
               {% for p in watcher|map(attribute='platform')|unique|sort %}
-              <option value="{{ p }}">{{ 'YouTube' if p == 'youtube' else ('Website' if p == 'blog' else p|title) }}</option>
+              <option value="{{ p }}">{{ (watcher|selectattr('platform','equalto',p)|first).labels.platform }}</option>
               {% endfor %}
             </select>
             <select class="ax-wt-fsel" id="ax-wt-findustry" title="Industry">
@@ -4470,7 +4477,7 @@
           {% else %}
           <div class="ax-panel ax-wt-empty">
             {{ ic('watcher') }}
-            <div>Nothing is being watched yet. Paste a YouTube channel and click <strong>Watch channel</strong>, or paste a website and click <strong>Archive blog</strong>. Watcher lists everything the source has published, auto-labels the industry, then pulls each transcript or article.</div>
+            <div>Nothing is being watched yet. Paste a <strong>YouTube channel</strong>, a <strong>website</strong> or an <strong>Instagram profile</strong> in the box above and click <strong>Add</strong>. Watcher lists everything that source has published, auto-labels the industry, then pulls each transcript, article or caption.</div>
           </div>
           {% endif %}
 
@@ -5082,129 +5089,179 @@
   })();
 
   // ---- Watcher (team-only tab): filterable creator grid + transcript archives ------------------
-  // Add resolves + lists the whole channel in one POST (can take a while on big channels). Fetch
-  // loops short batch POSTs (op=fetch) over the MISSING transcripts only, driving the per-creator
-  // progress bar; a `blocked` response (YouTube rate-limit) stops the loop with progress kept, so
-  // the next click resumes where it stopped. Cards collapse to the 4 most recent videos and expand
-  // to the full archive; the top bar filters by creator/platform/industry/type and sorts by date.
-  // Clicking a ready video GETs the FULL transcript (only previews are inlined) into the modal.
+  // ONE add box (2026-08-07): the operator pastes any link, a TYPE dropdown auto-selects what the
+  // link looks like (overridable), and the chosen type decides which `op` is posted. Adding a whole
+  // source lists it in one POST (can take a while on big channels/profiles). Fetch then loops short
+  // batch POSTs (op=fetch) over the MISSING bodies only, driving the per-creator progress bar; a
+  // `blocked` response (a rate-limit on ANY platform -- the wording is shared) backs off and retries
+  // rather than stopping, so progress is never lost. Cards collapse to the 4 most recent items and
+  // expand to the full archive; the top bar filters by creator/platform/industry/type and sorts by
+  // date. Clicking a ready item GETs its FULL text (only previews are inlined) into the modal.
   (function () {
     var addBtn = document.getElementById("ax-wt-add");
     var addMsg = document.getElementById("ax-wt-addmsg");
-    function showAddMsg(text, busy) {
+    var urlBox = document.getElementById("ax-wt-url");
+    var typeSel = document.getElementById("ax-wt-type");
+    var hintEl = document.getElementById("ax-wt-hint");
+
+    function showAddMsg(text, tone) {
       if (!addMsg) { return; }
       addMsg.hidden = !text;
       addMsg.textContent = text || "";
-      addMsg.classList.toggle("is-busy", !!busy);
+      addMsg.classList.toggle("is-busy", tone === "busy");
+      addMsg.classList.toggle("is-ok", tone === "ok");
     }
+    // Kept as a named helper because the post-reload note hook at the end of this IIFE calls it
+    // with the single-item scraper's own tone vocabulary ("ok" / "err").
+    function showVidMsg(text, tone) { showAddMsg(text, tone === "err" ? "" : tone); }
+
+    // The ONE table describing every option in the type dropdown. `op` is what the route receives,
+    // `single` marks the ops that scrape ONE item (they share the reader-popping reply shape), and
+    // `busy` is what the operator reads while the request is in flight.
+    // ⚠️ A key here must match an <option value> in the markup above, or that option does nothing.
+    var WT_TYPES = {
+      "yt-channel": { op: "add", btn: "Watch channel", single: false,
+        hint: "Lists <strong>every video</strong> on the channel, then pulls each transcript.",
+        busy: "Finding the channel, listing every video, and labeling the industry. This can take a minute…" },
+      "yt-video": { op: "add_video", btn: "Get transcript", single: true,
+        hint: "Grabs <strong>just this video</strong>, saved under “Saved videos”.",
+        busy: "Fetching the transcript…" },
+      "site": { op: "add_site", btn: "Archive blog", single: false,
+        hint: "Lists <strong>every blog post</strong> on the site, then pulls each article's full text.",
+        busy: "Finding the site's blog, listing every post, and labeling the industry. This can take a minute…" },
+      "article": { op: "add_video", btn: "Get article", single: true,
+        hint: "Grabs <strong>just this article</strong>, saved under “Saved articles”.",
+        busy: "Fetching the article text…" },
+      "ig-profile": { op: "add_profile", btn: "Watch profile", single: false,
+        hint: "Lists <strong>every post and reel</strong> on the account, then pulls each caption and transcribes each reel's audio.",
+        busy: "Finding the account, listing every post, and labeling the industry. This can take a minute…" },
+      "ig-post": { op: "add_video", btn: "Get post", single: true,
+        hint: "Grabs <strong>just this post or reel</strong> — caption plus, for a reel, the words spoken in it.",
+        busy: "Fetching the caption and transcribing the audio…" }
+    };
+    var AUTO_HINT = "Paste a link and the type picks itself — change it here if it guesses wrong.";
+
+    // Detect the source type from the link's SHAPE alone (no network). Deliberately mirrors what the
+    // server does with a pasted link -- watcher.extract_video_id, watcher_ig.extract_shortcode /
+    // extract_username -- so the dropdown never shows one thing while the route does another.
+    // Returns "" when nothing is recognisable, which leaves the dropdown on "Detect from link".
+    var IG_RESERVED = ["p", "reel", "reels", "tv", "stories", "explore", "accounts", "direct",
+                       "about", "legal", "developer", "api", "graphql", "web", "s", "igtv"];
+    function detectType(raw) {
+      var url = (raw || "").replace(/^\s+|\s+$/g, "");
+      if (!url) { return ""; }
+      var bare = url.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+      var host = bare.split(/[\/?#]/)[0].toLowerCase();
+      var path = bare.slice(host.length).replace(/^\//, "");
+      // A bare @handle is how people write an Instagram account (YouTube handles are pasted as
+      // full URLs in practice, so the ambiguity resolves in Instagram's favour on purpose).
+      if (/^@[A-Za-z0-9._]{1,30}$/.test(url)) { return "ig-profile"; }
+      if (host === "youtu.be") { return "yt-video"; }
+      if (/(^|\.)youtube\.com$/.test(host)) {
+        if (/[?&]v=[0-9A-Za-z_-]{11}/.test(url) || /^(shorts|embed|live)\/[0-9A-Za-z_-]{11}/.test(path)) {
+          return "yt-video";
+        }
+        return "yt-channel";     // @handle, /channel/, /c/, /user/ and the bare domain
+      }
+      if (/(^|\.)instagram\.com$/.test(host) || host === "instagr.am") {
+        if (/(^|\/)(p|reel|reels|tv)\/[0-9A-Za-z_-]{5,}/.test("/" + path)) { return "ig-post"; }
+        var first = path.split(/[\/?#]/)[0].toLowerCase();
+        if (first && IG_RESERVED.indexOf(first) === -1) { return "ig-profile"; }
+        return "";               // instagram.com itself, or one of its own routes: can't tell
+      }
+      if (!/^[^\/\s.]+\.[^\/\s]+$/.test(host)) { return ""; }   // not a dotted hostname at all
+      // Any other site: a link with a real path is one article, the bare domain is the whole blog.
+      // A trailing-slash-only path ("example.com/blog/") still reads as a section, not a post.
+      var clean = path.split(/[?#]/)[0].replace(/\/+$/, "");
+      return clean.indexOf("/") !== -1 || (clean && !/^(blog|news|articles|insights|resources)$/i.test(clean))
+        ? "article" : "site";
+    }
+
+    // `manual` sticks once the operator picks a type by hand, so re-detecting on every keystroke
+    // can't fight them -- but it clears the moment the link's DETECTED type changes (i.e. they
+    // pasted a different kind of link), which is when following the detection is right again.
+    var manual = false, lastDetected = null;
+    function syncType(force) {
+      if (!typeSel || !urlBox) { return; }
+      var detected = detectType(urlBox.value);
+      if (detected !== lastDetected) { manual = false; lastDetected = detected; }
+      if (force || !manual) { typeSel.value = detected || "auto"; }
+      paintType();
+    }
+    function paintType() {
+      if (!typeSel) { return; }
+      var cfg = WT_TYPES[typeSel.value];
+      typeSel.classList.toggle("is-auto", !cfg);
+      if (addBtn) { addBtn.textContent = cfg ? cfg.btn : "Add"; }
+      if (hintEl) { hintEl.innerHTML = cfg ? cfg.hint : AUTO_HINT; }
+    }
+    if (urlBox) {
+      urlBox.addEventListener("input", function () { syncType(false); });
+      urlBox.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" && addBtn) { ev.preventDefault(); addBtn.click(); }
+      });
+    }
+    if (typeSel) {
+      typeSel.addEventListener("change", function () { manual = true; paintType(); });
+      syncType(false);       // paint the initial (empty) state
+    }
+
+    // Submit: one handler for all six types. The reply shape splits only two ways -- a whole-source
+    // add reports how many items it listed, a single-item scrape returns the text itself -- so the
+    // note stashed for after the reload is the only thing that branches.
     if (addBtn) {
       addBtn.addEventListener("click", function () {
-        var input = document.getElementById("ax-wt-url");
-        var url = input ? input.value.replace(/^\s+|\s+$/g, "") : "";
-        if (!url) { showAddMsg("Paste a YouTube channel link first.", false); return; }
+        var url = urlBox ? urlBox.value.replace(/^\s+|\s+$/g, "") : "";
+        var cfg = typeSel ? WT_TYPES[typeSel.value] : null;
+        if (!url) { showAddMsg("Paste a link first.", ""); return; }
+        if (!cfg) {
+          showAddMsg("Couldn't tell what that link is — pick the type from the dropdown.", "");
+          return;
+        }
         addBtn.setAttribute("disabled", "disabled");
-        showAddMsg("Finding the channel, listing every video, and labeling the industry. This can take a minute…", true);
-        post("/admin/watcher", { op: "add", url: url })
+        showAddMsg(cfg.busy, "busy");
+        post("/admin/watcher", { op: cfg.op, url: url })
           .then(function (data) {
-            if (data && data.ok === false) {
+            if (!data || data.ok === false) {
               addBtn.removeAttribute("disabled");
-              showAddMsg(data.message || "Could not add that channel.", false);
+              paintType();
+              var msg = (data && data.message) || "Could not add that link.";
+              if (data && data.needs_session) {
+                msg += " (Instagram profiles need the instagram-session secret; single posts and reels still work without it.)";
+              }
+              showAddMsg(msg, "");
               return;
+            }
+            var note;
+            if (cfg.single) {
+              if (data.transcript) {
+                note = { msg: (data.already ? "Re-fetched ✓, " : "Saved to your archive ✓, ") + data.words + " words" +
+                              (data.spoken ? " (including the spoken audio)" : "") + ".",
+                         ok: true, open: true, chan: data.channel, vid: data.video_id };
+              } else if (data.blocked) {
+                note = { msg: "The source is rate-limiting this server right now, but the item is saved. Click “Fetch missing” (or “Safe pull” on a YouTube card) below and the text lands automatically.",
+                         ok: false, open: false };
+              } else {
+                note = { msg: "Saved, but no text: " + (data.error || "none is available for this one."),
+                         ok: false, open: false };
+              }
+              try { sessionStorage.setItem("ax-wt-scrape", JSON.stringify(note)); } catch (e) {}
+            } else {
+              var found = data.videos || data.posts || 0;
+              var tail = data.partial
+                ? " — that's all Instagram shows a logged-out server; add the instagram-session secret for the full history."
+                : " ✓ — click “Fetch missing” on its card to pull the text.";
+              try {
+                sessionStorage.setItem("ax-wt-site", JSON.stringify({
+                  msg: "Found " + found + " items on " + (data.title || "that source") + tail }));
+              } catch (e) {}
             }
             window.location.reload();
           })
           .catch(function () {
             addBtn.removeAttribute("disabled");
-            showAddMsg("Could not add that channel. Please try again.", false);
-          });
-      });
-    }
-
-    // Website blog archive: paste a site -> list EVERY blog post (sitemap-first) and store the
-    // archive. Post bodies are pulled by the SAME "Fetch missing" loop a channel uses, so this
-    // handler only has to create the card and reload.
-    var sAdd = document.getElementById("ax-wt-sadd");
-    var sMsg = document.getElementById("ax-wt-smsg");
-    function showSiteMsg(text, busy) {
-      if (!sMsg) { return; }
-      sMsg.hidden = !text;
-      sMsg.textContent = text || "";
-      sMsg.classList.toggle("is-busy", !!busy);
-    }
-    if (sAdd) {
-      sAdd.addEventListener("click", function () {
-        var input = document.getElementById("ax-wt-surl");
-        var url = input ? input.value.replace(/^\s+|\s+$/g, "") : "";
-        if (!url) { showSiteMsg("Paste a website address first.", false); return; }
-        sAdd.setAttribute("disabled", "disabled");
-        showSiteMsg("Finding the site's blog, listing every post, and labeling the industry. This can take a minute…", true);
-        post("/admin/watcher", { op: "add_site", url: url })
-          .then(function (data) {
-            if (!data || data.ok === false) {
-              sAdd.removeAttribute("disabled");
-              showSiteMsg((data && data.message) || "Could not archive that website.", false);
-              return;
-            }
-            try {
-              sessionStorage.setItem("ax-wt-site", JSON.stringify({
-                msg: "Found " + data.posts + " blog posts on " + (data.title || "that site") +
-                     " ✓ — click “Fetch missing” on its card to pull the article text." }));
-            } catch (e) {}
-            window.location.reload();
-          })
-          .catch(function () {
-            sAdd.removeAttribute("disabled");
-            showSiteMsg("Could not archive that website. Please try again.", false);
-          });
-      });
-    }
-
-    // Single-item scraper: paste ONE video link -> resolve its title, pull its transcript inline,
-    // and save it under the per-client "Saved videos" pseudo-channel. On success we stash a note +
-    // the video id and reload; the load-time hook at the end of this IIFE shows the note and pops the
-    // transcript reader (the fresh "Saved videos" card is now in the grid). A rate-limit or a video
-    // with no captions is saved pending, and the note explains the retry path (Fetch missing / Safe
-    // pull on that card).
-    var vGet = document.getElementById("ax-wt-vget");
-    var vMsg = document.getElementById("ax-wt-vmsg");
-    function showVidMsg(text, tone) {
-      if (!vMsg) { return; }
-      vMsg.hidden = !text;
-      vMsg.textContent = text || "";
-      vMsg.classList.toggle("is-busy", tone === "busy");
-      vMsg.classList.toggle("is-ok", tone === "ok");
-    }
-    if (vGet) {
-      vGet.addEventListener("click", function () {
-        var input = document.getElementById("ax-wt-vurl");
-        var url = input ? input.value.replace(/^\s+|\s+$/g, "") : "";
-        if (!url) { showVidMsg("Paste a single video or article link first.", "err"); return; }
-        vGet.setAttribute("disabled", "disabled");
-        showVidMsg("Fetching the text…", "busy");
-        post("/admin/watcher", { op: "add_video", url: url })
-          .then(function (data) {
-            if (!data || data.ok === false) {
-              vGet.removeAttribute("disabled");
-              showVidMsg((data && data.message) || "Could not scrape that video.", "err");
-              return;
-            }
-            var note;
-            if (data.transcript) {
-              note = { msg: (data.already ? "Re-fetched ✓, " : "Saved to your archive ✓, ") + data.words + " words.",
-                       ok: true, open: true, chan: data.channel, vid: data.video_id };
-            } else if (data.blocked) {
-              note = { msg: "The source is rate-limiting this server right now, but the item is saved. Click “Fetch missing” (or “Safe pull” on a YouTube card) below and the text lands automatically.",
-                       ok: false, open: false };
-            } else {
-              note = { msg: "Saved, but no text: " + (data.error || "none is available for this one."),
-                       ok: false, open: false };
-            }
-            try { sessionStorage.setItem("ax-wt-scrape", JSON.stringify(note)); } catch (e) {}
-            window.location.reload();
-          })
-          .catch(function () {
-            vGet.removeAttribute("disabled");
-            showVidMsg("Could not scrape that video. Please try again.", "err");
+            paintType();
+            showAddMsg("Could not reach the server. Please try again.", "");
           });
       });
     }
@@ -5678,7 +5735,8 @@
       });
     }
 
-    // After a single-item scrape reloaded us: surface the saved-note and pop the reader.
+    // After an add reloaded us: surface the stashed note in the ONE message line, and (for a
+    // single-item scrape) pop the reader on the item that was just saved.
     try {
       var scrapeNote = sessionStorage.getItem("ax-wt-scrape");
       if (scrapeNote) {
@@ -5687,12 +5745,12 @@
         if (sn && sn.msg) { showVidMsg(sn.msg, sn.ok ? "ok" : "err"); }
         if (sn && sn.open && sn.vid) { openVideo(sn.chan, sn.vid); }
       }
-      // Same, for the website-blog add (which only ever reports how many posts were listed).
+      // Same, for a whole-source add (which only ever reports how many items were listed).
       var siteNote = sessionStorage.getItem("ax-wt-site");
       if (siteNote) {
         sessionStorage.removeItem("ax-wt-site");
         var sitn = JSON.parse(siteNote);
-        if (sitn && sitn.msg) { showSiteMsg(sitn.msg, false); }
+        if (sitn && sitn.msg) { showAddMsg(sitn.msg, "ok"); }
       }
     } catch (e) {}
   })();

@@ -568,6 +568,44 @@ def run():
     _check("stream transport error -> a single error event",
            len(ee) == 1 and ee[0]["type"] == "error" and ee[0]["message"])
 
+    # 12. transcribe_media -- the Watcher's reel ASR leg. Same Vertex host, same SA token, but PLAIN
+    # text out (a transcript in a JSON envelope only invites truncation + escaping bugs).
+    seen = {}
+
+    def _media_fetcher(url, headers, payload, timeout):
+        seen["url"], seen["payload"] = url, payload
+        return _Resp({"candidates": [{"content": {"parts": [{"text": "  So today we're talking NDAs. "}]}}],
+                      "usageMetadata": {"promptTokenCount": 1200, "candidatesTokenCount": 30}})
+
+    usage = {}
+    text, err = intel_ai.transcribe_media(b"\x00fake", "video/mp4", "Transcribe it.",
+                                          token_fetcher=_token, fetcher=_media_fetcher,
+                                          usage_out=usage)
+    _check("transcribe_media returns the plain transcript, trimmed",
+           err == "" and text == "So today we're talking NDAs.")
+    _check("it posts the clip as inline_data alongside the prompt",
+           seen["payload"]["contents"][0]["parts"][0]["inline_data"]["mime_type"] == "video/mp4"
+           and seen["payload"]["contents"][0]["parts"][1]["text"] == "Transcribe it.")
+    _check("it asks for TEXT, not the JSON envelope the text brain uses",
+           "response_mime_type" not in seen["payload"]["generationConfig"])
+    _check("thinking is pinned off (dictation needs none and it bills against the output cap)",
+           seen["payload"]["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 0)
+    _check("transcribe_media reports token usage so the caller can bill it",
+           usage["input_tokens"] == 1200 and usage["output_tokens"] == 30
+           and usage["model"] == intel_ai.MEDIA_MODEL)
+    _check("an oversized clip is refused BEFORE the request (a 413 is a worse error message)",
+           intel_ai.transcribe_media(b"x" * (intel_ai.MEDIA_MAX_BYTES + 1), "video/mp4",
+                                     token_fetcher=_token, fetcher=_media_fetcher)[1].startswith(
+                                         "clip too large"))
+    _check("no credentials -> (\"\", reason), never an exception",
+           intel_ai.transcribe_media(b"x", "video/mp4", token_fetcher=lambda: "")[0] == "")
+    _check("a Vertex error is reported, not raised",
+           intel_ai.transcribe_media(b"x", "video/mp4", token_fetcher=_token,
+                                     fetcher=_quota_fetcher)[1] == "out of quota/credits — check billing")
+    _check("a response with no text part is an empty transcript, not a crash",
+           intel_ai.transcribe_media(b"x", "video/mp4", token_fetcher=_token,
+                                     fetcher=lambda *a: _Resp({"candidates": []}))[0] == "")
+
 
 def main():
     try:

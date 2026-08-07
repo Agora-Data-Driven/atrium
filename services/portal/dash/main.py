@@ -2095,7 +2095,7 @@ def internal_watcher_transcripts():
 # NOT exposed here on purpose: delete, meta/label edits and safe_pull. Removing a watched source
 # and re-classifying it are curation decisions that belong with the team who owns the workspace,
 # and safe_pull queues work onto an operator's laptop.
-_INTERNAL_WATCHER_ADD_OPS = ("add", "add_site", "add_video", "fetch")
+_INTERNAL_WATCHER_ADD_OPS = ("add", "add_site", "add_profile", "add_video", "fetch")
 
 
 @app.route("/api/internal/watcher/add", methods=["POST"])
@@ -2120,8 +2120,8 @@ def internal_watcher_add():
         channel = workspace.find_watcher_channel(ws, channel_id)
         if channel is None:
             return Response('{"error":"not_found"}', status=404, mimetype="application/json")
-        is_blog = (channel.get("platform") or "youtube") == "blog"
-        out = _watcher_op_fetch(client_key, channel_id, is_blog, retry=bool(payload.get("retry")))
+        out = _watcher_op_fetch(client_key, channel_id, channel.get("platform") or "youtube",
+                                retry=bool(payload.get("retry")))
         _internal_audit(client_key, payload.get("actor"), "fetched watcher bodies (from the Academy)",
                         channel.get("title", ""), role="academy")
         return jsonify(**out)
@@ -2133,6 +2133,8 @@ def internal_watcher_add():
         out = _watcher_op_add(client_key, ws, url)
     elif op == "add_site":
         out = _watcher_op_add_site(client_key, ws, url)
+    elif op == "add_profile":
+        out = _watcher_op_add_profile(client_key, ws, url)
     else:
         out = _watcher_op_add_video(client_key, url)
     if out.get("ok"):
@@ -3606,6 +3608,9 @@ _WATCHER_LABELS = {
     "blog": {"platform": "Website", "item": "post", "item_plural": "posts",
              "body": "article", "body_plural": "articles", "open": "Open site",
              "empty": "Article not fetched yet.", "missing": "no article text"},
+    "instagram": {"platform": "Instagram", "item": "post", "item_plural": "posts",
+                  "body": "caption", "body_plural": "captions", "open": "Open profile",
+                  "empty": "Caption not fetched yet.", "missing": "nothing readable"},
 }
 
 
@@ -3675,8 +3680,11 @@ def _watcher_view(ws, client):
         entry["own"] = bool(ch.get("own"))      # the client's OWN content (added on the Company tab)
         entry["labels"] = _watcher_labels(entry["platform"])
         # Safe pull is a YOUTUBE-only escape hatch (it exists because YouTube blocks datacenter
-        # IPs). Websites serve Cloud Run fine, so a blog card never offers it.
-        entry["can_safe_pull"] = entry["platform"] != "blog"
+        # IPs, and safe_scrape_local.py only knows how to fetch YouTube transcripts). Websites serve
+        # Cloud Run fine; Instagram wants the session cookie the local scraper doesn't hold. An
+        # ALLOW-list, not a deny-list: a new platform must opt IN, or it silently offers a button
+        # that queues work the scraper will skip forever.
+        entry["can_safe_pull"] = entry["platform"] == "youtube"
         entry["safe_queued"] = ch.get("id") in safe_queue
         cards = []
         latest = ""
@@ -3781,6 +3789,8 @@ def _content_gap_corpus(ws, client):
 
 
 _WATCHER_KINDS = ("creator", "competitor")
+# What ONE scraped item is called per platform, for the audit line ("scraped single reel").
+_SINGLE_ITEM_WORD = {"blog": "article", "instagram": "Instagram post", "youtube": "video"}
 
 
 def _watcher_autolabel(title, video_titles):
@@ -3935,10 +3945,99 @@ def _watcher_op_add_site(client, ws, url, own=False):
             "platform": "blog", "title": info["title"]}
 
 
+def _watcher_add_ig_post(client, url):
+    """Scrape ONE pasted Instagram post/reel URL into the per-client "Saved posts" pseudo-channel.
+
+    The Instagram twin of `_watcher_op_add_video` / `_watcher_add_post`, deliberately identical in
+    shape: same de-dupe-by-id, same inline fetch, same JSON keys (`transcript`/`words`/`blocked`),
+    so the page's single-item card handles a video, an article and a reel with the same code."""
+    import watcher_ig  # lazy: only the Instagram ops need it
+    shortcode = watcher_ig.extract_shortcode(url)
+    if not shortcode:
+        return {"ok": False, "message": "That doesn't look like an Instagram post or reel link."}
+    channel = workspace.ensure_loose_channel(client, platform="instagram")
+    posts = workspace.read_watcher_videos(client, channel["id"])
+    entry = next((p for p in posts if p.get("id") == shortcode), None)
+    already = entry is not None
+    if entry is None:
+        entry = watcher_ig.post_entry({"id": shortcode, "url": watcher_ig.post_url(shortcode)})
+        posts.insert(0, entry)
+    usage = {}
+    result = watcher_ig.fetch_post(watcher_ig.post_url(shortcode), usage_out=usage)
+    # Throttling is a session condition, not a fact about the post: leave it pending so
+    # "Fetch missing" finishes it later -- exactly how a rate-limited video is treated.
+    blocked = watcher_ig._apply_post(entry, result, workspace.now_iso()) == "blocked"
+    workspace.write_watcher_videos(client, channel["id"], posts)
+    _watcher_counts(client, channel["id"], posts)
+    _watcher_bank_usage(client, usage)
+    return {"ok": True, "channel": channel["id"], "video_id": entry["id"],
+            "title": entry.get("title", ""), "url": entry.get("url", ""),
+            "transcript": entry.get("transcript", ""),
+            "words": len((entry.get("transcript") or "").split()),
+            "language": "", "error": entry.get("error", ""), "platform": "instagram",
+            "spoken": bool(result.get("spoken")), "blocked": blocked, "already": already}
+
+
+def _watcher_bank_usage(client, usage):
+    """Bank Watcher's Gemini transcription spend into the client's Assistant tally (best-effort).
+
+    Reel transcription is the first Watcher call expensive enough to be worth seeing on the cost
+    pill (the industry auto-label is one tiny classify), and it bills to exactly the same Vertex
+    project the Assistant does -- so it belongs in the same running total rather than in a second
+    tally nobody looks at. Never allowed to break a fetch that actually worked."""
+    if not usage or not (usage.get("input_tokens") or usage.get("output_tokens")):
+        return
+    try:
+        model = usage.get("model") or intel_ai.MEDIA_MODEL
+        workspace.add_assistant_usage(
+            client, model, usage.get("input_tokens", 0), usage.get("output_tokens", 0),
+            intel_ai.cost_of(model, usage.get("input_tokens", 0), usage.get("output_tokens", 0)))
+    except Exception as exc:                               # noqa: BLE001 -- accounting is not the job
+        app.logger.warning("watcher usage tally skipped for %s: %s", client, exc)
+
+
+def _watcher_op_add_profile(client, ws, url):
+    """`add_profile` -- the INSTAGRAM twin of `add`: archive every post an account has published.
+
+    Registry-only like its twins: this lists the posts, and the same "Fetch missing" loop pulls each
+    one's caption + spoken transcript afterwards."""
+    import watcher_ig  # lazy: only the Instagram ops need it
+    info = watcher_ig.resolve_profile(url)
+    if not info["ok"]:
+        return {"ok": False, "message": info["error"], "needs_session": info.get("needs_session")}
+    for ch in workspace.watcher_channels(ws):
+        if ch.get("channel_id") == info["username"]:
+            return {"ok": False,
+                    "message": "Already watching %s." % (ch.get("title") or "that account")}
+    listing = watcher_ig.list_posts(info["username"])
+    if not listing["ok"]:
+        return {"ok": False, "message": listing["error"],
+                "needs_session": listing.get("needs_session")}
+    industry, _label_err = _watcher_autolabel(info["title"],
+                                              [p.get("title", "") for p in listing["posts"]])
+    entry = workspace.add_watcher_channel(client, {
+        "url": info["url"], "title": info["title"], "channel_id": info["username"],
+        "platform": "instagram", "industry": industry, "kind": "creator",
+        "video_count": len(listing["posts"]),
+    })
+    workspace.write_watcher_videos(client, entry["id"],
+                                   [watcher_ig.post_entry(p) for p in listing["posts"]])
+    return {"ok": True, "channel": entry["id"], "title": info["title"],
+            "platform": "instagram", "posts": len(listing["posts"]),
+            "videos": len(listing["posts"]), "source": listing.get("source", ""),
+            # `public` = only the newest dozen were reachable (no session cookie). The caller says so
+            # rather than implying the whole account was archived.
+            "partial": listing.get("source") == "public"}
+
+
 def _watcher_op_add_video(client, url):
-    """`add_video` -- ONE box, both sources: a YouTube link goes down the video path, anything else
-    is treated as a blog-post URL (a website link has no 11-char video id to extract)."""
+    """`add_video` -- ONE box, every single-item source: a YouTube link goes down the video path, an
+    instagram.com link down the post/reel path, and anything else is treated as a blog-post URL (a
+    website link carries neither an 11-char video id nor an Instagram shortcode)."""
     import watcher
+    import watcher_ig
+    if watcher_ig.is_instagram_url(url):
+        return _watcher_add_ig_post(client, url)
     if not watcher.extract_video_id(url):
         return _watcher_add_post(client, url)
     info = watcher.resolve_video(url)
@@ -3979,22 +4078,31 @@ def _watcher_op_add_video(client, url):
             "platform": "youtube", "blocked": blocked, "already": already}
 
 
-def _watcher_op_fetch(client, channel_id, is_blog, retry=False):
+def _watcher_op_fetch(client, channel_id, platform, retry=False):
     """`fetch` -- pull the next batch of MISSING bodies only, so each request stays short.
 
-    The caller loops it until `remaining` hits 0. A YouTube rate-limit reports `blocked` WITHOUT
-    marking any video failed, so the next call resumes over the exact same missing set."""
+    The caller loops it until `remaining` hits 0. A rate-limit reports `blocked` WITHOUT marking any
+    item failed, so the next call resumes over the exact same missing set -- identical on all three
+    platforms, which is what lets ONE page-side loop drive them all.
+
+    `platform` picks the fetcher and NOTHING else; every branch mutates the same archive shape."""
     import watcher
     videos = workspace.read_watcher_videos(client, channel_id)
     if retry:
         for v in videos:
             if v.get("error") and not v.get("permanent"):
                 v["error"] = ""
-    if is_blog:
+    usage = {}
+    if platform == "blog":
         # Websites serve Cloud Run fine (no datacenter-IP block, so no proxy and no Safe pull):
         # a modest paced concurrency is both quick and polite.
         import watcher_blog
         fetched, blocked = watcher_blog.fetch_posts_batch(videos)
+    elif platform == "instagram":
+        # SERIAL and paced: Instagram treats a burst as automation instantly, and each reel may also
+        # carry a multi-MB download + a Gemini transcription, so the batch is small by design.
+        import watcher_ig
+        fetched, blocked = watcher_ig.fetch_posts_batch(videos, usage_out=usage)
     elif watcher.proxied():
         # Behind a rotating proxy each concurrent request is a different IP, so fetch the batch
         # in parallel (fast, ~a couple minutes for a whole channel).
@@ -4006,13 +4114,14 @@ def _watcher_op_fetch(client, channel_id, is_blog, retry=False):
         fetched, blocked = watcher.fetch_transcripts_batch(videos)
     workspace.write_watcher_videos(client, channel_id, videos)
     pending = _watcher_counts(client, channel_id, videos)
+    _watcher_bank_usage(client, usage)
     return {"ok": True, "fetched": fetched, "blocked": blocked, "remaining": pending,
             "total": len(videos), "done": len(videos) - pending}
 
 
 @app.route("/w/<client>/admin/watcher", methods=["POST"])
 def atrium_admin_watcher(client):
-    """Manage watched sources -- YouTube channels AND website blogs (team-only). `op` is one of:
+    """Manage watched sources -- YouTube channels, website blogs AND Instagram (team-only). `op` is:
 
     * add     -- resolve the pasted channel `url`, list EVERY video, auto-label the industry,
                  store the (transcript-less) archive; transcripts come from repeated `fetch` calls.
@@ -4020,10 +4129,16 @@ def atrium_admin_watcher(client):
                  (sitemap-first, see watcher_blog.list_posts), auto-label the industry, and store
                  the (text-less) archive. Post bodies come from the same repeated `fetch` calls --
                  a blog channel differs ONLY in which fetcher runs.
+    * add_profile - the INSTAGRAM twin of `add`: resolve the pasted profile `url` to its @handle,
+                 list EVERY post/reel, auto-label the industry, store the (text-less) archive. The
+                 same `fetch` calls then pull each post's caption and -- for a reel -- the words
+                 spoken in it, transcribed by Gemini. Logged out, Instagram only exposes the newest
+                 dozen posts, so the reply carries `partial` when that is all it got.
     * add_video - scrape a SINGLE pasted `url`: a YouTube link saves under the per-client "Saved
-                 videos" pseudo-channel, ANY OTHER link is treated as a blog post and saves under
-                 "Saved articles" (auto-detected, so one box takes both). The body is returned in
-                 the response (shown immediately); a rate-limit is reported `blocked` and the item
+                 videos" pseudo-channel, an instagram.com link under "Saved posts", and ANY OTHER
+                 link is treated as a blog post and saves under "Saved articles" (auto-detected, so
+                 one box takes all three). The body is returned in the
+                 response (shown immediately); a rate-limit is reported `blocked` and the item
                  is saved pending, so Fetch missing / Safe pull on the card can finish it.
     * fetch   -- fetch the next batch of MISSING bodies only (the page JS loops this until
                  `remaining` hits 0, so each request stays short). A YouTube rate-limit stops the
@@ -4067,10 +4182,17 @@ def atrium_admin_watcher(client):
                    "%s (%d posts)" % (out.get("title", ""), out.get("posts", 0)))
         return jsonify(**out)
 
+    if op == "add_profile":
+        out = _watcher_op_add_profile(client, ws, request.form.get("url", ""))
+        if out.get("ok"):
+            _audit(client, "added watcher Instagram account",
+                   "%s (%d posts)" % (out.get("title", ""), out.get("posts", 0)))
+        return jsonify(**out)
+
     if op == "add_video":
         out = _watcher_op_add_video(client, request.form.get("url", ""))
         if out.get("ok"):
-            kind = "article" if out.get("platform") == "blog" else "video"
+            kind = _SINGLE_ITEM_WORD.get(out.get("platform", ""), "video")
             _audit(client, "scraped single %s" % kind, (out.get("title") or "")[:80])
         return jsonify(**out)
 
@@ -4078,18 +4200,20 @@ def atrium_admin_watcher(client):
     channel = workspace.find_watcher_channel(ws, channel_id)
     if channel is None:
         return Response('{"error":"not_found"}', status=404, mimetype="application/json")
-    is_blog = (channel.get("platform") or "youtube") == "blog"
+    platform = channel.get("platform") or "youtube"
 
     if op == "fetch":
-        out = _watcher_op_fetch(client, channel_id, is_blog, retry=_bool_field("retry"))
+        out = _watcher_op_fetch(client, channel_id, platform, retry=_bool_field("retry"))
         if out.get("fetched"):
             _audit(client, "fetched watcher transcripts", "%d videos" % out["fetched"])
         return jsonify(**out)
 
     if op == "safe_pull":
-        if is_blog:
-            return jsonify(ok=False, message="Safe pull is only for YouTube (websites aren't "
-                                             "blocked here) — just click Fetch missing.")
+        # ALLOW-list, matching _watcher_view's can_safe_pull: the local scraper only knows how to
+        # fetch YouTube transcripts, so queueing anything else is work that never gets done.
+        if platform != "youtube":
+            return jsonify(ok=False, message="Safe pull is only for YouTube (nothing else is "
+                                             "blocked from this server) — just click Fetch missing.")
         workspace.queue_watcher_safe_pull(client, channel_id)
         _audit(client, "queued watcher safe pull", channel.get("title", ""))
         return jsonify(ok=True)
@@ -4098,7 +4222,7 @@ def atrium_admin_watcher(client):
         videos = workspace.read_watcher_videos(client, channel_id)
         by_id = {v.get("id"): v for v in videos}
         new = []
-        if is_blog:
+        if platform == "blog":
             import watcher_blog
             listing = watcher_blog.list_posts(channel.get("channel_id", ""),
                                               start_url=channel.get("url", ""))
@@ -4110,6 +4234,19 @@ def atrium_admin_watcher(client):
                     new.append(watcher_blog.post_entry(p))
                 elif p.get("published") and not known.get("published"):
                     # Backfill a date onto posts archived before the site published a lastmod.
+                    known["published"] = p["published"]
+                    known["published_text"] = p.get("published_text", "")
+        elif platform == "instagram":
+            import watcher_ig
+            listing = watcher_ig.list_posts(channel.get("channel_id", ""))
+            if not listing["ok"]:
+                return jsonify(ok=False, message=listing["error"],
+                               needs_session=listing.get("needs_session"))
+            for p in listing["posts"]:
+                known = by_id.get(p["id"])
+                if known is None:
+                    new.append(watcher_ig.post_entry(p))
+                elif p.get("published") and not known.get("published"):
                     known["published"] = p["published"]
                     known["published_text"] = p.get("published_text", "")
         else:
