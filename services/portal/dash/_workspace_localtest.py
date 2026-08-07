@@ -522,8 +522,84 @@ def run():
     _check("an unknown company list raises rather than silently no-opping",
            _raises_keyerror(lambda: workspace.add_company_item(CLIENT, "nope", {})))
 
+    # 13. load_workspaces -- the concurrent fan-out every whole-estate caller uses.
+    print("  -- load_workspaces (concurrent fan-out) --")
+    _run_fanout_checks()
+
     print("[localtest] PASS")
     return 0
+
+
+def _run_fanout_checks():
+    """workspace.load_workspaces: correct mapping, degrades to None, and is genuinely CONCURRENT.
+
+    🔴 The timing check is the point of this block. load_workspaces exists ONLY to turn N serial GCS
+    round-trips into one wall clock's worth (the super-admin console and the /api/internal/* legs
+    Sentinel blocks on both walk every client), and nothing else in the suite can catch a regression
+    to a serial loop: the local-fs backend answers instantly, so a `for` loop would still pass every
+    correctness assertion here. Injecting a fixed per-read delay is what makes serial vs parallel
+    observable off-cloud."""
+    for key in ("fanout_a", "fanout_b", "fanout_c", "fanout_d", "fanout_e", "fanout_f"):
+        workspace.save_workspace(key, {"display_name": "WS " + key})
+    keys = ["fanout_a", "fanout_b", "fanout_c", "fanout_d", "fanout_e", "fanout_f"]
+
+    got = workspace.load_workspaces(keys)
+    _check("every key comes back mapped to its own workspace",
+           sorted(got) == sorted(keys)
+           and all(got[k]["display_name"] == "WS " + k for k in keys))
+    _check("an empty / falsy key list is a no-op (never builds a pool)",
+           workspace.load_workspaces([]) == {} and workspace.load_workspaces(None) == {})
+    _check("a single key takes the direct path and still returns a dict",
+           workspace.load_workspaces(["fanout_a"])["fanout_a"]["display_name"] == "WS fanout_a")
+    _check("blank keys are dropped, not turned into bogus rows",
+           workspace.load_workspaces(["", None, "fanout_a"]) == {
+               "fanout_a": got["fanout_a"]})
+    _check("an unseeded client maps to None (not a KeyError, not a missing key)",
+           workspace.load_workspaces(["fanout_a", "nope_not_seeded"])["nope_not_seeded"] is None)
+
+    # A read that RAISES must degrade to one None -- never take out the caller. This is what keeps
+    # one unreadable workspace from 500-ing the console or blanking Sentinel's board.
+    real_read = workspace._read_object
+
+    def _boom(name):
+        if "fanout_c" in name:
+            raise RuntimeError("simulated storage failure")
+        return real_read(name)
+
+    workspace._read_object = _boom
+    try:
+        got2 = workspace.load_workspaces(keys)
+        _check("a FAILED read degrades to None and leaves every sibling intact",
+               got2["fanout_c"] is None
+               and got2["fanout_a"]["display_name"] == "WS fanout_a"
+               and len(got2) == len(keys))
+    finally:
+        workspace._read_object = real_read
+
+    # The timing check: N reads each sleeping DELAY must finish in well under N*DELAY.
+    import time
+    delay = 0.05
+
+    def _slow(name):
+        time.sleep(delay)
+        return real_read(name)
+
+    workspace._read_object = _slow
+    try:
+        start = time.perf_counter()
+        workspace.load_workspaces(keys)
+        elapsed = time.perf_counter() - start
+    finally:
+        workspace._read_object = real_read
+    serial = delay * len(keys)
+    # Generous bound (half of serial) so a loaded CI machine can't flake it, while a regression to a
+    # serial loop -- which would land at or above `serial` -- fails unambiguously.
+    _check("%d reads x %.0fms ran CONCURRENTLY: %.0fms, well under the %.0fms a serial loop costs"
+           % (len(keys), delay * 1000, elapsed * 1000, serial * 1000),
+           elapsed < serial / 2)
+
+    for key in keys:
+        workspace._delete_object(workspace._object_name(key))
 
 
 def _raises_keyerror(fn):

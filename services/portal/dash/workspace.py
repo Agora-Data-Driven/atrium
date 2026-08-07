@@ -147,6 +147,52 @@ def load_workspace(client):
     return json.loads(raw.decode("utf-8"))
 
 
+# How many workspace reads load_workspaces runs at once. Every one is a blocking GCS GET, so this
+# is I/O concurrency, not CPU -- the GIL is released for the whole download. Sized for the estate
+# (~8 clients) so the usual fan-out finishes in ONE round-trip's worth of wall clock.
+LOAD_WORKERS = 8
+
+
+def load_workspaces(clients):
+    """Load MANY clients' workspaces concurrently -> {client_key: ws_or_None}.
+
+    🔴 Every caller that walks the whole estate must use this instead of a `for key: load_workspace`
+    loop. Each load is one blocking GCS GET of a 50-150 KB object, so a serial loop costs N round
+    trips end to end -- and the routes that do it are the ones that hurt most: the super-admin
+    console (the admin LANDING page) and the `/api/internal/*` legs that Sentinel's board and
+    Mentor Library call, where Atrium's serial latency became Sentinel's page latency.
+
+    Reads only, so the ordering that last-write-wins storage cares about is not in play. The shared
+    GCS client is already used from several threads at once in production (gunicorn runs
+    `--threads 8`), so this adds no new sharing hazard -- but it is PRE-WARMED on the calling thread
+    below, because concurrent first-use would otherwise race to build the singleton (and each racer
+    would pay its own ADC lookup).
+
+    ⚠️ A read that FAILS comes back as None, indistinguishable from "not seeded yet". That is
+    deliberate: one unreadable workspace must degrade to one incomplete row, never take out the
+    whole console or blank Sentinel's board. Callers that care log it; none should raise.
+    """
+    keys = [k for k in (clients or []) if k]
+    if not keys:
+        return {}
+    if len(keys) == 1:
+        return {keys[0]: load_workspace(keys[0])}
+
+    # Pre-warm the client/backend on THIS thread so the workers never race to construct it.
+    if not _local_dir():
+        _gcs_client()
+
+    def _one(key):
+        try:
+            return key, load_workspace(key)
+        except Exception:   # noqa: BLE001 -- see the docstring: a bad read is one None, not a 500
+            return key, None
+
+    from concurrent.futures import ThreadPoolExecutor   # lazy: only the fan-out paths need it
+    with ThreadPoolExecutor(max_workers=min(LOAD_WORKERS, len(keys))) as pool:
+        return dict(pool.map(_one, keys))
+
+
 def save_workspace(client, ws):
     """Persist the workspace dict back to workspace/<c>.json (private; never made public)."""
     body = json.dumps(ws, indent=2, sort_keys=True).encode("utf-8")

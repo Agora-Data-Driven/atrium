@@ -367,6 +367,65 @@ def _run_blog_checks(c):
     watcher_blog.fetch_post = real_fetch_post
 
 
+def _run_lazy_pane_checks(c):
+    """The Watcher pane is LAZY -- rendered, and its archives read, ONLY on the Watcher tab.
+
+    🔴 This guards a PERFORMANCE contract, which is why it counts reads instead of only checking
+    markup. Building the pane calls read_watcher_videos once per watched source, and each call
+    downloads that source's whole archive object (transcripts run to megabytes). It used to run on
+    EVERY team render, so opening Dashboard downloaded every archive to build a pane it never showed
+    -- and since Atrium HTML is no-store, every refresh paid it again.
+
+    Three things have to stay in step or the tab breaks in one of two ways:
+      * main.atrium passes `watcher=[]` off-tab      -- pane rendered without data => BLANK tab
+      * atrium.html renders the pane only when active
+      * the #ax-nav click handler skips preventDefault for an absent pane => otherwise DEAD LINK
+    All three are asserted below."""
+    with c.session_transaction() as s:
+        s.clear()
+        s.update(SUPER)
+
+    # A hand-added source WITH a stored archive, built straight through the workspace helpers -- no
+    # fetcher stubs needed, since we only care that the render does or doesn't read the object.
+    entry = workspace.add_watcher_channel(CLIENT, {
+        "url": "https://www.youtube.com/@lazycheck", "title": "Lazy Check",
+        "channel_id": "UC" + "z" * 22, "platform": "youtube"})
+    workspace.write_watcher_videos(CLIENT, entry["id"], [
+        {"id": "vidlazy0001", "title": "LAZYMARKERVIDEO", "url": "",
+         "transcript": "a transcript body " * 20}])
+
+    real_read = workspace.read_watcher_videos
+    reads = []
+
+    def _counting_read(client, channel_id):
+        reads.append(channel_id)
+        return real_read(client, channel_id)
+
+    workspace.read_watcher_videos = _counting_read
+    try:
+        body = c.get("/w/%s/dashboard" % CLIENT).get_data(as_text=True)
+        _check("a NON-Watcher tab reads ZERO archive objects (was one per watched source)",
+               reads == [])
+        _check("the Watcher pane is absent from a non-Watcher render",
+               'data-pane="watcher"' not in body)
+        _check("...but its nav LINK still ships, so the tab stays reachable",
+               ("/w/%s/watcher" % CLIENT) in body)
+        _check("the nav handler NAVIGATES for an absent pane (no preventDefault => no dead link)",
+               """if (!document.querySelector('[data-pane="' + aq(tab) + '"]')) { return; }"""
+               in body)
+        _check("the archive marker never leaks into a non-Watcher render",
+               "LAZYMARKERVIDEO" not in body)
+
+        del reads[:]
+        body = c.get("/w/%s/watcher" % CLIENT).get_data(as_text=True)
+        _check("the Watcher tab DOES read its archives and render the cards",
+               entry["id"] in reads and 'data-pane="watcher"' in body
+               and "LAZYMARKERVIDEO" in body)
+    finally:
+        workspace.read_watcher_videos = real_read
+        workspace.delete_watcher_channel(CLIENT, entry["id"])
+
+
 def _run_template_checks():
     """The Watcher source TEMPLATE: the shared-archive redirect, and the reconcile's four invariants
     (additive, idempotent, opt-out is permanent, hand-added wins). Pure data layer -- no network."""
@@ -1053,6 +1112,10 @@ def run():
     _run_blog_checks(c)
     _check("every hand-added source was cleaned up (only template sources remain)",
            _hand_channels() == [])
+
+    # --- The LAZY pane (archives are read only on the Watcher tab) -------------------------------
+    print("  -- lazy pane --")
+    _run_lazy_pane_checks(c)
 
     # --- The source TEMPLATE (default sources every client gets) --------------------------------
     print("  -- source template --")

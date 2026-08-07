@@ -4277,7 +4277,18 @@
 
         <!-- ============ WATCHER (team-only: YouTube channel transcript archive) ============ -->
         {% if is_superadmin %}
-        <section class="ax-pane {{ 'is-active' if view.active_tab=='watcher' else '' }}" data-pane="watcher">
+        {#- 🔴 LAZY PANE -- rendered ONLY when Watcher is the active tab (2026-08-07). Building its
+           render model reads EVERY watched source's archive object (see main._watcher_view: one
+           multi-MB GCS download per source, and watcher_template pre-seeds 5 into every client), so
+           rendering it on every tab made a Dashboard load pay for a pane it never showed. main.py
+           passes `watcher=[]` off-tab to match, and the nav link NAVIGATES here instead of
+           switching client-side -- the #ax-nav click handler skips preventDefault for a pane that
+           is absent from the document. Change one of the three and you get a blank tab or a dead
+           link; change all three together. Every Watcher wiring block below is null-guarded
+           (`qsa(...).forEach` over an empty NodeList, `if (!cgrid ...) return`, `if (!modal)
+           return`), which is what lets the pane be absent with no JS errors. -#}
+        {% if view.active_tab == 'watcher' %}
+        <section class="ax-pane is-active" data-pane="watcher">
           <p class="ax-lede">Watch creators and competitors across platforms and archive everything they publish. Paste a <strong>YouTube channel</strong> to list every video and pull the raw transcripts, paste a <strong>website</strong> to list every blog post and pull the full article text, or paste a <strong>single video or article</strong> link to grab just that one (saved under &ldquo;Saved videos&rdquo; / &ldquo;Saved articles&rdquo;).</p>
 
           <div class="ax-panel ax-wt-addcard">
@@ -4479,6 +4490,7 @@
             </div>
           </div>
         </section>
+        {% endif %}{#- /lazy Watcher pane -#}
 
         <!-- Mail was folded into Communications (2026-07-15). Its team machinery (contacts, sync,
              the AI briefing, response stats, and the thread reader) now lives in the Communications
@@ -4827,8 +4839,16 @@
   window.addEventListener("resize", fitDashScale);
   qsa("#ax-nav a").forEach(function (a) {
     a.addEventListener("click", function (ev) {
+      var tab = a.getAttribute("data-tab");
+      // 🔴 A LAZY pane (one the server renders only when it is the active tab -- Watcher, because
+      // building it downloads every watched source's archive) is NOT in this document, so there is
+      // nothing to switch to. Fall through to the link's own href and let the browser navigate:
+      // calling preventDefault here would swallow the click and the tab would look broken. The
+      // link already points at /w/<client>/<tab>, so this needs no per-tab list -- absence of the
+      // pane IS the signal, and a real navigation gives real history (back/forward keep working).
+      if (!document.querySelector('[data-pane="' + aq(tab) + '"]')) { return; }
       ev.preventDefault();
-      showTab(a.getAttribute("data-tab"), true);
+      showTab(tab, true);
     });
   });
   // Nav group heads expand or collapse their sub-tabs; they never navigate.
@@ -4899,6 +4919,13 @@
   window.addEventListener("popstate", function () {
     var parts = window.location.pathname.split("/");
     var tab = parts[parts.length - 1];
+    // A LAZY pane (see the #ax-nav handler) is not in this document, so showTab would bail on its
+    // `if (!pane) return` and leave the URL pointing at one tab while another is on screen. The
+    // URL is already the one we moved to, so a reload renders it properly.
+    if (titles[tab] && !document.querySelector('[data-pane="' + aq(tab) + '"]')) {
+      window.location.reload();
+      return;
+    }
     if (titles[tab]) { showTab(tab, false); } else { showTab("overview", false); }
   });
 

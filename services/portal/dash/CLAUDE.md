@@ -808,6 +808,66 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
   `<c>.agoradatadriven.com` hits AND the portal→upstream proxy hop are compressed). GCS reads on the
   request hot path (`store.load_registry`, `workspace._read_object`) do ONE round-trip — download +
   catch `NotFound` — not the old `exists()`-then-`download()` two-trip pattern.
+  🔴 **LAZY PANES — a tab whose render model costs GCS reads is built ONLY when it is active
+  (2026-08-07).** `_watcher_view` reads EVERY watched source's archive object (one download each,
+  transcripts/article text run to MBs) and `watcher_template` pre-seeds **5 sources into every
+  client**, so building it on every render made a Dashboard / Communications / Tasks load pay 5+
+  downloads for a pane it never showed — and since Atrium HTML is `no-store`, every refresh paid
+  again. Now **three things move together, and all three are asserted** by
+  `_run_lazy_pane_checks` in `_watcher_localtest.py` (which COUNTS `read_watcher_videos` calls, so
+  it guards the performance contract, not just the markup):
+  1. `main.atrium` passes `watcher=[]` unless `tab == "watcher"` — get this wrong and you render a
+     pane with no data, i.e. a **blank tab**;
+  2. `atrium.html` wraps the pane in `{% if view.active_tab == 'watcher' %}` (inside the existing
+     `is_superadmin` guard, which also spans the Assistant pane — do not close that one early);
+  3. the `#ax-nav` click handler **skips `preventDefault` when the pane is absent from the
+     document** so the browser follows the link's own href — get this wrong and it is a **dead
+     link**. Absence of the pane IS the signal, so no per-tab list is hardcoded, and a real
+     navigation gives real history. `popstate` reloads for the same reason.
+  This is safe only because every Watcher wiring block is null-guarded (`qsa(...).forEach` over an
+  empty NodeList, `if (!cgrid …) return`, `if (!modal) return`) — a lazy pane whose JS binds
+  unguarded at load time would throw. **`_company_content_view` is deliberately NOT lazy:** the
+  Company tab is CLIENT-visible, and it reads only `own`-flagged sources (0–1 per client), so
+  gating it would trade a full page load for at most one read.
+  🔴 **Walking the WHOLE estate = `workspace.load_workspaces(keys)`, never a `for key:
+  load_workspace` loop (2026-08-07).** Each load is one blocking GCS GET of a 50–150 KB object, so a
+  serial loop costs N round-trips end to end. Five routes did it: the operator console
+  `admin_atrium()` (the admin **landing page** — `/` redirects a super-admin there), the task-board
+  export, and the three `/api/internal/*` legs (`tasks`, `clients`, `watcher/channels`) — where
+  **Atrium's serial latency WAS Sentinel's page latency**, because its board and Mentor Library block
+  on those calls. `load_workspaces` fans out over a `ThreadPoolExecutor` (`LOAD_WORKERS` = 8, sized
+  for the estate) and returns `{key: ws_or_None}`. Reads only, so last-write-wins ordering is not in
+  play; the shared GCS client was **already** used from 8 threads at once in production (gunicorn
+  `--threads 8`), so this adds no new sharing hazard — but it PRE-WARMS the client on the calling
+  thread so workers never race to build the singleton. ⚠️ A read that FAILS returns None,
+  indistinguishable from "not seeded": deliberate, so one unreadable workspace degrades to one
+  incomplete row instead of a 500. That also **fixed a real fragility** — `admin_atrium()` had no
+  `try/except` at all, so a single transient GCS blip 500-ed the entire console; it now renders that
+  one client as unseeded. `_workspace_localtest.py` §13 covers the mapping, the None-degradation, the
+  single-key path *and* asserts it is genuinely concurrent by injecting a per-read delay (6 × 50 ms
+  landed at 61 ms, vs 300 ms serial) — nothing else in the suite can catch a regression to a serial
+  loop, because the local-fs backend answers instantly.
+  **Templates are compiled at IMPORT** (`_warm_templates`, bottom of `main.py`). Jinja compiles a
+  template on first render, and that is not cheap here: **measured 266 ms for `atrium.html` + 74 ms
+  for `admin_atrium.html`** (~58% of the 585 ms module import). ⚠️ Be precise about what this buys —
+  it **redistributes** the cost, it does not remove it: the very first request after a scale-from-zero
+  still waits for startup either way. What it fixes is that the spike no longer lands *inside* an
+  arbitrary request — and with gunicorn `--workers 2` each worker compiles lazily on ITS own first
+  request, so **two** unlucky users used to eat it. Best-effort by design: a broken template must
+  still surface as the normal render-time traceback, never as a container that won't boot.
+  (A build-time Jinja bytecode cache would genuinely cut it from every cold start, but it needs
+  `main` to import during `docker build` — which constructs a GCS client — so it was judged too
+  fragile to be worth ~300 ms.) `_mail_view` reads the mailbox registry object ONCE
+  (`public_mailboxes()` already calls `mail_mailboxes()` internally; it used to do both).
+- **Local hot reload (`_DEV_RELOAD`, LOCAL ONLY):** `TEMPLATES_AUTO_RELOAD` + `use_reloader`, gated
+  on the local-fs backend **AND** relaxed cookies — the same interlock `DEV_NOAUTH` uses, and it can
+  only take effect through the `app.run` at the bottom of `main.py`, which gunicorn never calls. So
+  it is inert in production two ways over. Before this, Jinja compiled `atrium.html` once per
+  process, so **editing the template did nothing until you restarted** `run_local.ps1` (re-seeding
+  the demo data on the way) — the slowest edit loop in the repo. The Werkzeug **debugger** is
+  deliberately NOT enabled (`debug=True` is absent): its interactive traceback console executes
+  arbitrary code, and reloading is all that was wanted. Verify it is live by the `* Restarting with
+  stat` line plus `Debug mode: off`.
 
 **Deploy:** `deploy_dash_platform.ps1` (build → `gcloud run deploy platform-dash --no-invoker-iam-check`).
 It mounts the Google sign-in secrets (`google-oauth-client-id` / `google-oauth-client-secret`) ONLY if

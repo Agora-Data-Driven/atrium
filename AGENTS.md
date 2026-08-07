@@ -1230,6 +1230,31 @@ auto-refresh (see those bullets below). Product name is one constant:
   workspace is editable in place. `preview/Preview Portal (client login).cmd` shows the real login on
   `:8081`. The no-auth is `PORTAL_DEV_NOAUTH=1`, honored by a `before_request` hook in `main.py`
   **only when `PORTAL_SECURE_COOKIES=0`** — so it can never activate in the https deploy.
+  **Hot reload is ON locally since 2026-08-07** (`_DEV_RELOAD` in `main.py`): `TEMPLATES_AUTO_RELOAD`
+  + `use_reloader`, gated on the local-fs backend **AND** `PORTAL_SECURE_COOKIES=0` — the same
+  interlock as `DEV_NOAUTH`, and only reachable through the `app.run` gunicorn never calls. Edit a
+  `.py` or a template and just refresh; before this, Jinja compiled `atrium.html` once per process so
+  **template edits needed a full restart** (which also re-seeded the demo). The Werkzeug debugger is
+  deliberately left OFF — its console runs arbitrary code and only reloading was wanted.
+- 🔴 **Atrium renders LAZY PANES — never build a tab's data on every render (2026-08-07).** A pane
+  whose render model costs GCS reads is built only when it is the ACTIVE tab. Watcher was the case
+  that forced this: `_watcher_view` downloads EVERY watched source's archive (multi-MB each) and
+  `watcher_template` pre-seeds 5 sources per client, so a Dashboard load paid 5+ downloads for a
+  pane nobody saw — and Atrium HTML is `no-store`, so every refresh paid again. Three things move
+  together (view model + the `{% if view.active_tab %}` around the pane + the `#ax-nav` handler
+  skipping `preventDefault` for an absent pane so the browser NAVIGATES); miss one and you get a
+  blank tab or a dead link. All three are covered by `_run_lazy_pane_checks` in
+  `dash/_watcher_localtest.py`, which **counts archive reads** rather than only checking markup.
+  Full detail + why `_company_content_view` is deliberately NOT lazy:
+  [`dash/CLAUDE.md`](services/portal/dash/CLAUDE.md).
+- 🔴 **Walking every client = `workspace.load_workspaces(keys)`, never a `for key: load_workspace`
+  loop (2026-08-07).** Each load is one blocking GCS GET, so a serial loop costs N round-trips. Five
+  routes did it, including the admin **landing page** and the three `/api/internal/*` legs — so
+  **Atrium's serial latency was Sentinel's board latency.** The helper fans out over a thread pool
+  (reads only; the GCS client was already shared across gunicorn's 8 threads) and returns
+  `{key: ws_or_None}`, where a failed read is None so one bad workspace degrades one row instead of
+  500-ing the console — which `admin_atrium()`, with no `try/except` at all, used to do.
+  `_workspace_localtest.py` §13 asserts it is really concurrent (6 × 50 ms → 61 ms, not 300 ms).
 
 ## The data contract (three stages, matched BY NAME)
 
