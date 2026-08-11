@@ -1189,6 +1189,26 @@ auto-refresh (see those bullets below). Product name is one constant:
   (`/w/<c>/`) since "All dashboards" and "Feedback" both pointed at the deleted page, and
   `POST /feedback` + `feedback.py` still work but **no UI posts to them**. `GET /dashboard/<c>`
   (`dashboard_view.html`) survives as a deep link with nothing linking to it.
+- 🔴 **`ag_sso` IS RE-MINTED WHENEVER AN AUTHED VISITOR HITS `/login` (2026-08-11) — this fixes an
+  infinite login loop.** `GET /login` with a live session answers "you're already signed in, off you
+  go"; until this date it answered with a **bare redirect and no cookie**. But `ag_sso` expires after
+  `platform_sso.DEFAULT_TTL_SECONDS` (**12h**) and was minted **only** by a real login POST / the
+  Google callback, while the portal's own Flask session is a **browser-session** cookie (no
+  `PERMANENT_SESSION_LIFETIME` here) that Chrome's session-restore keeps alive for days. So ~12h after
+  signing in, any sibling app that bounces here to obtain that cookie was sent straight back with
+  nothing fixed: `sentinel/login → portal/login?next=… → (authed, no mint) → sentinel/login → …`
+  forever, with no login form on screen and no way out but quitting the browser (which is what kills
+  the Flask session — hence "it works again if I close everything", and why it read as intermittent).
+  This branch is exactly as much proof of identity as the POST is, so it mints. Sentinel carries the
+  other half (its `?next=` now targets `/login`, which mints a real Sentinel session, plus a
+  one-bounce guard) — see [sentinel/AGENTS.md §3](../sentinel/AGENTS.md). Pinned in `_auth_smoketest.py`.
+  ⚠️ **Deploy order matters**: ship this portal fix BEFORE Sentinel starts forwarding run.app traffic
+  to its canonical host, or you widen the population that can reach the loop.
+- 🔴 **`?next=` is validated on EVERY login path (`_safe_next`).** It arrives from the query string,
+  and `_post_login_destination` returned it verbatim — so both the password login and the Google
+  callback were open redirects, landing a user on an arbitrary site at the moment they had just
+  proved who they are. An unsafe value now falls through to the role destination rather than erroring:
+  the login itself succeeded and there is a correct place to send them.
 - **Auth foundation (central Google sign-in + impersonation):** the portal is the ONE app that runs
   Google OAuth (`google_oauth.py`, `/auth/google/{login,callback}`) and, on a verified email, mints
   the SAME session + shared `ag_sso` cookie as a password login — so the website editor and every
