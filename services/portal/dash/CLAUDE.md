@@ -16,6 +16,14 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
 - **Sign-up + approval:** `GET/POST /signup` (Agora-branded `signup.html`) creates a **pending**
   client account; an admin approves it from `/admin/atrium` (`POST /admin/accounts/{approve,reject}`),
   which creates the client + blank workspace and activates the login. No public self-service access.
+- 🔴 **`login()`'s already-authed GET branch MUST mint `ag_sso` (2026-08-11).** It is the one place a
+  sibling app can pick that cookie up without the user retyping a password, and it used to return a
+  bare `redirect(next_url)`. `ag_sso` lives 12h and is minted nowhere else but a real login, while
+  this app's Flask session is a browser-session cookie that survives days of Chrome restores — so an
+  app bouncing here for the cookie got a redirect back with nothing fixed, forever. If you touch this
+  function, the invariant is: **every path that answers "you are signed in" carries the cookie that
+  says so.** `?next=` on both paths goes through `_safe_next` (it was an open redirect). Covered by
+  `_auth_smoketest.py`; Sentinel's half is in `sentinel/AGENTS.md` §3.
 - **Google Sign-In (central; OPT-IN via `google_oauth.py`):** the portal is the ONE app that runs the
   OAuth flow (`GET /auth/google/login` -> Google -> `GET /auth/google/callback`), resolves the
   *verified* email (`_resolve_login_email` -> `store.resolve_google_login`), then establishes the SAME

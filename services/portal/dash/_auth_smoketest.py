@@ -35,6 +35,9 @@ _TMP = tempfile.mkdtemp(prefix="auth_smoke_")
 os.environ["WORKSPACE_LOCAL_DIR"] = _TMP
 os.environ["REGISTRY_LOCAL_DIR"] = _TMP
 os.environ["SESSION_SECRET"] = "test-secret"
+# Set so `_mint_sso_on` actually mints: the ag_sso re-mint checks below are about the ONE cookie every
+# sibling app (Sentinel, the dashboards, the website editor) trusts, and with no secret it no-ops.
+os.environ["SSO_SECRET"] = "test-sso-secret"
 os.environ["GOOGLE_OAUTH_CLIENT_ID"] = "cid.apps.googleusercontent.com"
 os.environ["GOOGLE_OAUTH_CLIENT_SECRET"] = "csecret"
 os.environ["GOOGLE_OAUTH_REDIRECT_URI"] = "https://portal.agoradatadriven.com/auth/google/callback"
@@ -232,6 +235,48 @@ def run():
         s.clear(); s.update({"ok": True, "user": "owner@gmail.com", "clients": ["riverdance"]})
     _check("non-root cannot impersonate (403)",
            c.post("/admin/impersonate", data={"email": "acme"}).status_code == 403)
+
+    # --- An ALREADY-SIGNED-IN visitor to /login gets a FRESH ag_sso, not a bare redirect ---------
+    # The 12h-vs-forever bug: this branch used to answer "you're already signed in, off you go" with
+    # a redirect and NO cookie, while `ag_sso` expires after 12h and is minted nowhere else. A
+    # sibling app that bounces here to GET that cookie was therefore sent straight back with nothing
+    # fixed -> sentinel/login -> portal/login -> sentinel/login -> ... forever, with no form on
+    # screen. Assert the cookie is really on the response; a 302 alone is what shipped the bug.
+    def _sso_cookie(resp):
+        for h in resp.headers.getlist("Set-Cookie"):
+            if h.startswith(main.platform_sso.COOKIE_NAME + "="):
+                return h.split("=", 1)[1].split(";", 1)[0]
+        return None
+
+    with c.session_transaction() as s:
+        s.clear(); s.update(SUPER)
+    nxt = "https://sentinel.agoradatadriven.com/login"
+    r = c.get("/login?next=" + nxt)
+    _check("authed GET /login -> 302 to next", r.status_code == 302 and r.headers.get("Location") == nxt)
+    minted = _sso_cookie(r)
+    _check("authed GET /login re-mints ag_sso", bool(minted))
+    # `_verify` is this module's own verifier (the private name is the signer's; Sentinel's port
+    # exposes it as `verify`). Checking the PAYLOAD, not just that a cookie was set: a cookie that
+    # doesn't verify, or names nobody, would leave the far side exactly as stuck.
+    payload = main.platform_sso._verify(os.environ["SSO_SECRET"], minted or "") or {}
+    _check("the re-minted cookie verifies", bool(payload))
+    _check("it names the signed-in user", payload.get("sub") == "info@agoradatadriven.com")
+    _check("it carries the session's grants", payload.get("clients") == ["*"])
+    _check("it is good for the full TTL, not the old cookie's leftovers",
+           payload.get("exp", 0) - payload.get("iat", 0) == main.platform_sso.DEFAULT_TTL_SECONDS)
+
+    # ?next= is attacker-controlled, so both login paths validate it (`_safe_next`) instead of
+    # redirecting anywhere the query string names right after proving who you are.
+    r = c.get("/login?next=https://evil.example.com/steal")
+    _check("authed GET /login refuses an off-estate next",
+           r.status_code == 302 and "evil.example.com" not in r.headers.get("Location", ""))
+    _check("a relative next still works",
+           c.get("/login?next=/admin/atrium").headers.get("Location") == "/admin/atrium")
+    with main.app.test_request_context():  # it falls back to url_for(), which needs an app context
+        _check("_post_login_destination drops an off-estate next",
+               main._post_login_destination(["*"], "https://evil.example.com/x") != "https://evil.example.com/x")
+        _check("_post_login_destination keeps an estate next",
+               main._post_login_destination(["*"], nxt) == nxt)
 
     if FAILS:
         print("\n[auth-smoketest] FAIL (%d): %s" % (len(FAILS), ", ".join(FAILS)))

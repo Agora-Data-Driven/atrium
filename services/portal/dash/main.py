@@ -543,10 +543,16 @@ def _post_login_destination(granted, next_url):
     workspace; anyone else (a Sentinel-authorized staffer with no client dashboards, or a login with
     several clients and no deep link) is handed to the marketing site, which is the estate's home.
     An explicit deep link (any next_url other than the bare "/") always wins, so /admin, a specific
-    /w/<c>/ tab, or a proxied dashboard link is never hijacked.
+    /w/<c>/ tab, or a proxied dashboard link is never hijacked — but it is validated first
+    (`_safe_next`): `?next=` arrives from the query string, so returning it unchecked made every
+    login route an open redirect (sign-in, then land on somebody else's site wearing the trust of
+    having just authenticated here). An unsafe value falls through to the role destination rather
+    than erroring — the login itself succeeded, and there is a correct place to send them.
     """
     if next_url and next_url not in ("/", ""):
-        return next_url
+        safe = _safe_next(next_url)
+        if safe:
+            return safe
     if "*" in granted:
         return url_for("admin_atrium")
     if len(granted) == 1:
@@ -599,7 +605,20 @@ def login():
     next_url = request.values.get("next", "/")
     if request.method == "GET":
         if authed():
-            return redirect(next_url or "/")
+            # 🔴 RE-MINT `ag_sso` ON THE WAY OUT. This branch is the portal answering "I'm already
+            # signed in, go where you were going" — and until 2026-08-11 it answered with a bare
+            # redirect. The portal's own Flask session is a BROWSER-session cookie (no
+            # PERMANENT_SESSION_LIFETIME here), which Chrome's session-restore keeps alive for days,
+            # while `ag_sso` hard-expires after DEFAULT_TTL_SECONDS (12h) and is minted NOWHERE else
+            # but a real login. So ~12h after signing in, a sibling app that trusts `ag_sso` and
+            # bounces here for it got sent straight back with nothing fixed:
+            #   sentinel/login -> portal/login?next=... -> (authed, no mint) -> sentinel -> ...
+            # an infinite ping-pong with no visible login form and no way out but quitting the
+            # browser (which is what kills the Flask session). Minting here is the whole fix: this
+            # branch is exactly as much proof of identity as the POST below is.
+            return _mint_sso_on(
+                redirect(_safe_next(next_url) or "/"), allowed_clients(), current_user() or "",
+            )
         return render_template("login.html", next=next_url, error=None, **_brand_ctx())
 
     email = request.form.get("email", "").strip()
