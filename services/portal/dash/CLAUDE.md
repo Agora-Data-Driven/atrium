@@ -377,6 +377,31 @@ You are in the **`platform-dash`** Cloud Run service: the portal/CRM front-door 
     are present in the TEAM's HTML and absent from the CLIENT's (the edit-form no-leak check
     matches the rendered task id — the wiring script's `'[data-pgeditform="'` literal ships to
     every viewer); `_assistant_localtest.py` proves the three restored actions end to end.
+- **`staff_roster.py`** — **ONE roster entry per HUMAN** (2026-08-11). Pure module (no I/O, no Flask):
+  `build(sentinel_people, accounts, atrium_team)` merges the three sources through an identity LADDER
+  (exact email → email local part → full display name → first name) and 🔴 **refuses to merge on an
+  ambiguous rung** — two real staff called Nico stay two people, because a visible duplicate is
+  recoverable and a wrong attribution on the board a manager staffs from is not. Same ladder + same
+  refusal as `sentinel/services/atrium_identity.py`, deliberately.
+  It exists because the board's person filter listed **"Nico" + "Nico Agustin"** and **"Samuel" +
+  "Samuel Delos Santos"**: the old `_team_roster()` deduped `ATRIUM_TEAM` against live accounts on
+  exact name or exact email only, and `nico@agoradatadriven.com` vs `agustinnico228@gmail.com` match
+  on neither — so one human held two ids and filtering by one hid the work stored under the other.
+  🔴 **Aliases are why this is safe on live data.** Every stored `lead_id`/`support_ids`/sub-task
+  `assignee_id` is an OLD id; a merged person keeps **all** of them, `canonical()` maps any back, and
+  **nothing rewrites stored data** — resolution is at read time, so reverting the code reverts the
+  behaviour. An unknown id passes THROUGH (somebody who left still owns their work); `""` stays `""`
+  (that is Unassigned, not a person).
+  Wiring in `main.py`: `_staff_people()` (memoized on `g` — a console render asks several times and
+  each build is a registry read), `_team_roster()` (unchanged `{id, name}` shape, so no template and
+  no far-side contract moved), `_person_aliases()`. `_task_board` takes `names`/`aliases` and
+  canonicalises the card's filter haystack, `lead_pid` and both avatar colours — `lead_id` stays the
+  RAW stored id, because writes and `open_ref` must never see a rewritten one.
+  Source: `sentinel_directory.list_people()` (purpose `academy-people`). ⚠️ **None = "couldn't ask",
+  never "no staff"** → `fallback_only=True` rebuilds exactly the old roster. **Fail-fast, no retry**
+  (3s, cached 5 min) — the opposite posture to `lookup_user`, on purpose: there a missed answer costs
+  a real person their login, here the fallback is the list we used yesterday and `/admin/atrium`
+  already blocks on the board mirror. Test: `python _staff_roster_localtest.py`.
 - **`assistant_ai.py`** — the team-only Assistant tab: RAG chat over EVERY workspace source
   (watcher transcripts, intel, campaigns/content, metrics, calendar, conversations, health, plus
   the opt-in client dashboard export — grant via `enable_assistant_dash_data.ps1`). Index stored as
@@ -955,6 +980,6 @@ they exist, so a default deploy stays unaffected (button off) until you create t
 `python _google_oauth_localtest.py`, `python _atrium_smoketest.py`, `python _auth_smoketest.py`,
 `python _audit_localtest.py`, `python _watcher_localtest.py`, `python _slashid_creative_test.py`,
 `python _assistant_localtest.py` (hybrid retrieval), `python _intel_ai_localtest.py` (AI brain +
-embeddings/reranking transport), `python _mail_localtest.py`, and `python _upwork_import_localtest.py`
-from this dir.
+embeddings/reranking transport), `python _mail_localtest.py`, `python _upwork_import_localtest.py`,
+and `python _staff_roster_localtest.py` (the staff-roster identity ladder) from this dir.
 **Preview:** `run_local.ps1` (or `preview/Preview Portal (admin).cmd` at repo root).

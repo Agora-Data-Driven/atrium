@@ -857,6 +857,18 @@ def run():
            "Open in Sentinel" in console and "/dashboard?open=atrium:%s:%s" % (CLIENT, task_id) in console)
     _check("no draggable cards on the console board", 'class="tk-card' in console
            and 'draggable="true"' not in console)
+    # 🔴 SUPPORT IS ON THE CARD FACE (2026-08-11) — reported as "the person filter is not working".
+    # It was working: `data-people` is lead + support, so filtering to one person correctly returns
+    # cards they SUPPORT — but the face printed only the lead, so the board handed back a card
+    # captioned with somebody else's name and no way to tell why. `.tk-av.sup` had been styled for
+    # the detail modal all along; only the markup was missing. This fixture's task is led by Zhen
+    # with Ehjay on support, which is exactly the shape that misread.
+    _check("a supporter's avatar renders on the console card, not just in the modal",
+           'title="Ehjay (support)"' in console)
+    _check("the card exposes its LEAD id, so a support match can be told from a lead match",
+           'data-leadid="zhen@100.digital"' in console)
+    _check("the 'supporting' marker ships hidden — applyFilters reveals it per filter",
+           "data-suphat" in console and 'class="tk-hat" data-suphat hidden' in console)
 
     # --- The console board MIRRORS SENTINEL (sentinel_board.py) ---------------------------------
     # 🔴 The bug these pin. This pane used to be assembled from `ws["tasks"]`, which since D2 holds

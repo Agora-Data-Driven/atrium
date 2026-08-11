@@ -113,5 +113,9 @@ jobs:
         working-directory: services/portal/dash
         run: python _upwork_import_localtest.py
 
+      - name: Staff roster merge test (the identity ladder + its refusals; pure)
+        working-directory: services/portal/dash
+        run: python _staff_roster_localtest.py
+
       - name: Creative gallery test, every Meta-fed client (no network, no GCS, no API cost)
         run: python tools/_creative_gallery_test.py
