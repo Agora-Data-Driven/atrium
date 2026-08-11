@@ -483,6 +483,15 @@
       display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
     .tk-av.sup { background: var(--accent-600); width: 19px; height: 19px; font-size: 9px; margin-left: -6px; box-shadow: 0 0 0 2px var(--surface); }
     .tk-lead-nm { font-size: 11.5px; font-weight: 600; color: var(--body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* 🔴 "Why is this card in my filtered board?" (2026-08-11). The person filter matches lead OR
+       SUPPORT (data-people is both), but the card face shows only the lead — so filtering to Paulo
+       and being handed a card that says "Nico Agustin" reads as a broken filter. `applyFilters`
+       reveals this the moment the match came from support rather than the lead. Same answer
+       Sentinel's own board landed on (its "supporting" hat, 2026-08-06). */
+    .tk-hat { font-size: 9.5px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase;
+      color: var(--accent-600); background: var(--accent-50, #f2f2fe); border-radius: 4px;
+      padding: 1px 5px; flex: 0 0 auto; }
+    .tk-hat[hidden] { display: none; }
     .tk-icons { display: flex; align-items: center; gap: 9px; font-size: 11.5px; font-weight: 600; color: var(--muted); flex: 0 0 auto; }
     .tk-icons svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 2px; }
     .tk-icons span { display: inline-flex; align-items: center; gap: 2px; }
@@ -1383,7 +1392,7 @@
                 {#- Not draggable since 2026-08-03: a stage move is a Sentinel action (D2). -#}
                 <div class="tk-card{{ ' held' if t.on_hold else '' }}" data-open="{{ t.client_key }}:{{ t.id }}"
                      data-client="{{ t.client_key }}" data-dept="{{ t.department }}"
-                     data-people="{{ t.people }}" data-priority="{{ t.priority }}"
+                     data-people="{{ t.people }}" data-leadid="{{ t.lead_pid|default('', true) }}" data-priority="{{ t.priority }}"
                      data-due="{{ t.due_date or '9999-99-99' }}" data-cname="{{ t.client_name }}" data-hold="{{ '1' if t.on_hold else '0' }}">
                   {#- The client leads the card (an agency scans by client first): its own top
                       line in display caps, pills on the right: no extra color, just hierarchy. -#}
@@ -1398,12 +1407,22 @@
                     {% if t.due_date %}<span class="tk-due {{ t.due_cls }}">{% if not urgent_pill %}&middot; {% endif %}{{ (t.due_date ~ 'T00:00:00Z')|atrium_date }}</span>{% endif %}
                   </div>
                   <div class="tk-foot">
-                    {#- Lead only on the card. Support people live in the detail modal
-                        (and still power the person filter via data-people). -#}
+                    {#- 🔴 SUPPORT IS ON THE CARD since 2026-08-11, and it is not decoration. The
+                        person filter matches lead OR support (`data-people` is both), so while the
+                        face showed only the lead, filtering to one person handed back cards
+                        captioned with somebody ELSE's name and the filter read as broken. It was
+                        reported as exactly that. The `.tk-av.sup` style already existed for the
+                        detail modal; only the markup was missing. `data-leadid` is what lets
+                        `applyFilters` tell a lead match from a support match. -#}
                     <span class="tk-people">
                       {% if t.lead_name %}<span class="tk-av" title="{{ t.lead_name }} (lead)" style="background: {{ t.lead_color }}">{{ t.lead_name[:1]|upper }}</span>
+                        {%- for s in t.support_people %}<span class="tk-av sup" title="{{ s.name }} (support)" style="background: {{ s.color }}">{{ s.name[:1]|upper }}</span>{% endfor -%}
                         <span class="tk-lead-nm">{{ t.lead_name }}</span>
-                      {% else %}<span class="tk-lead-nm" style="color:var(--muted)">Unassigned</span>{% endif %}
+                      {% else %}
+                        {%- for s in t.support_people %}<span class="tk-av sup" title="{{ s.name }} (support)" style="background: {{ s.color }}">{{ s.name[:1]|upper }}</span>{% endfor -%}
+                        <span class="tk-lead-nm" style="color:var(--muted)">Unassigned</span>{% endif %}
+                      {#- Revealed by applyFilters ONLY when the active person filter matched support. -#}
+                      <span class="tk-hat" data-suphat hidden>supporting</span>
                     </span>
                     <span class="tk-icons">
                       {% if t.subs_total %}<span title="sub-tasks done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span data-subs="{{ t.client_key }}:{{ t.id }}">{{ t.subs_done }}/{{ t.subs_total }}</span></span>{% endif %}
@@ -2303,6 +2322,14 @@
               + (card.getAttribute("data-cname") || "") + " "
               + (leadEl ? leadEl.textContent : "")).toLowerCase();
             show = hay.indexOf(q) >= 0;
+          }
+          // 🔴 Say WHY the card matched. The filter is "Anyone (lead or support)", so a person
+          // filter legitimately returns cards led by somebody else — and with only the lead's name
+          // on the face that is indistinguishable from a broken filter (reported as one).
+          // Shown only while a person filter is active AND that person is not the lead.
+          var hat = card.querySelector("[data-suphat]");
+          if (hat) {
+            hat.hidden = !(show && p && (card.getAttribute("data-leadid") || "") !== p);
           }
           card.style.display = show ? "" : "none";
         });

@@ -38,6 +38,7 @@ import requests
 from flask import (
     Flask,
     Response,
+    g,
     jsonify,
     redirect,
     render_template,
@@ -65,6 +66,7 @@ import sentinel_requests
 # record of the recipe SHAPE both sides agreed on, and `_atrium_smoketest` still checks that
 # `build_maintasks` produces it. Do not re-wire it into a form here.
 import service_templates  # noqa: F401
+import staff_roster
 import store
 import sync_dash
 import workspace
@@ -1544,7 +1546,7 @@ def _internal_task_view(client_key, client_name, t, names=None):
     t = workspace.normalize_task(dict(t))
     subs = workspace.task_subtasks(t)
     if names is None:
-        names = {p["id"]: p["name"] for p in _team_roster()}
+        names = staff_roster.name_map(_staff_people())  # canonical ids AND historic aliases -> display name
     return {
         # Namespaced so Sentinel can tell an Atrium-owned card from one of its own rows and route
         # edits back here instead of to its Postgres table.
@@ -1588,7 +1590,7 @@ def internal_tasks():
     out = []
     # Resolved ONCE for the whole board: `_team_roster()` merges live accounts with ATRIUM_TEAM, so
     # calling it per card would re-read every admin account for every task on the internal board.
-    names = {p["id"]: p["name"] for p in _team_roster()}
+    names = staff_roster.name_map(_staff_people())  # canonical ids AND historic aliases -> display name
     # ONE concurrent fan-out (workspace.load_workspaces) rather than a round-trip per client:
     # Atrium's serial latency here WAS Sentinel's board latency, since its board blocks on this call.
     # A failed read still comes back None -> {} -> no tasks, so the old "one unreadable workspace
@@ -1731,7 +1733,7 @@ def _internal_task_detail(client_key, client_name, t):
     roster's EMAILS; each row carries its resolved name so the reading side needs no lookup table.
     """
     t = workspace.normalize_task(dict(t))
-    names = {p["id"]: p["name"] for p in _team_roster()}
+    names = staff_roster.name_map(_staff_people())  # canonical ids AND historic aliases -> display name
     view = _internal_task_view(client_key, client_name, t, names)
     view.update({
         "campaign": t.get("campaign", ""),
@@ -5475,37 +5477,69 @@ ATRIUM_TEAM = (
 )
 
 
+def _staff_people():
+    """The merged roster as `staff_roster.Person` objects — ONE ENTRY PER HUMAN.
+
+    🔴 SENTINEL IS THE SOURCE OF TRUTH FOR STAFF (2026-08-11). This used to merge only Atrium's two
+    LOCAL sources — the hand-maintained `ATRIUM_TEAM` tuple and live portal accounts — deduping on
+    exact name or exact email. That listed the same person TWICE whenever the two systems spelled them
+    differently: **"Nico" + "Nico Agustin"** (`nico@agoradatadriven.com` vs
+    `agustinnico228@gmail.com`) and **"Samuel" + "Samuel Delos Santos"**, observed live on the board's
+    person filter. Work assigned under one id then vanished when filtering by the other, so the filter
+    read as broken.
+
+    Sentinel's `GET /api/internal/people` is now the primary source, which is the same correction
+    already made in the opposite direction for CLIENTS (Sentinel dropped its hand-maintained `clients`
+    table and mirrors Atrium's registry). `staff_roster.build` does the merging through an identity
+    LADDER that refuses to guess when ambiguous — read that module before changing the rule.
+
+    🔴 Sentinel giving NO answer falls back to the two local sources, i.e. exactly the old roster.
+    `list_people()` returning None means "couldn't ask" and must never be read as "no staff": an
+    empty person filter on the operator console is worse than a five-minute-stale one.
+    """
+    # Memoized PER REQUEST. A single console render asks for the roster several times over (the
+    # board's `names` map, the person filter, the alias map, the internal task envelope), and each
+    # build costs one registry read — `store.list_accounts()` is a GCS round-trip. The Sentinel leg is
+    # separately cached for 5 minutes inside `sentinel_directory`, so this guards the LOCAL read.
+    # Guarded rather than assumed: these helpers are also called from a job/test with no app context.
+    try:
+        cached = getattr(g, "_staff_people", None)
+        if cached is not None:
+            return cached
+    except RuntimeError:              # no application context (a job, or a direct unit call)
+        g_ok = False
+    else:
+        g_ok = True
+    people = sentinel_directory.list_people()
+    built = staff_roster.build(people, store.list_accounts(), ATRIUM_TEAM,
+                               fallback_only=(people is None))
+    if g_ok:
+        g._staff_people = built
+    return built
+
+
 def _team_roster():
-    """The assignable team as [{id: email, name}] (spec §3.3), sorted by name.
+    """The assignable team as [{id: email, name, ...}], sorted by name.
 
-    Two sources, merged so a person is never dropped:
-      1. LIVE admin/superadmin accounts (`active` OR `pending` -- an invited-but-not-yet-activated
-         teammate is still a real person you may assign work to; dropping them silently is what
-         caused the "not all names show up" report). Client-role accounts are never included.
-      2. The canonical ATRIUM_TEAM -- guarantees every delivery-team member is assignable on EVERY
-         deploy even if their account isn't provisioned yet. A live account (matched by name OR
-         email, case-insensitive) always wins, so its real login id is used; anyone in the list
-         without a live account is added with the id above.
+    Unchanged shape and unchanged callers — `id` + `name` is what the person filter's options, the
+    `names` map and the roster in Sentinel's task envelope all consume. What changed is WHERE the list
+    comes from and that a human appears once; see `_staff_people`.
 
-    Lead / support / sub-task owners reference these ids (emails)."""
-    out, seen_ids, seen_names = [], set(), set()
-    for a in store.list_accounts():
-        if a.get("status") in ("active", "pending") and a.get("role") in ("admin", "superadmin"):
-            email = a.get("email") or ""
-            name = a.get("name") or (email.split("@")[0].split(".")[0].title() if email else "?")
-            out.append({"id": email, "name": name})
-            if email:
-                seen_ids.add(email.lower())
-            seen_names.add(name.strip().lower())
-    for m in ATRIUM_TEAM:
-        nm, em = m["name"].strip().lower(), m["email"].strip().lower()
-        if nm in seen_names or em in seen_ids:
-            continue  # a live account already covers this person -- keep the real id
-        out.append({"id": m["email"], "name": m["name"]})
-        seen_names.add(nm)
-        seen_ids.add(em)
-    out.sort(key=lambda p: p["name"].lower())
-    return out
+    Lead / support / sub-task owners reference these ids (emails). An id stored before this change is
+    kept resolvable as an ALIAS rather than rewritten — `_person_aliases` / `staff_roster.canonical`.
+    """
+    return staff_roster.roster(_staff_people())
+
+
+def _person_aliases():
+    """Every historic owner id -> the canonical id for that human.
+
+    🔴 This is what makes the roster change safe on live data. Every stored `lead_id`, `support_ids`
+    entry and sub-task `assignee_id` on every existing card holds one of the OLD ids, and NOTHING
+    rewrites them — the resolution happens at read time, so a workspace cannot be corrupted by it and
+    reverting the code reverts the behaviour.
+    """
+    return staff_roster.alias_map(_staff_people())
 
 
 def _person_name(names, pid):
@@ -5576,13 +5610,20 @@ def _operator_board_tasks(local_tasks):
     return out, "sentinel"
 
 
-def _task_board(clients_tasks, roster):
+def _task_board(clients_tasks, roster, names=None, aliases=None):
     """Shape every client's tasks into the console's stage columns (render-ready dicts).
 
     `clients_tasks` is [(client_key, client_name, task_dict), ...] -- either Sentinel's mirrored
     board or, on an outage, the locally-held projections (see `_operator_board_tasks`). A workspace
-    card arrives already loaded by the admin_atrium walk, so that half adds NO extra bucket reads."""
-    names = {p["id"]: p["name"] for p in roster}
+    card arrives already loaded by the admin_atrium walk, so that half adds NO extra bucket reads.
+
+    `names` / `aliases` come from `staff_roster` (2026-08-11) and both default off `roster` so an
+    existing caller and the tests keep working. They matter because a card's stored owner id may be a
+    HISTORIC id rather than the canonical one: `names` resolves either to a display name, and
+    `aliases` is what collapses them for the person filter (see `_person_aliases`).
+    """
+    names = names if names is not None else {p["id"]: p["name"] for p in roster}
+    aliases = aliases or {}
     today = datetime.date.today()
     today_iso = today.isoformat()
     soon_iso = (today + datetime.timedelta(days=2)).isoformat()
@@ -5618,10 +5659,26 @@ def _task_board(clients_tasks, roster):
             "client_key": ckey, "client_name": cname,
             "maintasks": mains,
             "department_label": dept_label.get(t.get("department", ""), t.get("department", "") or "—"),
+            # The lead's raw stored id, kept truthful — writes and `open_ref` must never see a
+            # rewritten one.
+            "lead_id": lead,
+            # 🔴 The lead's CANONICAL id, which is what the person filter compares against. The card
+            # needs it to tell a lead match from a SUPPORT match (`data-people` is both, so a filtered
+            # card can legitimately show another name), and it must be canonical because the filter's
+            # option values are — a card assigned under a historic id would otherwise never look like
+            # a lead match for the same human.
+            "lead_pid": staff_roster.canonical(aliases, lead),
             "lead_name": _person_name(names, lead),
-            "lead_color": _person_color(lead),
-            "support_people": [{"id": s, "name": _person_name(names, s),
-                                "color": _person_color(s)} for s in support],
+            # Canonical, like the support colours: one human must be one colour on every card,
+            # whichever of their ids that card happens to store.
+            "lead_color": _person_color(staff_roster.canonical(aliases, lead)),
+            # `id` is CANONICAL so a supporter's chip keys off the same value the filter uses; the
+            # colour is derived from it too, or one human's avatar would change colour depending on
+            # which of their ids a given card happened to store.
+            "support_people": [{"id": staff_roster.canonical(aliases, s),
+                                "name": _person_name(names, s),
+                                "color": _person_color(staff_roster.canonical(aliases, s))}
+                               for s in support],
             "subs_done": done, "subs_total": len(subs),
             "subs_unassigned": len([s for s in subs if not s.get("done") and not s.get("assignee_id")]),
             # 🔴 A SENTINEL row states its own count; only a workspace card has it derived from the
@@ -5640,7 +5697,13 @@ def _task_board(clients_tasks, roster):
             "disc_class": _discipline(t.get("labels"))[1] or "lb-other",
             "on_hold": bool(t.get("on_hold")), "hold_reason": t.get("hold_reason") or "",
             # For the person filter: one space-joined haystack of everyone on the task.
-            "people": " ".join([lead] + support).strip(),
+            # 🔴 CANONICAL ids, not the stored ones (2026-08-11). The filter's option values are
+            # canonical, so a card assigned under a historic id (`nico@agoradatadriven.com` when the
+            # roster now says `agustinnico228@gmail.com`, or vice versa) would never match its own
+            # owner — which is half of why the filter was reported as broken. `canonical` passes an
+            # unknown id straight through, so somebody who has left the roster still keeps their work.
+            "people": " ".join(staff_roster.canonical(aliases, p)
+                               for p in ([lead] + support) if p).strip(),
             "comment_count": len(t.get("comments") or []),
             "all_subs_done": bool(subs) and done == len(subs),
             "next_stage_key": nxt_key or "", "next_stage_label": nxt_label or "",
@@ -5951,9 +6014,15 @@ def admin_atrium():
                         "has_workspace": ws is not None, "logo": logo, "awaiting": awaiting})
     # Clients needing attention come first; the sort is stable so ties keep their registry order.
     clients.sort(key=lambda c: -c["awaiting"])
-    task_roster = _team_roster()
+    # ONE roster build for the whole render (memoized on `g`): the filter's options, the display
+    # names and the alias collapse all have to come from the same list, or the board would filter by
+    # values the dropdown is not offering.
+    _people = _staff_people()
+    task_roster = staff_roster.roster(_people)
     operator_tasks, task_source = _operator_board_tasks(board_tasks)
-    task_cols = _task_board(operator_tasks, task_roster)
+    task_cols = _task_board(operator_tasks, task_roster,
+                            names=staff_roster.name_map(_people),
+                            aliases=staff_roster.alias_map(_people))
 
     all_accounts = store.list_accounts()
     pending = [a for a in all_accounts if a.get("status") == "pending"]

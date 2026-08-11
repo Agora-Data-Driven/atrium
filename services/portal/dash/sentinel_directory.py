@@ -129,6 +129,76 @@ def lookup_user(email):
     return data
 
 
+# --- The STAFF ROSTER (2026-08-11) --------------------------------------------------------------
+_PEOPLE_PURPOSE = "academy-people"
+# 🔴 DELIBERATELY FAIL-FAST AND NEVER RETRIED, unlike `lookup_user` above — and the asymmetry is the
+# point. There, "no answer" costs a real staff member their login, so the retry is worth 12 seconds.
+# Here the fallback is the roster Atrium was using anyway (`main._team_roster`'s local sources), which
+# is perfectly usable — so a slow Sentinel must cost the operator console nothing. `/admin/atrium`
+# ALREADY blocks on `sentinel_board.fetch_board()` (6s + a 12s retry); adding a second blocking
+# retry to the same render is how a console load reaches 30 seconds.
+_PEOPLE_TIMEOUT_SECONDS = 3
+# One call per process per TTL. `_team_roster()` is called several times in a single request (the
+# board, the person filter, the internal task envelope), and it must never be several HTTP calls.
+_PEOPLE_TTL_SECONDS = 300
+_people_cache: dict = {"at": 0.0, "people": None}
+
+
+def list_people(force: bool = False):
+    """Active Sentinel users as [{email, name, role}], or None for "couldn't ask".
+
+    This is Sentinel's `GET /api/internal/people` (purpose `academy-people`), whose own docstring
+    calls it "for a sister app's person picker" — which is exactly this. Sentinel is the source of
+    truth for STAFF (its `users` table authorizes every login), so the delivery board's roster
+    belongs here rather than in a hand-edited tuple that drifts.
+
+    🔴 None is "no answer", never "the agency has no staff" — the same tri-state contract as
+    `lookup_user`. A caller that read `[]` as an answer would empty the board's person filter during
+    a Sentinel blip. `[]` is a real (if implausible) answer and is cached like any other.
+
+    Cached for `_PEOPLE_TTL_SECONDS`. A roster changes when somebody is hired; a five-minute lag is
+    invisible, and the alternative is an HTTP call inside a template render.
+    """
+    now = time.time()
+    if not force and _people_cache["people"] is not None \
+            and (now - _people_cache["at"]) < _PEOPLE_TTL_SECONDS:
+        return _people_cache["people"]
+    secret, base = _secret(), _api_base()
+    if not secret or not base:
+        return None
+    ts = str(int(now))
+    sig = hmac.new(secret.encode(), f"{_PEOPLE_PURPOSE}:{ts}".encode(), hashlib.sha256).hexdigest()
+    try:
+        resp = requests.get(
+            f"{base}/api/internal/people",
+            headers={"X-Academy-Ts": ts, "X-Academy-Sig": sig},
+            timeout=_PEOPLE_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        return None
+    if resp.status_code != 200:
+        return None
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    rows = data.get("people") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return None
+    people = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        email = (r.get("email") or "").strip()
+        if not email:
+            continue          # an id-less person cannot be assigned work or filtered on
+        people.append({"email": email,
+                       "name": (r.get("name") or "").strip() or email.split("@")[0],
+                       "role": (r.get("role") or "").strip()})
+    _people_cache["at"], _people_cache["people"] = now, people
+    return people
+
+
 def user_status(email) -> str:
     """Tri-state answer to 'may this verified email sign in?': "active", "denied", or "unknown".
 

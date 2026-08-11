@@ -1058,6 +1058,41 @@ auto-refresh (see those bullets below). Product name is one constant:
   Sentinel user; `set_task_maintasks` is the array-shaped breakdown setter Sentinel's drawer needs,
   and it re-mints foreign ids + preserves the internal `dod` the other side can't see).
   Fail-CLOSED like every internal route. Covered in `_atrium_smoketest.py` + `_workspace_localtest.py`.
+  🔴 **SENTINEL OWNS THE STAFF ROSTER — the board's person list is a MIRROR now (2026-08-11).**
+  The exact counterpart of the client rule below, in the other direction. The delivery board's person
+  filter listed the same human **twice** — "Nico" + "Nico Agustin", "Samuel" + "Samuel Delos Santos" —
+  because `_team_roster()` merged the hardcoded `ATRIUM_TEAM` tuple with live portal accounts and
+  deduped on **exact name or exact email only** (`nico@agoradatadriven.com` vs
+  `agustinnico228@gmail.com` matched on neither). Work assigned under one id then vanished when
+  filtering by the other, and it was reported as "the employee filter is not working".
+  `sentinel_directory.list_people()` (purpose **`academy-people`** → Sentinel's `GET
+  /api/internal/people`, which already existed "for a sister app's person picker") is the primary
+  source; `staff_roster.py` merges it with the two local sources through an identity **ladder** —
+  exact email → email local part → full display name → first name — and **refuses to merge on an
+  ambiguous rung**, so two real staff called Nico stay two people (a visible duplicate is
+  recoverable; a wrong attribution on the board a manager staffs from is not). It is the same ladder,
+  with the same refusal, that `sentinel/services/atrium_identity.py` applies in reverse — the two now
+  agree by construction.
+  🔴 **NOTHING REWRITES STORED IDS.** Every existing `lead_id` / `support_ids` / sub-task
+  `assignee_id` holds an old id, so a merged person carries **every** id that resolved to them
+  (`aliases`) and resolution happens at READ time — a workspace cannot be corrupted by this and
+  reverting the code reverts the behaviour. The card's filter haystack, `lead_pid` and the avatar
+  colours are canonicalised; `lead_id` stays the raw stored value.
+  ⚠️ `list_people()` returning **None** means "couldn't ask", never "no staff" — it falls back to the
+  two local sources, i.e. exactly the old roster. Unlike the login lookup it is **fail-fast and never
+  retried** (3s, cached 5 min): the console already blocks on `sentinel_board.fetch_board()`, and here
+  the fallback is genuinely usable. Roster builds are memoized on `g` per request.
+  Tests: `_staff_roster_localtest.py` (the ladder, the refusals, alias survival, the outage path).
+
+  🔴 **SUPPORT RENDERS ON THE CONSOLE CARD (2026-08-11)** — the other half of that report, and it was
+  not a filter bug at all. The filter is "Anyone (lead **or support**)" and `data-people` is both, so
+  filtering to one person correctly returns cards they SUPPORT — but the card face printed only the
+  lead, so the board handed back a card captioned with somebody else's name and no way to tell why.
+  (`.tk-av.sup` had been styled for the detail modal since the board shipped; only the markup was
+  missing.) Support avatars are on the face now, plus a **"supporting"** marker that `applyFilters`
+  reveals when the filtered person is not the lead — the same answer Sentinel's own board reached on
+  2026-08-06. Asserted in `_atrium_smoketest.py`.
+
   🔴 **`GET /api/internal/clients` (purpose `clients`) — ATRIUM OWNS THE CLIENT LIST (2026-08-05).**
   Sentinel owns EMPLOYEES (its `users` table authorizes every login); Atrium owns CLIENTS (each is a
   workspace in this registry, created and renamed here). Sentinel used to keep its own hand-maintained
