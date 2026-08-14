@@ -278,6 +278,71 @@ def run():
         _check("_post_login_destination keeps an estate next",
                main._post_login_destination(["*"], nxt) == nxt)
 
+    # --- ag_sso SLIDES on activity (2026-08-14) -------------------------------------------------
+    # 🔴 The bug: ag_sso lives 12h and was minted ONLY by a login POST / the Google callback / the
+    # already-authed /login bounce. Sentinel's own session is SEVEN DAYS, so ~12h in, a person still
+    # signed into Sentinel lost the shared cookie underneath them and the embedded Mastery Engine
+    # rendered its own login form inside the iframe ("mastery sometimes isn't signed in").
+    print("\n-- ag_sso sliding window --")
+    c2 = main.app.test_client()
+    with c2.session_transaction() as s:
+        s["ok"] = True
+        s["user"] = "owner@gmail.com"
+        s["clients"] = ["riverdance"]
+
+    def _sso_header(resp):
+        for h in resp.headers.getlist("Set-Cookie"):
+            if h.startswith(main.platform_sso.COOKIE_NAME + "="):
+                return h
+        return None
+
+    # `/` is an authed response that renders no workspace template — the hook is in
+    # `_finalize_response`, so it applies to EVERY response, redirects included.
+    r = c2.get("/")
+    _check("an authed response mints ag_sso even though it is not /login", _sso_header(r) is not None)
+    # Read the value out of the HEADER we just captured — Werkzeug's cookie-jar accessors differ
+    # across versions, and the header is what the browser actually receives anyway.
+    hdr = _sso_header(r) or ""
+    raw = hdr.split("=", 1)[1].split(";")[0] if "=" in hdr else ""
+    payload = main.platform_sso._verify(main.SSO_SECRET, raw)
+    _check("the slid cookie verifies", bool(payload))
+    _check("it names the signed-in user", (payload or {}).get("sub") == "owner@gmail.com")
+    _check("it carries the session's grants", (payload or {}).get("clients") == ["riverdance"])
+    _check("TTL is unchanged -- this slides the window, it does not lengthen it",
+           (payload or {}).get("exp", 0) - (payload or {}).get("iat", 0)
+           == main.platform_sso.DEFAULT_TTL_SECONDS)
+
+    # THROTTLE: a second request moments later must NOT spend another Set-Cookie header.
+    # 🔴 This is the check that found `SSO_REMINT_FLOOR_SECONDS`. The test client's host does not
+    # match `COOKIE_DOMAIN` (.agoradatadriven.com), so the cookie never comes BACK — which is
+    # exactly what a real misconfigured domain looks like. Without the floor, the "cookie is
+    # missing → mint now" clause fired on every single response, forever.
+    r2 = c2.get("/")
+    _check("a second request within the floor does not re-mint", _sso_header(r2) is None)
+
+    # ...but once the floor has passed, a browser that LOST the cookie gets one back WITHOUT waiting
+    # out the full refresh interval — the throttle is bookkept in the session, so it would otherwise
+    # go on believing the browser holds a cookie it does not.
+    with c2.session_transaction() as s:
+        s["sso_minted_at"] = int(__import__("time").time()) - (main.SSO_REMINT_FLOOR_SECONDS + 5)
+    r3 = c2.get("/")
+    _check("past the floor, a MISSING cookie is re-minted without waiting the full interval",
+           _sso_header(r3) is not None)
+
+    # 🔴 THE SECURITY CASE: logout must stay a logout. A blind after_request re-mint would hand the
+    # cookie straight back on the very response that expires it.
+    r4 = c2.get("/logout")
+    hdr4 = _sso_header(r4) or ""
+    _check("logout still EXPIRES ag_sso (the slide never re-mints it)",
+           "Expires=Thu, 01 Jan 1970" in hdr4 or "Max-Age=0" in hdr4)
+    _check("logout emits exactly ONE ag_sso header, not two that fight",
+           len([h for h in r4.headers.getlist("Set-Cookie")
+                if h.startswith(main.platform_sso.COOKIE_NAME + "=")]) == 1)
+
+    # An anonymous visitor is never handed a credential.
+    c3 = main.app.test_client()
+    _check("an anonymous request is never minted a cookie", _sso_header(c3.get("/login")) is None)
+
     if FAILS:
         print("\n[auth-smoketest] FAIL (%d): %s" % (len(FAILS), ", ".join(FAILS)))
         return 1
