@@ -466,8 +466,90 @@ def _finalize_response(resp):
     """Post-process every response: inject the shared <head> chrome, mark HTML no-store, then gzip.
 
     Head injection is skipped for proxied /d/ pages; the no-store marking and gzip apply to
-    everything (see _no_store_html / _maybe_gzip)."""
-    return _maybe_gzip(_no_store_html(_inject_head(resp)))
+    everything (see _no_store_html / _maybe_gzip). `_slide_sso` runs FIRST because it only adds a
+    header — nothing downstream reads or rewrites Set-Cookie."""
+    return _maybe_gzip(_no_store_html(_inject_head(_slide_sso(resp))))
+
+
+# How often an active session refreshes `ag_sso`. Not a TTL — the TTL stays
+# `platform_sso.DEFAULT_TTL_SECONDS` (12h); this is only how often we spend a Set-Cookie header.
+# One hour means an active user always carries at least 11h of runway, while a browsing session
+# costs one extra header per hour rather than one on every asset request.
+SSO_REFRESH_EVERY_SECONDS = 60 * 60
+# 🔴 A hard floor on how often we will mint, REGARDLESS of whether the cookie came back.
+# The "cookie is missing → mint now" clause below has to exist (the throttle is bookkept in the
+# session, so a browser that dropped `ag_sso` would otherwise wait out the whole interval). But
+# "missing" is also what we see whenever the cookie's DOMAIN does not match the host serving the
+# request — on localhost, or under a misconfigured `COOKIE_DOMAIN` — and then that clause fires on
+# every single response forever. A browser that has just been handed a Set-Cookie will return it on
+# its next request, so one minute is long enough to be sure, and it bounds the pathological case at
+# one spare header per minute instead of one per request.
+SSO_REMINT_FLOOR_SECONDS = 60
+
+
+def _slide_sso(resp):
+    """Keep an ACTIVE portal session's `ag_sso` alive — a sliding window (2026-08-14).
+
+    🔴 THE BUG THIS FIXES: `ag_sso` lives 12h and, until now, was minted ONLY by a real login POST,
+    the Google callback, and the already-authed `/login` bounce (the 2026-08-11 loop fix above).
+    But it is the credential the WHOLE estate reads, and the apps behind it keep their own, much
+    longer sessions — **Sentinel's JWT is 7 days** (`jwt_expire_minutes`), the Mastery Engine's own
+    cookies are 30. So roughly 12h after signing in, a person still fully signed into Sentinel lost
+    the shared cookie underneath them, and the embedded Mastery Engine — Professional /
+    Philosophical / Spiritual, and the Coach FAB — fell through its auth ladder
+    (`ag_sso` → Google cookie → password) and rendered **its own login form inside the iframe**.
+    Reported as "the mastery sign-in sometimes isn't signed in", and it read as random because it
+    tracks the 12h boundary, not anything the user did.
+
+    Re-minting on every authenticated response makes an ACTIVE session never expire, while an
+    abandoned one still dies in 12h — which is the property the short TTL was chosen for. Raising
+    `DEFAULT_TTL_SECONDS` instead would have bought the same comfort by making a stolen cookie valid
+    14x longer, estate-wide; this buys it without widening the blast radius at all.
+
+    Three guards, and the first is the important one:
+
+    * 🔴 **A response that ALREADY speaks about `ag_sso` is left completely alone.** That is what
+      keeps `/logout` a real logout: it clears the session and expires the cookie, and a blind
+      after-request re-mint would hand it straight back — a logout that does not log out. It also
+      keeps this from fighting the four deliberate `_mint_sso_on` call sites (login, Google
+      callback, and both act-as routes), which would otherwise emit two Set-Cookie headers for one
+      name and let the browser pick. Checking the OUTGOING header is deliberately stronger than
+      checking `authed()`: it does not depend on `session.clear()` having run first.
+    * **Only for a real session** — `authed()` and a `current_user()`. An anonymous visitor is
+      never handed a credential.
+    * **Throttled**, so this is not a Set-Cookie on every image. It re-mints when the last mint was
+      over `SSO_REFRESH_EVERY_SECONDS` ago **or when the cookie is missing entirely** — the second
+      clause matters because the throttle is bookkept in the Flask session, so without it a browser
+      that dropped `ag_sso` would wait out the interval before getting one back.
+
+    `direct_passthrough` (streamed / proxied) responses are skipped: their headers are the upstream's.
+    """
+    if not SSO_SECRET or resp.direct_passthrough:
+        return resp
+    # Guard 1 — never second-guess a response that has already decided about this cookie.
+    for header in resp.headers.getlist("Set-Cookie"):
+        if header.startswith(platform_sso.COOKIE_NAME + "="):
+            return resp
+    # Guard 2 — a real, identified session only.
+    try:
+        if not authed():
+            return resp
+        subject = current_user()
+        if not subject:
+            return resp
+        # Guard 3 — throttle, but always act when the cookie is actually gone (bounded by the floor).
+        now = int(time.time())
+        last = int(session.get("sso_minted_at") or 0)
+        since = now - last
+        if since < SSO_REMINT_FLOOR_SECONDS:
+            return resp
+        if request.cookies.get(platform_sso.COOKIE_NAME) and since < SSO_REFRESH_EVERY_SECONDS:
+            return resp
+        session["sso_minted_at"] = now
+        return _mint_sso_on(resp, allowed_clients(), subject)
+    except Exception:
+        # A refresh is a convenience, never a reason to fail a request that already succeeded.
+        return resp
 
 
 def _inject_head(resp):

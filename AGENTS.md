@@ -1239,6 +1239,32 @@ auto-refresh (see those bullets below). Product name is one constant:
   one-bounce guard) — see [sentinel/AGENTS.md §3](../sentinel/AGENTS.md). Pinned in `_auth_smoketest.py`.
   ⚠️ **Deploy order matters**: ship this portal fix BEFORE Sentinel starts forwarding run.app traffic
   to its canonical host, or you widen the population that can reach the loop.
+- 🔴 **`ag_sso` SLIDES — an ACTIVE session never expires it (2026-08-14, `main._slide_sso`).** The
+  entry above fixed the login LOOP; this fixes the other half of the same 12h boundary. `ag_sso` was
+  minted only by a login POST, the Google callback and that already-authed `/login` bounce — but it
+  is the credential the WHOLE estate reads, and the apps behind it keep far longer sessions:
+  **Sentinel's JWT is 7 days** (`jwt_expire_minutes`), the Mastery Engine's own cookies are 30. So
+  ~12h in, somebody still fully signed into Sentinel lost the shared cookie underneath them, and the
+  **embedded Mastery Engine** (Professional / Philosophical / Spiritual + the Coach FAB) fell through
+  its auth ladder (`ag_sso` → Google cookie → password) and rendered **its own login form inside the
+  iframe**. Reported as "the mastery sign-in sometimes isn't signed in"; it read as random because it
+  tracks the 12h boundary, not anything the user did.
+  ⚠️ **NOT a third-party-cookie problem** — `sentinel.` and `mastery.` share an eTLD+1, so the iframe
+  is same-site and the cookie is sent. Don't go hunting there.
+  `_finalize_response` now re-mints on any authenticated response, so an **active** session never
+  expires while an abandoned one still dies in 12h — the property the short TTL exists for. Raising
+  `DEFAULT_TTL_SECONDS` would have bought the same comfort by making a stolen estate-wide cookie
+  valid 14× longer. Three guards, and the first is load-bearing:
+  **(1) a response that already carries an `ag_sso` Set-Cookie is left alone** — that is what keeps
+  `/logout` a real logout (a blind re-mint hands the cookie straight back) and stops it fighting the
+  four deliberate `_mint_sso_on` call sites; checking the OUTGOING header beats checking `authed()`
+  because it does not depend on `session.clear()` having run first. **(2)** a real session only.
+  **(3)** throttled to `SSO_REFRESH_EVERY_SECONDS` (1h), overridden when the cookie is missing, and
+  floored by `SSO_REMINT_FLOOR_SECONDS` (60s) — 🔴 that floor is not belt-and-braces: "missing" is
+  also what a **domain mismatch** looks like (localhost, a bad `COOKIE_DOMAIN`), and without it the
+  override fires on every single response forever. The smoke test found exactly that.
+  Pinned in `_auth_smoketest.py` (mint-off-`/login`, TTL unchanged, throttle, floor, the logout case,
+  and anonymous-never-minted).
 - 🔴 **`?next=` is validated on EVERY login path (`_safe_next`).** It arrives from the query string,
   and `_post_login_destination` returned it verbatim — so both the password login and the Google
   callback were open redirects, landing a user on an arbitrary site at the moment they had just
