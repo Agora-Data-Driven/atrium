@@ -25,7 +25,7 @@ py -3 clients\_standard\vendor_lib.py --check                                   
 | Dir | Key | Standard | Pattern | `sql/`? | Deploy script | Dash service | Refresh / notes |
 |---|---|---|---|---|---|---|---|
 | `client_template` | `template` | **Sales** | **BQ 3-stage** (the worked example every client copies) | yes | `deploy_template.ps1` | `template-dash` | Scheduler `*/10`, self-gating |
-| `client_TCS` | `tcs` | **Leads** ¹ | BQ 3-stage over direct-API `tcs_*` ingest | yes (14 views) | `deploy_tcs.ps1` (+ per-stage scripts) | `tcs-dash` | **Mid-build — another dev owns it**; see its README audit notes |
+| `client_TCS` | `tcs` | **Leads** ¹ | BQ 3-stage over direct-API `tcs_*` ingest (7 loaders) | yes (20 views) | `deploy_tcs.ps1` (+ per-stage scripts) | `tcs-dash` | **Mid-build — another dev owns it**; see its README audit notes |
 | `client_riverdance` | `riverdance` | **Sales** | **Windsor-LIVE** (job pulls the Windsor API directly — no `sql/`, no dataset) | no | `deploy_riverdance.ps1` | `riverdance-dash` | Automatic via the `sync-refresh` job (6h); ⚠️ /go's deploy map skips it — deploy by hand |
 | `client_honeytribe` | `honeytribe` | **Sales** | API-LIVE (Windsor + Shopify Admin) | no | `deploy_honeytribe.ps1` | `honeytribe-dash` | **Sync-button-only BY CLIENT DECISION** (no scheduler; deploy script removes one) |
 | `client_MeloYelo` | `meloyelo` | **Sales** + a Leads tab | API-LIVE (Unleashed + Campaign Monitor + Sheets CRM + Lark) | no | `deploy_meloyelo.ps1` | `meloyelo-dash` | **Sync-button-only BY DECISION** (same posture) |

@@ -6,11 +6,20 @@ local context. If they disagree, root wins.
 TCS is a real client built on the `client_template` pattern (client key `tcs` — every resource name
 derives from it). It differs from the template in ONE structural way:
 
-**TCS ingests via DIRECT-API loaders, not Windsor** (`services/ingest/tcs_shopify` /
-`tcs_klaviyo` / `tcs_quiz` → `raw_windsor.tcs_*`). This is a *sanctioned, documented exception* to
+**TCS ingests via DIRECT-API loaders, not Windsor** — **SEVEN** of them (`tcs_shopify`,
+`tcs_klaviyo`, `tcs_quiz`, `tcs_sessions`, `tcs_klaviyo_profiles`, `tcs_klaviyo_campaigns`,
+`tcs_affiliates` → `raw_windsor.tcs_*`). This is a *sanctioned, documented exception* to
 "Windsor is the only ingest source": the Business-Quiz diagnostic needs per-recipient Klaviyo
 open/click events, a grain Windsor does not serve. The pull logic is ported from
 `archive_code/analytics.py` (the old Colab notebook, kept read-only for reference).
+
+🔴 **Only three of the seven reach this dashboard.** `GATING_TABLES` is `tcs_quiz` +
+`tcs_shopify_orders` + `tcs_klaviyo_events` + `perf_meta`; `tcs_sessions` /
+`tcs_klaviyo_profiles` / `tcs_klaviyo_campaigns` / `tcs_affiliates` land raw data that no `sql/`
+view reads yet. Running them will not refresh the dashboard, and their stalling will not stale it.
+🔴 **They are deployed by `services/ingest/deploy_tcs_ingest.ps1`, never by
+`tools/deploy_ingest_jobs.ps1`** — the shared `$JOBS` array has no `tcs-*` row, so
+`-Only tcs-*` there matches nothing and exits 0 having deployed nothing.
 
 **The data contract (matched BY NAME across three stages):**
 
@@ -89,7 +98,8 @@ Summary tiles → trend line → **where the funnel leaks** → **creative** →
 
 **Deploy (per stage, all idempotent):** `sql/deploy_views_tcs.ps1`, `job/deploy_job_tcs.ps1`,
 `dash/deploy_dash_tcs.ps1`; full standup `deploy_tcs.ps1`; ingest via
-`tools/deploy_ingest_jobs.ps1 -Only tcs-*`. Use `FORCE_REBUILD=1` for view/code/seed changes.
+`services/ingest/deploy_tcs_ingest.ps1 [-Only tcs-<key>]`. Use `FORCE_REBUILD=1` for
+view/code/seed changes.
 See [`README.md`](README.md) for the secret + quiz-sheet-sharing prerequisites.
 
 ## Dashboard standard (applied 2026-07-30)
