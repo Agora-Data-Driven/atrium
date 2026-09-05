@@ -983,7 +983,8 @@ auto-refresh (see those bullets below). Product name is one constant:
   is `atrium:<client_key>:<task_id>`, which is how Sentinel's board renders those. Building the
   composite form for every card — as this did until 2026-08-05 — sent every real row to a card Atrium
   would look for and not find. `main._task_board()` picks the right one. It targets `/dashboard`
-  directly because Sentinel's `/login` drops the query string). `service_templates.py` is deliberately **kept but unwired** — Sentinel's
+  directly; Sentinel's `/login` honours `?next=` since 2026-09-05, but a direct deep link is still the
+  shorter path). `service_templates.py` is deliberately **kept but unwired** — Sentinel's
   own `ServiceTemplate` table owns the recipes now.
   The detail overlay is **tabbed** — a persistent summary (stage pill + glance chips: priority /
   start / launch / charge / progress) above **Details | Tasks | Comments** panels (`data-tktab`
@@ -1239,6 +1240,15 @@ auto-refresh (see those bullets below). Product name is one constant:
   one-bounce guard) — see [sentinel/AGENTS.md §3](../sentinel/AGENTS.md). Pinned in `_auth_smoketest.py`.
   ⚠️ **Deploy order matters**: ship this portal fix BEFORE Sentinel starts forwarding run.app traffic
   to its canonical host, or you widen the population that can reach the loop.
+- **`GET /login?prefer=google` skips the form (2026-09-05).** A signed-out visitor carrying it goes
+  straight into `/auth/google/login` with `next` intact; the authed branch above still answers first
+  (re-mint + redirect, no Google). Sentinel's `/login` bounce sends it: its people are staff, whose
+  door is Google, so the portal form was one page and one tap of ceremony on a phone. A cancelled or
+  failed Google flow lands on the form exactly as before. `google_login` also keeps `next` on its
+  not-configured fallback now. Pinned in `_auth_smoketest.py`. Related: **Sentinel now re-mints
+  `ag_sso` itself** on `/api/auth/me` when a signed-in staffer has lost it (never over a live one) —
+  the `_slide_sso` entry below only helps people who VISIT the portal, and staff don't. See
+  [sentinel/AGENTS.md §3](../sentinel/AGENTS.md).
 - 🔴 **`ag_sso` SLIDES — an ACTIVE session never expires it (2026-08-14, `main._slide_sso`).** The
   entry above fixed the login LOOP; this fixes the other half of the same 12h boundary. `ag_sso` was
   minted only by a login POST, the Google callback and that already-authed `/login` bounce — but it

@@ -703,6 +703,14 @@ def login():
             return _mint_sso_on(
                 redirect(_safe_next(next_url) or "/"), allowed_clients(), current_user() or "",
             )
+        # `prefer=google` (2026-09-05): a sibling app sending STAFF here asks for Google straight
+        # away. Every active Sentinel user can Google-sign-in here (`_resolve_login_email` defers to
+        # Sentinel's users table), while a portal PASSWORD belongs to a client or the owner — so for
+        # Sentinel's bounce this form was one page and one tap of pure ceremony on a phone. The
+        # authed branch above still answers FIRST, so a live portal session costs no trip to Google;
+        # a cancelled or failed Google flow lands on this form exactly as it always did.
+        if request.args.get("prefer") == "google" and google_oauth.is_configured():
+            return redirect(url_for("google_login", next=next_url))
         return render_template("login.html", next=next_url, error=None, **_brand_ctx())
 
     email = request.form.get("email", "").strip()
@@ -724,9 +732,9 @@ def login():
 def google_login():
     """Kick off the Google OAuth flow: stash a CSRF state + the post-login destination, then redirect
     to Google's consent screen. If Google sign-in isn't configured, fall back to the password login."""
-    if not google_oauth.is_configured():
-        return redirect(url_for("login"))
     next_url = request.args.get("next", "/")
+    if not google_oauth.is_configured():
+        return redirect(url_for("login", next=next_url))   # keep the deep link on the way to the form
     state = google_oauth.new_state()
     session["oauth_state"] = state
     session["oauth_next"] = next_url or "/"

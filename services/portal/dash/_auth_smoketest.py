@@ -236,6 +236,23 @@ def run():
     _check("non-root cannot impersonate (403)",
            c.post("/admin/impersonate", data={"email": "acme"}).status_code == 403)
 
+    # --- A staff app's bounce asks for Google straight away (`prefer=google`, 2026-09-05) --------
+    # Sentinel's /login bounces here for a cookie. Its people are staff, whose door is Google, so
+    # a signed-out visitor carrying prefer=google skips the form and goes into the Google flow with
+    # the deep link intact; without it the form renders as before. (The authed case — re-mint and
+    # redirect, no Google at all — is the block right below.)
+    from urllib.parse import quote as _q, unquote as _uq
+    with c.session_transaction() as s:
+        s.clear()
+    staff_next = "https://sentinel.agoradatadriven.com/login?next=%2Ftasks"
+    r = c.get("/login?prefer=google&next=" + _q(staff_next, safe=""))
+    loc = r.headers.get("Location", "")
+    _check("signed-out GET /login?prefer=google -> 302 into the Google flow",
+           r.status_code == 302 and "/auth/google/login" in loc)
+    _check("...carrying next", staff_next in _uq(loc))
+    _check("signed-out GET /login without prefer= still renders the form",
+           c.get("/login?next=" + _q(staff_next, safe="")).status_code == 200)
+
     # --- An ALREADY-SIGNED-IN visitor to /login gets a FRESH ag_sso, not a bare redirect ---------
     # The 12h-vs-forever bug: this branch used to answer "you're already signed in, off you go" with
     # a redirect and NO cookie, while `ag_sso` expires after 12h and is minted nowhere else. A
